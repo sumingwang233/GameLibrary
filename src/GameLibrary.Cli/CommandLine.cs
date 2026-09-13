@@ -195,6 +195,7 @@ internal sealed record CommandLine
             "candidates" when verb is "list" or "get" or "accept" or "defer" or "ignore" => $"candidates.{verb}",
             "games" when verb is "list" or "get" => $"games.{verb}",
             "diagnostics" when verb is "status" or "logs" => $"diagnostics.{verb}",
+            "tools" when verb == "discover" => "tools.discover",
             "ignores" when verb is "list" or "create" or "remove" => $"ignores.{verb}",
             "profiles" when verb is "create" or "list" or "get" or "update" => $"profiles.{verb}",
             "launch" when verb is "plan" or "execute" or "status" or "history" => $"launch.{verb}",

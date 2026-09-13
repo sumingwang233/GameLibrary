@@ -64,6 +64,7 @@ public static class OperationCatalog
         "games.get",
         "diagnostics.status",
         "diagnostics.logs",
+        "tools.discover",
         "ignores.list",
         "ignores.create",
         "ignores.remove",

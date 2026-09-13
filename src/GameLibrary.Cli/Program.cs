@@ -47,6 +47,7 @@ internal static class Program
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "diagnostics.status" or "diagnostics.logs" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
+                "tools.discover" => await ScanHostOperationAsync(parse, "tools.discover", requiresRoot: true),
                 "ignores.list" or "ignores.create" or "ignores.remove" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "profiles.create" or "profiles.list" or "profiles.get" or "profiles.update" =>
@@ -221,6 +222,7 @@ internal static class Program
             "games.get" => new { gameId = cli.GameId },
             "diagnostics.status" => new { },
             "diagnostics.logs" => cli.Limit is null ? null : new { limit = cli.Limit },
+            "tools.discover" => new { idempotencyKey = cli.IdempotencyKey ?? ("discover-" + Guid.NewGuid().ToString("N")), path = cli.RootArgument },
             "ignores.list" => new { },
             "ignores.create" => new
             {

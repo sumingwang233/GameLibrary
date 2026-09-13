@@ -385,6 +385,7 @@ public sealed class OperationDispatcher
         "games.get" => GamesGet(request),
         "diagnostics.status" => DiagnosticsStatus(request),
         "diagnostics.logs" => DiagnosticsLogs(request),
+        "tools.discover" => ToolsDiscover(request),
         "ignores.list" => IgnoresList(request),
         "ignores.create" => IgnoresCreate(request),
         "ignores.remove" => IgnoresRemove(request),
@@ -1155,6 +1156,91 @@ public sealed class OperationDispatcher
             Ok = true,
             Status = OperationStatus.Completed,
             Data = new { total = records.Count, items = records },
+        };
+    }
+
+    /// <summary>
+    /// 工具发现（T07，tools.discover）：对指定游戏根做只读 MTool 适配发现——
+    /// 生成配方解析/断链标记/能力声明；仅读允许路径（库根白名单），不自启动工具。
+    /// </summary>
+    private Envelope<object> ToolsDiscover(IpcRequest request)
+    {
+        if (!TryGetStringParameter(request, "path", out var path))
+        {
+            return InvalidArgument(request, "缺少 path 参数（游戏根的绝对路径）");
+        }
+
+        var validation = Domain.Paths.GamePath.TryCreate(path);
+        if (!validation.IsValid)
+        {
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = validation.IsUnsupported ? ErrorCodes.UnsupportedPath : ErrorCodes.InvalidPath,
+                    Message = $"路径非法（{validation.Reason}）：{path}",
+                    Retryable = false,
+                },
+            };
+        }
+
+        if (RejectPathOutsideRoots(request, validation.Path!.PhysicalPath) is { } discoverOutsideRoot)
+        {
+            return discoverOutsideRoot;
+        }
+
+        if (!Directory.Exists(validation.Path.PhysicalPath))
+        {
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = ErrorCodes.RootOffline,
+                    Message = $"路径不存在或离线：{validation.Path.PhysicalPath}",
+                    Retryable = true,
+                },
+            };
+        }
+
+        var discovery = new Infrastructure.Tools.MToolAdapter().Discover(validation.Path.PhysicalPath);
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new
+            {
+                toolId = Infrastructure.Tools.MToolDiscovery.ToolId,
+                path = validation.Path.PhysicalPath,
+                evidenceKind = discovery.EvidenceKind,
+                capability = discovery.Capability,
+                recipe = discovery.Recipe is null
+                    ? null
+                    : new
+                    {
+                        sourcePath = discovery.Recipe.SourcePath,
+                        scriptSha256 = discovery.Recipe.ScriptSha256,
+                        isBroken = discovery.Recipe.IsBroken,
+                        brokenPaths = discovery.Recipe.BrokenPaths,
+                        referencedFiles = discovery.Recipe.ReferencedFiles,
+                        steps = discovery.Recipe.Steps.Select(s => new
+                        {
+                            sequence = s.Sequence,
+                            executablePath = s.ExecutablePath,
+                            argv = s.Arguments,
+                            cwd = s.WorkingDirectory,
+                            waitForExit = s.WaitForExit,
+                        }).ToArray(),
+                    },
+                unsupportedReason = discovery.UnsupportedReason,
+                notice = LogSanitizer.Sanitize(discovery.Notice, _state.DataDirectory),
+            },
         };
     }
 

@@ -359,6 +359,11 @@ public static class GameLibraryTools
             ? InvokeOperationAsync("diagnostics.logs", new { })
             : InvokeOperationAsync("diagnostics.logs", new { limit });
 
+    [McpServerTool(Name = "tools_discover")]
+    [Description("只读发现指定游戏根的 MTool 适配信息：生成配方解析/断链标记/能力声明；不自启动工具。参数：path（游戏根绝对路径）。")]
+    public static Task<CallToolResult> ToolsDiscover([Description("游戏根的绝对本地路径")] string path) =>
+        InvokeOperationAsync("tools.discover", new { idempotencyKey = $"discover-{Guid.NewGuid():N}", path });
+
     private static async Task<CallToolResult> InvokeOperationAsync(string operationId, object parameters)
     {
         if (McpSession.DataDirectory is null)

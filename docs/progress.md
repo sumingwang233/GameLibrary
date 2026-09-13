@@ -125,3 +125,11 @@
 - **实现要点**：业务审计 JSONL 与诊断日志分开保留（audit-*.jsonl）；固定结构化字段、参数原文不写入、路径按已知前缀脱敏（{dataDir}/{userProfile}）；轮转 10 MiB×10、保留 90 天（仅日志目录内，不影响库中收据）；diagnostics.status 报进程/库/审计统计/活动作业数；diagnostics.logs 分页读最近审计。
 - **未验证范围**：diagnostics.export/cache_rebuild 与独立诊断日志管道（T24-B）；耗时分布指标（T16/T24-B）。
 - **下一项**：T16（ScanCoordinator）或 T07（MToolAdapter，前置 T05/T06 已就绪）。
+
+## T07 MToolAdapter — 2026-09-13 完成
+
+- **改动文件**：`src/GameLibrary.Domain/Tools/MToolRecipe.cs`（新：证据分级/能力状态/类型化步骤/配方/能力声明）、`BatRecipeParser.cs`（新：极小 BAT 解析，Domain 无 IO）、`src/GameLibrary.Infrastructure/Tools/MToolAdapter.cs`（新：只读发现/断链/重映射/能力声明）、`OperationDispatcher.cs`（tools.discover，库根白名单收口）、Cli（`tools discover --path`）、Mcp（tools_discover）、Contracts（+1）、测试（BAT 解析 13 + MTool 发现 5）。
+- **验证结果**：累计 263 项测试通过（+18）；format 通过；Release 构建 0 警告 0 错误。报告：`artifacts/build-reports/2026-09-13-t07.md`。
+- **实现要点**：证据分级 Static/Generated/Cli/Measured 如实区分（生成脚本=Generated 未验证；CLI 协议仅登记候选）；不实现 BAT 解释器、不执行原脚本、超范围语法一律 Unsupported；BrokenRecipe 旧路径重映射不继承验证；副作用声明 canDeploy/canRollback=Unsupported、mayUseNetwork=Unknown，无沙箱假承诺。
+- **未验证范围**：类型化 ProcessStep 的多步执行（随 T13 接入 LaunchExecutor）；CLI 协议本地实测（随 T13/T08 验证记录）；T08/T09 适配器复用同一模式。
+- **下一项**：T16（ScanCoordinator）或 T12（Desktop 纵切，前置 T06/T11 已就绪）。
