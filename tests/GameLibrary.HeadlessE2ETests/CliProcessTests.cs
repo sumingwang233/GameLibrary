@@ -146,7 +146,7 @@ public sealed class CliProcessTests
     [Fact]
     public async Task UnknownCommand_Exits2WithErrorOnStderr()
     {
-        var (code, stdout, stderr) = await RunCliAsync("games", "list");
+        var (code, stdout, stderr) = await RunCliAsync("frobnicate", "list");
 
         Assert.Equal(2, code);
         Assert.Equal(string.Empty, stdout);

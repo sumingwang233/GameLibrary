@@ -149,6 +149,10 @@ public sealed class ScanCandidateCollector
     private readonly CandidateRegistry _registry;
     private readonly Dictionary<string, ScanCandidate> _byPath = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int> _gameRootChildren = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<ScanCandidate> _candidates = [];
+
+    /// <summary>本次作业发现的全部候选（落库与查询用）。</summary>
+    public IReadOnlyList<ScanCandidate> Candidates => _candidates;
 
     public ScanCandidateCollector(GamePath root, string jobId, CandidateRegistry registry)
     {
@@ -182,6 +186,7 @@ public sealed class ScanCandidateCollector
         var candidate = BuildCandidate(validation.Path!, kind, confirmed, report.Conflict is not null);
         _byPath[candidate.PhysicalPath] = candidate;
         _registry.Add(candidate);
+        _candidates.Add(candidate);
         if (kind == CandidateKind.GameRoot)
         {
             var parent = Path.GetDirectoryName(directoryPhysicalPath) ?? "";
@@ -213,6 +218,7 @@ public sealed class ScanCandidateCollector
                 directGameRootChildren: count);
             _byPath[candidate.PhysicalPath] = candidate;
             _registry.Add(candidate);
+            _candidates.Add(candidate);
         }
     }
 

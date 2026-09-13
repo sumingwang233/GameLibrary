@@ -145,13 +145,14 @@ public sealed class ScanOperationTests : IClassFixture<PipeServerFixture>
         var item = list.Data.GetProperty("items")[0];
         Assert.Equal("gameRoot", item.GetProperty("kind").GetString());
         Assert.Equal("observed", item.GetProperty("reviewState").GetString());
-        Assert.Equal("kirikiri", item.GetProperty("engines")[0].GetProperty("engine").GetString());
 
         var candidateId = item.GetProperty("candidateId").GetString()!;
         var detail = await InvokeAsync("candidates.get", new { candidateId });
         Assert.True(detail.Ok, detail.Error?.Message);
         Assert.Equal("GameA", detail.Data.GetProperty("relativePath").GetString());
-        Assert.True(detail.Data.GetProperty("entryCandidates").GetArrayLength() >= 1);
+        Assert.Equal("kirikiri", detail.Data.GetProperty("detail")
+            .GetProperty("engines")[0].GetProperty("engine").GetString());
+        Assert.True(detail.Data.GetProperty("detail").GetProperty("entryCandidates").GetArrayLength() >= 1);
 
         var missing = await InvokeAsync("candidates.get", new { candidateId = "cand-missing" });
         Assert.False(missing.Ok);

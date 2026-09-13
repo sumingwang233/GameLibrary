@@ -41,6 +41,12 @@ internal static class Program
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "candidates.list" or "candidates.get" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
+                "candidates.accept" or "candidates.defer" or "candidates.ignore" =>
+                    await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
+                "games.list" or "games.get" =>
+                    await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
+                "ignores.list" or "ignores.create" or "ignores.remove" =>
+                    await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "profiles.create" or "profiles.list" or "profiles.get" or "profiles.update" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "launch.plan" or "launch.execute" or "launch.status" or "launch.history" =>
@@ -163,6 +169,34 @@ internal static class Program
             return ExitArgumentError;
         }
 
+        if (operationId is "candidates.accept" or "candidates.defer" or "candidates.ignore")
+        {
+            if (cli.CandidateId is null || cli.ExpectedRevision is null || cli.IdempotencyKey is null)
+            {
+                Console.Error.WriteLine($"{string.Join(' ', cli.Words)} 需要 --candidate-id、--expected-revision、--idempotency-key");
+                return ExitArgumentError;
+            }
+        }
+
+        if (operationId is "games.get" && cli.GameId is null)
+        {
+            Console.Error.WriteLine("games get 需要 --game-id");
+            return ExitArgumentError;
+        }
+
+        if (operationId is "ignores.create"
+            && (cli.RootArgument is null && cli.GameId is null))
+        {
+            Console.Error.WriteLine("ignores create 需要 --path（ExactPath/Subtree）或 --game-id（ConfirmedIdentity），scope 用 --scope");
+            return ExitArgumentError;
+        }
+
+        if (operationId is "ignores.remove" && cli.CandidateId is null)
+        {
+            Console.Error.WriteLine("ignores remove 需要 --ignore-id");
+            return ExitArgumentError;
+        }
+
         await using var connection = await HostProcessLauncher.EnsureStartedAsync(
             cli.DataDir, clientName: "cli", timeout: TimeSpan.FromSeconds(cli.TimeoutSeconds));
 
@@ -175,6 +209,29 @@ internal static class Program
             "roots.list" => new { },
             "candidates.list" => cli.JobId is null ? null : new { jobId = cli.JobId },
             "candidates.get" => new { candidateId = cli.CandidateId },
+            "candidates.accept" or "candidates.defer" or "candidates.ignore" => new
+            {
+                idempotencyKey = cli.IdempotencyKey,
+                candidateId = cli.CandidateId,
+                expectedRevision = cli.ExpectedRevision,
+            },
+            "games.list" => new { },
+            "games.get" => new { gameId = cli.GameId },
+            "ignores.list" => new { },
+            "ignores.create" => new
+            {
+                idempotencyKey = cli.IdempotencyKey ?? $"ignore-{Guid.NewGuid():N}",
+                scope = cli.Scope ?? "ExactPath",
+                path = cli.RootArgument,
+                gameId = cli.GameId,
+                reason = cli.Reason,
+            },
+            "ignores.remove" => new
+            {
+                idempotencyKey = cli.IdempotencyKey ?? $"unignore-{Guid.NewGuid():N}",
+                ignoreId = cli.IgnoreId,
+                expectedRevision = cli.ExpectedRevision,
+            },
             "profiles.create" => new { idempotencyKey = cli.IdempotencyKey, gameId = cli.GameId, executablePath = cli.ExePath, argv = cli.ArgList, cwd = cli.Cwd },
             "profiles.update" => new
             {

@@ -108,3 +108,12 @@
 - **环境备注**：ClientName 由 PipeServer 从握手回填到每个请求（收据 actor/审计）；清理过本工作树测试残留的孤儿 GameLibrary.Host 进程后构建恢复正常。
 - **未验证范围**：收据保留期限/淘汰与 DataEpoch 失效（T24/T27）；LaunchAttempt 持久化与 history 跨重启查询（T23-B）；scan.start 收据与 Job 同事务（T16）；权限模型/调用方鉴权（T23-B/T28）。
 - **下一项**：T11（入库/忽略：候选状态机、accept 幂等、defer、抑制与撤销；候选落库）。
+
+## T11 入库/忽略 — 2026-09-13 完成
+
+- **改动文件**：DatabaseMigrations（v3 games/candidates/ignore_rules）、`LibraryCatalogStore.cs`（新：候选 upsert/晋升/审核转移/游戏卡片/忽略规则与抑制）、SqliteLibraryStore（转发）、`ScanCandidate.cs`（Candidates 列表）、`OperationDispatcher.cs`（扫描落库 + candidates accept/defer/ignore + games.list/get + ignores.list/create/remove）、Cli/Mcp（10 个新操作三入口映射）、Contracts（ImplementedOperations +10）、测试（CandidateReviewTests 5 + 守卫更新）。
+- **验证结果**：累计 239 项测试通过（+5）；format 通过；Release 构建 0 警告 0 错误。报告：`artifacts/build-reports/2026-09-13-t11.md`。
+- **实现要点**：候选按物理路径唯一落库，重扫刷新不重复建卡；重扫命中 observed 候选 → 合法双跳晋升 pendingReview（稳定观察）；accept 幂等返回既有 GameId（收据重放 + 同路径复用）；Revision 乐观校验；candidates.ignore 自动登记 ExactPath 规则；ignores.create 立即抑制既有待审核候选，remove 撤销后 ignored→observed（恢复提示的唯一途径）；抑制命中的新候选不入库。
+- **守卫更新**：未实现操作示例 games.list→games.update；tools/list 断言 games_list 已实现。
+- **未验证范围**：ConfirmedIdentity 身份指纹匹配（随 T14/T05-C）；稳定观察周期核对与事件推送（T16/T23-B）；Deferred 重新查看独立入口；候选分页/筛选（T16）。
+- **下一项**：T16（ScanCoordinator：队列上限、事件折叠、周期核对、手动/后台互斥）或 T13（翻译配置三入口）。

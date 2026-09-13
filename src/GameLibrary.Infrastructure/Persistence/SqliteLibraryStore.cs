@@ -43,6 +43,43 @@ public sealed class SqliteLibraryStore : IAsyncDisposable
     public void CompleteReceipt(RequestReceipt receipt, string resultJson) =>
         RequestReceiptStore.Complete(_connection, receipt, resultJson);
 
+    // T11 目录存储转发：候选/游戏/忽略规则操作绑定当前库连接。
+
+    public bool UpsertCandidate(PersistedCandidate candidate) =>
+        LibraryCatalogStore.UpsertCandidate(_connection, candidate);
+
+    public void PromoteRescannedCandidate(string physicalPath, DateTime utcNow) =>
+        LibraryCatalogStore.PromoteRescannedCandidate(_connection, physicalPath, utcNow);
+
+    public PersistedCandidate? TryGetCandidate(string candidateId) =>
+        LibraryCatalogStore.TryGetCandidate(_connection, candidateId);
+
+    public IReadOnlyList<PersistedCandidate> ListCandidates() =>
+        LibraryCatalogStore.ListCandidates(_connection);
+
+    public PersistedCandidate? TransitionCandidate(
+        string candidateId, string fromState, string toState, int expectedRevision, string? gameId, DateTime utcNow) =>
+        LibraryCatalogStore.TransitionCandidate(_connection, candidateId, fromState, toState, expectedRevision, gameId, utcNow);
+
+    public void InsertGame(GameCard game) => LibraryCatalogStore.InsertGame(_connection, game);
+
+    public GameCard? TryGetGame(string gameId) => LibraryCatalogStore.TryGetGame(_connection, gameId);
+
+    public IReadOnlyList<GameCard> ListGames() => LibraryCatalogStore.ListGames(_connection);
+
+    public GameCard? TryGetGameByRootPath(string rootPath) =>
+        LibraryCatalogStore.TryGetGameByRootPath(_connection, rootPath);
+
+    public void InsertIgnoreRule(IgnoreRule rule) => LibraryCatalogStore.InsertIgnoreRule(_connection, rule);
+
+    public IReadOnlyList<IgnoreRule> ListIgnoreRules() => LibraryCatalogStore.ListIgnoreRules(_connection);
+
+    public IReadOnlyList<string> RemoveIgnoreRule(string ignoreId) =>
+        LibraryCatalogStore.RemoveIgnoreRule(_connection, ignoreId);
+
+    public bool IsSuppressedByIgnoreRule(string physicalPath, string? boundGameId) =>
+        LibraryCatalogStore.IsSuppressedByIgnoreRule(_connection, physicalPath, boundGameId);
+
     /// <summary>一致性备份到新文件（SQLite 备份 API，WAL 下同样一致）。目标已存在则拒绝。</summary>
     public async Task CreateBackupAsync(string targetPath, CancellationToken ct)
     {

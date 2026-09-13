@@ -290,6 +290,63 @@ public static class GameLibraryTools
             ? InvokeOperationAsync("launch.history", new { })
             : InvokeOperationAsync("launch.history", new { gameId });
 
+    [McpServerTool(Name = "candidates_accept")]
+    [Description("接受候选入库（仅 pendingReview）：创建游戏卡片并返回 gameId；同候选重试幂等返回已有 gameId。参数：idempotencyKey、candidateId、expectedRevision。")]
+    public static Task<CallToolResult> CandidatesAccept(
+        [Description("幂等键")] string idempotencyKey,
+        [Description("候选 ID")] string candidateId,
+        [Description("期望 Revision")] int expectedRevision) =>
+        InvokeOperationAsync("candidates.accept", new { idempotencyKey, candidateId, expectedRevision });
+
+    [McpServerTool(Name = "candidates_defer")]
+    [Description("暂缓候选（仅 pendingReview）；deferred 需人工重新查看，不周期重弹。参数：idempotencyKey、candidateId、expectedRevision。")]
+    public static Task<CallToolResult> CandidatesDefer(
+        [Description("幂等键")] string idempotencyKey,
+        [Description("候选 ID")] string candidateId,
+        [Description("期望 Revision")] int expectedRevision) =>
+        InvokeOperationAsync("candidates.defer", new { idempotencyKey, candidateId, expectedRevision });
+
+    [McpServerTool(Name = "candidates_ignore")]
+    [Description("忽略候选（仅 pendingReview）：同时登记 ExactPath 忽略规则；撤销规则才恢复提示。参数：idempotencyKey、candidateId、expectedRevision。")]
+    public static Task<CallToolResult> CandidatesIgnore(
+        [Description("幂等键")] string idempotencyKey,
+        [Description("候选 ID")] string candidateId,
+        [Description("期望 Revision")] int expectedRevision) =>
+        InvokeOperationAsync("candidates.ignore", new { idempotencyKey, candidateId, expectedRevision });
+
+    [McpServerTool(Name = "games_list")]
+    [Description("列出已入库游戏卡片。")]
+    public static Task<CallToolResult> GamesList() =>
+        InvokeOperationAsync("games.list", new { });
+
+    [McpServerTool(Name = "games_get")]
+    [Description("查询单个游戏卡片。参数：gameId。")]
+    public static Task<CallToolResult> GamesGet([Description("游戏 ID")] string gameId) =>
+        InvokeOperationAsync("games.get", new { gameId });
+
+    [McpServerTool(Name = "ignores_list")]
+    [Description("列出忽略规则。")]
+    public static Task<CallToolResult> IgnoresList() =>
+        InvokeOperationAsync("ignores.list", new { });
+
+    [McpServerTool(Name = "ignores_create")]
+    [Description("创建忽略规则（scope: ExactPath/Subtree/ConfirmedIdentity），立即抑制匹配的待审核候选。参数：idempotencyKey、scope、path 或 gameId、reason（可选）。")]
+    public static Task<CallToolResult> IgnoresCreate(
+        [Description("幂等键")] string idempotencyKey,
+        [Description("范围：ExactPath/Subtree/ConfirmedIdentity")] string scope,
+        [Description("ExactPath/Subtree 的规范化绝对路径")] string? path = null,
+        [Description("ConfirmedIdentity 绑定的用户确认 gameId")] string? gameId = null,
+        [Description("原因说明")] string? reason = null) =>
+        InvokeOperationAsync("ignores.create", new { idempotencyKey, scope, path, gameId, reason });
+
+    [McpServerTool(Name = "ignores_remove")]
+    [Description("撤销忽略规则（恢复候选提示的唯一途径）：匹配的 ignored 候选回到 observed。参数：idempotencyKey、ignoreId、expectedRevision（可选）。")]
+    public static Task<CallToolResult> IgnoresRemove(
+        [Description("幂等键")] string idempotencyKey,
+        [Description("忽略规则 ID")] string ignoreId,
+        [Description("期望 Revision（可选）")] int? expectedRevision = null) =>
+        InvokeOperationAsync("ignores.remove", new { idempotencyKey, ignoreId, expectedRevision });
+
     private static async Task<CallToolResult> InvokeOperationAsync(string operationId, object parameters)
     {
         if (McpSession.DataDirectory is null)

@@ -53,7 +53,7 @@ public sealed class McpStdioTests
             Assert.Contains("capabilities_get", toolNames);
             Assert.Contains("schema_get", toolNames);
             Assert.Contains("host_status", toolNames);
-            Assert.DoesNotContain("games_list", toolNames);
+            Assert.Contains("games_list", toolNames);
 
             var call = await SendRequestAsync(process, 3, "tools/call", new
             {

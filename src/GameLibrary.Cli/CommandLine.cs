@@ -61,6 +61,15 @@ internal sealed record CommandLine
     /// <summary>launch status 的 --attempt-id 参数。</summary>
     public string? AttemptId { get; private init; }
 
+    /// <summary>ignores create 的 --scope 参数（ExactPath/Subtree/ConfirmedIdentity）。</summary>
+    public string? Scope { get; private init; }
+
+    /// <summary>ignores create 的 --reason 参数。</summary>
+    public string? Reason { get; private init; }
+
+    /// <summary>ignores remove 的 --ignore-id 参数。</summary>
+    public string? IgnoreId { get; private init; }
+
     public bool NoStart { get; private init; }
 
     public int TimeoutSeconds { get; private init; } = 30;
@@ -88,6 +97,9 @@ internal sealed record CommandLine
         string? cwd = null;
         string? idempotencyKey = null;
         string? attemptId = null;
+        string? scope = null;
+        string? reason = null;
+        string? ignoreId = null;
         int? expectedRevision = null;
         var argList = new List<string>();
         var noStart = false;
@@ -140,6 +152,15 @@ internal sealed record CommandLine
                 case "--attempt-id" when i + 1 < args.Length:
                     attemptId = args[++i];
                     break;
+                case "--scope" when i + 1 < args.Length:
+                    scope = args[++i];
+                    break;
+                case "--reason" when i + 1 < args.Length:
+                    reason = args[++i];
+                    break;
+                case "--ignore-id" when i + 1 < args.Length:
+                    ignoreId = args[++i];
+                    break;
                 case "--no-start":
                     noStart = true;
                     break;
@@ -163,7 +184,9 @@ internal sealed record CommandLine
             "library" when verb == "init" => "library.init",
             "scan" when verb is "start" or "status" or "cancel" or "coverage" or "inspect" => $"scan.{verb}",
             "roots" when verb is "add" or "list" => $"roots.{verb}",
-            "candidates" when verb is "list" or "get" => $"candidates.{verb}",
+            "candidates" when verb is "list" or "get" or "accept" or "defer" or "ignore" => $"candidates.{verb}",
+            "games" when verb is "list" or "get" => $"games.{verb}",
+            "ignores" when verb is "list" or "create" or "remove" => $"ignores.{verb}",
             "profiles" when verb is "create" or "list" or "get" or "update" => $"profiles.{verb}",
             "launch" when verb is "plan" or "execute" or "status" or "history" => $"launch.{verb}",
             "jobs" when verb is "get" or "list" or "wait" or "cancel" => verb == "get" ? "jobs.get" : null,
@@ -193,6 +216,9 @@ internal sealed record CommandLine
             IdempotencyKey = idempotencyKey,
             ExpectedRevision = expectedRevision,
             AttemptId = attemptId,
+            Scope = scope,
+            Reason = reason,
+            IgnoreId = ignoreId,
             NoStart = noStart,
             TimeoutSeconds = timeout,
         };

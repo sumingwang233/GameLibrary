@@ -6,6 +6,7 @@ using GameLibrary.Contracts.Ipc;
 using GameLibrary.Domain.Detection;
 using GameLibrary.Domain.Detection.Detectors;
 using GameLibrary.Host.Scanning;
+using GameLibrary.Infrastructure.Persistence;
 using GameLibrary.Infrastructure.Scanning;
 
 namespace GameLibrary.Host.Hosting;
@@ -48,6 +49,11 @@ public sealed class OperationDispatcher
         "launch.execute",
         "profiles.create",
         "profiles.update",
+        "candidates.accept",
+        "candidates.defer",
+        "candidates.ignore",
+        "ignores.create",
+        "ignores.remove",
     };
 
     public Envelope<object> Dispatch(IpcRequest request)
@@ -346,6 +352,14 @@ public sealed class OperationDispatcher
         "roots.list" => RootsList(request),
         "candidates.list" => CandidatesList(request),
         "candidates.get" => CandidatesGet(request),
+        "candidates.accept" => CandidateReview(request, "accept"),
+        "candidates.defer" => CandidateReview(request, "defer"),
+        "candidates.ignore" => CandidateReview(request, "ignore"),
+        "games.list" => GamesList(request),
+        "games.get" => GamesGet(request),
+        "ignores.list" => IgnoresList(request),
+        "ignores.create" => IgnoresCreate(request),
+        "ignores.remove" => IgnoresRemove(request),
         "profiles.create" => ProfilesCreate(request),
         "profiles.list" => ProfilesList(request),
         "profiles.get" => ProfilesGet(request),
@@ -416,10 +430,17 @@ public sealed class OperationDispatcher
 
         var jobId = _state.Jobs.Create(
             "scan",
-            context => Task.FromResult(ScanJobRunner.Run(
-                rootPath,
-                context,
-                new ScanCandidateCollector(rootPath, context.JobId, _state.Candidates))));
+            context =>
+            {
+                var collector = new ScanCandidateCollector(rootPath, context.JobId, _state.Candidates);
+                var outcome = ScanJobRunner.Run(rootPath, context, collector);
+                if (outcome.FinalState == "succeeded")
+                {
+                    PersistCandidates(collector, context.JobId);
+                }
+
+                return Task.FromResult(outcome);
+            });
 
         return new Envelope<object>
         {
@@ -679,6 +700,45 @@ public sealed class OperationDispatcher
         };
     }
 
+    /// <summary>
+    /// 扫描成功后落库（T11）：按物理路径 upsert；重扫命中既有 Observed 候选晋升
+    /// Observed→Stabilizing→PendingReview（合法双跳，审核入口就绪）。
+    /// </summary>
+    private void PersistCandidates(ScanCandidateCollector collector, string jobId)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return;
+        }
+
+        var utcNow = DateTime.UtcNow;
+        foreach (var candidate in collector.Candidates)
+        {
+            if (store.IsSuppressedByIgnoreRule(candidate.PhysicalPath, null))
+            {
+                continue;
+            }
+
+            var existed = store.UpsertCandidate(new PersistedCandidate
+            {
+                CandidateId = candidate.CandidateId,
+                JobId = jobId,
+                Kind = ToCamel(candidate.Kind.ToString()),
+                RelativePath = candidate.RelativePath,
+                PhysicalPath = candidate.PhysicalPath,
+                PayloadJson = JsonSerializer.Serialize(candidate.ToDetail(), ContractJson.Options),
+                ReviewState = "observed",
+                ObservedUtc = candidate.ObservedUtc,
+                UpdatedUtc = utcNow,
+            });
+            if (existed)
+            {
+                store.PromoteRescannedCandidate(candidate.PhysicalPath, utcNow);
+            }
+        }
+    }
+
     private Envelope<object> CandidatesList(IpcRequest request)
     {
         string? jobId = null;
@@ -687,6 +747,34 @@ public sealed class OperationDispatcher
             && jobElement.ValueKind == JsonValueKind.String)
         {
             jobId = jobElement.GetString();
+        }
+
+        // T11 起以库内候选为事实来源（重扫刷新、审核状态演进）；无库时退回内存注册表。
+        var store = _state.Library.Store;
+        if (store is not null)
+        {
+            var persisted = store.ListCandidates()
+                .Where(c => jobId is null || string.Equals(c.JobId, jobId, StringComparison.Ordinal))
+                .Select(c => new
+                {
+                    candidateId = c.CandidateId,
+                    jobId = c.JobId,
+                    kind = c.Kind,
+                    relativePath = c.RelativePath,
+                    physicalPath = c.PhysicalPath,
+                    reviewState = c.ReviewState,
+                    revision = c.Revision,
+                    gameId = c.GameId,
+                    observedUtc = c.ObservedUtc.ToString("O"),
+                })
+                .ToArray();
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = true,
+                Status = OperationStatus.Completed,
+                Data = new { total = persisted.Length, items = persisted },
+            };
         }
 
         var candidates = _state.Candidates.List(jobId);
@@ -710,6 +798,37 @@ public sealed class OperationDispatcher
             return InvalidArgument(request, "缺少 candidateId 参数");
         }
 
+        var store = _state.Library.Store;
+        if (store is not null)
+        {
+            var persisted = store.TryGetCandidate(candidateId);
+            if (persisted is null)
+            {
+                return NotFound(request, $"候选不存在：{candidateId}");
+            }
+
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = true,
+                Status = OperationStatus.Completed,
+                Data = new
+                {
+                    candidateId = persisted.CandidateId,
+                    jobId = persisted.JobId,
+                    kind = persisted.Kind,
+                    relativePath = persisted.RelativePath,
+                    physicalPath = persisted.PhysicalPath,
+                    reviewState = persisted.ReviewState,
+                    revision = persisted.Revision,
+                    gameId = persisted.GameId,
+                    detail = JsonSerializer.Deserialize<JsonElement>(persisted.PayloadJson, ContractJson.Options).Clone(),
+                    observedUtc = persisted.ObservedUtc.ToString("O"),
+                    updatedUtc = persisted.UpdatedUtc.ToString("O"),
+                },
+            };
+        }
+
         var candidate = _state.Candidates.Get(candidateId);
         if (candidate is null)
         {
@@ -724,6 +843,418 @@ public sealed class OperationDispatcher
             Data = candidate.ToDetail(),
         };
     }
+
+    /// <summary>
+    /// 审核（accept/defer/ignore）：仅 PendingReview 可转移（Deferred 需先重新查看）；
+    /// accept 按路径幂等返回既有 GameId；ignore 同时登记 ExactPath 忽略规则。
+    /// </summary>
+    private Envelope<object> CandidateReview(IpcRequest request, string action)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）；候选审核需要库实例");
+        }
+
+        if (!TryGetStringParameter(request, "candidateId", out var candidateId))
+        {
+            return InvalidArgument(request, "缺少 candidateId 参数");
+        }
+
+        if (!TryGetIntParameter(request, "expectedRevision", out var expectedRevision) || expectedRevision is null)
+        {
+            return InvalidArgument(request, "缺少 expectedRevision 参数（以 candidates.get 的 revision 为准）");
+        }
+
+        var current = store.TryGetCandidate(candidateId);
+        if (current is null)
+        {
+            return NotFound(request, $"候选不存在：{candidateId}");
+        }
+
+        if (action == "accept" && current.ReviewState == "accepted" && current.GameId is not null)
+        {
+            // 幂等：重试同候选返回已有 GameId，不重复建卡。
+            return CandidateReviewResult(request, current.ReviewState, current.Revision, current.GameId, null);
+        }
+
+        if (current.ReviewState != "pendingReview")
+        {
+            return InvalidArgument(request, $"候选当前状态 {current.ReviewState}；仅 pendingReview 可执行 {action}（重扫可将 observed 晋升）");
+        }
+
+        var utcNow = DateTime.UtcNow;
+        string? gameId = null;
+        string? ignoreId = null;
+        if (action == "accept")
+        {
+            var existingGame = store.TryGetGameByRootPath(current.PhysicalPath);
+            if (existingGame is not null)
+            {
+                gameId = existingGame.GameId;
+            }
+            else
+            {
+                gameId = $"game-{Guid.NewGuid():N}";
+                store.InsertGame(new GameCard
+                {
+                    GameId = gameId,
+                    Title = TitleFromPath(current.PhysicalPath, current.RelativePath),
+                    RootPath = current.PhysicalPath,
+                    Kind = current.Kind,
+                    Engine = TopEngine(current.PayloadJson),
+                    EntryPath = TopEntry(current.PayloadJson),
+                    Membership = "active",
+                    AcceptedUtc = utcNow,
+                    UpdatedUtc = utcNow,
+                });
+            }
+        }
+
+        if (action == "ignore")
+        {
+            ignoreId = $"ignore-{Guid.NewGuid():N}";
+            store.InsertIgnoreRule(new IgnoreRule
+            {
+                IgnoreId = ignoreId,
+                Scope = "ExactPath",
+                Path = current.PhysicalPath,
+                Reason = "candidates.ignore",
+                CreatedUtc = utcNow,
+            });
+        }
+
+        var updated = store.TransitionCandidate(
+ candidateId, "pendingReview",
+            action switch
+            {
+                "accept" => "accepted",
+                "defer" => "deferred",
+                _ => "ignored",
+            },
+            expectedRevision.Value,
+            gameId,
+            utcNow);
+        if (updated is null)
+        {
+            var latest = store.TryGetCandidate(candidateId);
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = ErrorCodes.RevisionConflict,
+                    Message = $"候选 Revision 不一致：期望 {expectedRevision}，当前 {latest?.Revision}",
+                    Retryable = false,
+                },
+            };
+        }
+
+        return CandidateReviewResult(request, updated.ReviewState, updated.Revision, updated.GameId, ignoreId);
+    }
+
+    private static Envelope<object> CandidateReviewResult(IpcRequest request, string state, int revision, string? gameId, string? ignoreId) =>
+        new()
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new
+            {
+                reviewState = state,
+                revision,
+                gameId,
+                ignoreId,
+            },
+        };
+
+    private static string ToCamel(string value) =>
+        value.Length == 0 ? value : char.ToLowerInvariant(value[0]) + value[1..];
+
+    private static string TitleFromPath(string physicalPath, string relativePath) =>
+        Path.GetFileName(physicalPath.TrimEnd(Path.DirectorySeparatorChar))
+        ?? (relativePath.Length > 0 ? relativePath.Split('/')[^1] : physicalPath);
+
+    private static string? TopEngine(string payloadJson)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(payloadJson);
+            var engines = document.RootElement.GetProperty("engines");
+            if (engines.GetArrayLength() == 0)
+            {
+                return null;
+            }
+
+            return engines[0].GetProperty("engine").GetString();
+        }
+        catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    private static string? TopEntry(string payloadJson)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(payloadJson);
+            var entries = document.RootElement.GetProperty("entryCandidates");
+            return entries.GetArrayLength() == 0
+                ? null
+                : entries[0].GetProperty("relativePath").GetString();
+        }
+        catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    private Envelope<object> GamesList(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        var games = store.ListGames();
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new { total = games.Count, items = games.Select(GameDto).ToArray() },
+        };
+    }
+
+    private Envelope<object> GamesGet(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!TryGetStringParameter(request, "gameId", out var gameId))
+        {
+            return InvalidArgument(request, "缺少 gameId 参数");
+        }
+
+        var game = store.TryGetGame(gameId);
+        if (game is null)
+        {
+            return NotFound(request, $"游戏不存在：{gameId}");
+        }
+
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = GameDto(game),
+        };
+    }
+
+    private static object GameDto(GameCard game) => new
+    {
+        gameId = game.GameId,
+        title = game.Title,
+        rootPath = game.RootPath,
+        kind = game.Kind,
+        engine = game.Engine,
+        entryPath = game.EntryPath,
+        membership = game.Membership,
+        revision = game.Revision,
+        acceptedUtc = game.AcceptedUtc.ToString("O"),
+    };
+
+    private Envelope<object> IgnoresList(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        var rules = store.ListIgnoreRules();
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new { total = rules.Count, items = rules.Select(IgnoreDto).ToArray() },
+        };
+    }
+
+    private Envelope<object> IgnoresCreate(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!TryGetStringParameter(request, "scope", out var scope)
+            || scope is not ("ExactPath" or "Subtree" or "ConfirmedIdentity"))
+        {
+            return InvalidArgument(request, "缺少 scope 参数（ExactPath/Subtree/ConfirmedIdentity）");
+        }
+
+        TryGetStringParameter(request, "path", out var path);
+        TryGetStringParameter(request, "gameId", out var gameId);
+        TryGetStringParameter(request, "reason", out var reason);
+        if (scope != "ConfirmedIdentity" && path.Length == 0)
+        {
+            return InvalidArgument(request, $"{scope} 需要 path 参数（规范化绝对路径）");
+        }
+
+        if (scope == "ConfirmedIdentity" && gameId.Length == 0)
+        {
+            return InvalidArgument(request, "ConfirmedIdentity 需要用户确认的 gameId");
+        }
+
+        if (path.Length > 0 && !_state.Roots.Contains(path))
+        {
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = ErrorCodes.PermissionDenied,
+                    Message = $"路径不在已注册库根内：{path}",
+                    Retryable = false,
+                },
+            };
+        }
+
+        var rule = new IgnoreRule
+        {
+            IgnoreId = $"ignore-{Guid.NewGuid():N}",
+            Scope = scope,
+            Path = path.Length > 0 ? path : null,
+            GameId = gameId.Length > 0 ? gameId : null,
+            Reason = reason.Length > 0 ? reason : null,
+            CreatedUtc = DateTime.UtcNow,
+        };
+        store.InsertIgnoreRule(rule);
+
+        // 抑制立即生效：撤销前匹配的待审核候选转入 ignored（幂等补登记，不覆盖已有终态）。
+        var suppressed = 0;
+        foreach (var candidate in store.ListCandidates())
+        {
+            if (candidate.ReviewState is "observed" or "stabilizing" or "pendingReview"
+                && store.IsSuppressedByIgnoreRule(candidate.PhysicalPath, candidate.GameId))
+            {
+                var transitioned = store.TransitionCandidate(
+                    candidate.CandidateId, candidate.ReviewState, "ignored", candidate.Revision, null, DateTime.UtcNow);
+                if (transitioned is not null)
+                {
+                    suppressed++;
+                }
+            }
+        }
+
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new { ignoreId = rule.IgnoreId, scope, suppressedCandidates = suppressed },
+        };
+    }
+
+    /// <summary>撤销忽略（恢复候选提示的唯一途径）：匹配的 ignored 候选回到 Observed（状态机 Ignored→Observed）。</summary>
+    private Envelope<object> IgnoresRemove(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!TryGetStringParameter(request, "ignoreId", out var ignoreId))
+        {
+            return InvalidArgument(request, "缺少 ignoreId 参数");
+        }
+
+        var rule = store.ListIgnoreRules()
+            .FirstOrDefault(r => string.Equals(r.IgnoreId, ignoreId, StringComparison.Ordinal));
+        if (rule is null)
+        {
+            return NotFound(request, $"忽略规则不存在：{ignoreId}");
+        }
+
+        TryGetIntParameter(request, "expectedRevision", out var expectedRevision);
+        if (expectedRevision is not null && expectedRevision.Value != rule.Revision)
+        {
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = ErrorCodes.RevisionConflict,
+                    Message = $"忽略规则 Revision 不一致：期望 {expectedRevision}，当前 {rule.Revision}",
+                    Retryable = false,
+                },
+            };
+        }
+
+        var coveredPaths = store.RemoveIgnoreRule(ignoreId);
+        var restored = 0;
+        foreach (var candidate in store.ListCandidates())
+        {
+            if (candidate.ReviewState != "ignored")
+            {
+                continue;
+            }
+
+            var candidatePath = candidate.PhysicalPath.TrimEnd(Path.DirectorySeparatorChar);
+            var covered = coveredPaths.Any(p =>
+                string.Equals(p.TrimEnd(Path.DirectorySeparatorChar), candidatePath, StringComparison.OrdinalIgnoreCase));
+            if (!covered && rule.Scope == "Subtree" && rule.Path is not null)
+            {
+                var rulePath = rule.Path.TrimEnd(Path.DirectorySeparatorChar);
+                covered = candidatePath.StartsWith(rulePath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (covered
+                && !store.IsSuppressedByIgnoreRule(candidate.PhysicalPath, candidate.GameId))
+            {
+                var transitioned = store.TransitionCandidate(
+                    candidate.CandidateId, "ignored", "observed", candidate.Revision, null, DateTime.UtcNow);
+                if (transitioned is not null)
+                {
+                    restored++;
+                }
+            }
+        }
+
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new { ignoreId, removed = true, restoredCandidates = restored },
+        };
+    }
+
+    private static object IgnoreDto(IgnoreRule rule) => new
+    {
+        ignoreId = rule.IgnoreId,
+        scope = rule.Scope,
+        path = rule.Path,
+        gameId = rule.GameId,
+        reason = rule.Reason,
+        revision = rule.Revision,
+        createdUtc = rule.CreatedUtc.ToString("O"),
+    };
 
     private Envelope<object> ProfilesCreate(IpcRequest request)
     {

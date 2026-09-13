@@ -64,7 +64,7 @@ public sealed class PipeRoundtripTests : IClassFixture<PipeServerFixture>
             CancellationToken.None);
 
         var envelope = await client.InvokeAsync(
-            new Contracts.Ipc.IpcRequest { RequestId = "req-x-1", OperationId = "games.list" },
+            new Contracts.Ipc.IpcRequest { RequestId = "req-x-1", OperationId = "games.update" },
             CancellationToken.None);
 
         Assert.False(envelope.Ok);
