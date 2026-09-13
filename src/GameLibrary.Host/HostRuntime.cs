@@ -57,6 +57,7 @@ public sealed class HostRuntime : IAsyncDisposable
             Library = library,
             Jobs = new JobManager(),
             Candidates = new CandidateRegistry(),
+            Launches = new Launching.LaunchRegistry(),
         };
 
         var logger = loggerFactory.CreateLogger<PipeServer>();
@@ -131,4 +132,7 @@ public sealed class HostRuntimeState
 
     /// <summary>扫描候选注册表（宿主内存态；T11 落库后由持久层承担）。</summary>
     public required CandidateRegistry Candidates { get; init; }
+
+    /// <summary>启动 Profile/计划/尝试注册表（宿主内存态；收据持久化随 T23/T27）。</summary>
+    public required Launching.LaunchRegistry Launches { get; init; }
 }

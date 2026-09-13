@@ -79,6 +79,14 @@ public sealed class OperationDispatcher
             "scan.inspect" => ScanInspect(request),
             "candidates.list" => CandidatesList(request),
             "candidates.get" => CandidatesGet(request),
+            "profiles.create" => ProfilesCreate(request),
+            "profiles.list" => ProfilesList(request),
+            "profiles.get" => ProfilesGet(request),
+            "profiles.update" => ProfilesUpdate(request),
+            "launch.plan" => LaunchPlanHandler(request),
+            "launch.execute" => LaunchExecute(request),
+            "launch.status" => LaunchStatus(request),
+            "launch.history" => LaunchHistory(request),
             _ => new Envelope<object>
             {
                 RequestId = request.RequestId,
@@ -367,6 +375,295 @@ public sealed class OperationDispatcher
         };
     }
 
+    private Envelope<object> ProfilesCreate(IpcRequest request)
+    {
+        if (!TryGetStringParameter(request, "gameId", out var gameId)
+            || !TryGetStringParameter(request, "executablePath", out var executablePath)
+            || !TryGetStringParameter(request, "cwd", out var cwd))
+        {
+            return InvalidArgument(request, "profiles.create 需要 gameId、executablePath、cwd 参数");
+        }
+
+        if (!TryGetStringListParameter(request, "argv", out var argv))
+        {
+            return InvalidArgument(request, "profiles.create 需要 argv 字符串数组");
+        }
+
+        if (!File.Exists(executablePath))
+        {
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = ErrorCodes.ToolMissing,
+                    Message = $"启动目标不存在：{executablePath}",
+                    Retryable = false,
+                },
+            };
+        }
+
+        if (!Directory.Exists(cwd))
+        {
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = ErrorCodes.InvalidPath,
+                    Message = $"工作目录不存在：{cwd}",
+                    Retryable = false,
+                },
+            };
+        }
+
+        var profile = _state.Launches.AddProfile(gameId, executablePath, argv, cwd);
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = ProfileDto(profile),
+        };
+    }
+
+    private Envelope<object> ProfilesList(IpcRequest request)
+    {
+        string? gameId = null;
+        if (request.Parameters is { ValueKind: JsonValueKind.Object } profileListParameters
+            && profileListParameters.TryGetProperty("gameId", out var gameElement)
+            && gameElement.ValueKind == JsonValueKind.String)
+        {
+            gameId = gameElement.GetString();
+        }
+
+        var profiles = _state.Launches.ListProfiles(gameId);
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new
+            {
+                total = profiles.Count,
+                items = profiles.Select(ProfileDto).ToArray(),
+            },
+        };
+    }
+
+    private Envelope<object> ProfilesGet(IpcRequest request)
+    {
+        if (!TryGetStringParameter(request, "profileId", out var profileId))
+        {
+            return InvalidArgument(request, "缺少 profileId 参数");
+        }
+
+        var profile = _state.Launches.GetProfile(profileId);
+        if (profile is null)
+        {
+            return NotFound(request, $"Profile 不存在：{profileId}");
+        }
+
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = ProfileDto(profile),
+        };
+    }
+
+    private Envelope<object> ProfilesUpdate(IpcRequest request)
+    {
+        if (!TryGetStringParameter(request, "profileId", out var profileId)
+            || !TryGetStringParameter(request, "executablePath", out var executablePath)
+            || !TryGetStringParameter(request, "cwd", out var cwd)
+            || !TryGetStringListParameter(request, "argv", out var argv))
+        {
+            return InvalidArgument(request, "profiles.update 需要 profileId、executablePath、argv、cwd 参数");
+        }
+
+        TryGetIntParameter(request, "expectedRevision", out var expectedRevision);
+        var current = _state.Launches.GetProfile(profileId);
+        if (current is null)
+        {
+            return NotFound(request, $"Profile 不存在：{profileId}");
+        }
+
+        if (expectedRevision is not null && expectedRevision.Value != current.Revision)
+        {
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = ErrorCodes.RevisionConflict,
+                    Message = $"Profile Revision 不一致：期望 {expectedRevision}，当前 {current.Revision}",
+                    Retryable = false,
+                },
+            };
+        }
+
+        if (!File.Exists(executablePath))
+        {
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = ErrorCodes.ToolMissing,
+                    Message = $"启动目标不存在：{executablePath}",
+                    Retryable = false,
+                },
+            };
+        }
+
+        var updated = _state.Launches.UpdateProfile(profileId, executablePath, argv, cwd);
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = ProfileDto(updated),
+        };
+    }
+
+    private Envelope<object> LaunchPlanHandler(IpcRequest request)
+    {
+        if (!TryGetStringParameter(request, "gameId", out var gameId)
+            || !TryGetStringParameter(request, "profileId", out var profileId))
+        {
+            return InvalidArgument(request, "launch.plan 需要 gameId、profileId 参数");
+        }
+
+        try
+        {
+            var plan = _state.Launches.CreatePlan(gameId, profileId);
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = true,
+                Status = OperationStatus.Completed,
+                Data = plan.ToDto(),
+            };
+        }
+        catch (GameLibrary.Host.Launching.LaunchException ex)
+        {
+            return LaunchError(request, ex);
+        }
+    }
+
+    private Envelope<object> LaunchExecute(IpcRequest request)
+    {
+        if (!TryGetStringParameter(request, "idempotencyKey", out var idempotencyKey))
+        {
+            return InvalidArgument(request, "launch.execute 需要 idempotencyKey 参数");
+        }
+
+        TryGetStringParameter(request, "planId", out var planId);
+        TryGetStringParameter(request, "profileId", out var profileId);
+        TryGetIntParameter(request, "expectedRevision", out var expectedRevision);
+
+        try
+        {
+            var attempt = _state.Launches.Execute(
+                idempotencyKey,
+                planId.Length > 0 ? planId : null,
+                profileId.Length > 0 ? profileId : null,
+                profileId.Length > 0 ? profileId : null,
+                expectedRevision);
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = true,
+                Status = OperationStatus.Completed,
+                Data = attempt.ToDto(),
+            };
+        }
+        catch (GameLibrary.Host.Launching.LaunchException ex)
+        {
+            return LaunchError(request, ex);
+        }
+    }
+
+    private Envelope<object> LaunchStatus(IpcRequest request)
+    {
+        if (!TryGetStringParameter(request, "attemptId", out var attemptId))
+        {
+            return InvalidArgument(request, "缺少 attemptId 参数");
+        }
+
+        var attempt = _state.Launches.GetAttempt(attemptId);
+        if (attempt is null)
+        {
+            return NotFound(request, $"启动尝试不存在：{attemptId}");
+        }
+
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = attempt.ToDto(),
+        };
+    }
+
+    private Envelope<object> LaunchHistory(IpcRequest request)
+    {
+        string? gameId = null;
+        if (request.Parameters is { ValueKind: JsonValueKind.Object } historyParameters
+            && historyParameters.TryGetProperty("gameId", out var historyGameElement)
+            && historyGameElement.ValueKind == JsonValueKind.String)
+        {
+            gameId = historyGameElement.GetString();
+        }
+
+        var attempts = _state.Launches.History(gameId);
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new
+            {
+                total = attempts.Count,
+                items = attempts.Select(a => a.ToDto()).ToArray(),
+            },
+        };
+    }
+
+    private static object ProfileDto(GameLibrary.Host.Launching.LaunchProfile profile) => new
+    {
+        profileId = profile.ProfileId,
+        gameId = profile.GameId,
+        executablePath = profile.ExecutablePath,
+        argv = profile.Arguments,
+        cwd = profile.WorkingDirectory,
+        revision = profile.Revision,
+    };
+
+    private static Envelope<object> LaunchError(IpcRequest request, GameLibrary.Host.Launching.LaunchException ex) =>
+        new()
+        {
+            RequestId = request.RequestId,
+            Ok = false,
+            Status = OperationStatus.Failed,
+            Error = new RequestError
+            {
+                Code = ex.Code,
+                Message = ex.Message,
+                Retryable = false,
+            },
+        };
+
     private static IEngineDetector[] DefaultDetectors() =>
     [
         new UnityDetector(),
@@ -385,6 +682,47 @@ public sealed class OperationDispatcher
         {
             value = element.GetString() ?? "";
             return value.Length > 0;
+        }
+
+        return false;
+    }
+
+    private static bool TryGetStringListParameter(IpcRequest request, string name, out IReadOnlyList<string> values)
+    {
+        if (request.Parameters is { ValueKind: JsonValueKind.Object } parameters
+            && parameters.TryGetProperty(name, out var element)
+            && element.ValueKind == JsonValueKind.Array)
+        {
+            var list = new List<string>();
+            foreach (var item in element.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.String)
+                {
+                    values = [];
+                    return false;
+                }
+
+                list.Add(item.GetString() ?? "");
+            }
+
+            values = list;
+            return true;
+        }
+
+        values = [];
+        return false;
+    }
+
+    private static bool TryGetIntParameter(IpcRequest request, string name, out int? value)
+    {
+        value = null;
+        if (request.Parameters is { ValueKind: JsonValueKind.Object } parameters
+            && parameters.TryGetProperty(name, out var element)
+            && element.ValueKind == JsonValueKind.Number
+            && element.TryGetInt32(out var parsed))
+        {
+            value = parsed;
+            return true;
         }
 
         return false;

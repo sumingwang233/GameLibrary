@@ -38,6 +38,10 @@ internal static class Program
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "candidates.list" or "candidates.get" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
+                "profiles.create" or "profiles.list" or "profiles.get" or "profiles.update" =>
+                    await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
+                "launch.plan" or "launch.execute" or "launch.status" or "launch.history" =>
+                    await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 _ => UnknownCommand(parse),
             };
         }
@@ -98,6 +102,55 @@ internal static class Program
             return ExitArgumentError;
         }
 
+        if (operationId is "profiles.create")
+        {
+            if (cli.GameId is null || cli.ExePath is null || cli.Cwd is null)
+            {
+                Console.Error.WriteLine("profiles create 需要 --game-id、--exe、--cwd（argv 用 --arg 可重复提供）");
+                return ExitArgumentError;
+            }
+        }
+
+        if (operationId is "profiles.update"
+            && (cli.ProfileId is null || cli.ExePath is null || cli.Cwd is null || cli.ExpectedRevision is null))
+        {
+            Console.Error.WriteLine("profiles update 需要 --profile-id、--exe、--cwd、--expected-revision（argv 用 --arg 可重复提供）");
+            return ExitArgumentError;
+        }
+
+        if (operationId is "profiles.get" or "launch.plan" && cli.ProfileId is null)
+        {
+            Console.Error.WriteLine($"{string.Join(' ', cli.Words)} 需要 --profile-id");
+            return ExitArgumentError;
+        }
+
+        if (operationId is "launch.plan" or "profiles.create" && cli.GameId is null)
+        {
+            Console.Error.WriteLine($"{string.Join(' ', cli.Words)} 需要 --game-id");
+            return ExitArgumentError;
+        }
+
+        if (operationId is "launch.execute")
+        {
+            if (cli.IdempotencyKey is null)
+            {
+                Console.Error.WriteLine("launch execute 需要 --idempotency-key");
+                return ExitArgumentError;
+            }
+
+            if (cli.PlanId is null && cli.ProfileId is null)
+            {
+                Console.Error.WriteLine("launch execute 需要 --plan-id 或 --profile-id");
+                return ExitArgumentError;
+            }
+        }
+
+        if (operationId is "launch.status" && cli.AttemptId is null)
+        {
+            Console.Error.WriteLine("launch status 需要 --attempt-id");
+            return ExitArgumentError;
+        }
+
         await using var connection = await HostProcessLauncher.EnsureStartedAsync(
             cli.DataDir, clientName: "cli", timeout: TimeSpan.FromSeconds(cli.TimeoutSeconds));
 
@@ -107,6 +160,23 @@ internal static class Program
             "scan.inspect" => new { path = cli.RootArgument },
             "candidates.list" => cli.JobId is null ? null : new { jobId = cli.JobId },
             "candidates.get" => new { candidateId = cli.CandidateId },
+            "profiles.create" => new { gameId = cli.GameId, executablePath = cli.ExePath, argv = cli.ArgList, cwd = cli.Cwd },
+            "profiles.update" => new
+            {
+                profileId = cli.ProfileId,
+                executablePath = cli.ExePath,
+                argv = cli.ArgList,
+                cwd = cli.Cwd,
+                expectedRevision = cli.ExpectedRevision,
+            },
+            "profiles.list" => cli.GameId is null ? null : new { gameId = cli.GameId },
+            "profiles.get" => new { profileId = cli.ProfileId },
+            "launch.plan" => new { gameId = cli.GameId, profileId = cli.ProfileId },
+            "launch.execute" => cli.PlanId is null
+                ? new { idempotencyKey = cli.IdempotencyKey, profileId = cli.ProfileId, expectedRevision = cli.ExpectedRevision }
+                : new { idempotencyKey = cli.IdempotencyKey, planId = cli.PlanId },
+            "launch.status" => new { attemptId = cli.AttemptId },
+            "launch.history" => cli.GameId is null ? null : new { gameId = cli.GameId },
             _ => new { jobId = cli.JobId },
         };
 

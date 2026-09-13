@@ -209,6 +209,68 @@ public static class GameLibraryTools
     public static Task<CallToolResult> CandidatesGet([Description("候选 ID")] string candidateId) =>
         InvokeOperationAsync("candidates.get", new { candidateId });
 
+    [McpServerTool(Name = "profiles_create")]
+    [Description("创建启动配置（最小集）：绝对 exe、argv 数组、绝对 cwd。参数：gameId、executablePath、argv、cwd。")]
+    public static Task<CallToolResult> ProfilesCreate(
+        [Description("所属游戏 ID")] string gameId,
+        [Description("启动目标的绝对路径")] string executablePath,
+        [Description("argv 参数数组")] string[] argv,
+        [Description("工作目录绝对路径")] string cwd) =>
+        InvokeOperationAsync("profiles.create", new { gameId, executablePath, argv, cwd });
+
+    [McpServerTool(Name = "profiles_list")]
+    [Description("列出启动配置（可按 gameId 过滤）。参数：gameId（可选）。")]
+    public static Task<CallToolResult> ProfilesList([Description("按游戏 ID 过滤；省略则返回全部")] string? gameId = null) =>
+        gameId is null
+            ? InvokeOperationAsync("profiles.list", new { })
+            : InvokeOperationAsync("profiles.list", new { gameId });
+
+    [McpServerTool(Name = "profiles_get")]
+    [Description("查询单个启动配置。参数：profileId。")]
+    public static Task<CallToolResult> ProfilesGet([Description("Profile ID")] string profileId) =>
+        InvokeOperationAsync("profiles.get", new { profileId });
+
+    [McpServerTool(Name = "profiles_update")]
+    [Description("更新启动配置；expectedRevision 不一致返回 RevisionConflict，更新使引用旧 Revision 的计划失效。参数：profileId、executablePath、argv、cwd、expectedRevision。")]
+    public static Task<CallToolResult> ProfilesUpdate(
+        [Description("Profile ID")] string profileId,
+        [Description("启动目标的绝对路径")] string executablePath,
+        [Description("argv 参数数组")] string[] argv,
+        [Description("工作目录绝对路径")] string cwd,
+        [Description("期望 Revision")] int expectedRevision) =>
+        InvokeOperationAsync("profiles.update", new { profileId, executablePath, argv, cwd, expectedRevision });
+
+    [McpServerTool(Name = "launch_plan")]
+    [Description("生成纯数据启动计划（可预览，无副作用）。参数：gameId、profileId。")]
+    public static Task<CallToolResult> LaunchPlan([Description("游戏 ID")] string gameId, [Description("Profile ID")] string profileId) =>
+        InvokeOperationAsync("launch.plan", new { gameId, profileId });
+
+    [McpServerTool(Name = "launch_execute")]
+    [Description("执行启动：全入口互斥、幂等键重放返回原尝试、Profile Revision 使旧计划失效。参数：idempotencyKey，planId 或 profileId（可选 expectedRevision）。")]
+    public static Task<CallToolResult> LaunchExecute(
+        [Description("幂等键：相同键重试返回原尝试")] string idempotencyKey,
+        [Description("已生成的计划 ID（与 profileId 二选一）")] string? planId = null,
+        [Description("直接按 Profile 启动（与 planId 二选一）")] string? profileId = null,
+        [Description("按 profileId 启动时的期望 Revision")] int? expectedRevision = null)
+    {
+        object parameters = planId is not null
+            ? new { idempotencyKey, planId }
+            : new { idempotencyKey, profileId, expectedRevision };
+        return InvokeOperationAsync("launch.execute", parameters);
+    }
+
+    [McpServerTool(Name = "launch_status")]
+    [Description("查询启动尝试状态（prepared/executing/processCreated/exited/processStartFailed）。参数：attemptId。")]
+    public static Task<CallToolResult> LaunchStatus([Description("尝试 ID")] string attemptId) =>
+        InvokeOperationAsync("launch.status", new { attemptId });
+
+    [McpServerTool(Name = "launch_history")]
+    [Description("查询启动尝试历史（可按 gameId 过滤）。参数：gameId（可选）。")]
+    public static Task<CallToolResult> LaunchHistory([Description("按游戏 ID 过滤；省略则返回全部")] string? gameId = null) =>
+        gameId is null
+            ? InvokeOperationAsync("launch.history", new { })
+            : InvokeOperationAsync("launch.history", new { gameId });
+
     private static async Task<CallToolResult> InvokeOperationAsync(string operationId, object parameters)
     {
         if (McpSession.DataDirectory is null)

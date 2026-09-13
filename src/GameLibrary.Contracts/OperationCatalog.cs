@@ -54,6 +54,14 @@ public static class OperationCatalog
         "scan.inspect",
         "candidates.list",
         "candidates.get",
+        "profiles.create",
+        "profiles.list",
+        "profiles.get",
+        "profiles.update",
+        "launch.plan",
+        "launch.execute",
+        "launch.status",
+        "launch.history",
         "jobs.get",
     };
 
