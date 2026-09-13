@@ -64,3 +64,11 @@
 - **实现要点**：三态证据（不可读≠缺失≠负向）；配对才 high；双 high → EngineConflict 不取先注册；报告与注册顺序无关；卸载器/崩溃处理器等永不成为入口；检测器仅经只读快照端口。
 - **未验证范围**：其余引擎批次（T04+）；完整合法 SWF 样本与固定 hash（T25）；System.json 标题读取（T14）；嵌套候选/合集判定（T04）。
 - **下一项**：T04（边界与分类：正交 CandidateKind/ReviewState/Availability、toolNeed 覆盖、合法/循环/失效 LNK）。
+
+## T04 边界与分类 — 2026-09-13 完成（A 状态与分类 / B LNK 两个提交）
+
+- **改动文件**：`src/GameLibrary.Domain/States/StateMachines.cs`（四正交枚举+转移表+缺失两次核对 tracker）、`src/GameLibrary.Domain/Classification/`（ClassificationRules/TranslationPolicy）、`src/GameLibrary.Infrastructure/Shell/`（ShellLinkInterop/LnkResolver）、单元 +28、集成 +6（LNK 夹具全用 Windows 接口生成）。
+- **验证结果**：累计 202 项测试通过；format 通过。报告：`artifacts/build-reports/2026-09-13-t04.md`。
+- **实测结论**：Windows Shell 保存快捷方式时即把链解析到最终目标，原生接口无法构造循环/自指 LNK；解析器 Cyclic 分支保留为对第三方原始目标的防御，未用伪结构夹具伪造。
+- **未验证范围**：Duplicate/Backup/Broken 提示标记（T17）；嵌套候选与合集判定（T05）。
+- **下一项**：T05（原生扫描接口：scan start/inspect/coverage、候选查询与 Job 状态同步提供 CLI/MCP；替代 Probe）。
