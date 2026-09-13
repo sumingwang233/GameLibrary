@@ -56,6 +56,7 @@ public sealed class OperationDispatcher
         "profiles.remove",
         "translation.set",
         "games.update",
+        "games.relink",
         "views.create",
         "views.update",
         "views.remove",
@@ -440,6 +441,7 @@ public sealed class OperationDispatcher
         "translation.get" => TranslationGet(request),
         "translation.set" => TranslationSet(request),
         "games.update" => GamesUpdate(request),
+        "games.relink" => GamesRelink(request),
         "views.list" => ViewsList(request),
         "views.get" => ViewsGet(request),
         "views.create" => ViewsCreate(request),
@@ -522,6 +524,20 @@ public sealed class OperationDispatcher
                     if (outcome.FinalState == "succeeded")
                     {
                         ScanCandidatePersistence.Persist(_state.Library.Store, _state.Events, collector, context.JobId);
+                        // T17：完整扫描成功后核对库内游戏可用性（ID-04/05）。
+                        if (_state.Library.Store is not null)
+                        {
+                            var report = ReconcileService.CheckGames(_state.Library.Store, DateTime.UtcNow);
+                            foreach (var transition in report.Transitions)
+                            {
+                                _state.Events.Publish("game.updated", $"game:{transition.GameId}", new
+                                {
+                                    gameId = transition.GameId,
+                                    availability = transition.To,
+                                }, DateTime.UtcNow);
+                            }
+                        }
+
                         _state.Events.Publish("scan.completed", $"job:{context.JobId}", new
                         {
                             jobId = context.JobId,
@@ -1300,6 +1316,131 @@ public sealed class OperationDispatcher
             Ok = true,
             Status = OperationStatus.Completed,
             Data = new { gameId, favorite = updatedGame.Favorite, revision = newRevision.Value },
+        };
+    }
+
+    /// <summary>
+    /// games.relink（T17）：把游戏的路径绑定改到新目录——只改数据库，不移动/改名/复制任何文件
+    /// （补充规格 1.3）。新路径必须在已注册库根内且当前存在；不可与其他活动游戏绑定冲突。
+    /// </summary>
+    private Envelope<object> GamesRelink(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!TryGetStringParameter(request, "gameId", out var gameId))
+        {
+            return InvalidArgument(request, "缺少 gameId 参数");
+        }
+
+        if (!TryGetStringParameter(request, "newPath", out var newPath))
+        {
+            return InvalidArgument(request, "缺少 newPath 参数（绝对本地目录路径）");
+        }
+
+        if (!TryGetIntParameter(request, "expectedRevision", out var expectedRevision) || expectedRevision is null)
+        {
+            return InvalidArgument(request, "缺少 expectedRevision 参数");
+        }
+
+        var game = store.TryGetGame(gameId);
+        if (game is null)
+        {
+            return NotFound(request, $"游戏不存在：{gameId}");
+        }
+
+        var validation = Domain.Paths.GamePath.TryCreate(newPath);
+        if (!validation.IsValid)
+        {
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = validation.IsUnsupported ? ErrorCodes.UnsupportedPath : ErrorCodes.InvalidPath,
+                    Message = $"新路径非法（{validation.Reason}）：{newPath}",
+                    Retryable = false,
+                },
+            };
+        }
+
+        var newRoot = validation.Path!;
+        if (RejectPathOutsideRoots(request, newRoot.PhysicalPath) is { } outsideRoot)
+        {
+            return outsideRoot;
+        }
+
+        if (string.Equals(newRoot.PhysicalPath, game.RootPath, StringComparison.OrdinalIgnoreCase))
+        {
+            return InvalidArgument(request, $"新路径与当前绑定相同：{newRoot.PhysicalPath}");
+        }
+
+        if (!Directory.Exists(newRoot.PhysicalPath))
+        {
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = ErrorCodes.RootOffline,
+                    Message = $"新路径当前不存在；重关联只接受可验证存在的目录：{newRoot.PhysicalPath}",
+                    Retryable = true,
+                },
+            };
+        }
+
+        var conflicting = store.TryGetGameByRootPath(newRoot.PhysicalPath);
+        if (conflicting is not null && !string.Equals(conflicting.GameId, gameId, StringComparison.Ordinal))
+        {
+            return InvalidArgument(request, $"新路径已绑定到其他游戏：{conflicting.GameId}");
+        }
+
+        var newRevision = store.RelinkGame(gameId, newRoot.PhysicalPath, expectedRevision.Value, DateTime.UtcNow);
+        if (newRevision is null)
+        {
+            var latest = store.TryGetGame(gameId);
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = ErrorCodes.RevisionConflict,
+                    Message = $"游戏 Revision 不一致：期望 {expectedRevision}，当前 {latest?.Revision}",
+                    Retryable = false,
+                    CurrentRevision = latest?.Revision,
+                },
+            };
+        }
+
+        _state.Events.Publish("game.updated", $"game:{gameId}", new
+        {
+            gameId,
+            rootPath = newRoot.PhysicalPath,
+            availability = "available",
+            revision = newRevision,
+        }, DateTime.UtcNow);
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new
+            {
+                gameId,
+                previousRootPath = game.RootPath,
+                rootPath = newRoot.PhysicalPath,
+                availability = "available",
+                revision = newRevision.Value,
+            },
         };
     }
 
@@ -2987,6 +3128,8 @@ public sealed class OperationDispatcher
             engine = game.Engine,
             entryPath = game.EntryPath,
             membership = game.Membership,
+            availability = game.Availability,
+            missingSinceUtc = game.MissingSinceUtc?.ToString("O"),
             revision = game.Revision,
             acceptedUtc = game.AcceptedUtc.ToString("O"),
         };

@@ -80,6 +80,14 @@ public sealed class SqliteLibraryStore : IAsyncDisposable
     public int? SetTranslationOverride(string gameId, string? overrideValue, int expectedRevision, DateTime utcNow) =>
         LibraryCatalogStore.SetTranslationOverride(_connection, gameId, overrideValue, expectedRevision, utcNow);
 
+    // T17 可用性核对与重关联转发。
+
+    public bool UpdateAvailability(string gameId, string availability, DateTime? missingSinceUtc, DateTime utcNow) =>
+        LibraryCatalogStore.UpdateAvailability(_connection, gameId, availability, missingSinceUtc, utcNow);
+
+    public int? RelinkGame(string gameId, string newRootPath, int expectedRevision, DateTime utcNow) =>
+        LibraryCatalogStore.RelinkGame(_connection, gameId, newRootPath, expectedRevision, utcNow);
+
     // T15-C 自定义视图转发。
 
     public void InsertView(LibraryView view) => LibraryViewStore.InsertView(_connection, view);

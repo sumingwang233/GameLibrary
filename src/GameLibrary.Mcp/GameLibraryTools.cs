@@ -297,6 +297,21 @@ public static class GameLibraryTools
     public static Task<CallToolResult> ProfilesValidate([Description("Profile ID")] string profileId) =>
         InvokeOperationAsync("profiles.validate", new { profileId });
 
+    [McpServerTool(Name = "games_relink")]
+    [Description("重关联：把游戏的路径绑定改到新目录——仅改数据库，不移动/改名/复制文件。新路径须在已注册库根内且当前存在。参数：gameId、newPath、expectedRevision、idempotencyKey。")]
+    public static Task<CallToolResult> GamesRelink(
+        [Description("游戏 ID")] string gameId,
+        [Description("新目录的绝对本地路径")] string newPath,
+        [Description("期望的游戏 Revision")] int expectedRevision,
+        [Description("幂等键")] string? idempotencyKey = null) =>
+        InvokeOperationAsync("games.relink", new
+        {
+            idempotencyKey = idempotencyKey ?? $"relink-{Guid.NewGuid():N}",
+            gameId,
+            newPath,
+            expectedRevision,
+        });
+
     [McpServerTool(Name = "views_list")]
     [Description("列出内置与自定义视图及当前激活视图。")]
     public static Task<CallToolResult> ViewsList() =>

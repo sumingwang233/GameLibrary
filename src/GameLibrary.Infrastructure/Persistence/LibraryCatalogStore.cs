@@ -55,6 +55,12 @@ public sealed record GameCard
     /// <summary>用户覆盖：Auto/Required/NotRequired 或 null（=Auto 未覆盖）。继承值与覆盖值分离持久化。</summary>
     public string? TranslationOverride { get; init; }
 
+    /// <summary>路径可用性（T17）：unknown/available/suspectedMissing/missing/offline/accessError/rootUnbound。扫描器维护，不占 Revision。</summary>
+    public string Availability { get; init; } = "unknown";
+
+    /// <summary>第一次确认缺失的时间（suspectedMissing/missing 期间非空）；ID-05 的 60 秒间隔判定依据。</summary>
+    public DateTime? MissingSinceUtc { get; init; }
+
     public int Revision { get; init; } = 1;
 
     public required DateTime AcceptedUtc { get; init; }
@@ -264,7 +270,7 @@ public static class LibraryCatalogStore
     {
         using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT game_id, title, root_path, kind, engine, entry_path, membership, favorite, revision, accepted_utc, updated_utc, translation_inherited, translation_override
+            SELECT game_id, title, root_path, kind, engine, entry_path, membership, favorite, revision, accepted_utc, updated_utc, translation_inherited, translation_override, availability, missing_since_utc
             FROM games WHERE game_id = $id
             """;
         command.Parameters.AddWithValue("$id", gameId);
@@ -277,7 +283,7 @@ public static class LibraryCatalogStore
         var result = new List<GameCard>();
         using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT game_id, title, root_path, kind, engine, entry_path, membership, favorite, revision, accepted_utc, updated_utc, translation_inherited, translation_override
+            SELECT game_id, title, root_path, kind, engine, entry_path, membership, favorite, revision, accepted_utc, updated_utc, translation_inherited, translation_override, availability, missing_since_utc
             FROM games ORDER BY accepted_utc, game_id
             """;
         using var reader = command.ExecuteReader();
@@ -293,7 +299,7 @@ public static class LibraryCatalogStore
     {
         using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT game_id, title, root_path, kind, engine, entry_path, membership, favorite, revision, accepted_utc, updated_utc, translation_inherited, translation_override
+            SELECT game_id, title, root_path, kind, engine, entry_path, membership, favorite, revision, accepted_utc, updated_utc, translation_inherited, translation_override, availability, missing_since_utc
             FROM games WHERE root_path = $root AND membership = 'active'
             """;
         command.Parameters.AddWithValue("$root", rootPath);
@@ -382,6 +388,73 @@ public static class LibraryCatalogStore
                 WHERE game_id = $game
                 """;
             update.Parameters.AddWithValue("$override", (object?)overrideValue ?? DBNull.Value);
+            update.Parameters.AddWithValue("$now", utcNow.ToString("O", CultureInfo.InvariantCulture));
+            update.Parameters.AddWithValue("$game", gameId);
+            update.ExecuteNonQuery();
+        }
+
+        transaction.Commit();
+        return currentRevision + 1;
+    }
+
+    /// <summary>
+    /// 可用性写回（T17 核对）：扫描器维护字段，不递增 Revision（避免与用户编辑互相踩踏）；
+    /// 返回是否发生了状态迁移，供事件发布判断。
+    /// </summary>
+    public static bool UpdateAvailability(
+        SqliteConnection connection, string gameId, string availability, DateTime? missingSinceUtc, DateTime utcNow)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE games SET availability = $availability, missing_since_utc = $missingSince, updated_utc = $now
+            WHERE game_id = $id
+            """;
+        command.Parameters.AddWithValue("$availability", availability);
+        command.Parameters.AddWithValue("$missingSince", missingSinceUtc is null ? DBNull.Value : missingSinceUtc.Value.ToString("O", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$now", utcNow.ToString("O", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$id", gameId);
+        return command.ExecuteNonQuery() > 0;
+    }
+
+    /// <summary>
+    /// 重关联（T17 games.relink）：仅改数据库路径绑定，不移动磁盘文件。
+    /// 期望 Revision 对齐（乐观并发），事务内更新 root_path 并重置可用性；游戏不存在或冲突返回 null。
+    /// </summary>
+    public static int? RelinkGame(SqliteConnection connection, string gameId, string newRootPath, int expectedRevision, DateTime utcNow)
+    {
+        using var transaction = (SqliteTransaction)connection.BeginTransaction();
+        int currentRevision;
+        using (var select = connection.CreateCommand())
+        {
+            select.Transaction = transaction;
+            select.CommandText = "SELECT revision FROM games WHERE game_id = $game";
+            select.Parameters.AddWithValue("$game", gameId);
+            var result = select.ExecuteScalar();
+            if (result is null)
+            {
+                transaction.Rollback();
+                return null;
+            }
+
+            currentRevision = Convert.ToInt32(result);
+        }
+
+        if (currentRevision != expectedRevision)
+        {
+            transaction.Rollback();
+            return null;
+        }
+
+        using (var update = connection.CreateCommand())
+        {
+            update.Transaction = transaction;
+            update.CommandText = """
+                UPDATE games
+                SET root_path = $root, availability = 'available', missing_since_utc = NULL,
+                    revision = revision + 1, updated_utc = $now
+                WHERE game_id = $game
+                """;
+            update.Parameters.AddWithValue("$root", newRootPath);
             update.Parameters.AddWithValue("$now", utcNow.ToString("O", CultureInfo.InvariantCulture));
             update.Parameters.AddWithValue("$game", gameId);
             update.ExecuteNonQuery();
@@ -540,5 +613,9 @@ public static class LibraryCatalogStore
         UpdatedUtc = DateTime.Parse(reader.GetString(10), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
         TranslationInherited = reader.GetInt64(11) == 1,
         TranslationOverride = reader.IsDBNull(12) ? null : reader.GetString(12),
+        Availability = reader.GetString(13),
+        MissingSinceUtc = reader.IsDBNull(14)
+            ? null
+            : DateTime.Parse(reader.GetString(14), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
     };
 }

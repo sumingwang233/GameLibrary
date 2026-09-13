@@ -121,5 +121,9 @@ public static class DatabaseMigrations
                 updated_utc TEXT NOT NULL
             )
             """),
+        new DatabaseMigration(9, """
+            ALTER TABLE games ADD COLUMN availability TEXT NOT NULL DEFAULT 'unknown';
+            ALTER TABLE games ADD COLUMN missing_since_utc TEXT;
+            """),
     ];
 }

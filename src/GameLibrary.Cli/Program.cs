@@ -46,7 +46,7 @@ internal static class Program
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "candidates.accept" or "candidates.defer" or "candidates.ignore" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
-                "games.list" or "games.get" or "games.update" =>
+                "games.list" or "games.get" or "games.update" or "games.relink" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "translation.get" or "translation.set" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
@@ -236,6 +236,13 @@ internal static class Program
             return ExitArgumentError;
         }
 
+        if (operationId is "games.relink"
+            && (cli.NewPath is null || cli.ExpectedRevision is null))
+        {
+            Console.Error.WriteLine("games relink 需要 --new-path 和 --expected-revision");
+            return ExitArgumentError;
+        }
+
         if (operationId is "views.get" or "views.update" or "views.remove" or "views.activate" && cli.ViewId is null)
         {
             Console.Error.WriteLine($"{string.Join(' ', cli.Words)} 需要 --view-id");
@@ -297,6 +304,13 @@ internal static class Program
                 expectedRevision = cli.ExpectedRevision,
             },
             "translation.get" => new { gameId = cli.GameId },
+            "games.relink" => new
+            {
+                idempotencyKey = cli.IdempotencyKey ?? $"relink-{Guid.NewGuid():N}",
+                gameId = cli.GameId,
+                newPath = cli.NewPath,
+                expectedRevision = cli.ExpectedRevision,
+            },
             "translation.set" => new
             {
                 idempotencyKey = cli.IdempotencyKey ?? $"transset-{Guid.NewGuid():N}",

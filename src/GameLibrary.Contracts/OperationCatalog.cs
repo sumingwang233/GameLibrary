@@ -96,6 +96,7 @@ public static class OperationCatalog
         "translation.get",
         "translation.set",
         "games.update",
+        "games.relink",
         "views.list",
         "views.get",
         "views.create",

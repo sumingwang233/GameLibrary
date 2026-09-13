@@ -214,3 +214,11 @@
 - **实现要点**：内置/自定义视图统一语义（search/favoriteOnly/sort）；激活为宿主内存态 + view.activated 事件；games.list 支持 viewId 直查；修复 T15-B 遗留的 views.activate 缺幂等键（Desktop 视图切换恢复可用）与 InsertGame 忽略 Favorite 的缺陷。
 - **未验证范围**：activeViewId 持久化（随 settings.*）；Desktop 服务端视图过滤接入；UI 自动化。
 - **下一项**：T17（Reconcile/Identity）或 T18（通知/托盘）。
+
+## T17 Reconcile/Identity — 2026-09-14 完成
+
+- **改动文件**：`DatabaseMigrations.cs`（v9：availability/missing_since_utc）、`LibraryCatalogStore.cs`（GameCard 可用性字段/UpdateAvailability/RelinkGame）、`SqliteLibraryStore.cs`（转发）、`Scanning/ReconcileService.cs`（新）、`ScanCandidatePersistence.cs`（BackupHint/DuplicateHint）、`OperationDispatcher.cs`（games.relink + 核对接线 + games DTO 可用性）、HostRuntime（周期核对接线）、Contracts（+1）、Cli/Mcp（relink 三入口）、`tests/.../ReconcileIdentityTests.cs`（8 项）。
+- **验证结果**：累计 324 项测试通过；format 通过。报告：`artifacts/build-reports/2026-09-14-t17.md`。
+- **实现要点**：缺失两次核对 ≥60 秒才 Missing、离线不累计、恢复重计数（ID-04/05）；可用性写回不占 Revision；relink 仅改 DB + 库根白名单/冲突/存在性校验；副本与备份命名只提示不排除。
+- **未验证范围**：指纹驱动自动 relink 建议（T25）；watcher 重命名事件（T18）；真实 ACL accessError 夹具（T25）。
+- **下一项**：T18（通知/托盘）或 T13 遗留的 settings.*。

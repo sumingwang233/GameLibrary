@@ -106,6 +106,9 @@ internal sealed record CommandLine
     /// <summary>profiles create 的 --is-default 标记。</summary>
     public bool IsDefault { get; private init; }
 
+    /// <summary>games relink 的 --new-path 参数（绝对本地目录路径）。</summary>
+    public string? NewPath { get; private init; }
+
     /// <summary>views 的 --view-id 参数。</summary>
     public string? ViewId { get; private init; }
 
@@ -170,6 +173,7 @@ internal sealed record CommandLine
         string? search = null;
         string? sort = null;
         var favoriteOnly = false;
+        string? newPath = null;
         var argList = new List<string>();
         var noStart = false;
         var timeout = 30;
@@ -201,6 +205,9 @@ internal sealed record CommandLine
                     break;
                 case "--game-id" when i + 1 < args.Length:
                     gameId = args[++i];
+                    break;
+                case "--new-path" when i + 1 < args.Length:
+                    newPath = args[++i];
                     break;
                 case "--exe" when i + 1 < args.Length:
                     exePath = args[++i];
@@ -316,7 +323,7 @@ internal sealed record CommandLine
             "scan" when verb is "start" or "status" or "cancel" or "coverage" or "inspect" => $"scan.{verb}",
             "roots" when verb is "add" or "list" => $"roots.{verb}",
             "candidates" when verb is "list" or "get" or "accept" or "defer" or "ignore" => $"candidates.{verb}",
-            "games" when verb is "list" or "get" or "update" => $"games.{verb}",
+            "games" when verb is "list" or "get" or "update" or "relink" => $"games.{verb}",
             "translation" when verb is "get" or "set" => $"translation.{verb}",
             "diagnostics" when verb is "status" or "logs" => $"diagnostics.{verb}",
             "tools" when verb == "discover" => "tools.discover",
@@ -377,6 +384,7 @@ internal sealed record CommandLine
             Search = search,
             Sort = sort,
             FavoriteOnly = favoriteOnly,
+            NewPath = newPath,
             NoStart = noStart,
             TimeoutSeconds = timeout,
         };

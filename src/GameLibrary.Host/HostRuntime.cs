@@ -104,6 +104,19 @@ public sealed class HostRuntime : IAsyncDisposable
         if (outcome.FinalState == "succeeded")
         {
             Scanning.ScanCandidatePersistence.Persist(state.Library.Store, state.Events, collector, jobId);
+            // T17：核对成功后同步库内游戏可用性（缺失/离线分级判定）。
+            if (state.Library.Store is not null)
+            {
+                var report = Scanning.ReconcileService.CheckGames(state.Library.Store, DateTime.UtcNow);
+                foreach (var transition in report.Transitions)
+                {
+                    state.Events.Publish("game.updated", $"game:{transition.GameId}", new
+                    {
+                        gameId = transition.GameId,
+                        availability = transition.To,
+                    }, DateTime.UtcNow);
+                }
+            }
         }
 
         return outcome;
