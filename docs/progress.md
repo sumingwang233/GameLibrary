@@ -56,3 +56,11 @@
 - **实现要点**：受限 matcher（无正则执行）；SystemMandatory 排除不可绕过；预算分段+续扫游标（合计=完整扫描）；取消/暂停检查点；重解析点不跟随；目录级排除剪枝；分支问题分类与覆盖计数；有缺口即 partial。
 - **未验证范围**：真实重解析点/ACL/长路径夹具（T03/T25）；每目录 256 读取上限属检测器阶段（T03）；汇总与分页（T16）。
 - **下一项**：T03（检测器：五类首批引擎/格式、正负/不可读证据、置信度、确定冲突消解）。
+
+## T03 检测器 — 2026-09-13 完成
+
+- **改动文件**：`src/GameLibrary.Domain/Detection/`（证据模型/快照端口/检测器集合/评分规则 + Unity/RPG MV-MZ/Ren'Py/Kirikiri/Flash 五检测器）、`src/GameLibrary.Infrastructure/Scanning/FileSystemDirectorySnapshot.cs`、`tests/GameLibrary.UnitTests/Detection/`（14 项）、`tests/GameLibrary.IntegrationTests/Scanning/EngineDetectorFixtureTests.cs`（5 项）。
+- **验证结果**：累计 168 项测试通过；format 通过。报告：`artifacts/build-reports/2026-09-13-t03.md`。
+- **实现要点**：三态证据（不可读≠缺失≠负向）；配对才 high；双 high → EngineConflict 不取先注册；报告与注册顺序无关；卸载器/崩溃处理器等永不成为入口；检测器仅经只读快照端口。
+- **未验证范围**：其余引擎批次（T04+）；完整合法 SWF 样本与固定 hash（T25）；System.json 标题读取（T14）；嵌套候选/合集判定（T04）。
+- **下一项**：T04（边界与分类：正交 CandidateKind/ReviewState/Availability、toolNeed 覆盖、合法/循环/失效 LNK）。
