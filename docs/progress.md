@@ -133,3 +133,11 @@
 - **实现要点**：证据分级 Static/Generated/Cli/Measured 如实区分（生成脚本=Generated 未验证；CLI 协议仅登记候选）；不实现 BAT 解释器、不执行原脚本、超范围语法一律 Unsupported；BrokenRecipe 旧路径重映射不继承验证；副作用声明 canDeploy/canRollback=Unsupported、mayUseNetwork=Unknown，无沙箱假承诺。
 - **未验证范围**：类型化 ProcessStep 的多步执行（随 T13 接入 LaunchExecutor）；CLI 协议本地实测（随 T13/T08 验证记录）；T08/T09 适配器复用同一模式。
 - **下一项**：T16（ScanCoordinator）或 T12（Desktop 纵切，前置 T06/T11 已就绪）。
+
+## T12 Desktop 纵切 — 2026-09-13 完成（实机运行验证通过）
+
+- **改动文件**：`src/GameLibrary.Desktop/MainWindow.xaml`/`MainWindow.xaml.cs`（重写：连接宿主、初始化库/注册库根/扫描、游戏卡片、候选审核、错误栏）、`App.xaml.cs`（--data-dir 透传）。
+- **验证结果**：累计 263 项测试通过；format 通过；Release 构建 0 警告 0 错误。**实机运行验证**：部署布局（宿主二进制与客户端同目录）→ CLI 驱动完整闭环（建库/注册根/两轮扫描/accept/ignore）→ Desktop 启动显示「已连接 · 库 Opened · 游戏 1 · 候选 4」→ UI 内点击「接受入库」GameB 入库（游戏 2）——UIA + 截图核验，报告：`artifacts/build-reports/2026-09-13-t12.md`。
+- **实现要点**：仅经 HostClient（EnsureStartedAsync + IpcRequest），与 CLI/MCP 同库同契约；扫描经 scan.start 作业轮询；审核操作带幂等键与 expectedRevision；库根授权以「注册库根」显式动作呈现；数据落库重启保留。
+- **未验证范围**：卡片规模与虚拟化（T15）；封面/图片（T14/T15）；托盘/通知（T18）；WPF 自动化 UI 测试未建立（本报告为实机 UIA 核验）。
+- **下一项**：T16（ScanCoordinator）、T08/T09（其余适配器）或 T14（Metadata/Assets）。
