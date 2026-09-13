@@ -106,5 +106,9 @@ public static class DatabaseMigrations
             )
             """),
         new DatabaseMigration(6, "ALTER TABLE games ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0"),
+        new DatabaseMigration(7, """
+            ALTER TABLE games ADD COLUMN translation_inherited INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE games ADD COLUMN translation_override TEXT;
+            """),
     ];
 }

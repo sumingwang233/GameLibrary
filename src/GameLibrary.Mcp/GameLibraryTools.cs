@@ -233,6 +233,70 @@ public static class GameLibraryTools
             ? InvokeOperationAsync("library.init", new { })
             : InvokeOperationAsync("library.init", new { idempotencyKey });
 
+    [McpServerTool(Name = "translation_get")]
+    [Description("查询游戏翻译策略：继承值（[toolNeed] 祖先）、用户覆盖与有效值分离返回。参数：gameId。")]
+    public static Task<CallToolResult> TranslationGet([Description("游戏 ID")] string gameId) =>
+        InvokeOperationAsync("translation.get", new { gameId });
+
+    [McpServerTool(Name = "translation_set")]
+    [Description("设置翻译策略用户覆盖（Auto/Required/NotRequired）；只写覆盖层，继承值不动。Required 不回退为直启。参数：gameId、override、expectedRevision、idempotencyKey。")]
+    public static Task<CallToolResult> TranslationSet(
+        [Description("游戏 ID")] string gameId,
+        [Description("Auto/Required/NotRequired（区分大小写）")] string overrideValue,
+        [Description("期望的游戏 Revision（乐观并发）")] int expectedRevision,
+        [Description("幂等键")] string? idempotencyKey = null) =>
+        InvokeOperationAsync("translation.set", new
+        {
+            idempotencyKey = idempotencyKey ?? $"transset-{Guid.NewGuid():N}",
+            gameId,
+            @override = overrideValue,
+            expectedRevision,
+        });
+
+    [McpServerTool(Name = "games_update")]
+    [Description("游戏受限字段 patch；当前仅支持 favorite。未知字段会被拒绝。参数：gameId、favorite、expectedRevision、idempotencyKey。")]
+    public static Task<CallToolResult> GamesUpdate(
+        [Description("游戏 ID")] string gameId,
+        [Description("收藏/取消收藏")] bool favorite,
+        [Description("期望的游戏 Revision")] int expectedRevision,
+        [Description("幂等键")] string? idempotencyKey = null) =>
+        InvokeOperationAsync("games.update", new
+        {
+            idempotencyKey = idempotencyKey ?? $"gameupd-{Guid.NewGuid():N}",
+            gameId,
+            favorite,
+            expectedRevision,
+        });
+
+    [McpServerTool(Name = "profiles_set_default")]
+    [Description("把某 Profile 设为该游戏默认（显式替代项语义：新默认清除旧默认）。参数：gameId、profileId、idempotencyKey。")]
+    public static Task<CallToolResult> ProfilesSetDefault(
+        [Description("游戏 ID")] string gameId,
+        [Description("Profile ID")] string profileId,
+        [Description("幂等键")] string? idempotencyKey = null) =>
+        InvokeOperationAsync("profiles.set_default", new
+        {
+            idempotencyKey = idempotencyKey ?? $"setdef-{Guid.NewGuid():N}",
+            gameId,
+            profileId,
+        });
+
+    [McpServerTool(Name = "profiles_remove")]
+    [Description("移除非默认 Profile；默认配置需先用 profiles_set_default 指定替代项。参数：profileId、idempotencyKey。")]
+    public static Task<CallToolResult> ProfilesRemove(
+        [Description("Profile ID")] string profileId,
+        [Description("幂等键")] string? idempotencyKey = null) =>
+        InvokeOperationAsync("profiles.remove", new
+        {
+            idempotencyKey = idempotencyKey ?? $"rmprof-{Guid.NewGuid():N}",
+            profileId,
+        });
+
+    [McpServerTool(Name = "profiles_validate")]
+    [Description("校验 Profile：入口/工作目录存在性；不执行任何程序。参数：profileId。")]
+    public static Task<CallToolResult> ProfilesValidate([Description("Profile ID")] string profileId) =>
+        InvokeOperationAsync("profiles.validate", new { profileId });
+
     [McpServerTool(Name = "profiles_create")]
     [Description("创建启动配置（最小集）：绝对 exe、argv 数组、绝对 cwd。参数：idempotencyKey、gameId、executablePath、argv、cwd。")]
     public static Task<CallToolResult> ProfilesCreate(

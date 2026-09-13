@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Text.Json;
 using GameLibrary.Contracts;
 using GameLibrary.Contracts.Ipc;
+using GameLibrary.Domain.Classification;
 using GameLibrary.Domain.Detection;
 using GameLibrary.Domain.Detection.Detectors;
 using GameLibrary.Host.Observability;
@@ -51,6 +52,10 @@ public sealed class OperationDispatcher
         "launch.execute",
         "profiles.create",
         "profiles.update",
+        "profiles.set_default",
+        "profiles.remove",
+        "translation.set",
+        "games.update",
         "scan.start",
         "candidates.accept",
         "candidates.defer",
@@ -425,6 +430,12 @@ public sealed class OperationDispatcher
         "profiles.list" => ProfilesList(request),
         "profiles.get" => ProfilesGet(request),
         "profiles.update" => ProfilesUpdate(request),
+        "profiles.set_default" => ProfilesSetDefault(request),
+        "profiles.remove" => ProfilesRemove(request),
+        "profiles.validate" => ProfilesValidate(request),
+        "translation.get" => TranslationGet(request),
+        "translation.set" => TranslationSet(request),
+        "games.update" => GamesUpdate(request),
         "launch.plan" => LaunchPlanHandler(request),
         "launch.execute" => LaunchExecute(request),
         "launch.status" => LaunchStatus(request),
@@ -942,6 +953,7 @@ public sealed class OperationDispatcher
                     Engine = TopEngine(current.PayloadJson),
                     EntryPath = TopEntry(current.PayloadJson),
                     Membership = "active",
+                    TranslationInherited = RequiredByToolNeed(current.PayloadJson),
                     AcceptedUtc = utcNow,
                     UpdatedUtc = utcNow,
                 });
@@ -1059,6 +1071,23 @@ public sealed class OperationDispatcher
         }
     }
 
+    /// <summary>从候选 payload 读取祖先 [toolNeed] 继承标记（accept 时落库到 games.translation_inherited）。</summary>
+    private static bool RequiredByToolNeed(string payloadJson)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(payloadJson);
+            return document.RootElement
+                .GetProperty("classification")
+                .GetProperty("requiredByToolNeed")
+                .GetBoolean();
+        }
+        catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
     private Envelope<object> GamesList(IpcRequest request)
     {
         var store = _state.Library.Store;
@@ -1129,6 +1158,331 @@ public sealed class OperationDispatcher
             Ok = true,
             Status = OperationStatus.Completed,
             Data = GameDto(store, game),
+        };
+    }
+
+    /// <summary>
+    /// games.update（T13 补齐）：受限字段 patch。本步仅开放 favorite；
+    /// 参数中出现任何未声明字段一律拒绝（契约 4：写请求只允许 schema 声明的字段）。
+    /// </summary>
+    private Envelope<object> GamesUpdate(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!TryGetStringParameter(request, "gameId", out var gameId))
+        {
+            return InvalidArgument(request, "缺少 gameId 参数");
+        }
+
+        if (!TryGetIntParameter(request, "expectedRevision", out var expectedRevision) || expectedRevision is null)
+        {
+            return InvalidArgument(request, "缺少 expectedRevision 参数");
+        }
+
+        if (request.Parameters is not { ValueKind: JsonValueKind.Object } parameters)
+        {
+            return InvalidArgument(request, "缺少 patch 字段");
+        }
+
+        var declared = new HashSet<string>(StringComparer.Ordinal)
+            { "gameId", "expectedRevision", "idempotencyKey", "favorite" };
+        var unknown = parameters.EnumerateObject()
+            .Where(p => !declared.Contains(p.Name))
+            .Select(p => p.Name)
+            .ToArray();
+        if (unknown.Length > 0)
+        {
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = ErrorCodes.InvalidArgument,
+                    Message = $"未知 patch 字段：{string.Join(", ", unknown)}；games.update 当前仅支持 favorite",
+                    Retryable = false,
+                },
+            };
+        }
+
+        if (!parameters.TryGetProperty("favorite", out var favoriteElement)
+            || favoriteElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+        {
+            return InvalidArgument(request, "缺少 favorite 布尔字段（games.update 当前仅支持 favorite patch）");
+        }
+
+        var game = store.TryGetGame(gameId);
+        if (game is null)
+        {
+            return NotFound(request, $"游戏不存在：{gameId}");
+        }
+
+        var newRevision = store.SetFavorite(gameId, favoriteElement.ValueKind == JsonValueKind.True, expectedRevision.Value, DateTime.UtcNow);
+        if (newRevision is null)
+        {
+            var latest = store.TryGetGame(gameId);
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = ErrorCodes.RevisionConflict,
+                    Message = $"游戏 Revision 不一致：期望 {expectedRevision}，当前 {latest?.Revision}",
+                    Retryable = false,
+                    CurrentRevision = latest?.Revision,
+                },
+            };
+        }
+
+        var updatedGame = store.TryGetGame(gameId)!;
+        _state.Events.Publish("game.updated", $"game:{gameId}", new { gameId, revision = newRevision }, DateTime.UtcNow);
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new { gameId, favorite = updatedGame.Favorite, revision = newRevision.Value },
+        };
+    }
+
+    /// <summary>translation.get：继承值与用户覆盖分离返回；有效值 = 覆盖优先（策划案 7.4）。</summary>
+    private Envelope<object> TranslationGet(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!TryGetStringParameter(request, "gameId", out var gameId))
+        {
+            return InvalidArgument(request, "缺少 gameId 参数");
+        }
+
+        var game = store.TryGetGame(gameId);
+        if (game is null)
+        {
+            return NotFound(request, $"游戏不存在：{gameId}");
+        }
+
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = TranslationDto(game),
+        };
+    }
+
+    /// <summary>
+    /// translation.set：只写用户覆盖层（Auto/Required/NotRequired），继承值不动；
+    /// Required 不因覆盖缺失而回退为直启（回退需显式 NotRequired）。
+    /// </summary>
+    private Envelope<object> TranslationSet(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!TryGetStringParameter(request, "gameId", out var gameId))
+        {
+            return InvalidArgument(request, "缺少 gameId 参数");
+        }
+
+        if (!TryGetStringParameter(request, "override", out var overrideText)
+            || !Enum.TryParse<TranslationRequirement>(overrideText, ignoreCase: false, out var overrideValue))
+        {
+            return InvalidArgument(request, "override 必须是 Auto/Required/NotRequired（区分大小写）");
+        }
+
+        if (!TryGetIntParameter(request, "expectedRevision", out var expectedRevision) || expectedRevision is null)
+        {
+            return InvalidArgument(request, "缺少 expectedRevision 参数");
+        }
+
+        var game = store.TryGetGame(gameId);
+        if (game is null)
+        {
+            return NotFound(request, $"游戏不存在：{gameId}");
+        }
+
+        var storedOverride = overrideValue == TranslationRequirement.Auto ? null : overrideValue.ToString();
+        var newRevision = store.SetTranslationOverride(gameId, storedOverride, expectedRevision.Value, DateTime.UtcNow);
+        if (newRevision is null)
+        {
+            var latest = store.TryGetGame(gameId);
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = ErrorCodes.RevisionConflict,
+                    Message = $"游戏 Revision 不一致：期望 {expectedRevision}，当前 {latest?.Revision}",
+                    Retryable = false,
+                    CurrentRevision = latest?.Revision,
+                },
+            };
+        }
+
+        var updatedGame = store.TryGetGame(gameId)!;
+        _state.Events.Publish("game.updated", $"game:{gameId}", new { gameId, revision = newRevision, translation = TranslationDto(updatedGame) }, DateTime.UtcNow);
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = TranslationDto(updatedGame),
+        };
+    }
+
+    private static object TranslationDto(GameCard game)
+    {
+        var inherited = game.TranslationInherited
+            ? TranslationRequirement.Required
+            : TranslationRequirement.Auto;
+        var userOverride = game.TranslationOverride is null
+            ? TranslationRequirement.Auto
+            : Enum.Parse<TranslationRequirement>(game.TranslationOverride, ignoreCase: false);
+        var policy = TranslationPolicy.FromInheritance(
+            new FolderClassification([], inherited == TranslationRequirement.Required, game.TranslationInherited ? "[toolNeed]" : null, ClassificationRules.CurrentVersion))
+            with
+        { UserOverride = userOverride };
+        return new
+        {
+            gameId = game.GameId,
+            userOverride = userOverride.ToString(),
+            inherited = inherited.ToString(),
+            inheritedFrom = game.TranslationInherited ? "[toolNeed]" : null,
+            effective = policy.Effective.ToString(),
+            isRequired = policy.IsRequired,
+            revision = game.Revision,
+        };
+    }
+
+    private Envelope<object> ProfilesSetDefault(IpcRequest request)
+    {
+        if (!TryGetStringParameter(request, "gameId", out var gameId)
+            || !TryGetStringParameter(request, "profileId", out var profileId))
+        {
+            return InvalidArgument(request, "profiles set_default 需要 gameId、profileId 参数");
+        }
+
+        try
+        {
+            var updated = _state.Launches.SetDefault(gameId, profileId);
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = true,
+                Status = OperationStatus.Completed,
+                Data = ProfileDto(updated),
+            };
+        }
+        catch (GameLibrary.Host.Launching.LaunchException ex)
+        {
+            return LaunchError(request, ex);
+        }
+    }
+
+    private Envelope<object> ProfilesRemove(IpcRequest request)
+    {
+        if (!TryGetStringParameter(request, "profileId", out var profileId))
+        {
+            return InvalidArgument(request, "缺少 profileId 参数");
+        }
+
+        try
+        {
+            var removed = _state.Launches.RemoveProfile(profileId);
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = true,
+                Status = OperationStatus.Completed,
+                Data = new { profileId = removed.ProfileId, gameId = removed.GameId, removed = true },
+            };
+        }
+        catch (GameLibrary.Host.Launching.LaunchException ex) when (ex.Code == ErrorCodes.InvalidArgument)
+        {
+            // 默认配置移除需明确替代项（契约 3.1）：给出可执行修复入口。
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = ex.Code,
+                    Message = ex.Message,
+                    Retryable = false,
+                    RecoveryOperation = "profiles.set_default",
+                },
+            };
+        }
+        catch (GameLibrary.Host.Launching.LaunchException ex)
+        {
+            return LaunchError(request, ex);
+        }
+    }
+
+    private Envelope<object> ProfilesValidate(IpcRequest request)
+    {
+        if (!TryGetStringParameter(request, "profileId", out var profileId))
+        {
+            return InvalidArgument(request, "缺少 profileId 参数");
+        }
+
+        var profile = _state.Launches.GetProfile(profileId);
+        if (profile is null)
+        {
+            return NotFound(request, $"Profile 不存在：{profileId}");
+        }
+
+        var issues = new List<object>();
+        if (!File.Exists(profile.ExecutablePath))
+        {
+            issues.Add(new { code = "EntryMissing", detail = $"入口不存在：{profile.ExecutablePath}" });
+        }
+
+        if (!Directory.Exists(profile.WorkingDirectory))
+        {
+            issues.Add(new { code = "WorkingDirectoryMissing", detail = $"工作目录不存在：{profile.WorkingDirectory}" });
+        }
+
+        if (profile.ToolId is not null)
+        {
+            issues.Add(new
+            {
+                code = "ToolUnverified",
+                detail = $"绑定工具 {profile.ToolId} 的能力验证状态用 verification.list 查询；validate 不执行工具",
+            });
+        }
+
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new
+            {
+                profileId = profile.ProfileId,
+                gameId = profile.GameId,
+                available = issues.Count == 0,
+                toolId = profile.ToolId,
+                isDefault = profile.IsDefault,
+                issues,
+            },
         };
     }
 
@@ -2503,7 +2857,10 @@ public sealed class OperationDispatcher
             };
         }
 
-        var profile = _state.Launches.AddProfile(gameId, executablePath, argv, cwd);
+        // T13：可选工具绑定与默认标记（isDefault 首个即默认，替代项走 profiles.set_default）。
+        TryGetStringParameter(request, "toolId", out var toolId);
+        TryGetBoolParameter(request, "isDefault", out var defaultFlag);
+        var profile = _state.Launches.AddProfile(gameId, executablePath, argv, cwd, toolId.Length > 0 ? toolId : null, defaultFlag == true);
         return new Envelope<object>
         {
             RequestId = request.RequestId,
@@ -2634,6 +2991,32 @@ public sealed class OperationDispatcher
         try
         {
             var plan = _state.Launches.CreatePlan(gameId, profileId);
+            var block = TranslationRouteBlock(request, gameId, plan.ProfileId);
+            if (block is not null)
+            {
+                // 预览无副作用：计划照常返回，但明确 needsUserAction 与后续步骤，不让 agent 误以为可直接执行。
+                return new Envelope<object>
+                {
+                    RequestId = request.RequestId,
+                    Ok = false,
+                    Status = OperationStatus.NeedsUserAction,
+                    Data = plan.ToDto(),
+                    NextActions =
+                    [
+                        new NextAction
+                        {
+                            OperationId = "tools.discover",
+                            Reason = "游戏翻译策略为 Required；目标 Profile 未绑定翻译工具，直启会被拒绝",
+                        },
+                        new NextAction
+                        {
+                            OperationId = "translation.set",
+                            Reason = "如需原文直启，请显式将策略覆盖为 NotRequired（用户主动选择，不静默回退）",
+                        },
+                    ],
+                };
+            }
+
             return new Envelope<object>
             {
                 RequestId = request.RequestId,
@@ -2648,6 +3031,68 @@ public sealed class OperationDispatcher
         }
     }
 
+    /// <summary>
+    /// T13 Required 不回退（LA-07）：游戏翻译策略有效值为 Required 且目标 Profile 无工具绑定时，
+    /// 返回阻断信封；null 表示翻译路由可直启（策略非 Required，或 Profile 已绑定工具）。
+    /// </summary>
+    private Envelope<object>? TranslationRouteBlock(IpcRequest request, string gameId, string resolvedProfileId)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return null;
+        }
+
+        var game = store.TryGetGame(gameId);
+        var profile = _state.Launches.GetProfile(resolvedProfileId);
+        if (game is null || profile is null)
+        {
+            return null;
+        }
+
+        var inherited = game.TranslationInherited
+            ? TranslationRequirement.Required
+            : TranslationRequirement.Auto;
+        var userOverride = game.TranslationOverride is null
+            ? TranslationRequirement.Auto
+            : Enum.Parse<TranslationRequirement>(game.TranslationOverride, ignoreCase: false);
+        if ((userOverride != TranslationRequirement.Auto ? userOverride : inherited) != TranslationRequirement.Required)
+        {
+            return null;
+        }
+
+        if (profile.ToolId is not null)
+        {
+            return null;
+        }
+
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = false,
+            Status = OperationStatus.Failed,
+            Error = new RequestError
+            {
+                Code = ErrorCodes.TranslationRouteUnavailable,
+                Message = $"游戏翻译策略为 Required，而 Profile {resolvedProfileId} 是普通直启（无工具绑定）；不静默回退原文直启",
+                Retryable = false,
+            },
+            NextActions =
+            [
+                new NextAction
+                {
+                    OperationId = "tools.discover",
+                    Reason = "发现并绑定翻译工具（MTool/RenpyThief/播放器/steam）后创建翻译 Profile",
+                },
+                new NextAction
+                {
+                    OperationId = "translation.set",
+                    Reason = "用户主动选择原文直启时，显式将策略覆盖为 NotRequired",
+                },
+            ],
+        };
+    }
+
     private Envelope<object> LaunchExecute(IpcRequest request)
     {
         if (!TryGetStringParameter(request, "idempotencyKey", out var idempotencyKey))
@@ -2658,6 +3103,28 @@ public sealed class OperationDispatcher
         TryGetStringParameter(request, "planId", out var planId);
         TryGetStringParameter(request, "profileId", out var profileId);
         TryGetIntParameter(request, "expectedRevision", out var expectedRevision);
+
+        // T13 Required 不回退：执行前解析目标 Profile（显式 profileId 或计划内的），
+        // 游戏 Required 且该 Profile 无工具绑定 → 拒绝执行（LA-07），不产生尝试。
+        var resolvedProfileId = profileId.Length > 0
+            ? profileId
+            : planId.Length > 0
+                ? _state.Launches.GetPlanProfileId(planId)
+                : null;
+        if (resolvedProfileId is not null)
+        {
+            var resolvedGameId = profileId.Length > 0
+                ? _state.Launches.GetProfile(resolvedProfileId)?.GameId
+                : _state.Launches.GetPlanGameId(planId);
+            if (resolvedGameId is not null)
+            {
+                var block = TranslationRouteBlock(request, resolvedGameId, resolvedProfileId);
+                if (block is not null)
+                {
+                    return block;
+                }
+            }
+        }
 
         try
         {
@@ -2734,6 +3201,8 @@ public sealed class OperationDispatcher
         executablePath = profile.ExecutablePath,
         argv = profile.Arguments,
         cwd = profile.WorkingDirectory,
+        toolId = profile.ToolId,
+        isDefault = profile.IsDefault,
         revision = profile.Revision,
     };
 

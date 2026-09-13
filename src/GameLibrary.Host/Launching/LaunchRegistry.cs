@@ -5,8 +5,8 @@ using GameLibrary.Contracts;
 namespace GameLibrary.Host.Launching;
 
 /// <summary>
-/// 启动配置（T06 最小集）：绝对 exe、argv 数组、绝对 cwd。
-/// 完整 Profile/工具绑定/翻译策略/默认配置语义随 T13；此处只承载启动计划与执行所需字段。
+/// 启动配置（T13 扩展）：绝对 exe、argv 数组、绝对 cwd、每游戏唯一默认标记、可选工具绑定。
+/// ToolId 非空表示该 Profile 经翻译工具启动；翻译 Required 的游戏默认走翻译路由（不回退直启）。
 /// </summary>
 public sealed record LaunchProfile
 {
@@ -19,6 +19,12 @@ public sealed record LaunchProfile
     public required IReadOnlyList<string> Arguments { get; init; }
 
     public required string WorkingDirectory { get; init; }
+
+    /// <summary>绑定工具（MTool/RenpyThief/播放器/steam 等）；null 表示普通直启。</summary>
+    public string? ToolId { get; init; }
+
+    /// <summary>每游戏最多一个默认 Profile；games 层 launch 无 profileId 时使用它。</summary>
+    public bool IsDefault { get; init; }
 
     /// <summary>更新即递增；使引用旧 Revision 的 LaunchPlan 失效（PlanStale）。</summary>
     public int Revision { get; init; } = 1;
@@ -125,7 +131,13 @@ public sealed class LaunchRegistry
     private readonly ConcurrentDictionary<string, string> _receiptByKey = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, string> _activeByGame = new(StringComparer.Ordinal);
 
-    public LaunchProfile AddProfile(string gameId, string executablePath, IReadOnlyList<string> arguments, string workingDirectory)
+    public LaunchProfile AddProfile(
+        string gameId,
+        string executablePath,
+        IReadOnlyList<string> arguments,
+        string workingDirectory,
+        string? toolId = null,
+        bool isDefault = false)
     {
         var profile = new LaunchProfile
         {
@@ -134,20 +146,40 @@ public sealed class LaunchRegistry
             ExecutablePath = executablePath,
             Arguments = arguments,
             WorkingDirectory = workingDirectory,
+            ToolId = toolId,
+            IsDefault = isDefault,
             Revision = 1,
         };
         _profiles[profile.ProfileId] = profile;
+        if (isDefault)
+        {
+            ClearOtherDefaults(gameId, profile.ProfileId);
+        }
+
         return profile;
     }
 
     public LaunchProfile? GetProfile(string profileId) =>
         _profiles.TryGetValue(profileId, out var profile) ? profile : null;
 
+    /// <summary>计划归属的 ProfileId（launch.execute 阻断检查用）；计划不存在返回 null。</summary>
+    public string? GetPlanProfileId(string planId) =>
+        _plans.TryGetValue(planId, out var plan) ? plan.ProfileId : null;
+
+    /// <summary>计划归属的 GameId；计划不存在返回 null。</summary>
+    public string? GetPlanGameId(string planId) =>
+        _plans.TryGetValue(planId, out var plan) ? plan.GameId : null;
+
     public IReadOnlyList<LaunchProfile> ListProfiles(string? gameId = null) =>
         _profiles.Values
             .Where(p => gameId is null || string.Equals(p.GameId, gameId, StringComparison.Ordinal))
-            .OrderBy(p => p.ProfileId, StringComparer.Ordinal)
+            .OrderBy(p => p.IsDefault ? 0 : 1)
+            .ThenBy(p => p.ProfileId, StringComparer.Ordinal)
             .ToArray();
+
+    /// <summary>该游戏当前默认 Profile；无默认时为 null。</summary>
+    public LaunchProfile? GetDefaultProfile(string gameId) =>
+        ListProfiles(gameId).FirstOrDefault(p => p.IsDefault);
 
     public LaunchProfile UpdateProfile(string profileId, string executablePath, IReadOnlyList<string> arguments, string workingDirectory)
     {
@@ -161,6 +193,66 @@ public sealed class LaunchRegistry
         };
         _profiles[profileId] = updated;
         return updated;
+    }
+
+    /// <summary>
+    /// 设为该游戏默认（profiles.set_default）：显式替代项语义——新默认生效即清除旧默认。
+    /// Profile 不存在或属于其他游戏抛 <see cref="LaunchException"/>。
+    /// </summary>
+    public LaunchProfile SetDefault(string gameId, string profileId)
+    {
+        var profile = _profiles.TryGetValue(profileId, out var p) ? p : null;
+        if (profile is null || !string.Equals(profile.GameId, gameId, StringComparison.Ordinal))
+        {
+            throw new LaunchException(ErrorCodes.NotFound, $"Profile 不存在或不属于该游戏：{profileId}");
+        }
+
+        if (!profile.IsDefault)
+        {
+            var updated = profile with { IsDefault = true, Revision = profile.Revision + 1 };
+            _profiles[profileId] = updated;
+            ClearOtherDefaults(gameId, profileId);
+            return updated;
+        }
+
+        return profile;
+    }
+
+    /// <summary>
+    /// 移除非默认 Profile（profiles.remove）。默认 Profile 需先显式 set_default 替代项，
+    /// 这里直接拒绝（契约 3.1：默认配置移除需明确替代项）。
+    /// </summary>
+    public LaunchProfile RemoveProfile(string profileId)
+    {
+        if (!_profiles.TryGetValue(profileId, out var profile))
+        {
+            throw new LaunchException(ErrorCodes.NotFound, $"Profile 不存在：{profileId}");
+        }
+
+        if (profile.IsDefault)
+        {
+            throw new LaunchException(
+                ErrorCodes.InvalidArgument,
+                $"Profile {profileId} 是该游戏的默认配置；先用 profiles.set_default 指定替代项后才能移除");
+        }
+
+        _profiles.TryRemove(profileId, out _);
+        return profile;
+    }
+
+    private void ClearOtherDefaults(string gameId, string keepProfileId)
+    {
+        foreach (var other in _profiles.Values)
+        {
+            if (!string.Equals(other.GameId, gameId, StringComparison.Ordinal)
+                || string.Equals(other.ProfileId, keepProfileId, StringComparison.Ordinal)
+                || !other.IsDefault)
+            {
+                continue;
+            }
+
+            _profiles[other.ProfileId] = other with { IsDefault = false, Revision = other.Revision + 1 };
+        }
     }
 
     /// <summary>生成纯数据计划；Profile 不存在或 exe/cwd 不在时直接失败，不产生计划。</summary>

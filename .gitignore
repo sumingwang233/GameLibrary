@@ -27,3 +27,6 @@ TestResults/
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# 平台会话导出记录（用户文档，不入库）
+接手项目并上传至_GitHub_*.md

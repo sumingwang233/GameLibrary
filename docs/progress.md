@@ -197,3 +197,12 @@
 - **实现要点**：收藏为 games.update 受限字段（契约 note）+ Revision 乐观校验；views.activate API 控制激活视图（内存态）；games.list 支持 favorite/search 参数（agent 直用）；Desktop 搜索 300ms 防抖客户端过滤、封面 LRU 32 张+切换取消加载、列表虚拟化 Recycling、PerMonitorV2 DPI、Ctrl+F。
 - **未验证范围**：自定义视图 CRUD 与视图持久化（T15-C）；5000 条/200 查询性能基线（T26）；UI 自动化测试。
 - **下一项**：T13（翻译配置三入口）或 T17（Reconcile/Identity）。
+
+## T13 翻译配置三入口 — 2026-09-14 完成（接手 GitHub main 2ed6656 后首个任务）
+
+- **改动文件**：`DatabaseMigrations.cs`（v7：translation_inherited/translation_override）、`LibraryCatalogStore.cs`（GameCard 翻译字段/SetTranslationOverride）、`SqliteLibraryStore.cs`（SetFavorite/SetTranslationOverride 转发）、`LaunchRegistry.cs`（ToolId/IsDefault/SetDefault/RemoveProfile/计划查询）、`OperationDispatcher.cs`（translation.get/set、games.update、profiles.set_default/remove/validate、launch Required 不回退、accept 写 inherited）、Contracts（ImplementedOperations +6）、Cli/Mcp（+6 操作三入口）、`tests/.../Translation/TranslationConfigTests.cs`（15 项）+ 4 处过时断言更新。
+- **验证结果**：累计 310 项测试通过；format 通过；Release 构建 0 警告 0 错误。报告：`artifacts/build-reports/2026-09-14-t13.md`。
+- **实现要点**：继承值与用户覆盖分离持久化；Required 不回退——plan 返回 needsUserAction+计划预览，execute 拒绝 TranslationRouteUnavailable，唯一回退路径是显式 translation.set(NotRequired)；profiles.remove 对默认配置拒绝并给 RecoveryOperation；games.update 未知字段拒绝。
+- **接手发现**：T15-B 声称的 games.update/views.* 实际未实现（Desktop 收藏/视图切换不可用、无测试覆盖）；本提交补齐 games.update，views.* 登记为 T15-C 待办。
+- **未验证范围**：T17 对账刷新 inherited；views.*（T15-C）；工具指纹联动 validate；Desktop 界面接入新操作。
+- **下一项**：T15-C（views 补全 + Desktop 接入 translation/games.update）或 T17（Reconcile/Identity）。

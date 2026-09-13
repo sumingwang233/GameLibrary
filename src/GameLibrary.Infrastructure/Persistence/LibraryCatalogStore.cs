@@ -49,6 +49,12 @@ public sealed record GameCard
 
     public bool Favorite { get; init; }
 
+    /// <summary>祖先 [toolNeed] 继承的 Required（accept 时落库；T17 对账后更新）。</summary>
+    public bool TranslationInherited { get; init; }
+
+    /// <summary>用户覆盖：Auto/Required/NotRequired 或 null（=Auto 未覆盖）。继承值与覆盖值分离持久化。</summary>
+    public string? TranslationOverride { get; init; }
+
     public int Revision { get; init; } = 1;
 
     public required DateTime AcceptedUtc { get; init; }
@@ -239,8 +245,8 @@ public static class LibraryCatalogStore
         using var command = connection.CreateCommand();
         command.CommandText = """
             INSERT INTO games
-                (game_id, title, root_path, kind, engine, entry_path, membership, favorite, revision, accepted_utc, updated_utc)
-            VALUES ($id, $title, $root, $kind, $engine, $entry, 'active', 0, 1, $accepted, $accepted)
+                (game_id, title, root_path, kind, engine, entry_path, membership, favorite, translation_inherited, revision, accepted_utc, updated_utc)
+            VALUES ($id, $title, $root, $kind, $engine, $entry, 'active', 0, $inherited, 1, $accepted, $accepted)
             """;
         command.Parameters.AddWithValue("$id", game.GameId);
         command.Parameters.AddWithValue("$title", game.Title);
@@ -248,6 +254,7 @@ public static class LibraryCatalogStore
         command.Parameters.AddWithValue("$kind", game.Kind);
         command.Parameters.AddWithValue("$engine", (object?)game.Engine ?? DBNull.Value);
         command.Parameters.AddWithValue("$entry", (object?)game.EntryPath ?? DBNull.Value);
+        command.Parameters.AddWithValue("$inherited", game.TranslationInherited ? 1 : 0);
         command.Parameters.AddWithValue("$accepted", game.AcceptedUtc.ToString("O", CultureInfo.InvariantCulture));
         command.ExecuteNonQuery();
     }
@@ -256,7 +263,7 @@ public static class LibraryCatalogStore
     {
         using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT game_id, title, root_path, kind, engine, entry_path, membership, favorite, revision, accepted_utc, updated_utc
+            SELECT game_id, title, root_path, kind, engine, entry_path, membership, favorite, revision, accepted_utc, updated_utc, translation_inherited, translation_override
             FROM games WHERE game_id = $id
             """;
         command.Parameters.AddWithValue("$id", gameId);
@@ -269,7 +276,7 @@ public static class LibraryCatalogStore
         var result = new List<GameCard>();
         using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT game_id, title, root_path, kind, engine, entry_path, membership, favorite, revision, accepted_utc, updated_utc
+            SELECT game_id, title, root_path, kind, engine, entry_path, membership, favorite, revision, accepted_utc, updated_utc, translation_inherited, translation_override
             FROM games ORDER BY accepted_utc, game_id
             """;
         using var reader = command.ExecuteReader();
@@ -285,7 +292,7 @@ public static class LibraryCatalogStore
     {
         using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT game_id, title, root_path, kind, engine, entry_path, membership, favorite, revision, accepted_utc, updated_utc
+            SELECT game_id, title, root_path, kind, engine, entry_path, membership, favorite, revision, accepted_utc, updated_utc, translation_inherited, translation_override
             FROM games WHERE root_path = $root AND membership = 'active'
             """;
         command.Parameters.AddWithValue("$root", rootPath);
@@ -327,6 +334,53 @@ public static class LibraryCatalogStore
                 WHERE game_id = $game
                 """;
             update.Parameters.AddWithValue("$favorite", favorite ? 1 : 0);
+            update.Parameters.AddWithValue("$now", utcNow.ToString("O", CultureInfo.InvariantCulture));
+            update.Parameters.AddWithValue("$game", gameId);
+            update.ExecuteNonQuery();
+        }
+
+        transaction.Commit();
+        return currentRevision + 1;
+    }
+
+    /// <summary>
+    /// 翻译策略用户覆盖（translation.set）：仅写 translation_override 列，继承列不动。
+    /// 期望 Revision 对齐 games.revision，事务内更新并递增；游戏不存在或冲突返回 null。
+    /// </summary>
+    public static int? SetTranslationOverride(
+        SqliteConnection connection, string gameId, string? overrideValue, int expectedRevision, DateTime utcNow)
+    {
+        using var transaction = (SqliteTransaction)connection.BeginTransaction();
+        int currentRevision;
+        using (var select = connection.CreateCommand())
+        {
+            select.Transaction = transaction;
+            select.CommandText = "SELECT revision FROM games WHERE game_id = $game";
+            select.Parameters.AddWithValue("$game", gameId);
+            var result = select.ExecuteScalar();
+            if (result is null)
+            {
+                transaction.Rollback();
+                return null;
+            }
+
+            currentRevision = Convert.ToInt32(result);
+        }
+
+        if (currentRevision != expectedRevision)
+        {
+            transaction.Rollback();
+            return null;
+        }
+
+        using (var update = connection.CreateCommand())
+        {
+            update.Transaction = transaction;
+            update.CommandText = """
+                UPDATE games SET translation_override = $override, revision = revision + 1, updated_utc = $now
+                WHERE game_id = $game
+                """;
+            update.Parameters.AddWithValue("$override", (object?)overrideValue ?? DBNull.Value);
             update.Parameters.AddWithValue("$now", utcNow.ToString("O", CultureInfo.InvariantCulture));
             update.Parameters.AddWithValue("$game", gameId);
             update.ExecuteNonQuery();
@@ -483,5 +537,7 @@ public static class LibraryCatalogStore
         Revision = reader.GetInt32(8),
         AcceptedUtc = DateTime.Parse(reader.GetString(9), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
         UpdatedUtc = DateTime.Parse(reader.GetString(10), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+        TranslationInherited = reader.GetInt64(11) == 1,
+        TranslationOverride = reader.IsDBNull(12) ? null : reader.GetString(12),
     };
 }

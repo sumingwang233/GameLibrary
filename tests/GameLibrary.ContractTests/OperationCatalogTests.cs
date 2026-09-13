@@ -150,9 +150,11 @@ public sealed class OperationCatalogTests
     [Fact]
     public void SchemaFiles_AreNotYetClaimedAsImplemented()
     {
-        // T06 已交付 launch.*（守卫随之解除）；games.update 仍属 T14+，schema 尚未开始。
+        // T13 已交付 games.update/translation.*/profiles 收尾；backups.*/views.* 仍属 T27/T15-C。
         var implemented = OperationCatalog.ImplementedOperations;
-        Assert.DoesNotContain("games.update", implemented);
-        Assert.Contains("launch.execute", implemented);
+        Assert.DoesNotContain("backups.create", implemented);
+        Assert.DoesNotContain("views.activate", implemented);
+        Assert.Contains("games.update", implemented);
+        Assert.Contains("translation.set", implemented);
     }
 }

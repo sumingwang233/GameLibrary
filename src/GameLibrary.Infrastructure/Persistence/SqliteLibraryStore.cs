@@ -72,6 +72,14 @@ public sealed class SqliteLibraryStore : IAsyncDisposable
 
     public void InsertIgnoreRule(IgnoreRule rule) => LibraryCatalogStore.InsertIgnoreRule(_connection, rule);
 
+    // T13 收藏与翻译策略转发。
+
+    public int? SetFavorite(string gameId, bool favorite, int expectedRevision, DateTime utcNow) =>
+        LibraryCatalogStore.SetFavorite(_connection, gameId, favorite, expectedRevision, utcNow);
+
+    public int? SetTranslationOverride(string gameId, string? overrideValue, int expectedRevision, DateTime utcNow) =>
+        LibraryCatalogStore.SetTranslationOverride(_connection, gameId, overrideValue, expectedRevision, utcNow);
+
     public IReadOnlyList<IgnoreRule> ListIgnoreRules() => LibraryCatalogStore.ListIgnoreRules(_connection);
 
     public IReadOnlyList<string> RemoveIgnoreRule(string ignoreId) =>

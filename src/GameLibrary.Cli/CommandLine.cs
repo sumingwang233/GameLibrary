@@ -94,6 +94,18 @@ internal sealed record CommandLine
 
     public int? Height { get; private init; }
 
+    /// <summary>translation set 的 --override 参数（Auto/Required/NotRequired）。</summary>
+    public string? Override { get; private init; }
+
+    /// <summary>games update 的 --favorite/--unfavorite 标记。</summary>
+    public bool? Favorite { get; private init; }
+
+    /// <summary>profiles create 的 --tool-id 参数（可选工具绑定）。</summary>
+    public string? ToolId { get; private init; }
+
+    /// <summary>profiles create 的 --is-default 标记。</summary>
+    public bool IsDefault { get; private init; }
+
     public bool NoStart { get; private init; }
 
     public int TimeoutSeconds { get; private init; } = 30;
@@ -134,6 +146,10 @@ internal sealed record CommandLine
         int? width = null;
         int? height = null;
         int? expectedRevision = null;
+        string? overrideValue = null;
+        bool? favorite = null;
+        string? toolId = null;
+        var isDefault = false;
         var argList = new List<string>();
         var noStart = false;
         var timeout = 30;
@@ -226,6 +242,21 @@ internal sealed record CommandLine
                     height = hValue;
                     i++;
                     break;
+                case "--override" when i + 1 < args.Length:
+                    overrideValue = args[++i];
+                    break;
+                case "--favorite":
+                    favorite = true;
+                    break;
+                case "--unfavorite":
+                    favorite = false;
+                    break;
+                case "--tool-id" when i + 1 < args.Length:
+                    toolId = args[++i];
+                    break;
+                case "--is-default":
+                    isDefault = true;
+                    break;
                 case "--no-start":
                     noStart = true;
                     break;
@@ -250,7 +281,8 @@ internal sealed record CommandLine
             "scan" when verb is "start" or "status" or "cancel" or "coverage" or "inspect" => $"scan.{verb}",
             "roots" when verb is "add" or "list" => $"roots.{verb}",
             "candidates" when verb is "list" or "get" or "accept" or "defer" or "ignore" => $"candidates.{verb}",
-            "games" when verb is "list" or "get" => $"games.{verb}",
+            "games" when verb is "list" or "get" or "update" => $"games.{verb}",
+            "translation" when verb is "get" or "set" => $"translation.{verb}",
             "diagnostics" when verb is "status" or "logs" => $"diagnostics.{verb}",
             "tools" when verb == "discover" => "tools.discover",
             "events" when verb == "read" => "events.read",
@@ -258,7 +290,8 @@ internal sealed record CommandLine
             "fields" when verb == "set" => "fields.set",
             "assets" when verb is "import" or "list" or "get" => $"assets.{verb}",
             "ignores" when verb is "list" or "create" or "remove" => $"ignores.{verb}",
-            "profiles" when verb is "create" or "list" or "get" or "update" => $"profiles.{verb}",
+            "profiles" when verb is "create" or "list" or "get" or "update" or "set-default" or "remove" or "validate"
+                => verb == "set-default" ? "profiles.set_default" : $"profiles.{verb}",
             "launch" when verb is "plan" or "execute" or "status" or "history" => $"launch.{verb}",
             "jobs" when verb is "get" or "list" or "wait" or "cancel" => verb == "get" ? "jobs.get" : null,
             _ => null,
@@ -299,6 +332,10 @@ internal sealed record CommandLine
             Y = y,
             Width = width,
             Height = height,
+            Override = overrideValue,
+            Favorite = favorite,
+            ToolId = toolId,
+            IsDefault = isDefault,
             NoStart = noStart,
             TimeoutSeconds = timeout,
         };

@@ -46,7 +46,9 @@ internal static class Program
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "candidates.accept" or "candidates.defer" or "candidates.ignore" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
-                "games.list" or "games.get" =>
+                "games.list" or "games.get" or "games.update" =>
+                    await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
+                "translation.get" or "translation.set" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "diagnostics.status" or "diagnostics.logs" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
@@ -61,7 +63,8 @@ internal static class Program
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "ignores.list" or "ignores.create" or "ignores.remove" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
-                "profiles.create" or "profiles.list" or "profiles.get" or "profiles.update" =>
+                "profiles.create" or "profiles.list" or "profiles.get" or "profiles.update"
+                    or "profiles.set_default" or "profiles.remove" or "profiles.validate" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "launch.plan" or "launch.execute" or "launch.status" or "launch.history" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
@@ -198,6 +201,39 @@ internal static class Program
             return ExitArgumentError;
         }
 
+        if (operationId is "translation.get" or "translation.set" or "games.update" && cli.GameId is null)
+        {
+            Console.Error.WriteLine($"{string.Join(' ', cli.Words)} 需要 --game-id");
+            return ExitArgumentError;
+        }
+
+        if (operationId is "translation.set"
+            && (cli.Override is null || cli.ExpectedRevision is null))
+        {
+            Console.Error.WriteLine("translation set 需要 --override Auto|Required|NotRequired 和 --expected-revision");
+            return ExitArgumentError;
+        }
+
+        if (operationId is "games.update"
+            && (cli.Favorite is null || cli.ExpectedRevision is null))
+        {
+            Console.Error.WriteLine("games update 需要 --favorite 或 --unfavorite，以及 --expected-revision");
+            return ExitArgumentError;
+        }
+
+        if (operationId is "profiles.set_default"
+            && (cli.GameId is null || cli.ProfileId is null))
+        {
+            Console.Error.WriteLine("profiles set-default 需要 --game-id、--profile-id");
+            return ExitArgumentError;
+        }
+
+        if (operationId is "profiles.remove" or "profiles.validate" && cli.ProfileId is null)
+        {
+            Console.Error.WriteLine($"{string.Join(' ', cli.Words)} 需要 --profile-id");
+            return ExitArgumentError;
+        }
+
         if (operationId is "ignores.create"
             && (cli.RootArgument is null && cli.GameId is null))
         {
@@ -232,6 +268,21 @@ internal static class Program
             },
             "games.list" => new { },
             "games.get" => new { gameId = cli.GameId },
+            "games.update" => new
+            {
+                idempotencyKey = cli.IdempotencyKey ?? $"gameupd-{Guid.NewGuid():N}",
+                gameId = cli.GameId,
+                favorite = cli.Favorite,
+                expectedRevision = cli.ExpectedRevision,
+            },
+            "translation.get" => new { gameId = cli.GameId },
+            "translation.set" => new
+            {
+                idempotencyKey = cli.IdempotencyKey ?? $"transset-{Guid.NewGuid():N}",
+                gameId = cli.GameId,
+                @override = cli.Override,
+                expectedRevision = cli.ExpectedRevision,
+            },
             "diagnostics.status" => new { },
             "diagnostics.logs" => cli.Limit is null ? null : new { limit = cli.Limit },
             "tools.discover" => new { idempotencyKey = cli.IdempotencyKey ?? ("discover-" + Guid.NewGuid().ToString("N")), path = cli.RootArgument },
@@ -323,7 +374,19 @@ internal static class Program
                 ignoreId = cli.IgnoreId,
                 expectedRevision = cli.ExpectedRevision,
             },
-            "profiles.create" => new { idempotencyKey = cli.IdempotencyKey, gameId = cli.GameId, executablePath = cli.ExePath, argv = cli.ArgList, cwd = cli.Cwd },
+            "profiles.create" => new { idempotencyKey = cli.IdempotencyKey, gameId = cli.GameId, executablePath = cli.ExePath, argv = cli.ArgList, cwd = cli.Cwd, toolId = cli.ToolId, isDefault = cli.IsDefault },
+            "profiles.set_default" => new
+            {
+                idempotencyKey = cli.IdempotencyKey ?? $"setdef-{Guid.NewGuid():N}",
+                gameId = cli.GameId,
+                profileId = cli.ProfileId,
+            },
+            "profiles.remove" => new
+            {
+                idempotencyKey = cli.IdempotencyKey ?? $"rmprof-{Guid.NewGuid():N}",
+                profileId = cli.ProfileId,
+            },
+            "profiles.validate" => new { profileId = cli.ProfileId },
             "profiles.update" => new
             {
                 idempotencyKey = cli.IdempotencyKey,

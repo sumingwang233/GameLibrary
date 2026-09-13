@@ -61,7 +61,8 @@ public sealed class CliProcessTests
         var data = envelope.RootElement.GetProperty("data");
         Assert.Equal("games.update", data.GetProperty("operationId").GetString());
         Assert.Equal("games_update", data.GetProperty("mcpTool").GetString());
-        Assert.False(data.GetProperty("available").GetBoolean());
+        // T13 起 games.update 已实现（受限 patch：favorite）。
+        Assert.True(data.GetProperty("available").GetBoolean());
         var cliWords = data.GetProperty("cli").EnumerateArray().Select(v => v.GetString() ?? "").ToArray();
         Assert.Equal(new[] { "games", "update" }, cliWords);
     }
@@ -95,7 +96,9 @@ public sealed class CliProcessTests
             .EnumerateArray().Select(v => v.GetString()).ToList();
         Assert.Contains("host.status", available);
         Assert.Contains("capabilities.get", available);
-        Assert.DoesNotContain("games.update", available);
+        Assert.Contains("games.update", available);
+        // 尚未实现的操作不得出现在可用集合（backups.* 属 T27）。
+        Assert.DoesNotContain("backups.create", available);
     }
 
     [Fact]
