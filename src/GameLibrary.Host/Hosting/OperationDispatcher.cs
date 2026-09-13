@@ -7,6 +7,7 @@ using GameLibrary.Domain.Detection;
 using GameLibrary.Domain.Detection.Detectors;
 using GameLibrary.Host.Observability;
 using GameLibrary.Host.Scanning;
+using GameLibrary.Host.Tools;
 using GameLibrary.Infrastructure.Persistence;
 using GameLibrary.Infrastructure.Scanning;
 
@@ -54,7 +55,14 @@ public sealed class OperationDispatcher
         "candidates.defer",
         "candidates.ignore",
         "fields.set",
+        "fields.clear",
+        "fields.reset",
         "assets.import",
+        "assets.choose",
+        "assets.crop",
+        "assets.reset",
+        "assets.remove",
+        "metadata.refresh",
         "ignores.create",
         "ignores.remove",
     };
@@ -389,9 +397,17 @@ public sealed class OperationDispatcher
         "diagnostics.logs" => DiagnosticsLogs(request),
         "tools.discover" => ToolsDiscover(request),
         "fields.set" => FieldsSet(request),
+        "fields.clear" => FieldsClear(request),
+        "fields.reset" => FieldsReset(request),
         "assets.import" => AssetsImport(request),
         "assets.list" => AssetsList(request),
         "assets.get" => AssetsGet(request),
+        "assets.choose" => AssetsChoose(request),
+        "assets.crop" => AssetsCrop(request),
+        "assets.reset" => AssetsReset(request),
+        "assets.remove" => AssetsRemove(request),
+        "metadata.preview" => MetadataPreview(request),
+        "metadata.refresh" => MetadataRefresh(request),
         "ignores.list" => IgnoresList(request),
         "ignores.create" => IgnoresCreate(request),
         "ignores.remove" => IgnoresRemove(request),
@@ -1471,6 +1487,352 @@ public sealed class OperationDispatcher
                 sizeBytes = bytes.LongLength,
                 dataBase64 = Convert.ToBase64String(bytes),
             },
+        };
+    }
+
+    /// <summary>
+    /// 用户主动清空（fields.clear）：字段层 value=null（≠继承自动值）；title 镜像为空串。
+    /// </summary>
+    private Envelope<object> FieldsClear(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!TryGetStringParameter(request, "gameId", out var gameId)
+            || !TryGetStringParameter(request, "field", out var field)
+            || !TryGetIntParameter(request, "expectedRevision", out var expectedRevision)
+            || expectedRevision is null
+            || field is not ("title" or "summary"))
+        {
+            return InvalidArgument(request, "fields.clear 需要 gameId、field（title/summary）、expectedRevision 参数");
+        }
+
+        var newRevision = store.SetGameField(gameId, field, null, "user", expectedRevision.Value, DateTime.UtcNow);
+        return FieldRevisionResult(request, gameId, field, newRevision, "user");
+    }
+
+    /// <summary>恢复自动值（fields.reset）：删除用户层；title 回退自动层值（首次覆盖前自动层已登记）。</summary>
+    private Envelope<object> FieldsReset(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!TryGetStringParameter(request, "gameId", out var gameId)
+            || !TryGetStringParameter(request, "field", out var field)
+            || !TryGetIntParameter(request, "expectedRevision", out var expectedRevision)
+            || expectedRevision is null
+            || field is not ("title" or "summary"))
+        {
+            return InvalidArgument(request, "fields.reset 需要 gameId、field（title/summary）、expectedRevision 参数");
+        }
+
+        var card = store.TryGetGame(gameId);
+        if (card is null)
+        {
+            return NotFound(request, $"游戏不存在：{gameId}");
+        }
+
+        var fallback = field == "title"
+            ? Path.GetFileName(card.RootPath.TrimEnd(Path.DirectorySeparatorChar)) ?? ""
+            : "";
+        var newRevision = store.ResetGameField(gameId, field, fallback, expectedRevision.Value, DateTime.UtcNow);
+        return FieldRevisionResult(request, gameId, field, newRevision, "auto");
+    }
+
+    private static Envelope<object> FieldRevisionResult(IpcRequest request, string gameId, string field, int? newRevision, string source)
+    {
+        if (newRevision is null)
+        {
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = ErrorCodes.RevisionConflict,
+                    Message = "Revision 不一致（游戏卡片可能已被其他入口修改）",
+                    Retryable = false,
+                },
+            };
+        }
+
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new { gameId, field, source, revision = newRevision },
+        };
+    }
+
+    /// <summary>选择候选封面（assets.choose）：校验游戏 Revision；封面切换不递增卡片 Revision。</summary>
+    private Envelope<object> AssetsChoose(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!TryGetStringParameter(request, "gameId", out var gameId)
+            || !TryGetStringParameter(request, "assetId", out var assetId)
+            || !TryGetIntParameter(request, "expectedRevision", out var expectedRevision)
+            || expectedRevision is null)
+        {
+            return InvalidArgument(request, "assets.choose 需要 gameId、assetId、expectedRevision 参数");
+        }
+
+        var card = store.TryGetGame(gameId);
+        if (card is null)
+        {
+            return NotFound(request, $"游戏不存在：{gameId}");
+        }
+
+        if (card.Revision != expectedRevision.Value)
+        {
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = ErrorCodes.RevisionConflict,
+                    Message = $"Revision 不一致：期望 {expectedRevision}，当前 {card.Revision}",
+                    Retryable = false,
+                },
+            };
+        }
+
+        var asset = store.TryGetAsset(assetId);
+        if (asset is null || !string.Equals(asset.GameId, gameId, StringComparison.Ordinal))
+        {
+            return NotFound(request, $"资产不存在或不属于该游戏：{assetId}");
+        }
+
+        store.ChooseAsset(gameId, assetId);
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new { gameId, assetId, isCurrent = true },
+        };
+    }
+
+    /// <summary>裁切封面（assets.crop）：真实像素裁切，产出新资产并设为当前封面。</summary>
+    private Envelope<object> AssetsCrop(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!TryGetStringParameter(request, "assetId", out var assetId)
+            || !TryGetIntParameter(request, "x", out var x) || x is null
+            || !TryGetIntParameter(request, "y", out var y) || y is null
+            || !TryGetIntParameter(request, "width", out var width) || width is null
+            || !TryGetIntParameter(request, "height", out var height) || height is null)
+        {
+            return InvalidArgument(request, "assets.crop 需要 assetId、x、y、width、height 参数");
+        }
+
+        var asset = store.TryGetAsset(assetId);
+        if (asset is null)
+        {
+            return NotFound(request, $"资产不存在：{assetId}");
+        }
+
+        if (!File.Exists(asset.FilePath))
+        {
+            return NotFound(request, $"资产文件缺失：{asset.FilePath}");
+        }
+
+        try
+        {
+            var destDirectory = Path.Combine(_state.DataDirectory, "assets", asset.GameId);
+            var croppedPath = ImageCropper.Crop(
+                asset.FilePath, destDirectory, x.Value, y.Value, width.Value, height.Value);
+            var newAsset = store.ImportAsset(asset.GameId, croppedPath, DateTime.UtcNow);
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = true,
+                Status = OperationStatus.Completed,
+                Data = new
+                {
+                    sourceAssetId = asset.AssetId,
+                    newAssetId = newAsset.AssetId,
+                    isCurrent = true,
+                    x = x.Value,
+                    y = y.Value,
+                    width = width.Value,
+                    height = height.Value,
+                },
+            };
+        }
+        catch (Exception ex) when (ex is ArgumentOutOfRangeException
+            or InvalidOperationException or IOException or System.Runtime.InteropServices.ExternalException)
+        {
+            return InvalidArgument(request, $"裁切失败：{ex.Message}");
+        }
+    }
+
+    /// <summary>重置封面（assets.reset）：全部封面置为非当前，游戏回到无封面展示。</summary>
+    private Envelope<object> AssetsReset(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!TryGetStringParameter(request, "gameId", out var gameId))
+        {
+            return InvalidArgument(request, "缺少 gameId 参数");
+        }
+
+        var previous = store.ResetCover(gameId);
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new { gameId, previousAssetId = previous, isCurrent = false },
+        };
+    }
+
+    /// <summary>移除资产（assets.remove）：仅限应用自有且非当前引用的资源。</summary>
+    private Envelope<object> AssetsRemove(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!TryGetStringParameter(request, "assetId", out var assetId))
+        {
+            return InvalidArgument(request, "缺少 assetId 参数");
+        }
+
+        var removedPath = store.RemoveAsset(assetId);
+        if (removedPath is null)
+        {
+            var asset = store.TryGetAsset(assetId);
+            return asset is null
+                ? NotFound(request, $"资产不存在：{assetId}")
+                : InvalidArgument(request, "当前封面不可移除；先 choose 其他封面或 reset");
+        }
+
+        try
+        {
+            File.Delete(removedPath);
+        }
+        catch (IOException)
+        {
+            // 行已删；文件残留不阻塞（仅应用自有副本）。
+        }
+
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new { assetId, removed = true },
+        };
+    }
+
+    /// <summary>
+    /// 元数据建议预览（metadata.preview）：仅本地证据——自动标题（根目录名）与
+    /// 引擎/入口描述；无在线元数据源，如实标注。
+    /// </summary>
+    private Envelope<object> MetadataPreview(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!TryGetStringParameter(request, "gameId", out var gameId))
+        {
+            return InvalidArgument(request, "缺少 gameId 参数");
+        }
+
+        var game = store.TryGetGame(gameId);
+        if (game is null)
+        {
+            return NotFound(request, $"游戏不存在：{gameId}");
+        }
+
+        var autoTitle = Path.GetFileName(game.RootPath.TrimEnd(Path.DirectorySeparatorChar)) ?? game.Title;
+        var autoSummary = $"自动识别：引擎 {game.Engine ?? "未识别"}，入口 {game.EntryPath ?? "未确定"}。";
+
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new
+            {
+                gameId,
+                note = "仅本地证据建议；无在线元数据源，建议一律 source=auto，refresh 只更新 AutoValue 不覆盖用户层",
+                suggestions = new object[]
+                {
+                    new { field = "title", value = autoTitle, source = "auto", evidence = "安装根目录名（目录名仅 contextual）" },
+                    new { field = "summary", value = autoSummary, source = "auto", evidence = "本地检测证据（引擎/入口）" },
+                },
+            },
+        };
+    }
+
+    /// <summary>元数据刷新（metadata.refresh）：作业式更新 AutoValue，不覆盖用户层。</summary>
+    private Envelope<object> MetadataRefresh(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!TryGetStringParameter(request, "gameId", out var gameId))
+        {
+            return InvalidArgument(request, "缺少 gameId 参数");
+        }
+
+        var game = store.TryGetGame(gameId);
+        if (game is null)
+        {
+            return NotFound(request, $"游戏不存在：{gameId}");
+        }
+
+        var autoTitle = Path.GetFileName(game.RootPath.TrimEnd(Path.DirectorySeparatorChar)) ?? "";
+        var autoSummary = $"自动识别：引擎 {game.Engine ?? "未识别"}，入口 {game.EntryPath ?? "未确定"}。";
+
+        var jobId = _state.Jobs.Create("metadata-refresh", context =>
+        {
+            store.WriteAutoField(gameId, "title", autoTitle, DateTime.UtcNow);
+            store.WriteAutoField(gameId, "summary", autoSummary, DateTime.UtcNow);
+            context.ReportProgress(new { gameId, updatedFields = new[] { "title", "summary" } });
+            return Task.FromResult(JobOutcome.Succeeded());
+        });
+
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Accepted,
+            JobId = jobId,
+            Data = new { jobId, gameId, state = "running" },
         };
     }
 

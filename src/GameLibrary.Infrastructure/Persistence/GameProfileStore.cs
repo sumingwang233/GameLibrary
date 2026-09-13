@@ -95,6 +95,7 @@ public static class GameProfileStore
     /// <summary>
     /// 资料字段变更：期望 Revision 对齐 games.revision，事务内更新字段层并镜像
     /// games.title（列表标题即生效值）、递增 games.revision；冲突返回 null。
+    /// 首次覆盖前先把当前生效值登记为 auto 层（供 reset 恢复）。
     /// </summary>
     public static int? SetGameField(
         SqliteConnection connection,
@@ -107,19 +108,21 @@ public static class GameProfileStore
     {
         using var transaction = (SqliteTransaction)connection.BeginTransaction();
         int currentRevision;
+        string currentTitle;
         using (var select = connection.CreateCommand())
         {
             select.Transaction = transaction;
-            select.CommandText = "SELECT revision FROM games WHERE game_id = $game";
+            select.CommandText = "SELECT revision, title FROM games WHERE game_id = $game";
             select.Parameters.AddWithValue("$game", gameId);
-            var result = select.ExecuteScalar();
-            if (result is null)
+            using var reader = select.ExecuteReader();
+            if (!reader.Read())
             {
                 transaction.Rollback();
                 return null;
             }
 
-            currentRevision = Convert.ToInt32(result);
+            currentRevision = reader.GetInt32(0);
+            currentTitle = reader.GetString(1);
         }
 
         if (currentRevision != expectedRevision)
@@ -127,6 +130,9 @@ public static class GameProfileStore
             transaction.Rollback();
             return null;
         }
+
+        // 自动层登记：仅当该字段从未有任何层记录时，把当前生效值存为 auto。
+        EnsureAutoRowWithTransaction(connection, transaction, gameId, fieldKey, currentTitle);
 
         UpsertFieldWithTransaction(connection, transaction, new GameFieldValue
         {
@@ -153,12 +159,15 @@ public static class GameProfileStore
         return currentRevision + 1;
     }
 
-    /// <summary>恢复自动值：删除用户覆盖行；title 回退到自动层值（无自动层则回退根目录名，由调用方传入）。</summary>
+    /// <summary>
+    /// 恢复自动值（fields.reset）：删除用户覆盖行；title 镜像取自动层值
+    /// （无自动层记录时回退 fallback，如根目录名）；冲突返回 null。
+    /// </summary>
     public static int? ResetGameField(
         SqliteConnection connection,
         string gameId,
         string fieldKey,
-        string autoValue,
+        string fallbackValue,
         int expectedRevision,
         DateTime utcNow)
     {
@@ -185,6 +194,23 @@ public static class GameProfileStore
             return null;
         }
 
+        string autoValue = fallbackValue;
+        using (var select = connection.CreateCommand())
+        {
+            select.Transaction = transaction;
+            select.CommandText = """
+                SELECT value FROM game_fields
+                WHERE game_id = $game AND field_key = $key AND source = 'auto'
+                """;
+            select.Parameters.AddWithValue("$game", gameId);
+            select.Parameters.AddWithValue("$key", fieldKey);
+            var result = select.ExecuteScalar();
+            if (result is not null && result != DBNull.Value)
+            {
+                autoValue = (string)result;
+            }
+        }
+
         using (var delete = connection.CreateCommand())
         {
             delete.Transaction = transaction;
@@ -208,6 +234,48 @@ public static class GameProfileStore
 
         transaction.Commit();
         return currentRevision + 1;
+    }
+
+    public static void WriteAutoField(SqliteConnection connection, string gameId, string fieldKey, string value, DateTime utcNow)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO game_fields (game_id, field_key, value, source, revision, updated_utc)
+            VALUES ($game, $key, $value, 'auto', 1, $updated)
+            ON CONFLICT(game_id, field_key) DO UPDATE SET
+                value = excluded.value,
+                updated_utc = excluded.updated_utc
+            WHERE game_fields.source = 'auto'
+            """;
+        command.Parameters.AddWithValue("$game", gameId);
+        command.Parameters.AddWithValue("$key", fieldKey);
+        command.Parameters.AddWithValue("$value", value);
+        command.Parameters.AddWithValue("$updated", utcNow.ToString("O", CultureInfo.InvariantCulture));
+        command.ExecuteNonQuery();
+    }
+
+    private static void EnsureAutoRowWithTransaction(
+        SqliteConnection connection, SqliteTransaction transaction, string gameId, string fieldKey, string currentTitle)
+    {
+        using var exists = connection.CreateCommand();
+        exists.Transaction = transaction;
+        exists.CommandText = "SELECT COUNT(1) FROM game_fields WHERE game_id = $game AND field_key = $key";
+        exists.Parameters.AddWithValue("$game", gameId);
+        exists.Parameters.AddWithValue("$key", fieldKey);
+        if (Convert.ToInt64(exists.ExecuteScalar()) > 0)
+        {
+            return;
+        }
+
+        var autoValue = fieldKey == "title" ? currentTitle : "";
+        UpsertFieldWithTransaction(connection, transaction, new GameFieldValue
+        {
+            GameId = gameId,
+            FieldKey = fieldKey,
+            Value = autoValue,
+            Source = "auto",
+            UpdatedUtc = DateTime.UtcNow,
+        });
     }
 
     private static void UpsertFieldWithTransaction(
@@ -311,6 +379,50 @@ public static class GameProfileStore
             IsCurrent = reader.GetInt64(4) == 1,
             ImportedUtc = DateTime.Parse(reader.GetString(5), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
         };
+    }
+
+    /// <summary>选择某资产为当前封面（assets.choose）：先清其余 current。</summary>
+    public static void ChooseAsset(SqliteConnection connection, string gameId, string assetId)
+    {
+        using var unset = connection.CreateCommand();
+        unset.CommandText = "UPDATE game_assets SET is_current = 0 WHERE game_id = $game AND kind = 'cover'";
+        unset.Parameters.AddWithValue("$game", gameId);
+        unset.ExecuteNonQuery();
+
+        using var set = connection.CreateCommand();
+        set.CommandText = "UPDATE game_assets SET is_current = 1 WHERE asset_id = $id";
+        set.Parameters.AddWithValue("$id", assetId);
+        set.ExecuteNonQuery();
+    }
+
+    /// <summary>重置封面（assets.reset）：全部置为非当前；返回此前 current 的 assetId。</summary>
+    public static string? ResetCover(SqliteConnection connection, string gameId)
+    {
+        var current = ListAssets(connection, gameId).FirstOrDefault(a => a.IsCurrent);
+        using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE game_assets SET is_current = 0 WHERE game_id = $game AND kind = 'cover'";
+        command.Parameters.AddWithValue("$game", gameId);
+        command.ExecuteNonQuery();
+        return current?.AssetId;
+    }
+
+    /// <summary>
+    /// 移除资产（assets.remove）：仅限应用自有且非当前引用的资源；
+    /// 返回被删除的文件路径（调用方删文件），资产不存在或被引用返回 null。
+    /// </summary>
+    public static string? RemoveAsset(SqliteConnection connection, string assetId)
+    {
+        var asset = TryGetAsset(connection, assetId);
+        if (asset is null || asset.IsCurrent)
+        {
+            return null;
+        }
+
+        using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM game_assets WHERE asset_id = $id";
+        command.Parameters.AddWithValue("$id", assetId);
+        command.ExecuteNonQuery();
+        return asset.FilePath;
     }
 
     /// <summary>当前生效字段值：用户层优先（value 可为 null=清空），否则自动层，否则回退值。</summary>

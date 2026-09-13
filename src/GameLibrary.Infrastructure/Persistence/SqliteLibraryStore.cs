@@ -100,6 +100,18 @@ public sealed class SqliteLibraryStore : IAsyncDisposable
     public GameAsset? TryGetAsset(string assetId) =>
         GameProfileStore.TryGetAsset(_connection, assetId);
 
+    public void ChooseAsset(string gameId, string assetId) =>
+        GameProfileStore.ChooseAsset(_connection, gameId, assetId);
+
+    public string? ResetCover(string gameId) =>
+        GameProfileStore.ResetCover(_connection, gameId);
+
+    public string? RemoveAsset(string assetId) =>
+        GameProfileStore.RemoveAsset(_connection, assetId);
+
+    public void WriteAutoField(string gameId, string fieldKey, string value, DateTime utcNow) =>
+        GameProfileStore.WriteAutoField(_connection, gameId, fieldKey, value, utcNow);
+
     /// <summary>一致性备份到新文件（SQLite 备份 API，WAL 下同样一致）。目标已存在则拒绝。</summary>
     public async Task CreateBackupAsync(string targetPath, CancellationToken ct)
     {

@@ -382,6 +382,68 @@ public static class GameLibraryTools
         [Description("源图片绝对路径")] string sourcePath) =>
         InvokeOperationAsync("assets.import", new { idempotencyKey, gameId, sourcePath });
 
+    [McpServerTool(Name = "fields_clear")]
+    [Description("用户主动清空资料字段（value=null，≠继承自动值）。参数：idempotencyKey、gameId、field、expectedRevision。")]
+    public static Task<CallToolResult> FieldsClear(
+        [Description("幂等键")] string idempotencyKey,
+        [Description("游戏 ID")] string gameId,
+        [Description("字段名：title 或 summary")] string field,
+        [Description("期望 Revision")] int expectedRevision) =>
+        InvokeOperationAsync("fields.clear", new { idempotencyKey, gameId, field, expectedRevision });
+
+    [McpServerTool(Name = "fields_reset")]
+    [Description("恢复资料字段的自动值（删除用户覆盖层）。参数：idempotencyKey、gameId、field、expectedRevision。")]
+    public static Task<CallToolResult> FieldsReset(
+        [Description("幂等键")] string idempotencyKey,
+        [Description("游戏 ID")] string gameId,
+        [Description("字段名：title 或 summary")] string field,
+        [Description("期望 Revision")] int expectedRevision) =>
+        InvokeOperationAsync("fields.reset", new { idempotencyKey, gameId, field, expectedRevision });
+
+    [McpServerTool(Name = "assets_choose")]
+    [Description("选择某资产为当前封面。参数：idempotencyKey、gameId、assetId、expectedRevision。")]
+    public static Task<CallToolResult> AssetsChoose(
+        [Description("幂等键")] string idempotencyKey,
+        [Description("游戏 ID")] string gameId,
+        [Description("资产 ID")] string assetId,
+        [Description("期望 Revision")] int expectedRevision) =>
+        InvokeOperationAsync("assets.choose", new { idempotencyKey, gameId, assetId, expectedRevision });
+
+    [McpServerTool(Name = "assets_crop")]
+    [Description("像素级裁切封面并产出新资产（设为当前封面）。参数：idempotencyKey、assetId、x、y、width、height。")]
+    public static Task<CallToolResult> AssetsCrop(
+        [Description("幂等键")] string idempotencyKey,
+        [Description("源资产 ID")] string assetId,
+        [Description("裁切起点 X")] int x,
+        [Description("裁切起点 Y")] int y,
+        [Description("裁切宽度")] int width,
+        [Description("裁切高度")] int height) =>
+        InvokeOperationAsync("assets.crop", new { idempotencyKey, assetId, x, y, width, height });
+
+    [McpServerTool(Name = "assets_reset")]
+    [Description("重置封面：全部封面置为非当前，游戏回到无封面展示。参数：gameId。")]
+    public static Task<CallToolResult> AssetsReset([Description("游戏 ID")] string gameId) =>
+        InvokeOperationAsync("assets.reset", new { gameId });
+
+    [McpServerTool(Name = "assets_remove")]
+    [Description("移除非当前引用的应用自有资产。参数：idempotencyKey、assetId。")]
+    public static Task<CallToolResult> AssetsRemove(
+        [Description("幂等键")] string idempotencyKey,
+        [Description("资产 ID")] string assetId) =>
+        InvokeOperationAsync("assets.remove", new { idempotencyKey, assetId });
+
+    [McpServerTool(Name = "metadata_preview")]
+    [Description("本地证据元数据建议预览（仅 auto，无在线源）。参数：gameId。")]
+    public static Task<CallToolResult> MetadataPreview([Description("游戏 ID")] string gameId) =>
+        InvokeOperationAsync("metadata.preview", new { gameId });
+
+    [McpServerTool(Name = "metadata_refresh")]
+    [Description("刷新元数据自动值（作业；只更新 AutoValue 不覆盖用户层）。参数：idempotencyKey、gameId。")]
+    public static Task<CallToolResult> MetadataRefresh(
+        [Description("幂等键")] string idempotencyKey,
+        [Description("游戏 ID")] string gameId) =>
+        InvokeOperationAsync("metadata.refresh", new { idempotencyKey, gameId });
+
     [McpServerTool(Name = "assets_list")]
     [Description("列出游戏资产（cover）。参数：gameId。")]
     public static Task<CallToolResult> AssetsList([Description("游戏 ID")] string gameId) =>

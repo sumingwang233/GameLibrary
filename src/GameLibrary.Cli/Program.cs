@@ -49,8 +49,12 @@ internal static class Program
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "tools.discover" => await ScanHostOperationAsync(parse, "tools.discover", requiresRoot: true),
                 "fields.set" => await ScanHostOperationAsync(parse, "fields.set", requiresRoot: false),
+                "fields.clear" or "fields.reset" =>
+                    await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "assets.import" => await ScanHostOperationAsync(parse, "assets.import", requiresRoot: false),
-                "assets.list" or "assets.get" =>
+                "assets.choose" or "assets.crop" or "assets.reset" or "assets.remove" or "assets.list" or "assets.get" =>
+                    await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
+                "metadata.preview" or "metadata.refresh" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "ignores.list" or "ignores.create" or "ignores.remove" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
@@ -241,6 +245,44 @@ internal static class Program
                 gameId = cli.GameId,
                 sourcePath = cli.SourcePath,
             },
+            "fields.clear" => new
+            {
+                idempotencyKey = cli.IdempotencyKey ?? $"clear-{Guid.NewGuid():N}",
+                gameId = cli.GameId,
+                field = cli.Field,
+                expectedRevision = cli.ExpectedRevision,
+            },
+            "fields.reset" => new
+            {
+                idempotencyKey = cli.IdempotencyKey ?? $"reset-{Guid.NewGuid():N}",
+                gameId = cli.GameId,
+                field = cli.Field,
+                expectedRevision = cli.ExpectedRevision,
+            },
+            "assets.choose" => new
+            {
+                idempotencyKey = cli.IdempotencyKey ?? $"choose-{Guid.NewGuid():N}",
+                gameId = cli.GameId,
+                assetId = cli.AssetId,
+                expectedRevision = cli.ExpectedRevision,
+            },
+            "assets.crop" => new
+            {
+                idempotencyKey = cli.IdempotencyKey ?? $"crop-{Guid.NewGuid():N}",
+                assetId = cli.AssetId,
+                x = cli.X,
+                y = cli.Y,
+                width = cli.Width,
+                height = cli.Height,
+            },
+            "assets.reset" => new { gameId = cli.GameId },
+            "assets.remove" => new
+            {
+                idempotencyKey = cli.IdempotencyKey ?? $"rmasset-{Guid.NewGuid():N}",
+                assetId = cli.AssetId,
+            },
+            "metadata.preview" => new { gameId = cli.GameId },
+            "metadata.refresh" => new { idempotencyKey = cli.IdempotencyKey ?? $"meta-{Guid.NewGuid():N}", gameId = cli.GameId },
             "assets.list" => new { gameId = cli.GameId },
             "assets.get" => new { assetId = cli.CandidateId },
             "ignores.list" => new { },

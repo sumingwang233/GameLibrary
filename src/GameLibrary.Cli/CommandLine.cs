@@ -82,6 +82,18 @@ internal sealed record CommandLine
     /// <summary>assets import 的 --source-path 参数。</summary>
     public string? SourcePath { get; private init; }
 
+    /// <summary>assets choose/crop/remove 的 --asset-id 参数。</summary>
+    public string? AssetId { get; private init; }
+
+    /// <summary>assets crop 的 --x/--y/--width/--height 参数。</summary>
+    public int? X { get; private init; }
+
+    public int? Y { get; private init; }
+
+    public int? Width { get; private init; }
+
+    public int? Height { get; private init; }
+
     public bool NoStart { get; private init; }
 
     public int TimeoutSeconds { get; private init; } = 30;
@@ -116,6 +128,11 @@ internal sealed record CommandLine
         string? field = null;
         string? value = null;
         string? sourcePath = null;
+        string? assetId = null;
+        int? x = null;
+        int? y = null;
+        int? width = null;
+        int? height = null;
         int? expectedRevision = null;
         var argList = new List<string>();
         var noStart = false;
@@ -190,6 +207,25 @@ internal sealed record CommandLine
                 case "--source-path" when i + 1 < args.Length:
                     sourcePath = args[++i];
                     break;
+                case "--asset-id" when i + 1 < args.Length:
+                    assetId = args[++i];
+                    break;
+                case "--x" when i + 1 < args.Length && int.TryParse(args[i + 1], out var xValue):
+                    x = xValue;
+                    i++;
+                    break;
+                case "--y" when i + 1 < args.Length && int.TryParse(args[i + 1], out var yValue):
+                    y = yValue;
+                    i++;
+                    break;
+                case "--width" when i + 1 < args.Length && int.TryParse(args[i + 1], out var wValue):
+                    width = wValue;
+                    i++;
+                    break;
+                case "--height" when i + 1 < args.Length && int.TryParse(args[i + 1], out var hValue):
+                    height = hValue;
+                    i++;
+                    break;
                 case "--no-start":
                     noStart = true;
                     break;
@@ -256,6 +292,11 @@ internal sealed record CommandLine
             Field = field,
             Value = value,
             SourcePath = sourcePath,
+            AssetId = assetId,
+            X = x,
+            Y = y,
+            Width = width,
+            Height = height,
             NoStart = noStart,
             TimeoutSeconds = timeout,
         };

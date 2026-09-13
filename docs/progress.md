@@ -157,3 +157,11 @@
 - **实现要点**：字段用户层覆盖自动层（value=null=用户清空）；fields.set 以游戏卡片 Revision 乐观校验并镜像 games.title；封面资产复制入应用自有目录不反写游戏目录，导入即当前封面，受限预览 ≤1 MiB；fields.set/assets.import 接入收据中间件。
 - **未验证范围**：fields.clear/reset、assets.choose/crop/reset/remove、metadata.preview/refresh、标签 Suppress（T14-B）；缩略图/LRU（T15/T26）。
 - **下一项**：T16（ScanCoordinator）、T08/T09（其余适配器）或 T14-B（fields.clear/reset 与 metadata）。
+
+## T14-B 资料补全（clear/reset/crop/metadata）— 2026-09-13 完成
+
+- **改动文件**：`GameProfileStore.cs`（auto 层登记/reset/choose/resetCover/removeAsset/WriteAutoField）、`src/GameLibrary.Host/Tools/ImageCropper.cs`（新，System.Drawing.Common 10.0.12 像素裁切）、`OperationDispatcher.cs`（fields.clear/reset、assets.choose/crop/reset/remove、metadata.preview/refresh）、Directory.Packages.props、Cli/Mcp（+7 操作三入口）、测试（GameProfileLifecycleTests 3）。
+- **验证结果**：累计 269 项测试通过（+3）；format 通过；Release 构建 0 警告 0 错误。报告：`artifacts/build-reports/2026-09-13-t14b.md`。
+- **实现要点**：clear（user 层 value=null）与 reset（删用户层回 auto 值）语义分离；首次 set 前自动层登记保证 reset 可回退；crop 真实像素裁切产出新资产设为当前、越界拒绝；choose 校验 Revision 不递增；remove 仅限非当前引用自有副本；metadata.refresh 作业式只更新 AutoValue 不覆盖用户层。
+- **未验证范围**：标签 Suppress（随标签系统）；资产孤儿文件回收（T24-B/T27）。
+- **下一项**：T16（ScanCoordinator）或 T08/T09（其余适配器）。
