@@ -1,5 +1,6 @@
 using GameLibrary.Contracts;
 using GameLibrary.Contracts.Ipc;
+using GameLibrary.Domain.Paths;
 using GameLibrary.Host.Hosting;
 using GameLibrary.Host.Ipc;
 using GameLibrary.Host.Scanning;
@@ -51,6 +52,7 @@ public sealed class HostRuntime : IAsyncDisposable
 
         var identity = new HostIdentity();
         var library = await OpenLibraryAsync(resolved.CanonicalPath!, identity, loggerFactory, ct);
+        var events = new EventStream();
         var runtimeState = new HostRuntimeState
         {
             Identity = identity,
@@ -62,7 +64,13 @@ public sealed class HostRuntime : IAsyncDisposable
             Roots = new RootRegistry(),
             AuditLog = new Observability.AuditLogWriter(
                 Path.Combine(resolved.CanonicalPath!, "logs")),
+            Events = events,
+            Coordinator = null!,
         };
+        runtimeState.Coordinator = new ScanCoordinator(
+            runtimeState.Roots,
+            events,
+            rootPath => RunReconcileScan(runtimeState, rootPath));
 
         var logger = loggerFactory.CreateLogger<PipeServer>();
         var server = new PipeServer(
@@ -73,6 +81,32 @@ public sealed class HostRuntime : IAsyncDisposable
         server.Start();
 
         return new HostRuntime(guard, server, runtimeState);
+    }
+
+    /// <summary>周期核对（T16）：小步重扫 + 候选落库/晋升 + 事件发布；与手动扫描共用同一路径。</summary>
+    private static Hosting.JobOutcome RunReconcileScan(HostRuntimeState state, string rootPath)
+    {
+        var validation = GamePath.TryCreate(rootPath);
+        if (!validation.IsValid)
+        {
+            return new Hosting.JobOutcome("failed", $"核对根路径非法：{rootPath}");
+        }
+
+        if (!Directory.Exists(validation.Path!.PhysicalPath))
+        {
+            return new Hosting.JobOutcome("failed", $"核对根离线：{rootPath}");
+        }
+
+        var jobId = $"job-reconcile-{Guid.NewGuid():N}";
+        var collector = new Scanning.ScanCandidateCollector(validation.Path, jobId, state.Candidates);
+        var context = new Hosting.JobContext { JobId = jobId, Token = CancellationToken.None };
+        var outcome = Scanning.ScanJobRunner.Run(validation.Path, context, collector);
+        if (outcome.FinalState == "succeeded")
+        {
+            Scanning.ScanCandidatePersistence.Persist(state.Library.Store, state.Events, collector, jobId);
+        }
+
+        return outcome;
     }
 
     private static async Task<HostLibraryState> OpenLibraryAsync(
@@ -143,4 +177,10 @@ public sealed class HostRuntimeState
 
     /// <summary>业务审计日志（T24）：JSONL 追加、轮转与保留期受控。</summary>
     public required Observability.AuditLogWriter AuditLog { get; init; }
+
+    /// <summary>库事件流（T16）：容量 4096、2s 折叠、游标增量读取。</summary>
+    public required Scanning.EventStream Events { get; init; }
+
+    /// <summary>扫描协调器（T16）：周期核对、手动/后台互斥。构造后接线（依赖闭包）。</summary>
+    public Scanning.ScanCoordinator Coordinator { get; set; } = null!;
 }

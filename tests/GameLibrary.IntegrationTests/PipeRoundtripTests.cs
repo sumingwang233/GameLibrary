@@ -108,6 +108,8 @@ public sealed class PipeServerFixture : IAsyncDisposable
             },
             CancellationToken.None).GetAwaiter().GetResult();
         Assert.True(init.IsOpened, init.Detail);
+        var roots = new GameLibrary.Host.Scanning.RootRegistry();
+        var events = new GameLibrary.Host.Scanning.EventStream();
         State = new HostRuntimeState
         {
             Identity = Identity,
@@ -120,7 +122,13 @@ public sealed class PipeServerFixture : IAsyncDisposable
             Jobs = new JobManager(),
             Candidates = new GameLibrary.Host.Scanning.CandidateRegistry(),
             Launches = new GameLibrary.Host.Launching.LaunchRegistry(),
-            Roots = new GameLibrary.Host.Scanning.RootRegistry(),
+            Roots = roots,
+            Events = events,
+            Coordinator = new GameLibrary.Host.Scanning.ScanCoordinator(
+                roots,
+                events,
+                _ => new GameLibrary.Host.Hosting.JobOutcome("succeeded"),
+                TimeSpan.FromMinutes(15)),
             AuditLog = new GameLibrary.Host.Observability.AuditLogWriter(
                 System.IO.Path.Combine(dataDir.CanonicalPath!, "logs")),
         };

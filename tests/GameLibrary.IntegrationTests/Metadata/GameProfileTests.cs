@@ -48,7 +48,7 @@ public sealed class GameProfileTests : IClassFixture<PipeServerFixture>
         await InvokeAsync("roots.add", new { root });
         for (var scan = 0; scan < 2; scan++)
         {
-            var start = await InvokeAsync("scan.start", new { root });
+            var start = await InvokeAsync("scan.start", new { idempotencyKey = "scan-" + Guid.NewGuid().ToString("N"), root });
             Assert.True(start.Ok, start.Error?.Message);
             var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(15);
             while (DateTime.UtcNow < deadline)

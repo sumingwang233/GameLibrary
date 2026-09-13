@@ -51,7 +51,7 @@ public sealed class CandidateReviewTests : IClassFixture<PipeServerFixture>
 
     private async Task ScanAndWaitAsync(string root)
     {
-        var start = await InvokeAsync("scan.start", new { root });
+        var start = await InvokeAsync("scan.start", new { idempotencyKey = "scan-" + Guid.NewGuid().ToString("N"), root });
         Assert.True(start.Ok, start.Error?.Message);
         var jobId = start.JobId!;
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(15);

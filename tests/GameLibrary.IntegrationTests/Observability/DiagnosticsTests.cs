@@ -79,7 +79,7 @@ public sealed class DiagnosticsTests : IClassFixture<PipeServerFixture>
     {
         // 触发一条带数据目录路径的失败审计（RootOffline），随后读取。
         var missingRoot = Path.Combine(@"D:\Official\GameLibrary\artifacts\test-runs", $"diag-missing-{Guid.NewGuid():N}");
-        await InvokeAsync("scan.start", new { root = missingRoot });
+        await InvokeAsync("scan.start", new { idempotencyKey = "diag-" + Guid.NewGuid().ToString("N"), root = missingRoot });
 
         var logs = await InvokeAsync("diagnostics.logs", new { limit = 1000 });
         Assert.True(logs.Ok, logs.Error?.Message);

@@ -165,3 +165,11 @@
 - **实现要点**：clear（user 层 value=null）与 reset（删用户层回 auto 值）语义分离；首次 set 前自动层登记保证 reset 可回退；crop 真实像素裁切产出新资产设为当前、越界拒绝；choose 校验 Revision 不递增；remove 仅限非当前引用自有副本；metadata.refresh 作业式只更新 AutoValue 不覆盖用户层。
 - **未验证范围**：标签 Suppress（随标签系统）；资产孤儿文件回收（T24-B/T27）。
 - **下一项**：T16（ScanCoordinator）或 T08/T09（其余适配器）。
+
+## T16 ScanCoordinator 与事件流 — 2026-09-13 完成
+
+- **改动文件**：`src/GameLibrary.Host/Scanning/EventStream.cs`（新）、`ScanCoordinator.cs`（新）、`ScanCandidatePersistence.cs`（新：统一落库路径）、HostRuntime（装配+核对执行）、`OperationDispatcher.cs`（events.read + scan.start 收据 + 手动互斥 + game.created 事件）、Cli（`events read`、scan start 自动幂等键）、Mcp（events_read、scan_start 可选键）、Contracts（+1）、测试（EventStreamTests 4 + 适配）。
+- **验证结果**：累计 273 项测试通过（+4）；format 通过；Release 构建 0 警告 0 错误。报告：`artifacts/build-reports/2026-09-13-t16.md`。
+- **实现要点**：事件环形队列 4096 上限 + 同实体 2 秒抖动折叠 + 游标增量读取（过期 CursorExpired）；周期核对默认 15 分钟（可注入），手动/后台互斥（标志+忙位）；核对与手动扫描共用候选落库路径（稳定观察/抑制/事件一致）；scan.start 同键重放返回原 jobId（补齐 T23-A 作业/收据口）。
+- **未验证范围**：事件持久化跨重启（T23-B/T27）；watcher 事件源（T18）；核对预算细分与耗时指标（T24-B）；Coordinator 计数器接入 diagnostics。
+- **下一项**：T08/T09（其余适配器）或 T15 剩余（搜索/收藏/虚拟化）。

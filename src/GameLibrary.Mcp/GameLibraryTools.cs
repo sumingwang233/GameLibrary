@@ -118,9 +118,16 @@ public static class GameLibraryTools
         return ToToolResult(envelope);
     }
 
+    [McpServerTool(Name = "events_read")]
+    [Description("按游标增量读取库事件（候选发现/晋升、扫描完成、游戏入库）；游标过期返回 CursorExpired。参数：cursor（可选）、limit（可选）。")]
+    public static Task<CallToolResult> EventsRead([Description("上次返回的 nextCursor")] long? cursor = null, [Description("返回条数上限")] int? limit = null) =>
+        (cursor is null && limit is null)
+            ? InvokeOperationAsync("events.read", new { })
+            : InvokeOperationAsync("events.read", new { cursor, limit });
+
     [McpServerTool(Name = "scan_start")]
     [Description("对一个绝对本地路径启动只读扫描作业，返回受理的 jobId（status=accepted）。参数：root。")]
-    public static async Task<CallToolResult> ScanStart([Description("扫描根的绝对本地路径")] string root)
+    public static async Task<CallToolResult> ScanStart([Description("扫描根的绝对本地路径")] string root, [Description("幂等键（可选，默认自动生成）")] string? idempotencyKey = null)
     {
         if (McpSession.DataDirectory is null)
         {
@@ -134,7 +141,7 @@ public static class GameLibraryTools
             {
                 RequestId = NewRequestId(),
                 OperationId = "scan.start",
-                Parameters = ToParameters(new { root }),
+                Parameters = ToParameters(new { idempotencyKey = idempotencyKey ?? ("mcp-scan-" + Guid.NewGuid().ToString("N")), root }),
             },
             CancellationToken.None);
         return ToToolResult(envelope);

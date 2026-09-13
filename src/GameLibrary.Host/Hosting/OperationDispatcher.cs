@@ -51,6 +51,7 @@ public sealed class OperationDispatcher
         "launch.execute",
         "profiles.create",
         "profiles.update",
+        "scan.start",
         "candidates.accept",
         "candidates.defer",
         "candidates.ignore",
@@ -393,6 +394,7 @@ public sealed class OperationDispatcher
         "candidates.ignore" => CandidateReview(request, "ignore"),
         "games.list" => GamesList(request),
         "games.get" => GamesGet(request),
+        "events.read" => EventsRead(request),
         "diagnostics.status" => DiagnosticsStatus(request),
         "diagnostics.logs" => DiagnosticsLogs(request),
         "tools.discover" => ToolsDiscover(request),
@@ -483,14 +485,28 @@ public sealed class OperationDispatcher
             "scan",
             context =>
             {
-                var collector = new ScanCandidateCollector(rootPath, context.JobId, _state.Candidates);
-                var outcome = ScanJobRunner.Run(rootPath, context, collector);
-                if (outcome.FinalState == "succeeded")
+                _state.Coordinator.ManualScanRunning = true;
+                try
                 {
-                    PersistCandidates(collector, context.JobId);
-                }
+                    var collector = new ScanCandidateCollector(rootPath, context.JobId, _state.Candidates);
+                    var outcome = ScanJobRunner.Run(rootPath, context, collector);
+                    if (outcome.FinalState == "succeeded")
+                    {
+                        ScanCandidatePersistence.Persist(_state.Library.Store, _state.Events, collector, context.JobId);
+                        _state.Events.Publish("scan.completed", $"job:{context.JobId}", new
+                        {
+                            jobId = context.JobId,
+                            kind = "manual",
+                            root = rootPath.PhysicalPath,
+                        }, DateTime.UtcNow);
+                    }
 
-                return Task.FromResult(outcome);
+                    return Task.FromResult(outcome);
+                }
+                finally
+                {
+                    _state.Coordinator.ManualScanRunning = false;
+                }
             });
 
         return new Envelope<object>
@@ -751,44 +767,6 @@ public sealed class OperationDispatcher
         };
     }
 
-    /// <summary>
-    /// 扫描成功后落库（T11）：按物理路径 upsert；重扫命中既有 Observed 候选晋升
-    /// Observed→Stabilizing→PendingReview（合法双跳，审核入口就绪）。
-    /// </summary>
-    private void PersistCandidates(ScanCandidateCollector collector, string jobId)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return;
-        }
-
-        var utcNow = DateTime.UtcNow;
-        foreach (var candidate in collector.Candidates)
-        {
-            if (store.IsSuppressedByIgnoreRule(candidate.PhysicalPath, null))
-            {
-                continue;
-            }
-
-            var existed = store.UpsertCandidate(new PersistedCandidate
-            {
-                CandidateId = candidate.CandidateId,
-                JobId = jobId,
-                Kind = ToCamel(candidate.Kind.ToString()),
-                RelativePath = candidate.RelativePath,
-                PhysicalPath = candidate.PhysicalPath,
-                PayloadJson = JsonSerializer.Serialize(candidate.ToDetail(), ContractJson.Options),
-                ReviewState = "observed",
-                ObservedUtc = candidate.ObservedUtc,
-                UpdatedUtc = utcNow,
-            });
-            if (existed)
-            {
-                store.PromoteRescannedCandidate(candidate.PhysicalPath, utcNow);
-            }
-        }
-    }
 
     private Envelope<object> CandidatesList(IpcRequest request)
     {
@@ -1001,6 +979,16 @@ public sealed class OperationDispatcher
                     Retryable = false,
                 },
             };
+        }
+
+        if (action == "accept" && updated.GameId is not null)
+        {
+            _state.Events.Publish("game.created", $"game:{updated.GameId}", new
+            {
+                gameId = updated.GameId,
+                fromCandidate = updated.CandidateId,
+                title = TitleFromPath(updated.PhysicalPath, updated.RelativePath),
+            }, DateTime.UtcNow);
         }
 
         return CandidateReviewResult(request, updated.ReviewState, updated.Revision, updated.GameId, ignoreId);
@@ -1833,6 +1821,66 @@ public sealed class OperationDispatcher
             Status = OperationStatus.Accepted,
             JobId = jobId,
             Data = new { jobId, gameId, state = "running" },
+        };
+    }
+
+    /// <summary>事件增量读取（T16，events.read）：游标不跨重启；过期返回 CursorExpired。</summary>
+    private Envelope<object> EventsRead(IpcRequest request)
+    {
+        long? cursor = null;
+        int limit = 100;
+        if (request.Parameters is { ValueKind: JsonValueKind.Object } erParameters)
+        {
+            if (erParameters.TryGetProperty("cursor", out var cursorElement)
+                && cursorElement.ValueKind == JsonValueKind.Number
+                && cursorElement.TryGetInt64(out var parsedCursor))
+            {
+                cursor = parsedCursor;
+            }
+
+            if (erParameters.TryGetProperty("limit", out var limitElement)
+                && limitElement.ValueKind == JsonValueKind.Number
+                && limitElement.TryGetInt32(out var parsedLimit))
+            {
+                limit = Math.Clamp(parsedLimit, 1, 4096);
+            }
+        }
+
+        var events = _state.Events.ReadAfter(cursor, limit);
+        if (events is null)
+        {
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = ErrorCodes.CursorExpired,
+                    Message = "事件游标已过期（宿主重启或事件已被淘汰）；请不带 cursor 重新全量读取",
+                    Retryable = false,
+                },
+            };
+        }
+
+        var nextCursor = events.Count > 0 ? events[events.Count - 1].Sequence : cursor ?? 0;
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new
+            {
+                nextCursor,
+                items = events.Select(ev => new
+                {
+                    sequence = ev.Sequence,
+                    timestampUtc = ev.TimestampUtc.ToString("O"),
+                    type = ev.Type,
+                    entityKey = ev.EntityKey,
+                    payload = JsonSerializer.Deserialize<JsonElement>(ev.PayloadJson, ContractJson.Options).Clone(),
+                }).ToArray(),
+            },
         };
     }
 

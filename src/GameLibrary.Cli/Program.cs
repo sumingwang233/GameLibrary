@@ -34,6 +34,7 @@ internal static class Program
                 "host.status" => await HostStatusAsync(parse),
                 "library.init" => await ScanHostOperationAsync(parse, "library.init", requiresRoot: false),
                 "scan.start" => await ScanHostOperationAsync(parse, "scan.start", requiresRoot: true),
+                "events.read" => await ScanHostOperationAsync(parse, "events.read", requiresRoot: false),
                 "scan.inspect" => await ScanHostOperationAsync(parse, "scan.inspect", requiresRoot: true),
                 "roots.add" => await ScanHostOperationAsync(parse, "roots.add", requiresRoot: true),
                 "roots.list" => await ScanHostOperationAsync(parse, "roots.list", requiresRoot: false),
@@ -214,7 +215,8 @@ internal static class Program
         object? parameters = operationId switch
         {
             "library.init" => cli.IdempotencyKey is null ? null : new { idempotencyKey = cli.IdempotencyKey },
-            "scan.start" => new { root = cli.RootArgument },
+            "scan.start" => new { idempotencyKey = cli.IdempotencyKey ?? ("scan-" + Guid.NewGuid().ToString("N")), root = cli.RootArgument },
+            "events.read" => (cli.Limit is null && cli.ExpectedRevision is null) ? null : new { cursor = cli.ExpectedRevision, limit = cli.Limit },
             "scan.inspect" => new { path = cli.RootArgument },
             "roots.add" => new { root = cli.RootArgument },
             "roots.list" => new { },

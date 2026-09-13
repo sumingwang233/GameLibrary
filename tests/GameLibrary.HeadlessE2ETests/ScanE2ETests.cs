@@ -32,6 +32,11 @@ public sealed class ScanE2ETests
         int? hostPid = null;
         try
         {
+            // 收据需要库实例：先建库。
+            var libInit = await RunCliAsync(
+                "library", "init", "--data-dir", dataDir, "--format", "json");
+            Assert.Equal(0, libInit.ExitCode);
+
             // 路径包含边界：先注册扫描根。
             var rootAdd = await RunCliAsync(
                 "roots", "add", "--root", scanRoot, "--data-dir", dataDir, "--format", "json");
@@ -89,7 +94,7 @@ public sealed class ScanE2ETests
             var detailDoc = JsonDocument.Parse(detail.StdOut);
             Assert.True(detailDoc.RootElement.GetProperty("ok").GetBoolean());
             Assert.Equal("kirikiri", detailDoc.RootElement.GetProperty("data")
-                .GetProperty("engines")[0].GetProperty("engine").GetString());
+                .GetProperty("detail").GetProperty("engines")[0].GetProperty("engine").GetString());
 
             // 顺便从 host.status 拿到宿主 PID 以便清理。
             var hostStatus = await RunCliAsync("host", "status", "--data-dir", dataDir, "--format", "json");
@@ -122,15 +127,23 @@ public sealed class ScanE2ETests
             });
             await WriteLineAsync(mcpProcess, """{"jsonrpc":"2.0","method":"notifications/initialized"}""");
 
+            // 收据需要库实例：先建库。
+            var libInit = await SendRequestAsync(mcpProcess, 2, "tools/call", new
+            {
+                name = "library_init",
+                arguments = new { },
+            });
+            Assert.False(libInit.GetProperty("result").GetProperty("isError").GetBoolean());
+
             // 路径包含边界：先注册扫描根。
-            var rootAdd = await SendRequestAsync(mcpProcess, 2, "tools/call", new
+            var rootAdd = await SendRequestAsync(mcpProcess, 3, "tools/call", new
             {
                 name = "roots_add",
                 arguments = new { root = scanRoot },
             });
             Assert.False(rootAdd.GetProperty("result").GetProperty("isError").GetBoolean());
 
-            var call = await SendRequestAsync(mcpProcess, 3, "tools/call", new
+            var call = await SendRequestAsync(mcpProcess, 4, "tools/call", new
             {
                 name = "scan_start",
                 arguments = new { root = scanRoot },
@@ -143,7 +156,7 @@ public sealed class ScanE2ETests
             Assert.False(string.IsNullOrWhiteSpace(jobId));
 
             // host_status 工具拿宿主 PID 用于清理。
-            var hostCall = await SendRequestAsync(mcpProcess, 4, "tools/call", new
+            var hostCall = await SendRequestAsync(mcpProcess, 5, "tools/call", new
             {
                 name = "host_status",
                 arguments = new { },
@@ -153,7 +166,7 @@ public sealed class ScanE2ETests
             hostPid = hostEnvelope.RootElement.GetProperty("data").GetProperty("processId").GetInt32();
 
             // scan_inspect：对发现的安装根目录只读识别。
-            var inspectCall = await SendRequestAsync(mcpProcess, 5, "tools/call", new
+            var inspectCall = await SendRequestAsync(mcpProcess, 6, "tools/call", new
             {
                 name = "scan_inspect",
                 arguments = new { path = Path.Combine(scanRoot, "GameA") },

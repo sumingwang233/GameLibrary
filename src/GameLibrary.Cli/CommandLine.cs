@@ -253,6 +253,7 @@ internal sealed record CommandLine
             "games" when verb is "list" or "get" => $"games.{verb}",
             "diagnostics" when verb is "status" or "logs" => $"diagnostics.{verb}",
             "tools" when verb == "discover" => "tools.discover",
+            "events" when verb == "read" => "events.read",
             "fields" when verb == "set" => "fields.set",
             "assets" when verb is "import" or "list" or "get" => $"assets.{verb}",
             "ignores" when verb is "list" or "create" or "remove" => $"ignores.{verb}",

@@ -44,7 +44,7 @@ public sealed class ScanOperationTests : IClassFixture<PipeServerFixture>
         var root = CreateFixtureTree("scanop-full");
         await EnsureRootAsync();
 
-        var start = await InvokeAsync("scan.start", new { root });
+        var start = await InvokeAsync("scan.start", new { idempotencyKey = "scan-" + Guid.NewGuid().ToString("N"), root });
         Assert.True(start.Ok, start.Error?.Message);
         Assert.Equal(OperationStatus.Accepted, start.Status);
         Assert.NotNull(start.JobId);
@@ -73,7 +73,7 @@ public sealed class ScanOperationTests : IClassFixture<PipeServerFixture>
     {
         var missing = Path.Combine(@"D:\Official\GameLibrary\artifacts\test-runs", $"scanop-missing-{Guid.NewGuid():N}");
 
-        var envelope = await InvokeAsync("scan.start", new { root = missing });
+        var envelope = await InvokeAsync("scan.start", new { idempotencyKey = "scan-" + Guid.NewGuid().ToString("N"), root = missing });
 
         Assert.False(envelope.Ok);
         Assert.Equal(ErrorCodes.RootOffline, envelope.Error!.Code);
@@ -82,11 +82,11 @@ public sealed class ScanOperationTests : IClassFixture<PipeServerFixture>
     [Fact]
     public async Task ScanStart_InvalidPath_IsRejected()
     {
-        var invalid = await InvokeAsync("scan.start", new { root = @"D:\Game""s" });
+        var invalid = await InvokeAsync("scan.start", new { idempotencyKey = "scan-" + Guid.NewGuid().ToString("N"), root = @"D:\Game""s" });
         Assert.False(invalid.Ok);
         Assert.Equal(ErrorCodes.InvalidPath, invalid.Error!.Code);
 
-        var unc = await InvokeAsync("scan.start", new { root = @"\\server\share" });
+        var unc = await InvokeAsync("scan.start", new { idempotencyKey = "scan-" + Guid.NewGuid().ToString("N"), root = @"\\server\share" });
         Assert.False(unc.Ok);
         Assert.Equal(ErrorCodes.UnsupportedPath, unc.Error!.Code);
     }
@@ -109,7 +109,7 @@ public sealed class ScanOperationTests : IClassFixture<PipeServerFixture>
         await EnsureRootAsync();
 
         // artifacts 与已注册的 artifacts\test-runs 平级：存在但不在白名单内。
-        var envelope = await InvokeAsync("scan.start", new { root = @"D:\Official\GameLibrary\artifacts" });
+        var envelope = await InvokeAsync("scan.start", new { idempotencyKey = "scan-" + Guid.NewGuid().ToString("N"), root = @"D:\Official\GameLibrary\artifacts" });
 
         Assert.False(envelope.Ok);
         Assert.Equal(ErrorCodes.PermissionDenied, envelope.Error!.Code);
@@ -120,7 +120,7 @@ public sealed class ScanOperationTests : IClassFixture<PipeServerFixture>
     {
         var root = CreateFixtureTree("scanop-cancel");
         await EnsureRootAsync();
-        var start = await InvokeAsync("scan.start", new { root });
+        var start = await InvokeAsync("scan.start", new { idempotencyKey = "scan-" + Guid.NewGuid().ToString("N"), root });
         var jobId = start.JobId!;
         await WaitForJobAsync(jobId, "succeeded");
 
@@ -135,7 +135,7 @@ public sealed class ScanOperationTests : IClassFixture<PipeServerFixture>
     {
         var root = CreateFixtureTree("scanop-cands");
         await EnsureRootAsync();
-        var start = await InvokeAsync("scan.start", new { root });
+        var start = await InvokeAsync("scan.start", new { idempotencyKey = "scan-" + Guid.NewGuid().ToString("N"), root });
         var jobId = start.JobId!;
         await WaitForJobAsync(jobId, "succeeded");
 
