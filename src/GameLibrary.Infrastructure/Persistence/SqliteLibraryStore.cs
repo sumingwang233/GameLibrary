@@ -36,6 +36,7 @@ public sealed class SqliteLibraryStore : IAsyncDisposable
         SqliteLibraryStoreOptions options,
         CancellationToken ct)
     {
+        ValidateConsecutiveVersions(options.Migrations);
         var dbPath = Path.Combine(canonicalDataDirectory, DatabaseFileName);
         if (File.Exists(dbPath) && new FileInfo(dbPath).Length > 0)
         {
@@ -165,6 +166,10 @@ public sealed class SqliteLibraryStore : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// 升级旧库：迁移前先用 SQLite 备份 API 生成一致快照；每条迁移单事务执行
+    /// （DDL 在 SQLite 中可回滚）；失败即中止，库停留在最后成功的版本，不半升级。
+    /// </summary>
     private static async Task<LibraryOpenResult> UpgradeAsync(
         SqliteConnection connection,
         SqliteLibraryStoreOptions options,
@@ -172,10 +177,67 @@ public sealed class SqliteLibraryStore : IAsyncDisposable
         string canonicalDataDirectory,
         CancellationToken ct)
     {
-        await DisposeConnectionAsync(connection);
-        return LibraryOpenResult.Fail(
-            LibraryOpenStatus.MigrationFailed,
-            $"库 schema 版本 {current.SchemaVersion} 低于程序支持 {options.MaxSupportedSchemaVersion}；迁移能力由下一步提交交付");
+        ValidateConsecutiveVersions(options.Migrations);
+        var pending = options.Migrations
+            .Where(m => m.Version > current.SchemaVersion)
+            .OrderBy(m => m.Version)
+            .ToList();
+
+        var snapshotPath = Path.Combine(
+            canonicalDataDirectory,
+            BackupsFolderName,
+            $"pre-migration-v{current.SchemaVersion}-to-v{options.MaxSupportedSchemaVersion}-{DateTime.UtcNow:yyyyMMdd-HHmmss}.db");
+
+        try
+        {
+            await CreateSnapshotAsync(connection, snapshotPath, ct);
+
+            foreach (var migration in pending)
+            {
+                var now = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+                await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(ct);
+                await ExecuteAsync(connection, transaction, migration.Sql, ct);
+                await ExecuteAsync(
+                    connection,
+                    transaction,
+                    "UPDATE schema_info SET schema_version = $v, updated_utc = $u WHERE id = 1",
+                    ct,
+                    ("$v", migration.Version),
+                    ("$u", now));
+                await transaction.CommitAsync(ct);
+            }
+
+            var info = await ReadInfoAsync(connection, ct);
+            return LibraryOpenResult.Opened(new SqliteLibraryStore(connection, options, info));
+        }
+        catch (Exception ex)
+        {
+            await DisposeConnectionAsync(connection);
+            return LibraryOpenResult.Fail(
+                LibraryOpenStatus.MigrationFailed,
+                $"迁移失败，库保留在版本 {current.SchemaVersion}；迁移前快照：{snapshotPath}；原因：{ex.Message}");
+        }
+    }
+
+    /// <summary>迁移集必须是从 1 开始的连续整数版本，缺失中间版本属于程序缺陷。</summary>
+    private static void ValidateConsecutiveVersions(IReadOnlyList<DatabaseMigration> migrations)
+    {
+        for (var i = 0; i < migrations.Count; i++)
+        {
+            if (migrations[i].Version != i + 1)
+            {
+                throw new ArgumentException(
+                    $"迁移版本不连续：第 {i + 1} 项应为版本 {i + 1}，实际 {migrations[i].Version}");
+            }
+        }
+    }
+
+    /// <summary>SQLite 备份 API 一致快照：WAL 模式下也获得一致副本，不复制正在运行的主库文件。</summary>
+    private static async Task CreateSnapshotAsync(SqliteConnection source, string targetPath, CancellationToken ct)
+    {
+        await using var target = new SqliteConnection($"Data Source={targetPath}{ConnectionSuffix}");
+        await target.OpenAsync(ct);
+        source.BackupDatabase(target);
     }
 
     private const string ConnectionSuffix = ";Pooling=False";

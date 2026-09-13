@@ -25,9 +25,17 @@ public sealed class SqliteLibraryStoreTests
 
     private static void Cleanup(string dataDir)
     {
-        if (Directory.Exists(dataDir))
+        // 测试产物在 gitignored artifacts/test-runs 唯一 guid 目录下；
+        // 清理尽力而为，句柄被测试进程外延迟释放时不判测试失败。
+        try
         {
-            Directory.Delete(dataDir, recursive: true);
+            if (Directory.Exists(dataDir))
+            {
+                Directory.Delete(dataDir, recursive: true);
+            }
+        }
+        catch (IOException)
+        {
         }
     }
 
