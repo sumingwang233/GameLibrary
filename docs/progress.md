@@ -12,7 +12,7 @@
 
 ## T20 架构契约/ADR — 2026-09-13 完成
 
-- **改动文件**：`docs/adr/0001..0007`、`contracts/operations.v1.json`（29 命名空间 111 操作，全部 status=planned）、`contracts/README.md`（命名规则/治理/负责人）、`tests/GameLibrary.ContractTests/OperationCatalogTests.cs`。
+- **改动文件**：`docs/adr/0001..0007`、`contracts/operations.v1.json`（29 命名空间 129 操作，全部已注册、实现状态由代码声明）、`contracts/README.md`（命名规则/治理/负责人）、`tests/GameLibrary.ContractTests/OperationCatalogTests.cs`。
 - **验证结果**：契约测试 9 通过 / 0 失败（信封 4 + 目录 5：矩阵完整性、命名规则、标识符唯一、字段合法性）；`dotnet format` 通过。报告：`artifacts/build-reports/2026-09-13-t20.md`。
 - **未验证范围**：schemas/*.json 与适配器能力类型化契约随对应任务交付；尚无任何已实现 handler。
 - **下一项**：T01 Domain 路径与身份。
@@ -32,3 +32,11 @@
 - **实现要点**：数据目录词法规范化 + SHA-256 派生管道/互斥名（路径别名归一）；4MiB 长度前缀帧；同用户管道（CurrentUserOnly）；互斥键+目录锁文件双守卫；host.status 为首个可用 handler，未实现操作统一 UnsupportedOperation。
 - **未验证范围**：客户端引导拉起宿主（T22）；提权/跨用户拒绝矩阵（T29）；断连故障注入（T23）。
 - **下一项**：T22 CLI/MCP 原生骨架。
+
+## T22 CLI/MCP 原生骨架 — 2026-09-13 完成
+
+- **改动文件**：Contracts（OperationCatalog + 嵌入目录）、Host（capabilities.get/schema.get handler、StdioDetach/--detach-stdio）、HostClient（HostProcessLauncher）、Cli（完整命令行骨架）、Mcp（官方 SDK 2.2.0 stdio 服务端 + 工具）、HeadlessE2ETests（+7）。
+- **验证结果**：累计 105 项测试通过（含真实 stdio MCP 客户端与 CLI 进程契约）；format 通过。报告：`artifacts/build-reports/2026-09-13-t22.md`。
+- **实现要点**：目录单一来源嵌入程序集，可用性由代码声明（tools/list 不列未实现）；CLI JSON/退出码/stderr 分离；宿主拉起用 ShellExecute 避免句柄继承（修复管道捕获挂死缺陷）+ --detach-stdio。
+- **未验证范围**：MCP Resources 模板、退出码全分支、跨用户/提权矩阵、断连注入（随 T23/T29 与首个数据操作落地）。
+- **下一项**：按依赖图，T10（Persistence 基础，前置 T01/T20/T21 已就绪）。

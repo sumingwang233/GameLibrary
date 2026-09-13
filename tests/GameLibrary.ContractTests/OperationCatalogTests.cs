@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameLibrary.Contracts;
 using Xunit;
 
 namespace GameLibrary.ContractTests;
@@ -112,20 +113,17 @@ public sealed class OperationCatalogTests
     }
 
     [Fact]
-    public void EveryOperation_HasValidPermissionExecutionAndStatus()
+    public void EveryOperation_HasValidPermissionAndExecution()
     {
         var permissions = Catalog.Value.RootElement.GetProperty("permissions")
             .EnumerateArray().Select(v => v.GetString()).ToHashSet();
         var executions = Catalog.Value.RootElement.GetProperty("executionModes")
-            .EnumerateArray().Select(v => v.GetString()).ToHashSet();
-        var statuses = Catalog.Value.RootElement.GetProperty("operationStatuses")
             .EnumerateArray().Select(v => v.GetString()).ToHashSet();
 
         foreach (var (_, op) in Operations())
         {
             Assert.Contains(op.GetProperty("permission").GetString(), permissions);
             Assert.Contains(op.GetProperty("execution").GetString(), executions);
-            Assert.Contains(op.GetProperty("status").GetString(), statuses);
             Assert.False(string.IsNullOrWhiteSpace(op.GetProperty("handler").GetString()));
             Assert.True(op.TryGetProperty("requiresRevision", out _));
             Assert.True(op.TryGetProperty("requiresIdempotencyKey", out _));
@@ -133,10 +131,28 @@ public sealed class OperationCatalogTests
     }
 
     [Fact]
-    public void PlannedOperations_AreNotMarkedAvailable()
+    public void EmbeddedCatalog_LoadsAndImplementedSet_IsSubsetOfCatalog()
     {
-        var ops = Operations().ToList();
-        Assert.Contains(ops, item => item.Op.GetProperty("status").GetString() == "planned");
-        Assert.DoesNotContain(ops, item => item.Op.GetProperty("status").GetString() == "available");
+        var catalog = OperationCatalog.Catalog;
+
+        Assert.Equal(ApiConstants.ApiVersion, catalog.ApiVersion);
+        Assert.True(catalog.Operations.Count >= 129);
+        Assert.All(catalog.Operations, op => Assert.False(string.IsNullOrWhiteSpace(op.Handler)));
+
+        Assert.NotEmpty(OperationCatalog.ImplementedOperations);
+        var ids = catalog.Operations.Select(op => op.OperationId).ToHashSet(StringComparer.Ordinal);
+        var unknown = OperationCatalog.ImplementedOperations.Where(id => !ids.Contains(id)).ToList();
+        Assert.True(unknown.Count == 0, $"已实现集合包含未登记操作：{string.Join(", ", unknown)}");
+
+        Assert.Contains(catalog.AvailableOperations, op => op.OperationId == "host.status");
+    }
+
+    [Fact]
+    public void SchemaFiles_AreNotYetClaimedAsImplemented()
+    {
+        // T22 骨架阶段，schemas/*.json 尚未开始；schema.get 只返回目录条目。
+        var implemented = OperationCatalog.ImplementedOperations;
+        Assert.DoesNotContain("games.update", implemented);
+        Assert.DoesNotContain("launch.execute", implemented);
     }
 }

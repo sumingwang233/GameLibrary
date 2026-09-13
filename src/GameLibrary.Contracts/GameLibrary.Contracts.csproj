@@ -4,4 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
   </PropertyGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\contracts\operations.v1.json" Link="contracts\operations.v1.json" />
+  </ItemGroup>
+
 </Project>

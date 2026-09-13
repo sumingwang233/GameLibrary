@@ -13,15 +13,30 @@ internal static class Program
 
     private static async Task<int> Main(string[] args)
     {
-        var dataDir = ParseDataDir(args);
+        var dataDir = ParseValue(args, "--data-dir");
         if (dataDir is null)
         {
-            Console.Error.WriteLine("用法：GameLibrary.Host --data-dir <绝对路径>");
+            Console.Error.WriteLine("用法：GameLibrary.Host --data-dir <绝对路径> [--detach-stdio]");
             return ExitArgumentError;
         }
 
-        var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(args);
-        builder.Logging.SetMinimumLevel(LogLevel.Information);
+        var detachStdio = Array.IndexOf(args, "--detach-stdio") >= 0;
+        if (detachStdio)
+        {
+            StdioDetach.CloseInheritedHandles();
+        }
+
+        var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder([]);
+        if (detachStdio)
+        {
+            // 后台模式无控制台；文件日志在可观测性任务（T24）落地。
+            builder.Logging.ClearProviders();
+        }
+        else
+        {
+            builder.Logging.SetMinimumLevel(LogLevel.Information);
+        }
+
         using var host = builder.Build();
 
         HostRuntime runtime;
@@ -31,7 +46,11 @@ internal static class Program
         }
         catch (InvalidOperationException ex)
         {
-            Console.Error.WriteLine(ex.Message);
+            if (!detachStdio)
+            {
+                Console.Error.WriteLine(ex.Message);
+            }
+
             return ExitAlreadyRunning;
         }
 
@@ -54,11 +73,11 @@ internal static class Program
         return ExitOk;
     }
 
-    private static string? ParseDataDir(string[] args)
+    private static string? ParseValue(string[] args, string name)
     {
         for (var i = 0; i < args.Length - 1; i++)
         {
-            if (string.Equals(args[i], "--data-dir", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(args[i], name, StringComparison.OrdinalIgnoreCase))
             {
                 return args[i + 1];
             }
