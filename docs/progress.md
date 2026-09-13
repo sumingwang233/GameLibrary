@@ -181,3 +181,11 @@
 - **实现要点**：Guided 保底（启动主程序、无参数、cwd=安装目录，状态 AwaitingUserInTool，不猜 CLI 协议）；双结论分开累积（游戏启动→SemiAutomatic；翻译生效+游戏启动→VerifiedAutomatic；仅开窗口不升级）；指纹绑定（变化→ToolChanged 失效重验）；权限与能力正交。
 - **未验证范围**：本地隔离样本实测七项条件（需用户授权样本）；GeneratedLauncher/CLI Adapter 待验证分支；标签 Suppress。
 - **下一项**：T09（Player/SteamAdapter）或 T15 剩余（搜索/收藏/虚拟化）。
+
+## T09 Player/SteamAdapter — 2026-09-13 完成
+
+- **改动文件**：`src/GameLibrary.Domain/Tools/KeyValuesParser.cs`（新：Valve KeyValues 最小解析器 + SteamRules appid 校验 + 能力声明）、`src/GameLibrary.Infrastructure/Tools/SteamAdapter.cs`（新：注册表只读/常见路径发现、appmanifest 解析、-applaunch 模板）、`PlayerAdapter.cs`（新：常见播放器发现+参数模板）、`OperationDispatcher.cs`（ToolsDiscover 重构为四分支 mtool/renpythief/player/steam）、ErrorCodes（+SteamManifestMissing）、测试（KeyValuesParserTests 8 + PlayerSteamTests 5）。
+- **验证结果**：累计 295 项测试通过（+18）；format 通过；Release 构建 0 警告 0 错误。报告：`artifacts/build-reports/2026-09-13-t09.md`。
+- **实现要点**：appid 仅取自本地 appmanifest 且校验十进制正整数（前导零/非数字拒绝）；无清单 → SteamManifestMissing 标注，不凭目录名硬填；-applaunch 为 Valve 公开稳定参数可生成模板，steam:// 协议未本机验收不生成；播放器模板 = exe + [目标路径]（公开稳定行为），参数差异须逐播放器样本验证；Steam 安装经注册表只读 SteamPath + 常见目录回退；steam 分支不收调用方路径（自动探测），player/mtool/renpythief 路径仍经库根白名单。
+- **未验证范围**：steam:// 的 Shell 集成验收（策划案明示待验收）；播放器逐样本验证与 ExternalPlayer 配置（T13）；多 Steam 库 libraryfolders.vdf（T25）。
+- **下一项**：T15 剩余（搜索/收藏/虚拟化）、T13（翻译配置三入口）或 T17（Reconcile/Identity）。

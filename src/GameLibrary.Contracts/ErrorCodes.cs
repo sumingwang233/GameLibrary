@@ -39,6 +39,7 @@ public static class ErrorCodes
     public const string LaunchObservationTimeout = "LaunchObservationTimeout";
     public const string ScanPartial = "ScanPartial";
     public const string DatabaseBusy = "DatabaseBusy";
+    public const string SteamManifestMissing = "SteamManifestMissing";
     public const string MigrationFailed = "MigrationFailed";
 
     /// <summary>契约要求必须存在的全部错误码，供覆盖测试使用。</summary>
@@ -76,6 +77,7 @@ public static class ErrorCodes
         LaunchObservationTimeout,
         ScanPartial,
         DatabaseBusy,
+        SteamManifestMissing,
         MigrationFailed,
     ];
 }

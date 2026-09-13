@@ -1178,18 +1178,94 @@ public sealed class OperationDispatcher
     }
 
     /// <summary>
-    /// 工具发现（T07，tools.discover）：对指定游戏根做只读 MTool 适配发现——
-    /// 生成配方解析/断链标记/能力声明；仅读允许路径（库根白名单），不自启动工具。
+    /// 工具发现（T07/T09，tools.discover）：按 tool 分派——mtool（默认，游戏根配方）、
+    /// renpythief（安装指纹与 Guided 计划）、player（常见播放器发现+本地文件参数模板）、
+    /// steam（注册表/常见路径发现 + appmanifest 清单）。只读，不自启动任何进程；
+    /// 调用方路径仍经库根白名单收口。
     /// </summary>
     private Envelope<object> ToolsDiscover(IpcRequest request)
     {
-        if (!TryGetStringParameter(request, "path", out var path))
+        TryGetStringParameter(request, "tool", out var discoverTool);
+        var hasPath = TryGetStringParameter(request, "path", out var path) && path.Length > 0;
+
+        if (string.Equals(discoverTool, "steam", StringComparison.Ordinal))
+        {
+            var steam = new Infrastructure.Tools.SteamAdapter().Discover();
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = true,
+                Status = OperationStatus.Completed,
+                Data = new
+                {
+                    toolId = "steam",
+                    found = steam.Found,
+                    steamRoot = steam.SteamRoot,
+                    steamExecutablePath = steam.SteamExecutablePath,
+                    manifestMissing = steam.ManifestMissing,
+                    capability = steam.Capability,
+                    manifests = steam.Manifests.Select(m => new
+                    {
+                        appId = m.AppId,
+                        name = m.Name,
+                        installDir = m.InstallDir,
+                    }).ToArray(),
+                    notice = LogSanitizer.Sanitize(steam.Notice, _state.DataDirectory),
+                },
+            };
+        }
+
+        if (string.Equals(discoverTool, "player", StringComparison.Ordinal))
+        {
+            var players = new Infrastructure.Tools.PlayerAdapter().Discover();
+            string? templateJson = null;
+            string? templateTarget = null;
+            if (hasPath && File.Exists(path) && players.Count > 0)
+            {
+                var validation = Domain.Paths.GamePath.TryCreate(path);
+                if (validation.IsValid && _state.Roots.Contains(validation.Path!.PhysicalPath))
+                {
+                    var template = players[0] is { } first
+                        ? new Infrastructure.Tools.PlayerAdapter().BuildLaunchTemplate(first, validation.Path.PhysicalPath)
+                        : null;
+                    if (template is not null)
+                    {
+                        templateTarget = validation.Path.PhysicalPath;
+                        templateJson = JsonSerializer.Serialize(new
+                        {
+                            player = players[0].Name,
+                            executablePath = template.ExecutablePath,
+                            argv = template.Arguments,
+                            cwd = template.WorkingDirectory,
+                            waitForExit = template.WaitForExit,
+                        }, ContractJson.Options);
+                    }
+                }
+            }
+
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = true,
+                Status = OperationStatus.Completed,
+                Data = new
+                {
+                    toolId = "player",
+                    players = players.Select(p => new { name = p.Name, executablePath = p.ExecutablePath }).ToArray(),
+                    templateFor = templateTarget,
+                    template = templateJson is null ? (JsonElement?)null : JsonSerializer.Deserialize<JsonElement>(templateJson, ContractJson.Options).Clone(),
+                    notice = "参数模板仅覆盖公开稳定行为（打开本地文件）；参数差异须逐播放器以用户样本验证后保存 ExternalPlayer 配置",
+                },
+            };
+        }
+
+        if (!hasPath)
         {
             return InvalidArgument(request, "缺少 path 参数（游戏根的绝对路径）");
         }
 
-        var validation = Domain.Paths.GamePath.TryCreate(path);
-        if (!validation.IsValid)
+        var pathValidation = Domain.Paths.GamePath.TryCreate(path);
+        if (!pathValidation.IsValid)
         {
             return new Envelope<object>
             {
@@ -1198,19 +1274,19 @@ public sealed class OperationDispatcher
                 Status = OperationStatus.Failed,
                 Error = new RequestError
                 {
-                    Code = validation.IsUnsupported ? ErrorCodes.UnsupportedPath : ErrorCodes.InvalidPath,
-                    Message = $"路径非法（{validation.Reason}）：{path}",
+                    Code = pathValidation.IsUnsupported ? ErrorCodes.UnsupportedPath : ErrorCodes.InvalidPath,
+                    Message = $"路径非法（{pathValidation.Reason}）：{path}",
                     Retryable = false,
                 },
             };
         }
 
-        if (RejectPathOutsideRoots(request, validation.Path!.PhysicalPath) is { } discoverOutsideRoot)
+        if (RejectPathOutsideRoots(request, pathValidation.Path!.PhysicalPath) is { } discoverOutsideRoot)
         {
             return discoverOutsideRoot;
         }
 
-        if (!Directory.Exists(validation.Path.PhysicalPath))
+        if (!Directory.Exists(pathValidation.Path.PhysicalPath))
         {
             return new Envelope<object>
             {
@@ -1220,16 +1296,15 @@ public sealed class OperationDispatcher
                 Error = new RequestError
                 {
                     Code = ErrorCodes.RootOffline,
-                    Message = $"路径不存在或离线：{validation.Path.PhysicalPath}",
+                    Message = $"路径不存在或离线：{pathValidation.Path.PhysicalPath}",
                     Retryable = true,
                 },
             };
         }
 
-        TryGetStringParameter(request, "tool", out var discoverTool);
         if (string.Equals(discoverTool, "renpythief", StringComparison.Ordinal))
         {
-            var renpy = new Infrastructure.Tools.RenpyThiefAdapter().Discover(validation.Path.PhysicalPath);
+            var renpy = new Infrastructure.Tools.RenpyThiefAdapter().Discover(pathValidation.Path.PhysicalPath);
             return new Envelope<object>
             {
                 RequestId = request.RequestId,
@@ -1238,7 +1313,7 @@ public sealed class OperationDispatcher
                 Data = new
                 {
                     toolId = "renpythief",
-                    path = validation.Path.PhysicalPath,
+                    path = pathValidation.Path.PhysicalPath,
                     found = renpy.Found,
                     evidenceKind = "Static",
                     capability = renpy.Capability,
@@ -1256,7 +1331,7 @@ public sealed class OperationDispatcher
             };
         }
 
-        var discovery = new Infrastructure.Tools.MToolAdapter().Discover(validation.Path.PhysicalPath);
+        var mtoolDiscovery = new Infrastructure.Tools.MToolAdapter().Discover(pathValidation.Path.PhysicalPath);
         return new Envelope<object>
         {
             RequestId = request.RequestId,
@@ -1265,29 +1340,29 @@ public sealed class OperationDispatcher
             Data = new
             {
                 toolId = Infrastructure.Tools.MToolDiscovery.ToolId,
-                path = validation.Path.PhysicalPath,
-                evidenceKind = discovery.EvidenceKind,
-                capability = discovery.Capability,
-                recipe = discovery.Recipe is null
+                path = pathValidation.Path.PhysicalPath,
+                evidenceKind = mtoolDiscovery.EvidenceKind,
+                capability = mtoolDiscovery.Capability,
+                recipe = mtoolDiscovery.Recipe is null
                     ? null
                     : new
                     {
-                        sourcePath = discovery.Recipe.SourcePath,
-                        scriptSha256 = discovery.Recipe.ScriptSha256,
-                        isBroken = discovery.Recipe.IsBroken,
-                        brokenPaths = discovery.Recipe.BrokenPaths,
-                        referencedFiles = discovery.Recipe.ReferencedFiles,
-                        steps = discovery.Recipe.Steps.Select(s => new
+                        sourcePath = mtoolDiscovery.Recipe.SourcePath,
+                        scriptSha256 = mtoolDiscovery.Recipe.ScriptSha256,
+                        isBroken = mtoolDiscovery.Recipe.IsBroken,
+                        brokenPaths = mtoolDiscovery.Recipe.BrokenPaths,
+                        referencedFiles = mtoolDiscovery.Recipe.ReferencedFiles,
+                        steps = mtoolDiscovery.Recipe.Steps.Select(step => new
                         {
-                            sequence = s.Sequence,
-                            executablePath = s.ExecutablePath,
-                            argv = s.Arguments,
-                            cwd = s.WorkingDirectory,
-                            waitForExit = s.WaitForExit,
+                            sequence = step.Sequence,
+                            executablePath = step.ExecutablePath,
+                            argv = step.Arguments,
+                            cwd = step.WorkingDirectory,
+                            waitForExit = step.WaitForExit,
                         }).ToArray(),
                     },
-                unsupportedReason = discovery.UnsupportedReason,
-                notice = LogSanitizer.Sanitize(discovery.Notice, _state.DataDirectory),
+                unsupportedReason = mtoolDiscovery.UnsupportedReason,
+                notice = LogSanitizer.Sanitize(mtoolDiscovery.Notice, _state.DataDirectory),
             },
         };
     }
