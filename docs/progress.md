@@ -173,3 +173,11 @@
 - **实现要点**：事件环形队列 4096 上限 + 同实体 2 秒抖动折叠 + 游标增量读取（过期 CursorExpired）；周期核对默认 15 分钟（可注入），手动/后台互斥（标志+忙位）；核对与手动扫描共用候选落库路径（稳定观察/抑制/事件一致）；scan.start 同键重放返回原 jobId（补齐 T23-A 作业/收据口）。
 - **未验证范围**：事件持久化跨重启（T23-B/T27）；watcher 事件源（T18）；核对预算细分与耗时指标（T24-B）；Coordinator 计数器接入 diagnostics。
 - **下一项**：T08/T09（其余适配器）或 T15 剩余（搜索/收藏/虚拟化）。
+
+## T08 RenpyThief 适配器与验证记录 — 2026-09-13 完成
+
+- **改动文件**：`MToolRecipe.cs` 扩展（ToolVerificationStatus/Record/Rules + RenpyThiefCapability）、`src/GameLibrary.Infrastructure/Tools/RenpyThiefAdapter.cs`（新：只读发现/指纹/Guided 保底计划）、迁移 v5（verification_records）+ `VerificationStore.cs`（新）、`OperationDispatcher.cs`（verification 五 handler + tools.discover renpythief 分支）、Cli/Mcp（+7 操作三入口）、测试（状态机 5 + RenpyThief 4）。
+- **验证结果**：累计 277 项测试通过（+8）；format 通过；Release 构建 0 警告 0 错误。报告：`artifacts/build-reports/2026-09-13-t08.md`。
+- **实现要点**：Guided 保底（启动主程序、无参数、cwd=安装目录，状态 AwaitingUserInTool，不猜 CLI 协议）；双结论分开累积（游戏启动→SemiAutomatic；翻译生效+游戏启动→VerifiedAutomatic；仅开窗口不升级）；指纹绑定（变化→ToolChanged 失效重验）；权限与能力正交。
+- **未验证范围**：本地隔离样本实测七项条件（需用户授权样本）；GeneratedLauncher/CLI Adapter 待验证分支；标签 Suppress。
+- **下一项**：T09（Player/SteamAdapter）或 T15 剩余（搜索/收藏/虚拟化）。

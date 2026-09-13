@@ -64,6 +64,89 @@ public sealed record MToolRecipe
     public bool IsBroken => BrokenPaths.Count > 0;
 }
 
+/// <summary>
+/// 工具验证状态（任务书 T08 / 补充规格 2.5）：权限与能力正交，验证状态只描述能力证据。
+/// Unknown=证据不足；Guided=引导式使用（用户在工具内完成配置）；SemiAutomatic=有游戏启动
+/// 实测证据；VerifiedAutomatic=游戏启动与翻译生效双结论 + 工具指纹绑定。
+/// </summary>
+public enum ToolVerificationStatus
+{
+    Unknown,
+
+    Guided,
+
+    SemiAutomatic,
+
+    VerifiedAutomatic,
+}
+
+/// <summary>工具验证记录：绑定工具指纹与样本，双结论分开记录。</summary>
+public sealed record ToolVerificationRecord
+{
+    public required string RecordId { get; init; }
+
+    public required string ToolId { get; init; }
+
+    /// <summary>验证时的工具指纹（关键文件名+大小+修改时间摘要）；变化即失效。</summary>
+    public required string ToolFingerprint { get; init; }
+
+    /// <summary>验证样本：游戏引擎标识与路径（隔离副本）。</summary>
+    public required string Engine { get; init; }
+
+    public required string SamplePath { get; init; }
+
+    public ToolVerificationStatus Status { get; init; } = ToolVerificationStatus.Unknown;
+
+    public bool GameStartedConfirmed { get; init; }
+
+    public bool TranslationConfirmed { get; init; }
+
+    public string? Note { get; init; }
+
+    public required DateTime CreatedUtc { get; init; }
+
+    public required DateTime UpdatedUtc { get; init; }
+}
+
+/// <summary>验证记录转移规则：翻译生效证据必须先有游戏启动证据（仅打开工具窗口不算成功）。</summary>
+public static class ToolVerificationRules
+{
+    public static ToolVerificationStatus ApplyObservation(
+        ToolVerificationStatus current,
+        bool gameStartedConfirmed,
+        bool translationConfirmed)
+    {
+        if (translationConfirmed)
+        {
+            return gameStartedConfirmed ? ToolVerificationStatus.VerifiedAutomatic : current;
+        }
+
+        if (gameStartedConfirmed)
+        {
+            return current == ToolVerificationStatus.VerifiedAutomatic
+                ? current
+                : ToolVerificationStatus.SemiAutomatic;
+        }
+
+        return current == ToolVerificationStatus.Unknown ? ToolVerificationStatus.Guided : current;
+    }
+}
+
+/// <summary>工具验证能力声明（RenpyThief）：保底 Guided，无协议不承诺自动。</summary>
+public static class RenpyThiefCapability
+{
+    public const string ToolId = "renpythief";
+
+    public static IReadOnlyDictionary<string, string> Describe() => new Dictionary<string, string>
+    {
+        ["canLaunch"] = nameof(ToolCapabilityState.Supported),
+        ["canRequestInjection"] = nameof(ToolCapabilityState.Unsupported),
+        ["canDeploy"] = nameof(ToolCapabilityState.Unsupported),
+        ["canRollback"] = nameof(ToolCapabilityState.Unsupported),
+        ["mayUseNetwork"] = nameof(ToolCapabilityState.Unknown),
+    };
+}
+
 /// <summary>MTool 适配能力声明（策划案 9）：固定如实，无沙箱假承诺。</summary>
 public static class MToolCapability
 {

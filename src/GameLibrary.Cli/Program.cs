@@ -35,6 +35,8 @@ internal static class Program
                 "library.init" => await ScanHostOperationAsync(parse, "library.init", requiresRoot: false),
                 "scan.start" => await ScanHostOperationAsync(parse, "scan.start", requiresRoot: true),
                 "events.read" => await ScanHostOperationAsync(parse, "events.read", requiresRoot: false),
+                "verification.start" or "verification.report" or "verification.invalidate" or "verification.get" or "verification.list" =>
+                    await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "scan.inspect" => await ScanHostOperationAsync(parse, "scan.inspect", requiresRoot: true),
                 "roots.add" => await ScanHostOperationAsync(parse, "roots.add", requiresRoot: true),
                 "roots.list" => await ScanHostOperationAsync(parse, "roots.list", requiresRoot: false),
@@ -283,6 +285,25 @@ internal static class Program
                 idempotencyKey = cli.IdempotencyKey ?? $"rmasset-{Guid.NewGuid():N}",
                 assetId = cli.AssetId,
             },
+            "verification.start" => new
+            {
+                idempotencyKey = cli.IdempotencyKey ?? $"vstart-{Guid.NewGuid():N}",
+                toolId = cli.Field,
+                fingerprint = cli.Value,
+                engine = cli.Scope,
+                samplePath = cli.SourcePath,
+            },
+            "verification.report" => new
+            {
+                idempotencyKey = cli.IdempotencyKey ?? $"vreport-{Guid.NewGuid():N}",
+                recordId = cli.CandidateId,
+                gameStarted = cli.ExpectedRevision is not null && cli.ExpectedRevision >= 1,
+                translationConfirmed = cli.ExpectedRevision is not null && cli.ExpectedRevision >= 2,
+                fingerprint = cli.Value,
+            },
+            "verification.invalidate" => new { idempotencyKey = cli.IdempotencyKey ?? $"vinval-{Guid.NewGuid():N}", recordId = cli.CandidateId },
+            "verification.get" => new { recordId = cli.CandidateId },
+            "verification.list" => cli.Field is null ? null : new { toolId = cli.Field },
             "metadata.preview" => new { gameId = cli.GameId },
             "metadata.refresh" => new { idempotencyKey = cli.IdempotencyKey ?? $"meta-{Guid.NewGuid():N}", gameId = cli.GameId },
             "assets.list" => new { gameId = cli.GameId },

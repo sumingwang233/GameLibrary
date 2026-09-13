@@ -90,5 +90,20 @@ public static class DatabaseMigrations
                 imported_utc TEXT NOT NULL
             )
             """),
+        new DatabaseMigration(5, """
+            CREATE TABLE verification_records (
+                record_id TEXT PRIMARY KEY,
+                tool_id TEXT NOT NULL,
+                tool_fingerprint TEXT NOT NULL,
+                engine TEXT NOT NULL,
+                sample_path TEXT NOT NULL,
+                status TEXT NOT NULL CHECK (status IN ('Unknown', 'Guided', 'SemiAutomatic', 'VerifiedAutomatic')),
+                game_started INTEGER NOT NULL CHECK (game_started IN (0, 1)),
+                translation_confirmed INTEGER NOT NULL CHECK (translation_confirmed IN (0, 1)),
+                note TEXT,
+                created_utc TEXT NOT NULL,
+                updated_utc TEXT NOT NULL
+            )
+            """),
     ];
 }

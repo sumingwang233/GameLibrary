@@ -254,6 +254,7 @@ internal sealed record CommandLine
             "diagnostics" when verb is "status" or "logs" => $"diagnostics.{verb}",
             "tools" when verb == "discover" => "tools.discover",
             "events" when verb == "read" => "events.read",
+            "verification" when verb is "start" or "report" or "invalidate" or "get" or "list" => $"verification.{verb}",
             "fields" when verb == "set" => "fields.set",
             "assets" when verb is "import" or "list" or "get" => $"assets.{verb}",
             "ignores" when verb is "list" or "create" or "remove" => $"ignores.{verb}",

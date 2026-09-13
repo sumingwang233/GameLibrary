@@ -56,6 +56,9 @@ public sealed class OperationDispatcher
         "candidates.defer",
         "candidates.ignore",
         "fields.set",
+        "verification.start",
+        "verification.report",
+        "verification.invalidate",
         "fields.clear",
         "fields.reset",
         "assets.import",
@@ -398,6 +401,11 @@ public sealed class OperationDispatcher
         "diagnostics.status" => DiagnosticsStatus(request),
         "diagnostics.logs" => DiagnosticsLogs(request),
         "tools.discover" => ToolsDiscover(request),
+        "verification.start" => VerificationStart(request),
+        "verification.report" => VerificationReport(request),
+        "verification.invalidate" => VerificationInvalidate(request),
+        "verification.get" => VerificationGet(request),
+        "verification.list" => VerificationList(request),
         "fields.set" => FieldsSet(request),
         "fields.clear" => FieldsClear(request),
         "fields.reset" => FieldsReset(request),
@@ -1218,6 +1226,36 @@ public sealed class OperationDispatcher
             };
         }
 
+        TryGetStringParameter(request, "tool", out var discoverTool);
+        if (string.Equals(discoverTool, "renpythief", StringComparison.Ordinal))
+        {
+            var renpy = new Infrastructure.Tools.RenpyThiefAdapter().Discover(validation.Path.PhysicalPath);
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = true,
+                Status = OperationStatus.Completed,
+                Data = new
+                {
+                    toolId = "renpythief",
+                    path = validation.Path.PhysicalPath,
+                    found = renpy.Found,
+                    evidenceKind = "Static",
+                    capability = renpy.Capability,
+                    fingerprint = renpy.Fingerprint,
+                    mainExecutablePath = renpy.MainExecutablePath,
+                    launcherPath = renpy.LauncherPath,
+                    guidedPlan = renpy.GuidedPlan is null ? null : new
+                    {
+                        executablePath = renpy.GuidedPlan.ExecutablePath,
+                        argv = renpy.GuidedPlan.Arguments,
+                        cwd = renpy.GuidedPlan.WorkingDirectory,
+                    },
+                    notice = LogSanitizer.Sanitize(renpy.Notice, _state.DataDirectory),
+                },
+            };
+        }
+
         var discovery = new Infrastructure.Tools.MToolAdapter().Discover(validation.Path.PhysicalPath);
         return new Envelope<object>
         {
@@ -1884,6 +1922,216 @@ public sealed class OperationDispatcher
         };
     }
 
+    /// <summary>开始一次工具验证（T08）：绑定当前指纹与隔离样本，状态 Unknown。</summary>
+    private Envelope<object> VerificationStart(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!TryGetStringParameter(request, "toolId", out var toolId)
+            || !TryGetStringParameter(request, "fingerprint", out var fingerprint)
+            || !TryGetStringParameter(request, "engine", out var engine)
+            || !TryGetStringParameter(request, "samplePath", out var samplePath))
+        {
+            return InvalidArgument(request, "verification.start 需要 toolId、fingerprint、engine、samplePath 参数");
+        }
+
+        var record = new GameLibrary.Domain.Tools.ToolVerificationRecord
+        {
+            RecordId = $"verif-{Guid.NewGuid():N}",
+            ToolId = toolId,
+            ToolFingerprint = fingerprint,
+            Engine = engine,
+            SamplePath = samplePath,
+            Status = GameLibrary.Domain.Tools.ToolVerificationStatus.Unknown,
+            CreatedUtc = DateTime.UtcNow,
+            UpdatedUtc = DateTime.UtcNow,
+        };
+        store.InsertVerification(record);
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = VerificationDto(record),
+        };
+    }
+
+    /// <summary>提交验证观察（双结论分开累积；翻译生效必须先有游戏启动证据）。</summary>
+    private Envelope<object> VerificationReport(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!TryGetStringParameter(request, "recordId", out var recordId))
+        {
+            return InvalidArgument(request, "缺少 recordId 参数");
+        }
+
+        var record = store.TryGetVerification(recordId);
+        if (record is null)
+        {
+            return NotFound(request, $"验证记录不存在：{recordId}");
+        }
+
+        TryGetBoolParameter(request, "gameStarted", out var gameStarted);
+        TryGetBoolParameter(request, "translationConfirmed", out var translationConfirmed);
+
+        // 指纹校验：工具更新/换目录后旧记录失效，需重新验证。
+        if (TryGetStringParameter(request, "fingerprint", out var fingerprint)
+            && !string.Equals(fingerprint, record.ToolFingerprint, StringComparison.Ordinal))
+        {
+            record = record with
+            {
+                Status = GameLibrary.Domain.Tools.ToolVerificationStatus.Unknown,
+                Note = "工具指纹变化，历史验证失效",
+                UpdatedUtc = DateTime.UtcNow,
+            };
+            store.UpdateVerification(record);
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = ErrorCodes.ToolChanged,
+                    Message = "工具指纹与验证记录不一致；记录已失效，请重新验证",
+                    Retryable = false,
+                },
+            };
+        }
+
+        var newStatus = GameLibrary.Domain.Tools.ToolVerificationRules.ApplyObservation(
+            record.Status, gameStartedConfirmed: gameStarted == true, translationConfirmed: translationConfirmed == true);
+        record = record with
+        {
+            Status = newStatus,
+            GameStartedConfirmed = record.GameStartedConfirmed || gameStarted == true,
+            TranslationConfirmed = record.TranslationConfirmed || translationConfirmed == true,
+            UpdatedUtc = DateTime.UtcNow,
+        };
+        store.UpdateVerification(record);
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = VerificationDto(record),
+        };
+    }
+
+    /// <summary>使验证记录失效（工具更新/用户撤销）。</summary>
+    private Envelope<object> VerificationInvalidate(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!TryGetStringParameter(request, "recordId", out var recordId))
+        {
+            return InvalidArgument(request, "缺少 recordId 参数");
+        }
+
+        var record = store.TryGetVerification(recordId);
+        if (record is null)
+        {
+            return NotFound(request, $"验证记录不存在：{recordId}");
+        }
+
+        record = record with
+        {
+            Status = GameLibrary.Domain.Tools.ToolVerificationStatus.Unknown,
+            Note = "验证已失效（invalidate）",
+            UpdatedUtc = DateTime.UtcNow,
+        };
+        store.UpdateVerification(record);
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = VerificationDto(record),
+        };
+    }
+
+    private Envelope<object> VerificationGet(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!TryGetStringParameter(request, "recordId", out var recordId))
+        {
+            return InvalidArgument(request, "缺少 recordId 参数");
+        }
+
+        var record = store.TryGetVerification(recordId);
+        if (record is null)
+        {
+            return NotFound(request, $"验证记录不存在：{recordId}");
+        }
+
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = VerificationDto(record),
+        };
+    }
+
+    private Envelope<object> VerificationList(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        string? toolId = null;
+        if (request.Parameters is { ValueKind: JsonValueKind.Object } vlParameters
+            && vlParameters.TryGetProperty("toolId", out var toolElement)
+            && toolElement.ValueKind == JsonValueKind.String)
+        {
+            toolId = toolElement.GetString();
+        }
+
+        var records = store.ListVerifications(toolId);
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new { total = records.Count, items = records.Select(VerificationDto).ToArray() },
+        };
+    }
+
+    private static object VerificationDto(GameLibrary.Domain.Tools.ToolVerificationRecord record) => new
+    {
+        recordId = record.RecordId,
+        toolId = record.ToolId,
+        toolFingerprint = record.ToolFingerprint,
+        engine = record.Engine,
+        samplePath = record.SamplePath,
+        status = record.Status,
+        gameStartedConfirmed = record.GameStartedConfirmed,
+        translationConfirmed = record.TranslationConfirmed,
+        note = record.Note,
+        createdUtc = record.CreatedUtc.ToString("O"),
+        updatedUtc = record.UpdatedUtc.ToString("O"),
+    };
+
     private static object AssetDto(GameAsset asset) => new
     {
         assetId = asset.AssetId,
@@ -2535,6 +2783,28 @@ public sealed class OperationDispatcher
         }
 
         values = [];
+        return false;
+    }
+
+    private static bool TryGetBoolParameter(IpcRequest request, string name, out bool? value)
+    {
+        value = null;
+        if (request.Parameters is { ValueKind: JsonValueKind.Object } parameters
+            && parameters.TryGetProperty(name, out var element)
+            && element.ValueKind == JsonValueKind.True)
+        {
+            value = true;
+            return true;
+        }
+
+        if (request.Parameters is { ValueKind: JsonValueKind.Object } falseParameters
+            && falseParameters.TryGetProperty(name, out var falseElement)
+            && falseElement.ValueKind == JsonValueKind.False)
+        {
+            value = false;
+            return true;
+        }
+
         return false;
     }
 

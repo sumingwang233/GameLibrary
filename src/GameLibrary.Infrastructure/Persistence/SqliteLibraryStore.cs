@@ -112,6 +112,20 @@ public sealed class SqliteLibraryStore : IAsyncDisposable
     public void WriteAutoField(string gameId, string fieldKey, string value, DateTime utcNow) =>
         GameProfileStore.WriteAutoField(_connection, gameId, fieldKey, value, utcNow);
 
+    // T08 验证记录转发。
+
+    public void InsertVerification(GameLibrary.Domain.Tools.ToolVerificationRecord record) =>
+        VerificationStore.Insert(_connection, record);
+
+    public GameLibrary.Domain.Tools.ToolVerificationRecord? TryGetVerification(string recordId) =>
+        VerificationStore.TryGet(_connection, recordId);
+
+    public IReadOnlyList<GameLibrary.Domain.Tools.ToolVerificationRecord> ListVerifications(string? toolId) =>
+        VerificationStore.List(_connection, toolId);
+
+    public void UpdateVerification(GameLibrary.Domain.Tools.ToolVerificationRecord record) =>
+        VerificationStore.Update(_connection, record);
+
     /// <summary>一致性备份到新文件（SQLite 备份 API，WAL 下同样一致）。目标已存在则拒绝。</summary>
     public async Task CreateBackupAsync(string targetPath, CancellationToken ct)
     {

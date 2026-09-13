@@ -367,9 +367,50 @@ public static class GameLibraryTools
             : InvokeOperationAsync("diagnostics.logs", new { limit });
 
     [McpServerTool(Name = "tools_discover")]
-    [Description("只读发现指定游戏根的 MTool 适配信息：生成配方解析/断链标记/能力声明；不自启动工具。参数：path（游戏根绝对路径）。")]
-    public static Task<CallToolResult> ToolsDiscover([Description("游戏根的绝对本地路径")] string path) =>
-        InvokeOperationAsync("tools.discover", new { idempotencyKey = $"discover-{Guid.NewGuid():N}", path });
+    [Description("只读发现指定目录的工具适配信息（MTool 配方 / RenpyThief 安装指纹与 Guided 计划）；不自启动工具。参数：path、tool（mtool 默认 / renpythief）。")]
+    public static Task<CallToolResult> ToolsDiscover(
+        [Description("游戏根或工具安装目录的绝对本地路径")] string path,
+        [Description("工具类型：mtool（默认）或 renpythief")] string? tool = null) =>
+        tool is null
+            ? InvokeOperationAsync("tools.discover", new { idempotencyKey = $"discover-{Guid.NewGuid():N}", path })
+            : InvokeOperationAsync("tools.discover", new { idempotencyKey = $"discover-{Guid.NewGuid():N}", path, tool });
+
+    [McpServerTool(Name = "verification_start")]
+    [Description("开始一次工具验证：绑定工具指纹与隔离样本，状态 Unknown；样本必须来自用户授权的隔离副本。参数：idempotencyKey、toolId、fingerprint、engine、samplePath。")]
+    public static Task<CallToolResult> VerificationStart(
+        [Description("幂等键")] string idempotencyKey,
+        [Description("工具 ID（mtool/renpythief）")] string toolId,
+        [Description("工具指纹")] string fingerprint,
+        [Description("样本游戏引擎标识")] string engine,
+        [Description("隔离样本路径")] string samplePath) =>
+        InvokeOperationAsync("verification.start", new { idempotencyKey, toolId, fingerprint, engine, samplePath });
+
+    [McpServerTool(Name = "verification_report")]
+    [Description("提交验证观察：游戏启动与翻译生效双结论分开累积；翻译生效必须先有游戏启动证据。参数：idempotencyKey、recordId、gameStarted、translationConfirmed、fingerprint（可选校验）。")]
+    public static Task<CallToolResult> VerificationReport(
+        [Description("幂等键")] string idempotencyKey,
+        [Description("验证记录 ID")] string recordId,
+        [Description("游戏已启动（用户观察）")] bool gameStarted,
+        [Description("翻译实际生效（用户观察）")] bool translationConfirmed = false,
+        [Description("工具指纹（可选，不一致即失效）")] string? fingerprint = null) =>
+        InvokeOperationAsync("verification.report", new { idempotencyKey, recordId, gameStarted, translationConfirmed, fingerprint });
+
+    [McpServerTool(Name = "verification_invalidate")]
+    [Description("使验证记录失效（工具更新/用户撤销）。参数：recordId。")]
+    public static Task<CallToolResult> VerificationInvalidate([Description("验证记录 ID")] string recordId) =>
+        InvokeOperationAsync("verification.invalidate", new { idempotencyKey = $"vinval-{Guid.NewGuid():N}", recordId });
+
+    [McpServerTool(Name = "verification_get")]
+    [Description("查询验证记录。参数：recordId。")]
+    public static Task<CallToolResult> VerificationGet([Description("验证记录 ID")] string recordId) =>
+        InvokeOperationAsync("verification.get", new { recordId });
+
+    [McpServerTool(Name = "verification_list")]
+    [Description("列出验证记录（可按 toolId 过滤）。参数：toolId（可选）。")]
+    public static Task<CallToolResult> VerificationList([Description("按工具 ID 过滤")] string? toolId = null) =>
+        toolId is null
+            ? InvokeOperationAsync("verification.list", new { })
+            : InvokeOperationAsync("verification.list", new { toolId });
 
     [McpServerTool(Name = "fields_set")]
     [Description("设置游戏资料字段（title/summary，用户来源）；Revision 即游戏卡片 Revision。参数：idempotencyKey、gameId、field、value、expectedRevision。")]
