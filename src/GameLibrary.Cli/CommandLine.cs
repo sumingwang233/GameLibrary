@@ -31,6 +31,9 @@ internal sealed record CommandLine
     /// <summary>作业查询/取消的 --job-id 参数。</summary>
     public string? JobId { get; private init; }
 
+    /// <summary>candidates get 的 --candidate-id 参数。</summary>
+    public string? CandidateId { get; private init; }
+
     public bool NoStart { get; private init; }
 
     public int TimeoutSeconds { get; private init; } = 30;
@@ -50,6 +53,7 @@ internal sealed record CommandLine
         string? operationArg = null;
         string? rootArg = null;
         string? jobId = null;
+        string? candidateId = null;
         var noStart = false;
         var timeout = 30;
 
@@ -68,6 +72,9 @@ internal sealed record CommandLine
                     break;
                 case "--job-id" when i + 1 < args.Length:
                     jobId = args[++i];
+                    break;
+                case "--candidate-id" when i + 1 < args.Length:
+                    candidateId = args[++i];
                     break;
                 case "--no-start":
                     noStart = true;
@@ -90,6 +97,7 @@ internal sealed record CommandLine
             "schema" when verb == "get" => "schema.get",
             "host" when verb is "status" or "start" or "stop" => $"host.{verb}",
             "scan" when verb is "start" or "status" or "cancel" or "coverage" or "inspect" => $"scan.{verb}",
+            "candidates" when verb is "list" or "get" => $"candidates.{verb}",
             "jobs" when verb is "get" or "list" or "wait" or "cancel" => verb == "get" ? "jobs.get" : null,
             _ => null,
         };
@@ -107,6 +115,7 @@ internal sealed record CommandLine
             OperationArgument = operationArg,
             RootArgument = rootArg,
             JobId = jobId,
+            CandidateId = candidateId,
             NoStart = noStart,
             TimeoutSeconds = timeout,
         };

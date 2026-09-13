@@ -2,6 +2,7 @@ using GameLibrary.Contracts;
 using GameLibrary.Contracts.Ipc;
 using GameLibrary.Host.Hosting;
 using GameLibrary.Host.Ipc;
+using GameLibrary.Host.Scanning;
 using GameLibrary.Infrastructure.Persistence;
 using Microsoft.Extensions.Logging;
 
@@ -55,6 +56,7 @@ public sealed class HostRuntime : IAsyncDisposable
             Identity = identity,
             Library = library,
             Jobs = new JobManager(),
+            Candidates = new CandidateRegistry(),
         };
 
         var logger = loggerFactory.CreateLogger<PipeServer>();
@@ -126,4 +128,7 @@ public sealed class HostRuntimeState
     public required HostLibraryState Library { get; init; }
 
     public required JobManager Jobs { get; init; }
+
+    /// <summary>扫描候选注册表（宿主内存态；T11 落库后由持久层承担）。</summary>
+    public required CandidateRegistry Candidates { get; init; }
 }

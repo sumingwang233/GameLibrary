@@ -67,6 +67,25 @@ public sealed class ScanE2ETests
             Assert.Equal("complete", coverageData.GetProperty("completion").GetString());
             Assert.Equal(2, coverageData.GetProperty("scannedDirectories").GetInt64());
 
+            // 候选查询：扫描发现的候选经 CLI 可列出并取详情。
+            var list = await RunCliAsync(
+                "candidates", "list", "--job-id", jobId!, "--data-dir", dataDir, "--format", "json");
+            Assert.Equal(0, list.ExitCode);
+            var listDoc = JsonDocument.Parse(list.StdOut);
+            Assert.True(listDoc.RootElement.GetProperty("ok").GetBoolean());
+            Assert.True(listDoc.RootElement.GetProperty("data").GetProperty("total").GetInt32() >= 1);
+            var candidateId = listDoc.RootElement.GetProperty("data").GetProperty("items")[0]
+                .GetProperty("candidateId").GetString();
+            Assert.False(string.IsNullOrWhiteSpace(candidateId));
+
+            var detail = await RunCliAsync(
+                "candidates", "get", "--candidate-id", candidateId!, "--data-dir", dataDir, "--format", "json");
+            Assert.Equal(0, detail.ExitCode);
+            var detailDoc = JsonDocument.Parse(detail.StdOut);
+            Assert.True(detailDoc.RootElement.GetProperty("ok").GetBoolean());
+            Assert.Equal("kirikiri", detailDoc.RootElement.GetProperty("data")
+                .GetProperty("engines")[0].GetProperty("engine").GetString());
+
             // 顺便从 host.status 拿到宿主 PID 以便清理。
             var hostStatus = await RunCliAsync("host", "status", "--data-dir", dataDir, "--format", "json");
             hostPid = JsonDocument.Parse(hostStatus.StdOut)
@@ -119,6 +138,19 @@ public sealed class ScanE2ETests
             var hostEnvelope = JsonDocument.Parse(
                 hostCall.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString()!);
             hostPid = hostEnvelope.RootElement.GetProperty("data").GetProperty("processId").GetInt32();
+
+            // scan_inspect：对发现的安装根目录只读识别。
+            var inspectCall = await SendRequestAsync(mcpProcess, 4, "tools/call", new
+            {
+                name = "scan_inspect",
+                arguments = new { path = Path.Combine(scanRoot, "GameA") },
+            });
+            var inspectEnvelope = JsonDocument.Parse(
+                inspectCall.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString()!);
+            Assert.True(inspectEnvelope.RootElement.GetProperty("ok").GetBoolean());
+            Assert.True(inspectEnvelope.RootElement.GetProperty("data").GetProperty("recognized").GetBoolean());
+            Assert.Equal("kirikiri", inspectEnvelope.RootElement.GetProperty("data")
+                .GetProperty("engines")[0].GetProperty("engine").GetString());
         }
         finally
         {

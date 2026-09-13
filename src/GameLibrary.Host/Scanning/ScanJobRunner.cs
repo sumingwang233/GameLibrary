@@ -6,12 +6,12 @@ using GameLibrary.Infrastructure.Scanning;
 namespace GameLibrary.Host.Scanning;
 
 /// <summary>
-/// T05-A 扫描作业执行（宿主内编排；随 T11/T23 重构为 Application 用例 + 端口）。
-/// 仅遍历与覆盖报告；检测与候选编排在 T05-B 进入。
+/// T05-A/B 扫描作业执行（宿主内编排；随 T11/T23 重构为 Application 用例 + 端口）。
+/// 遍历与覆盖报告 + 目录级检测编排（T05-B）。
 /// </summary>
 public static class ScanJobRunner
 {
-    public static JobOutcome Run(GamePath root, JobContext context)
+    public static JobOutcome Run(GamePath root, JobContext context, ScanCandidateCollector? collector = null)
     {
         var walker = new DirectoryWalker(root, new ScanRuleSet([]));
         long scannedEntries = 0;
@@ -26,8 +26,10 @@ public static class ScanJobRunner
                 }
             },
             pause: null,
-            context.Token);
+            context.Token,
+            onDirectory: collector is null ? null : dir => collector.InspectDirectory(dir, context.Token));
 
+        collector?.CompleteContainers();
         context.ReportProgress(ToCoverageDto(coverage));
         return coverage.Completion switch
         {

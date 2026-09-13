@@ -51,6 +51,9 @@ public static class OperationCatalog
         "scan.status",
         "scan.cancel",
         "scan.coverage",
+        "scan.inspect",
+        "candidates.list",
+        "candidates.get",
         "jobs.get",
     };
 

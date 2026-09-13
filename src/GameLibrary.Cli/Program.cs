@@ -33,7 +33,10 @@ internal static class Program
                 "schema.get" => Schema(parse),
                 "host.status" => await HostStatusAsync(parse),
                 "scan.start" => await ScanHostOperationAsync(parse, "scan.start", requiresRoot: true),
+                "scan.inspect" => await ScanHostOperationAsync(parse, "scan.inspect", requiresRoot: true),
                 "scan.status" or "scan.cancel" or "scan.coverage" or "jobs.get" =>
+                    await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
+                "candidates.list" or "candidates.get" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 _ => UnknownCommand(parse),
             };
@@ -61,11 +64,11 @@ internal static class Program
     private static int UnknownCommand(CommandLine cli)
     {
         Console.Error.WriteLine(
-            $"命令未实现：{string.Join(' ', cli.Words)}（当前已实现：capabilities get / schema get / host status / scan start|status|cancel|coverage / jobs get）");
+            $"命令未实现：{string.Join(' ', cli.Words)}（当前已实现：capabilities get / schema get / host status / scan start|status|cancel|coverage|inspect / candidates list|get / jobs get）");
         return ExitArgumentError;
     }
 
-    /// <summary>宿主依赖的扫描类操作：自动拉起宿主后单次调用。</summary>
+    /// <summary>宿主依赖的扫描/候选类操作：自动拉起宿主后单次调用。</summary>
     private static async Task<int> ScanHostOperationAsync(CommandLine cli, string operationId, bool requiresRoot)
     {
         if (cli.DataDir is null)
@@ -76,7 +79,15 @@ internal static class Program
 
         if (requiresRoot && cli.RootArgument is null)
         {
-            Console.Error.WriteLine("scan start 需要 --root <绝对路径>");
+            Console.Error.WriteLine(operationId == "scan.inspect"
+                ? "scan inspect 需要 --path <绝对目录路径>"
+                : "scan start 需要 --root <绝对路径>");
+            return ExitArgumentError;
+        }
+
+        if (operationId == "candidates.get" && cli.CandidateId is null)
+        {
+            Console.Error.WriteLine("candidates get 需要 --candidate-id");
             return ExitArgumentError;
         }
 
@@ -90,9 +101,12 @@ internal static class Program
         await using var connection = await HostProcessLauncher.EnsureStartedAsync(
             cli.DataDir, clientName: "cli", timeout: TimeSpan.FromSeconds(cli.TimeoutSeconds));
 
-        object parameters = operationId switch
+        object? parameters = operationId switch
         {
             "scan.start" => new { root = cli.RootArgument },
+            "scan.inspect" => new { path = cli.RootArgument },
+            "candidates.list" => cli.JobId is null ? null : new { jobId = cli.JobId },
+            "candidates.get" => new { candidateId = cli.CandidateId },
             _ => new { jobId = cli.JobId },
         };
 
@@ -103,8 +117,13 @@ internal static class Program
         return EnvelopeExitCode(envelope);
     }
 
-    private static System.Text.Json.JsonElement? ToParameters(object parameters)
+    private static System.Text.Json.JsonElement? ToParameters(object? parameters)
     {
+        if (parameters is null)
+        {
+            return null;
+        }
+
         var json = JsonSerializer.Serialize(parameters, ContractJson.Options);
         return JsonDocument.Parse(json).RootElement.Clone();
     }

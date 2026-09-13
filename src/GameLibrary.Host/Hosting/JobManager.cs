@@ -12,9 +12,11 @@ public sealed record JobOutcome(string FinalState, string? Error = null)
     public static JobOutcome Cancelled() => new("cancelled");
 }
 
-/// <summary>执行器上下文：取消令牌与进度数据写入（供 coverage 类查询实时读取）。</summary>
+/// <summary>执行器上下文：作业 ID、取消令牌与进度数据写入（供 coverage 类查询实时读取）。</summary>
 public sealed class JobContext
 {
+    public required string JobId { get; init; }
+
     public required CancellationToken Token { get; init; }
 
     private object? _progress;
@@ -77,7 +79,7 @@ public sealed class JobManager
     {
         var entry = new JobEntry { Id = $"job-{Guid.NewGuid():N}", Kind = kind };
         _jobs[entry.Id] = entry;
-        entry.Context = new JobContext { Token = entry.Cts.Token };
+        entry.Context = new JobContext { JobId = entry.Id, Token = entry.Cts.Token };
         entry.State = "running";
         entry.StartedUtc = DateTime.UtcNow;
 

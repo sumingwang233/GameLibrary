@@ -160,6 +160,75 @@ public static class GameLibraryTools
     public static Task<CallToolResult> JobsGet([Description("作业 ID")] string jobId) =>
         InvokeJobOperationAsync("jobs.get", jobId);
 
+    [McpServerTool(Name = "scan_inspect")]
+    [Description("只读识别单个目录的引擎/入口证据，不创建候选、不启动作业。参数：path（绝对目录路径）。")]
+    public static async Task<CallToolResult> ScanInspect([Description("待识别目录的绝对本地路径")] string path)
+    {
+        if (McpSession.DataDirectory is null)
+        {
+            return ToToolResult(Failed("缺少 --data-dir 启动参数", ErrorCodes.InvalidArgument));
+        }
+
+        await using var connection = await HostProcessLauncher.EnsureStartedAsync(
+            McpSession.DataDirectory, clientName: "mcp");
+        var envelope = await connection.InvokeAsync(
+            new IpcRequest
+            {
+                RequestId = NewRequestId(),
+                OperationId = "scan.inspect",
+                Parameters = ToParameters(new { path }),
+            },
+            CancellationToken.None);
+        return ToToolResult(envelope);
+    }
+
+    [McpServerTool(Name = "candidates_list")]
+    [Description("列出扫描发现的候选（可选按 jobId 过滤）；accept/defer/ignore 随入库任务提供。参数：jobId（可选）。")]
+    public static async Task<CallToolResult> CandidatesList([Description("按作业 ID 过滤；省略则返回全部")] string? jobId = null)
+    {
+        if (McpSession.DataDirectory is null)
+        {
+            return ToToolResult(Failed("缺少 --data-dir 启动参数", ErrorCodes.InvalidArgument));
+        }
+
+        await using var connection = await HostProcessLauncher.EnsureStartedAsync(
+            McpSession.DataDirectory, clientName: "mcp");
+        var envelope = await connection.InvokeAsync(
+            new IpcRequest
+            {
+                RequestId = NewRequestId(),
+                OperationId = "candidates.list",
+                Parameters = jobId is null ? null : ToParameters(new { jobId }),
+            },
+            CancellationToken.None);
+        return ToToolResult(envelope);
+    }
+
+    [McpServerTool(Name = "candidates_get")]
+    [Description("查询单个候选详情：引擎证据、入口候选、祖先分类与审核状态。参数：candidateId。")]
+    public static Task<CallToolResult> CandidatesGet([Description("候选 ID")] string candidateId) =>
+        InvokeOperationAsync("candidates.get", new { candidateId });
+
+    private static async Task<CallToolResult> InvokeOperationAsync(string operationId, object parameters)
+    {
+        if (McpSession.DataDirectory is null)
+        {
+            return ToToolResult(Failed("缺少 --data-dir 启动参数", ErrorCodes.InvalidArgument));
+        }
+
+        await using var connection = await HostProcessLauncher.EnsureStartedAsync(
+            McpSession.DataDirectory, clientName: "mcp");
+        var envelope = await connection.InvokeAsync(
+            new IpcRequest
+            {
+                RequestId = NewRequestId(),
+                OperationId = operationId,
+                Parameters = ToParameters(parameters),
+            },
+            CancellationToken.None);
+        return ToToolResult(envelope);
+    }
+
     private static async Task<CallToolResult> InvokeJobOperationAsync(string operationId, string jobId)
     {
         if (McpSession.DataDirectory is null)

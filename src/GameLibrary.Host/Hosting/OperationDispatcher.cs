@@ -3,6 +3,10 @@ using System.Reflection;
 using System.Text.Json;
 using GameLibrary.Contracts;
 using GameLibrary.Contracts.Ipc;
+using GameLibrary.Domain.Detection;
+using GameLibrary.Domain.Detection.Detectors;
+using GameLibrary.Host.Scanning;
+using GameLibrary.Infrastructure.Scanning;
 
 namespace GameLibrary.Host.Hosting;
 
@@ -72,6 +76,9 @@ public sealed class OperationDispatcher
             "scan.status" or "jobs.get" => JobSnapshotEnvelope(request, request.OperationId == "scan.status" ? "scan" : null),
             "scan.cancel" => ScanCancel(request),
             "scan.coverage" => ScanCoverage(request),
+            "scan.inspect" => ScanInspect(request),
+            "candidates.list" => CandidatesList(request),
+            "candidates.get" => CandidatesGet(request),
             _ => new Envelope<object>
             {
                 RequestId = request.RequestId,
@@ -130,7 +137,10 @@ public sealed class OperationDispatcher
 
         var jobId = _state.Jobs.Create(
             "scan",
-            context => Task.FromResult(Scanning.ScanJobRunner.Run(rootPath, context)));
+            context => Task.FromResult(ScanJobRunner.Run(
+                rootPath,
+                context,
+                new ScanCandidateCollector(rootPath, context.JobId, _state.Candidates))));
 
         return new Envelope<object>
         {
@@ -228,6 +238,143 @@ public sealed class OperationDispatcher
             },
         };
     }
+
+    /// <summary>只读单路径识别（契约 scan.inspect）：不落候选、不启动作业。</summary>
+    private Envelope<object> ScanInspect(IpcRequest request)
+    {
+        if (!TryGetStringParameter(request, "path", out var path))
+        {
+            return InvalidArgument(request, "缺少 path 参数（绝对本地目录路径）");
+        }
+
+        var validation = Domain.Paths.GamePath.TryCreate(path);
+        if (!validation.IsValid)
+        {
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = validation.IsUnsupported ? ErrorCodes.UnsupportedPath : ErrorCodes.InvalidPath,
+                    Message = $"路径非法（{validation.Reason}）：{path}",
+                    Retryable = false,
+                },
+            };
+        }
+
+        if (!Directory.Exists(validation.Path!.PhysicalPath))
+        {
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = ErrorCodes.RootOffline,
+                    Message = $"路径不存在或离线：{validation.Path.PhysicalPath}",
+                    Retryable = true,
+                },
+            };
+        }
+
+        var snapshot = new FileSystemDirectorySnapshot(validation.Path);
+        var report = new EngineDetectorSet(DefaultDetectors()).DetectAll(snapshot);
+        var confirmed = report.Results
+            .Where(r => r.Confidence >= DetectionConfidence.Medium)
+            .ToArray();
+
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new
+            {
+                path = validation.Path.PhysicalPath,
+                recognized = confirmed.Length > 0,
+                engines = confirmed.Select(r => new
+                {
+                    engine = r.Engine,
+                    detectorVersion = r.DetectorVersion,
+                    confidence = r.Confidence,
+                    likelyRoots = r.LikelyRootRelativePaths,
+                    entryCandidates = r.EntryCandidates.Select(e => new
+                    {
+                        relativePath = e.RelativePath,
+                        score = e.Score,
+                        reasons = e.Reasons,
+                    }).ToArray(),
+                }).ToArray(),
+                engineConflict = report.Conflict is not null,
+                evidence = report.Results.SelectMany(r => r.Evidence).Select(e => new
+                {
+                    ruleId = e.RuleId,
+                    relativePath = e.RelativePath,
+                    observation = e.Observation,
+                    polarity = e.Polarity,
+                    detail = e.Detail,
+                }).ToArray(),
+            },
+        };
+    }
+
+    private Envelope<object> CandidatesList(IpcRequest request)
+    {
+        string? jobId = null;
+        if (request.Parameters is { ValueKind: JsonValueKind.Object } listParameters
+            && listParameters.TryGetProperty("jobId", out var jobElement)
+            && jobElement.ValueKind == JsonValueKind.String)
+        {
+            jobId = jobElement.GetString();
+        }
+
+        var candidates = _state.Candidates.List(jobId);
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new
+            {
+                total = candidates.Count,
+                items = candidates.Select(c => c.ToListItem()).ToArray(),
+            },
+        };
+    }
+
+    private Envelope<object> CandidatesGet(IpcRequest request)
+    {
+        if (!TryGetStringParameter(request, "candidateId", out var candidateId))
+        {
+            return InvalidArgument(request, "缺少 candidateId 参数");
+        }
+
+        var candidate = _state.Candidates.Get(candidateId);
+        if (candidate is null)
+        {
+            return NotFound(request, $"候选不存在：{candidateId}");
+        }
+
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = candidate.ToDetail(),
+        };
+    }
+
+    private static IEngineDetector[] DefaultDetectors() =>
+    [
+        new UnityDetector(),
+        new RpgMakerMvMzDetector(),
+        new RenpyDetector(),
+        new KirikiriDetector(),
+        new FlashDetector(),
+    ];
 
     private static bool TryGetStringParameter(IpcRequest request, string name, out string value)
     {

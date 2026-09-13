@@ -112,6 +112,66 @@ public sealed class ScanOperationTests : IClassFixture<PipeServerFixture>
         Assert.Equal(ErrorCodes.InvalidArgument, cancel.Error!.Code);
     }
 
+    [Fact]
+    public async Task CandidatesQuery_AfterScan_ReturnsDiscoveredCandidate()
+    {
+        var root = CreateFixtureTree("scanop-cands");
+        var start = await InvokeAsync("scan.start", new { root });
+        var jobId = start.JobId!;
+        await WaitForJobAsync(jobId, "succeeded");
+
+        var list = await InvokeAsync("candidates.list", new { jobId });
+        Assert.True(list.Ok, list.Error?.Message);
+        Assert.True(list.Data.GetProperty("total").GetInt32() >= 1);
+        var item = list.Data.GetProperty("items")[0];
+        Assert.Equal("gameRoot", item.GetProperty("kind").GetString());
+        Assert.Equal("observed", item.GetProperty("reviewState").GetString());
+        Assert.Equal("kirikiri", item.GetProperty("engines")[0].GetProperty("engine").GetString());
+
+        var candidateId = item.GetProperty("candidateId").GetString()!;
+        var detail = await InvokeAsync("candidates.get", new { candidateId });
+        Assert.True(detail.Ok, detail.Error?.Message);
+        Assert.Equal("GameA", detail.Data.GetProperty("relativePath").GetString());
+        Assert.True(detail.Data.GetProperty("entryCandidates").GetArrayLength() >= 1);
+
+        var missing = await InvokeAsync("candidates.get", new { candidateId = "cand-missing" });
+        Assert.False(missing.Ok);
+        Assert.Equal(ErrorCodes.NotFound, missing.Error!.Code);
+
+        var filtered = await InvokeAsync("candidates.list", new { jobId = "job-other" });
+        Assert.True(filtered.Ok);
+        Assert.Equal(0, filtered.Data.GetProperty("total").GetInt32());
+    }
+
+    [Fact]
+    public async Task ScanInspect_SinglePathRecognition_DoesNotCreateCandidates()
+    {
+        var root = CreateFixtureTree("scanop-inspect");
+        var gameDir = Path.Combine(root, "GameA");
+
+        var inspect = await InvokeAsync("scan.inspect", new { path = gameDir });
+        Assert.True(inspect.Ok, inspect.Error?.Message);
+        Assert.True(inspect.Data.GetProperty("recognized").GetBoolean());
+        Assert.False(inspect.Data.GetProperty("engineConflict").GetBoolean());
+        Assert.Equal("kirikiri", inspect.Data.GetProperty("engines")[0].GetProperty("engine").GetString());
+        Assert.True(inspect.Data.GetProperty("evidence").GetArrayLength() >= 1);
+
+        var emptyDir = Path.Combine(root, "GameB");
+        var notRecognized = await InvokeAsync("scan.inspect", new { path = emptyDir });
+        Assert.True(notRecognized.Ok);
+        Assert.False(notRecognized.Data.GetProperty("recognized").GetBoolean());
+
+        var missing = await InvokeAsync(
+            "scan.inspect",
+            new { path = Path.Combine(@"D:\Official\GameLibrary\artifacts\test-runs", $"inspect-missing-{Guid.NewGuid():N}") });
+        Assert.False(missing.Ok);
+        Assert.Equal(ErrorCodes.RootOffline, missing.Error!.Code);
+
+        var invalid = await InvokeAsync("scan.inspect", new { path = @"D:\Game""s" });
+        Assert.False(invalid.Ok);
+        Assert.Equal(ErrorCodes.InvalidPath, invalid.Error!.Code);
+    }
+
     private string CreateFixtureTree(string prefix)
     {
         var path = Path.Combine(@"D:\Official\GameLibrary\artifacts\test-runs", $"{prefix}-{Guid.NewGuid():N}");

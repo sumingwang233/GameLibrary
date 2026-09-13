@@ -81,3 +81,11 @@
 - **环境备注**：本任务起开发转入 Qoder 工作树（GitHub：sumingwang233/GameLibrary 私有仓库，origin/main）；D 盘原仓库遗留的 T05-A 未提交改动已导入并修复 ScanE2ETests 的进程清理缺陷（`using var` 位于 try 内导致成功路径也抛 "No process is associated"）。
 - **未验证范围**：取消/暂停的真实进程级注入；检测器接入与候选编排、候选查询操作（T05-B）；事件推送与 Job 状态变更通知（T23）。
 - **下一项**：T05-B（检测器接入扫描作业、候选编排与查询操作）。
+
+## T05-B 候选编排与查询 — 2026-09-13 完成
+
+- **改动文件**：`src/GameLibrary.Host/Scanning/ScanCandidate.cs`（新：ScanCandidate/CandidateRegistry/ScanCandidateCollector）、`DirectoryWalker.cs`（可选 onDirectory 回调）、`JobManager.cs`（JobContext.JobId）、`ScanJobRunner.cs`（逐目录编排）、`HostRuntime.cs`（State.Candidates）、`OperationDispatcher.cs`（scan.inspect/candidates.list/candidates.get）、Contracts（ImplementedOperations +3）、Cli（`scan inspect`、`candidates list|get`）、Mcp（scan_inspect/candidates_list/candidates_get）、测试（编排 6 + 管道 2 + E2E 扩展）。
+- **验证结果**：累计 223 项测试通过（+8）；format 通过；Release 构建 0 警告 0 错误。报告：`artifacts/build-reports/2026-09-13-t05b.md`。
+- **实现要点**：≥Medium 引擎证据的目录产生候选；双 high 记 EngineConflict 不取先注册；确认根内独立证据 → NestedCandidate；≥2 直属 GameRoot 的父目录 → Container（记子根数）；祖先分类继承仅取扫描根内段；候选宿主内存态（Observed 起步）。
+- **未验证范围**：accept/defer/ignore 与候选落库（T11）；Flash 每文件拆卡与 LNK 入口核实（随 T07/T05-C）；取消/暂停下候选部分性注入测试（T25/T27）。
+- **下一项**：按依赖图 T06（启动计划/执行器与桩）或 T23（共享执行语义，T05 的前置补全）。

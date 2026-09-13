@@ -105,11 +105,20 @@ public sealed class DirectoryWalker
         _options = options ?? new ScanWalkOptions();
     }
 
-    public ScanCoverageData Walk(Action<ScannedEntry> sink, PauseSignal? pause, CancellationToken ct) =>
-        WalkCore(stackRoots: null, sink, pause, ct);
+    public ScanCoverageData Walk(
+        Action<ScannedEntry> sink,
+        PauseSignal? pause,
+        CancellationToken ct,
+        Action<string>? onDirectory = null) =>
+        WalkCore(stackRoots: null, sink, pause, ct, onDirectory);
 
     /// <summary>从上次 partial 的游标续扫；游标与根不匹配时抛 <see cref="InvalidOperationException"/>。</summary>
-    public ScanCoverageData Resume(string resumeTokenJson, Action<ScannedEntry> sink, PauseSignal? pause, CancellationToken ct)
+    public ScanCoverageData Resume(
+        string resumeTokenJson,
+        Action<ScannedEntry> sink,
+        PauseSignal? pause,
+        CancellationToken ct,
+        Action<string>? onDirectory = null)
     {
         var state = JsonSerializer.Deserialize<WalkResumeState>(resumeTokenJson)
             ?? throw new InvalidOperationException("续扫游标损坏");
@@ -118,14 +127,15 @@ public sealed class DirectoryWalker
             throw new InvalidOperationException($"续扫游标属于其他根：{state.RootComparisonKey}");
         }
 
-        return WalkCore([.. state.RemainingDirectories], sink, pause, ct);
+        return WalkCore([.. state.RemainingDirectories], sink, pause, ct, onDirectory);
     }
 
     private ScanCoverageData WalkCore(
         List<string>? stackRoots,
         Action<ScannedEntry> sink,
         PauseSignal? pause,
-        CancellationToken ct)
+        CancellationToken ct,
+        Action<string>? onDirectory)
     {
         long scannedDirectories = 0;
         long observedFiles = 0;
@@ -198,6 +208,7 @@ public sealed class DirectoryWalker
                 }
 
                 scannedDirectories++;
+                onDirectory?.Invoke(dirPath);
 
                 foreach (var file in files)
                 {
