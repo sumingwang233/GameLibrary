@@ -2,45 +2,82 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="GameLibrary"
-        Width="1040"
-        Height="680"
+        Width="1180"
+        Height="720"
+        MinWidth="960"
+        MinHeight="600"
+        Background="{StaticResource BgMain}"
         WindowStartupLocation="CenterScreen">
-    <Grid Margin="8">
+    <Window.Resources>
+        <SolidColorBrush x:Key="Sep" Color="#2a475e" />
+    </Window.Resources>
+    <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
+            <RowDefinition Height="48" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
+            <RowDefinition Height="26" />
         </Grid.RowDefinitions>
 
-        <!-- 顶栏：连接与库状态 -->
-        <DockPanel Grid.Row="0" Margin="0,0,0,6">
-            <Button Name="ConnectButton" Content="连接宿主" Click="OnConnectClick" DockPanel.Dock="Right" Padding="10,4" />
-            <TextBlock Name="StatusText" Text="未连接" VerticalAlignment="Center" FontWeight="Bold" />
-        </DockPanel>
+        <!-- 顶栏：Logo + 工具栏（Steam 全局导航风格） -->
+        <Border Grid.Row="0" Background="{StaticResource BgTop}" Padding="12,0">
+            <DockPanel LastChildFill="True">
+                <TextBlock DockPanel.Dock="Left"
+                           Text="GAMELIBRARY"
+                           FontSize="16" FontWeight="Bold"
+                           Foreground="{StaticResource TextPrimary}"
+                           VerticalAlignment="Center" Margin="0,0,18,0" />
+                <Button Name="RefreshButton" Content="刷新" Style="{StaticResource SteamButton}"
+                        Click="OnRefreshClick" DockPanel.Dock="Right" Margin="6,0,0,0" VerticalAlignment="Center" />
+                <Button Name="ConnectButton" Content="连接宿主" Style="{StaticResource SteamButton}"
+                        Click="OnConnectClick" DockPanel.Dock="Right" Margin="6,0,0,0" VerticalAlignment="Center" />
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
+                    <Button Name="InitLibraryButton" Content="初始化库" Style="{StaticResource SteamButton}"
+                            Click="OnInitLibraryClick" Margin="4,0,0,0" />
+                    <Button Name="AddRootButton" Content="注册库根" Style="{StaticResource SteamButton}"
+                            Click="OnAddRootClick" Margin="4,0,0,0" />
+                    <Button Name="ScanButton" Content="扫描" Style="{StaticResource SteamBlueButton}"
+                            Click="OnScanClick" Margin="4,0,0,0" />
+                </StackPanel>
+                <TextBox Name="RootBox" VerticalAlignment="Center" MinWidth="320" Margin="0,0,12,0"
+                         ToolTip="数据目录 / 待扫描库根路径" />
+            </DockPanel>
+        </Border>
 
-        <!-- 扫描与库操作 -->
-        <DockPanel Grid.Row="1" Margin="0,0,0,6">
-            <Button Name="InitLibraryButton" Content="初始化库" Click="OnInitLibraryClick" DockPanel.Dock="Right" Padding="10,4" Margin="4,0,0,0" />
-            <Button Name="AddRootButton" Content="注册库根" Click="OnAddRootClick" DockPanel.Dock="Right" Padding="10,4" Margin="4,0,0,0" />
-            <Button Name="ScanButton" Content="扫描" Click="OnScanClick" DockPanel.Dock="Right" Padding="10,4" Margin="4,0,0,0" />
-            <TextBox Name="RootBox" VerticalContentAlignment="Center" />
-        </DockPanel>
+        <!-- 主区：左侧列表 + 右侧详情 -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="290" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
 
-        <!-- 主体：卡片 / 候选 -->
-        <TabControl Grid.Row="2">
-            <TabItem Header="游戏卡片">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <WrapPanel Name="GamesPanel" Margin="4" />
-                </ScrollViewer>
-            </TabItem>
-            <TabItem Header="候选审核">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <StackPanel Name="CandidatesPanel" Margin="4" />
-                </ScrollViewer>
-            </TabItem>
-        </TabControl>
+            <!-- 左：游戏列表（Steam 侧边栏） -->
+            <Border Grid.Column="0" Background="{StaticResource BgPanel}" BorderBrush="{StaticResource Sep}" BorderThickness="0,0,1,0">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="库" FontSize="13" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextMuted}" Margin="12,10,0,6" />
+                    <ListBox Name="LibraryList"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             ItemContainerStyle="{StaticResource SidebarItem}"
+                             SelectionMode="Single"
+                             SelectionChanged="OnLibrarySelectionChanged" />
+                </DockPanel>
+            </Border>
 
-        <TextBlock Grid.Row="3" Name="ErrorText" Foreground="Firebrick" TextWrapping="Wrap" Margin="0,4,0,0" Text="" />
+            <!-- 右：详情面板 -->
+            <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto">
+                <StackPanel Name="DetailPanel" Margin="24,18" />
+            </ScrollViewer>
+        </Grid>
+
+        <!-- 状态栏 -->
+        <Border Grid.Row="2" Background="{StaticResource BgTop}" Padding="12,0">
+            <DockPanel>
+                <TextBlock Name="ErrorText" DockPanel.Dock="Right" Foreground="{StaticResource Danger}"
+                           FontSize="11" VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                <TextBlock Name="StatusText" Text="未连接" Foreground="{StaticResource TextMuted}"
+                           FontSize="11" VerticalAlignment="Center" />
+            </DockPanel>
+        </Border>
     </Grid>
 </Window>

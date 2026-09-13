@@ -141,3 +141,11 @@
 - **实现要点**：仅经 HostClient（EnsureStartedAsync + IpcRequest），与 CLI/MCP 同库同契约；扫描经 scan.start 作业轮询；审核操作带幂等键与 expectedRevision；库根授权以「注册库根」显式动作呈现；数据落库重启保留。
 - **未验证范围**：卡片规模与虚拟化（T15）；封面/图片（T14/T15）；托盘/通知（T18）；WPF 自动化 UI 测试未建立（本报告为实机 UIA 核验）。
 - **下一项**：T16（ScanCoordinator）、T08/T09（其余适配器）或 T14（Metadata/Assets）。
+
+## T15-A 游戏库 UI（Steam 库风格视图骨架）— 2026-09-13 完成
+
+- **改动文件**：`src/GameLibrary.Desktop/App.xaml`（Steam 色板资源字典 + 按钮模板 + 侧边栏样式）、`MainWindow.xaml`（顶栏/左列表/右详情/状态栏三区布局）、`MainWindow.xaml.cs`（Entry 统一侧边栏模型、选中联动详情、候选审核按钮排、打开目录）。
+- **验证结果**：累计 263 项测试通过；format 通过；Release 构建 0 警告 0 错误。实机截图核验：深色主题、侧边栏选中高亮、候选详情与绿色「接受入库」按钮排、状态栏计数正常。报告：`artifacts/build-reports/2026-09-13-t15a.md`。
+- **实现要点**：审核列表只含 pendingReview 候选（accepted 以游戏卡片呈现，与 CLI/MCP 审核语义一致）；全部操作仍只经 HostClient；详情面板含游戏 meta 与候选说明（忽略将登记 ExactPath 规则）。
+- **未验证范围**：虚拟化/搜索/收藏/视图 API（T15 剩余）；封面图（T14）；自动化 UI 测试。
+- **下一项**：T16（ScanCoordinator）、T08/T09（其余适配器）或 T14（Metadata/Assets）。
