@@ -1,0 +1,29 @@
+# 构建输出
+bin/
+obj/
+out/
+publish/
+
+# IDE
+.vs/
+.idea/
+*.user
+*.suo
+*.DotSettings.user
+launchSettings.json
+
+# 本机日常运行数据（含 library.db、日志、备份、缓存，属于用户隐私）
+LocalData/
+
+# 测试与构建产物
+artifacts/
+TestResults/
+*.trx
+
+# 用户笔记配置（不纳入工程版本控制）
+.obsidian/
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store

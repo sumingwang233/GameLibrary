@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GameLibrary.HostClient\GameLibrary.HostClient.csproj" />
+    <ProjectReference Include="..\GameLibrary.Contracts\GameLibrary.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

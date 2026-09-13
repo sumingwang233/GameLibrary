@@ -1,0 +1,21 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/GameLibrary.Application/GameLibrary.Application.csproj" />
+    <Project Path="src/GameLibrary.Cli/GameLibrary.Cli.csproj" />
+    <Project Path="src/GameLibrary.Contracts/GameLibrary.Contracts.csproj" />
+    <Project Path="src/GameLibrary.Desktop/GameLibrary.Desktop.csproj" />
+    <Project Path="src/GameLibrary.Domain/GameLibrary.Domain.csproj" />
+    <Project Path="src/GameLibrary.Host/GameLibrary.Host.csproj" />
+    <Project Path="src/GameLibrary.HostClient/GameLibrary.HostClient.csproj" />
+    <Project Path="src/GameLibrary.Infrastructure/GameLibrary.Infrastructure.csproj" />
+    <Project Path="src/GameLibrary.Mcp/GameLibrary.Mcp.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/GameLibrary.ArchitectureTests/GameLibrary.ArchitectureTests.csproj" />
+    <Project Path="tests/GameLibrary.ContractTests/GameLibrary.ContractTests.csproj" />
+    <Project Path="tests/GameLibrary.HeadlessE2ETests/GameLibrary.HeadlessE2ETests.csproj" />
+    <Project Path="tests/GameLibrary.IntegrationTests/GameLibrary.IntegrationTests.csproj" />
+    <Project Path="tests/GameLibrary.TestProcessStub/GameLibrary.TestProcessStub.csproj" />
+    <Project Path="tests/GameLibrary.UnitTests/GameLibrary.UnitTests.csproj" />
+  </Folder>
+</Solution>

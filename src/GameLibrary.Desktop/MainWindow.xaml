@@ -1,0 +1,14 @@
+<Window x:Class="GameLibrary.Desktop.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="GameLibrary"
+        Width="960"
+        Height="600"
+        WindowStartupLocation="CenterScreen">
+    <Grid>
+        <TextBlock Text="GameLibrary"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   FontSize="24" />
+    </Grid>
+</Window>
