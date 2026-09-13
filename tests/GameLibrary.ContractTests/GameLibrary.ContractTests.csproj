@@ -15,4 +15,8 @@
     <ProjectReference Include="..\..\src\GameLibrary.Contracts\GameLibrary.Contracts.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="..\..\contracts\operations.v1.json" CopyToOutputDirectory="PreserveNewest" Link="contracts\operations.v1.json" />
+  </ItemGroup>
+
 </Project>
