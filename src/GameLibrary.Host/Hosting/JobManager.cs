@@ -127,6 +127,10 @@ public sealed class JobManager
             : (entry.State, entry.Context?.ReadProgress());
     }
 
+    /// <summary>活动（非终态）作业数：diagnostics.status 的队列指标。</summary>
+    public int ActiveJobCount() =>
+        _jobs.Values.Count(entry => !IsTerminal(entry.State));
+
     private static bool IsTerminal(string state) =>
         state is "succeeded" or "failed" or "cancelled";
 

@@ -70,6 +70,9 @@ internal sealed record CommandLine
     /// <summary>ignores remove 的 --ignore-id 参数。</summary>
     public string? IgnoreId { get; private init; }
 
+    /// <summary>diagnostics logs 的 --limit 参数。</summary>
+    public int? Limit { get; private init; }
+
     public bool NoStart { get; private init; }
 
     public int TimeoutSeconds { get; private init; } = 30;
@@ -100,6 +103,7 @@ internal sealed record CommandLine
         string? scope = null;
         string? reason = null;
         string? ignoreId = null;
+        int? limit = null;
         int? expectedRevision = null;
         var argList = new List<string>();
         var noStart = false;
@@ -161,6 +165,10 @@ internal sealed record CommandLine
                 case "--ignore-id" when i + 1 < args.Length:
                     ignoreId = args[++i];
                     break;
+                case "--limit" when i + 1 < args.Length && int.TryParse(args[i + 1], out var limitValue) && limitValue > 0:
+                    limit = limitValue;
+                    i++;
+                    break;
                 case "--no-start":
                     noStart = true;
                     break;
@@ -186,6 +194,7 @@ internal sealed record CommandLine
             "roots" when verb is "add" or "list" => $"roots.{verb}",
             "candidates" when verb is "list" or "get" or "accept" or "defer" or "ignore" => $"candidates.{verb}",
             "games" when verb is "list" or "get" => $"games.{verb}",
+            "diagnostics" when verb is "status" or "logs" => $"diagnostics.{verb}",
             "ignores" when verb is "list" or "create" or "remove" => $"ignores.{verb}",
             "profiles" when verb is "create" or "list" or "get" or "update" => $"profiles.{verb}",
             "launch" when verb is "plan" or "execute" or "status" or "history" => $"launch.{verb}",
@@ -219,6 +228,7 @@ internal sealed record CommandLine
             Scope = scope,
             Reason = reason,
             IgnoreId = ignoreId,
+            Limit = limit,
             NoStart = noStart,
             TimeoutSeconds = timeout,
         };

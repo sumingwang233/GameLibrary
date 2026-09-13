@@ -62,6 +62,8 @@ public static class OperationCatalog
         "candidates.ignore",
         "games.list",
         "games.get",
+        "diagnostics.status",
+        "diagnostics.logs",
         "ignores.list",
         "ignores.create",
         "ignores.remove",

@@ -347,6 +347,18 @@ public static class GameLibraryTools
         [Description("期望 Revision（可选）")] int? expectedRevision = null) =>
         InvokeOperationAsync("ignores.remove", new { idempotencyKey, ignoreId, expectedRevision });
 
+    [McpServerTool(Name = "diagnostics_status")]
+    [Description("诊断状态：进程/库状态/审计日志统计与活动作业数；不含业务数据原文。")]
+    public static Task<CallToolResult> DiagnosticsStatus() =>
+        InvokeOperationAsync("diagnostics.status", new { });
+
+    [McpServerTool(Name = "diagnostics_logs")]
+    [Description("读取最近的脱敏审计日志（分页）。参数：limit（1-1000，默认 100）。")]
+    public static Task<CallToolResult> DiagnosticsLogs([Description("返回条数上限")] int? limit = null) =>
+        limit is null
+            ? InvokeOperationAsync("diagnostics.logs", new { })
+            : InvokeOperationAsync("diagnostics.logs", new { limit });
+
     private static async Task<CallToolResult> InvokeOperationAsync(string operationId, object parameters)
     {
         if (McpSession.DataDirectory is null)

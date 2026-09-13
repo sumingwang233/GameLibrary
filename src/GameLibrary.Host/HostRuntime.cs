@@ -60,6 +60,8 @@ public sealed class HostRuntime : IAsyncDisposable
             Candidates = new CandidateRegistry(),
             Launches = new Launching.LaunchRegistry(),
             Roots = new RootRegistry(),
+            AuditLog = new Observability.AuditLogWriter(
+                Path.Combine(resolved.CanonicalPath!, "logs")),
         };
 
         var logger = loggerFactory.CreateLogger<PipeServer>();
@@ -138,4 +140,7 @@ public sealed class HostRuntimeState
 
     /// <summary>库根白名单：扫描/启动路径包含边界（宿主内存态；持久化随 T16）。</summary>
     public required Scanning.RootRegistry Roots { get; init; }
+
+    /// <summary>业务审计日志（T24）：JSONL 追加、轮转与保留期受控。</summary>
+    public required Observability.AuditLogWriter AuditLog { get; init; }
 }

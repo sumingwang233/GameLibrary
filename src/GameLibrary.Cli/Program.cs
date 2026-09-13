@@ -45,6 +45,8 @@ internal static class Program
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "games.list" or "games.get" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
+                "diagnostics.status" or "diagnostics.logs" =>
+                    await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "ignores.list" or "ignores.create" or "ignores.remove" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "profiles.create" or "profiles.list" or "profiles.get" or "profiles.update" =>
@@ -217,6 +219,8 @@ internal static class Program
             },
             "games.list" => new { },
             "games.get" => new { gameId = cli.GameId },
+            "diagnostics.status" => new { },
+            "diagnostics.logs" => cli.Limit is null ? null : new { limit = cli.Limit },
             "ignores.list" => new { },
             "ignores.create" => new
             {

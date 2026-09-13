@@ -121,6 +121,8 @@ public sealed class PipeServerFixture : IAsyncDisposable
             Candidates = new GameLibrary.Host.Scanning.CandidateRegistry(),
             Launches = new GameLibrary.Host.Launching.LaunchRegistry(),
             Roots = new GameLibrary.Host.Scanning.RootRegistry(),
+            AuditLog = new GameLibrary.Host.Observability.AuditLogWriter(
+                System.IO.Path.Combine(dataDir.CanonicalPath!, "logs")),
         };
         Server = new PipeServer(
             ChannelNames.PipeName(dataDir.ComparisonKey!),

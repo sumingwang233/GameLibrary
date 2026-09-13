@@ -5,6 +5,7 @@ using GameLibrary.Contracts;
 using GameLibrary.Contracts.Ipc;
 using GameLibrary.Domain.Detection;
 using GameLibrary.Domain.Detection.Detectors;
+using GameLibrary.Host.Observability;
 using GameLibrary.Host.Scanning;
 using GameLibrary.Infrastructure.Persistence;
 using GameLibrary.Infrastructure.Scanning;
@@ -57,6 +58,31 @@ public sealed class OperationDispatcher
     };
 
     public Envelope<object> Dispatch(IpcRequest request)
+    {
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        var result = DispatchInternal(request);
+        started.Stop();
+
+        // 业务审计（T24，补充规格 4.3）：固定字段；参数原文不写入，actor 来自握手回填。
+        _state.AuditLog.Append(new Observability.AuditRecord
+        {
+            TimestampUtc = DateTime.UtcNow,
+            Level = result.Ok ? "information" : "warning",
+            Component = "dispatcher",
+            OperationId = request.OperationId,
+            RequestId = request.RequestId,
+            Actor = LogSanitizer.Sanitize(string.IsNullOrWhiteSpace(request.ClientName) ? "anonymous" : request.ClientName, _state.DataDirectory),
+            JobId = result.JobId,
+            GameId = TryGetStringParameter(request, "gameId", out var auditGameId) ? auditGameId : null,
+            ProfileId = TryGetStringParameter(request, "profileId", out var auditProfileId) ? auditProfileId : null,
+            RuleId = TryGetStringParameter(request, "ignoreId", out var auditRuleId) ? auditRuleId : null,
+            ResultCode = result.Ok ? result.Status.ToString() : result.Error?.Code ?? "Unknown",
+            DurationMs = started.ElapsedMilliseconds,
+        });
+        return result;
+    }
+
+    private Envelope<object> DispatchInternal(IpcRequest request)
     {
         var info = OperationCatalog.Catalog.Find(request.OperationId);
         if (info is { RequiresIdempotencyKey: true, IsAvailable: true }
@@ -357,6 +383,8 @@ public sealed class OperationDispatcher
         "candidates.ignore" => CandidateReview(request, "ignore"),
         "games.list" => GamesList(request),
         "games.get" => GamesGet(request),
+        "diagnostics.status" => DiagnosticsStatus(request),
+        "diagnostics.logs" => DiagnosticsLogs(request),
         "ignores.list" => IgnoresList(request),
         "ignores.create" => IgnoresCreate(request),
         "ignores.remove" => IgnoresRemove(request),
@@ -1055,6 +1083,78 @@ public sealed class OperationDispatcher
             Ok = true,
             Status = OperationStatus.Completed,
             Data = GameDto(game),
+        };
+    }
+
+    /// <summary>诊断状态（T24）：进程/库/审计日志统计与队列指标；不含任何业务数据原文。</summary>
+    private Envelope<object> DiagnosticsStatus(IpcRequest request)
+    {
+        var (currentFile, currentBytes, fileCount) = _state.AuditLog.Describe();
+        var library = _state.Library;
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new
+            {
+                processId = _state.Identity.ProcessId,
+                startedAtUtc = _state.Identity.StartedAtUtc.ToString("O"),
+                appVersion = _state.Identity.AppVersion,
+                apiVersion = ApiConstants.ApiVersion,
+                library = new
+                {
+                    status = library.Status.ToString(),
+                    initialized = library.Initialized,
+                    schemaVersion = library.SchemaVersion,
+                    detail = LogSanitizer.Sanitize(library.Detail, _state.DataDirectory),
+                },
+                audit = new
+                {
+                    currentFile,
+                    currentBytes,
+                    fileCount,
+                    maxFileBytes = Observability.AuditLogWriter.DefaultMaxFileBytes,
+                    maxFiles = Observability.AuditLogWriter.DefaultMaxFiles,
+                    retentionDays = Observability.AuditLogWriter.DefaultRetentionDays,
+                },
+                jobs = new { activeCount = _state.Jobs.ActiveJobCount() },
+            },
+        };
+    }
+
+    /// <summary>脱敏审计日志读取（diagnostics.logs）：返回最近 limit 条审计记录。</summary>
+    private Envelope<object> DiagnosticsLogs(IpcRequest request)
+    {
+        var limit = 100;
+        if (request.Parameters is { ValueKind: JsonValueKind.Object } logParameters
+            && logParameters.TryGetProperty("limit", out var limitElement)
+            && limitElement.ValueKind == JsonValueKind.Number
+            && limitElement.TryGetInt32(out var parsedLimit))
+        {
+            limit = Math.Clamp(parsedLimit, 1, 1000);
+        }
+
+        var lines = _state.AuditLog.ReadRecentLines(limit);
+        var records = new List<object>();
+        foreach (var line in lines)
+        {
+            try
+            {
+                records.Add(JsonSerializer.Deserialize<JsonElement>(line, ContractJson.Options).Clone());
+            }
+            catch (JsonException)
+            {
+                // 单行损坏不阻塞诊断读取。
+            }
+        }
+
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new { total = records.Count, items = records },
         };
     }
 

@@ -117,3 +117,11 @@
 - **守卫更新**：未实现操作示例 games.list→games.update；tools/list 断言 games_list 已实现。
 - **未验证范围**：ConfirmedIdentity 身份指纹匹配（随 T14/T05-C）；稳定观察周期核对与事件推送（T16/T23-B）；Deferred 重新查看独立入口；候选分页/筛选（T16）。
 - **下一项**：T16（ScanCoordinator：队列上限、事件折叠、周期核对、手动/后台互斥）或 T13（翻译配置三入口）。
+
+## T24-A 可观测性/诊断（审计日志）— 2026-09-13 完成
+
+- **改动文件**：`src/GameLibrary.Host/Observability/AuditLogWriter.cs`（新）、`LogSanitizer.cs`（新）、`OperationDispatcher.cs`（全请求审计 + diagnostics.status/logs）、`JobManager.cs`（ActiveJobCount）、HostRuntime/夹具（注入 AuditLog）、Cli（`diagnostics status|logs --limit`）、Mcp（diagnostics_status/logs）、Contracts（+2）、测试（DiagnosticsTests 6）。
+- **验证结果**：累计 245 项测试通过（+6）；format 通过；Release 构建 0 警告 0 错误。报告：`artifacts/build-reports/2026-09-13-t24a.md`。
+- **实现要点**：业务审计 JSONL 与诊断日志分开保留（audit-*.jsonl）；固定结构化字段、参数原文不写入、路径按已知前缀脱敏（{dataDir}/{userProfile}）；轮转 10 MiB×10、保留 90 天（仅日志目录内，不影响库中收据）；diagnostics.status 报进程/库/审计统计/活动作业数；diagnostics.logs 分页读最近审计。
+- **未验证范围**：diagnostics.export/cache_rebuild 与独立诊断日志管道（T24-B）；耗时分布指标（T16/T24-B）。
+- **下一项**：T16（ScanCoordinator）或 T07（MToolAdapter，前置 T05/T06 已就绪）。
