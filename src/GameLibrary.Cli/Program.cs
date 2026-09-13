@@ -32,6 +32,7 @@ internal static class Program
                 "capabilities.get" => await CapabilitiesAsync(parse),
                 "schema.get" => Schema(parse),
                 "host.status" => await HostStatusAsync(parse),
+                "library.init" => await ScanHostOperationAsync(parse, "library.init", requiresRoot: false),
                 "scan.start" => await ScanHostOperationAsync(parse, "scan.start", requiresRoot: true),
                 "scan.inspect" => await ScanHostOperationAsync(parse, "scan.inspect", requiresRoot: true),
                 "roots.add" => await ScanHostOperationAsync(parse, "roots.add", requiresRoot: true),
@@ -107,6 +108,12 @@ internal static class Program
             return ExitArgumentError;
         }
 
+        if (operationId is "profiles.create" or "profiles.update" && cli.IdempotencyKey is null)
+        {
+            Console.Error.WriteLine($"{string.Join(' ', cli.Words)} 需要 --idempotency-key");
+            return ExitArgumentError;
+        }
+
         if (operationId is "profiles.create")
         {
             if (cli.GameId is null || cli.ExePath is null || cli.Cwd is null)
@@ -161,15 +168,17 @@ internal static class Program
 
         object? parameters = operationId switch
         {
+            "library.init" => cli.IdempotencyKey is null ? null : new { idempotencyKey = cli.IdempotencyKey },
             "scan.start" => new { root = cli.RootArgument },
             "scan.inspect" => new { path = cli.RootArgument },
             "roots.add" => new { root = cli.RootArgument },
             "roots.list" => new { },
             "candidates.list" => cli.JobId is null ? null : new { jobId = cli.JobId },
             "candidates.get" => new { candidateId = cli.CandidateId },
-            "profiles.create" => new { gameId = cli.GameId, executablePath = cli.ExePath, argv = cli.ArgList, cwd = cli.Cwd },
+            "profiles.create" => new { idempotencyKey = cli.IdempotencyKey, gameId = cli.GameId, executablePath = cli.ExePath, argv = cli.ArgList, cwd = cli.Cwd },
             "profiles.update" => new
             {
+                idempotencyKey = cli.IdempotencyKey,
                 profileId = cli.ProfileId,
                 executablePath = cli.ExePath,
                 argv = cli.ArgList,

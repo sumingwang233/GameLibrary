@@ -99,3 +99,12 @@
 - **守卫更新**：契约测试 `SchemaFiles_AreNotYetClaimedAsImplemented` 按"实现即事实"解除 launch.execute 断言（T22 骨架守卫）。
 - **未验证范围**：启动收据持久化与崩溃恢复（UnknownOutcome）随 T23/T27；Profile 默认配置/工具绑定/翻译策略随 T13；PlanExpired/事件推送随 T16/T24。
 - **下一项**：T11（入库/忽略，依赖 T05/T10/T23）前可先补 T23（共享执行语义：收据/Revision/Job 取消事件）。
+
+## T23-A 共享执行语义（幂等收据持久化）— 2026-09-13 完成
+
+- **改动文件**：DatabaseMigrations（v2 request_receipts）、`RequestReceiptStore.cs`（新）、SqliteLibraryStore（收据方法）、`OperationDispatcher.cs`（收据中间件 + launch 崩溃歧义恢复 + `library.init`）、`PipeServer.cs`/WireMessages（握手 ClientName 回填到请求）、HostRuntime（State.DataDirectory、Library 可替换）、Cli/Mcp（`library init`、profiles create/update 幂等键）、测试 +5。
+- **验证结果**：累计 234 项测试通过（+5）；format 通过；Release 构建 0 警告 0 错误。报告：`artifacts/build-reports/2026-09-13-t23a.md`。
+- **实现要点**：收据按 (库实例, actor, 操作, 幂等键) 唯一；completed 收据为终态，重放返回原结果（RequestId 对齐本次请求）；同键不同摘要 → IdempotencyConflict；launch.execute 进程创建后立即写尝试引用，prepared 收据恢复按 PID+启动时间尽力核实，证明不了 → UnknownOutcome 且原键永不重启；`library.init` 自举豁免前置收据、建库后登记。
+- **环境备注**：ClientName 由 PipeServer 从握手回填到每个请求（收据 actor/审计）；清理过本工作树测试残留的孤儿 GameLibrary.Host 进程后构建恢复正常。
+- **未验证范围**：收据保留期限/淘汰与 DataEpoch 失效（T24/T27）；LaunchAttempt 持久化与 history 跨重启查询（T23-B）；scan.start 收据与 Job 同事务（T16）；权限模型/调用方鉴权（T23-B/T28）。
+- **下一项**：T11（入库/忽略：候选状态机、accept 幂等、defer、抑制与撤销；候选落库）。

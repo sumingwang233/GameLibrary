@@ -20,5 +20,20 @@ public static class DatabaseMigrations
                 updated_utc TEXT NOT NULL
             )
             """),
+        new DatabaseMigration(2, """
+            CREATE TABLE request_receipts (
+                library_instance_id TEXT NOT NULL,
+                actor TEXT NOT NULL,
+                operation_id TEXT NOT NULL,
+                idempotency_key TEXT NOT NULL,
+                request_digest TEXT NOT NULL,
+                status TEXT NOT NULL CHECK (status IN ('prepared', 'completed')),
+                attempt_json TEXT,
+                result_json TEXT,
+                created_utc TEXT NOT NULL,
+                updated_utc TEXT NOT NULL,
+                PRIMARY KEY (library_instance_id, actor, operation_id, idempotency_key)
+            )
+            """),
     ];
 }

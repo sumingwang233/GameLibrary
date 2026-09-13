@@ -13,8 +13,8 @@ public sealed class IpcRequest
 
     public JsonElement? Parameters { get; init; }
 
-    /// <summary>调用方声明的标签，仅作审计，不是身份认证。</summary>
-    public string? ClientName { get; init; }
+    /// <summary>调用方声明的标签，仅作审计，不是身份认证。宿主以握手声明回填。</summary>
+    public string? ClientName { get; set; }
 }
 
 /// <summary>连接握手请求：每连接第一条消息。</summary>

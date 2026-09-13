@@ -34,6 +34,7 @@ public sealed class RootRegistry
     /// <summary>注册库根；同一规范化路径幂等返回既有根。路径必须存在且不是重解析点。</summary>
     public LibraryRoot Add(string physicalPath)
     {
+        physicalPath = physicalPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         var validation = GamePath.TryCreate(physicalPath);
         if (!validation.IsValid)
         {

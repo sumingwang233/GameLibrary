@@ -16,20 +16,20 @@ public sealed class HostRuntime : IAsyncDisposable
 {
     private readonly SingleInstanceGuard _guard;
     private readonly PipeServer _server;
-    private readonly SqliteLibraryStore? _store;
+    private readonly HostRuntimeState _state;
 
-    private HostRuntime(SingleInstanceGuard guard, PipeServer server, SqliteLibraryStore? store)
+    private HostRuntime(SingleInstanceGuard guard, PipeServer server, HostRuntimeState state)
     {
         _guard = guard;
         _server = server;
-        _store = store;
+        _state = state;
     }
 
-    public HostIdentity Identity { get; private init; } = null!;
+    public HostIdentity Identity => _state.Identity;
 
-    public HostLibraryState Library { get; private init; } = null!;
+    public HostLibraryState Library => _state.Library;
 
-    public string DataDirectory { get; private init; } = "";
+    public string DataDirectory => _state.DataDirectory;
 
     public static async Task<HostRuntime> StartAsync(
         string dataDirectory,
@@ -54,6 +54,7 @@ public sealed class HostRuntime : IAsyncDisposable
         var runtimeState = new HostRuntimeState
         {
             Identity = identity,
+            DataDirectory = resolved.CanonicalPath!,
             Library = library,
             Jobs = new JobManager(),
             Candidates = new CandidateRegistry(),
@@ -69,12 +70,7 @@ public sealed class HostRuntime : IAsyncDisposable
             logger);
         server.Start();
 
-        return new HostRuntime(guard, server, library.Store)
-        {
-            Identity = identity,
-            Library = library,
-            DataDirectory = resolved.CanonicalPath!,
-        };
+        return new HostRuntime(guard, server, runtimeState);
     }
 
     private static async Task<HostLibraryState> OpenLibraryAsync(
@@ -113,9 +109,9 @@ public sealed class HostRuntime : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await _server.DisposeAsync();
-        if (_store is not null)
+        if (_state.Library.Store is not null)
         {
-            await _store.DisposeAsync();
+            await _state.Library.Store.DisposeAsync();
         }
 
         _guard.Dispose();
@@ -127,7 +123,10 @@ public sealed class HostRuntimeState
 {
     public required HostIdentity Identity { get; init; }
 
-    public required HostLibraryState Library { get; init; }
+    public required string DataDirectory { get; init; }
+
+    /// <summary>library.init 在运行中打开库时整体替换。</summary>
+    public required HostLibraryState Library { get; set; }
 
     public required JobManager Jobs { get; init; }
 

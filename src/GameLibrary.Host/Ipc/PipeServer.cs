@@ -105,6 +105,8 @@ public sealed class PipeServer : IAsyncDisposable
                     break;
                 }
 
+                // 收据 actor 与审计需要调用方标签：握手声明回填到每个请求。
+                request.ClientName ??= handshake.ClientName;
                 var envelope = SafeDispatch(request);
                 await IpcFrame.WriteJsonAsync(pipe, envelope, ct);
             }

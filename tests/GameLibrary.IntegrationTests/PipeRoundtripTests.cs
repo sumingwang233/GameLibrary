@@ -30,7 +30,9 @@ public sealed class PipeRoundtripTests : IClassFixture<PipeServerFixture>
 
         Assert.Equal("1", client.Handshake.ApiVersion);
         Assert.Equal(_fixture.Identity.InstanceId, client.Handshake.HostInstanceId);
-        Assert.False(client.Handshake.LibraryInitialized);
+        // T23-A 起夹具直接建库（收据中间件需要库实例）。
+        Assert.True(client.Handshake.LibraryInitialized);
+        Assert.NotNull(client.Handshake.LibraryInstanceId);
         Assert.NotEmpty(client.Handshake.AppVersion);
     }
 
@@ -94,18 +96,32 @@ public sealed class PipeServerFixture : IAsyncDisposable
     {
         TestId = Guid.NewGuid().ToString("N");
         Identity = new HostIdentity();
+        var dataDir = DataDirectory.Resolve(@$"D:\Official\GameLibrary\artifacts\test-runs\{TestId}\data");
+        Assert.True(dataDir.IsValid);
+        // T23-A：收据中间件需要库实例；夹具直接建库（library.init 语义的等价准备步骤）。
+        var init = GameLibrary.Infrastructure.Persistence.SqliteLibraryStore.InitializeAsync(
+            dataDir.CanonicalPath!,
+            new GameLibrary.Infrastructure.Persistence.SqliteLibraryStoreOptions
+            {
+                AppVersion = Identity.AppVersion,
+                ApiVersion = GameLibrary.Contracts.ApiConstants.ApiVersion,
+            },
+            CancellationToken.None).GetAwaiter().GetResult();
+        Assert.True(init.IsOpened, init.Detail);
         State = new HostRuntimeState
         {
             Identity = Identity,
-            Library = HostLibraryState.NotInitialized(
-                GameLibrary.Infrastructure.Persistence.LibraryOpenStatus.NeedsInitialization, null),
+            DataDirectory = dataDir.CanonicalPath!,
+            Library = new HostLibraryState
+            {
+                Status = GameLibrary.Infrastructure.Persistence.LibraryOpenStatus.Opened,
+                Store = init.Store,
+            },
             Jobs = new JobManager(),
             Candidates = new GameLibrary.Host.Scanning.CandidateRegistry(),
             Launches = new GameLibrary.Host.Launching.LaunchRegistry(),
             Roots = new GameLibrary.Host.Scanning.RootRegistry(),
         };
-        var dataDir = DataDirectory.Resolve(@$"D:\Official\GameLibrary\artifacts\test-runs\{TestId}\data");
-        Assert.True(dataDir.IsValid);
         Server = new PipeServer(
             ChannelNames.PipeName(dataDir.ComparisonKey!),
             State,

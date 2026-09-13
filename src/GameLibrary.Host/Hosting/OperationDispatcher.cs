@@ -41,68 +41,332 @@ public sealed class OperationDispatcher
         _state = state;
     }
 
+    /// <summary>已接入收据的操作子集：catalog 声明 requiresIdempotencyKey 的已实现操作。
+    /// scan.start 的作业收据随 T16（作业/收据同事务）接入，内存态作业先行。</summary>
+    private static readonly HashSet<string> ReceiptOperations = new(StringComparer.Ordinal)
+    {
+        "launch.execute",
+        "profiles.create",
+        "profiles.update",
+    };
+
     public Envelope<object> Dispatch(IpcRequest request)
     {
-        return request.OperationId switch
+        var info = OperationCatalog.Catalog.Find(request.OperationId);
+        if (info is { RequiresIdempotencyKey: true, IsAvailable: true }
+            && ReceiptOperations.Contains(request.OperationId))
         {
-            "host.status" => new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = true,
-                Status = OperationStatus.Completed,
-                Data = new
-                {
-                    hostInstanceId = _state.Identity.InstanceId,
-                    processId = _state.Identity.ProcessId,
-                    startedAtUtc = _state.Identity.StartedAtUtc.ToString("O"),
-                    appVersion = _state.Identity.AppVersion,
-                    apiVersion = ApiConstants.ApiVersion,
-                    libraryInitialized = _state.Library.Initialized,
-                    libraryState = _state.Library.Status.ToString(),
-                    libraryInstanceId = _state.Library.LibraryInstanceId,
-                    dataEpoch = _state.Library.DataEpoch,
-                    schemaVersion = _state.Library.SchemaVersion,
-                },
-            },
-            "capabilities.get" => new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = true,
-                Status = OperationStatus.Completed,
-                Data = BuildCapabilities(),
-            },
-            "schema.get" => BuildSchema(request),
-            "scan.start" => ScanStart(request),
-            "scan.status" or "jobs.get" => JobSnapshotEnvelope(request, request.OperationId == "scan.status" ? "scan" : null),
-            "scan.cancel" => ScanCancel(request),
-            "scan.coverage" => ScanCoverage(request),
-            "scan.inspect" => ScanInspect(request),
-            "roots.add" => RootsAdd(request),
-            "roots.list" => RootsList(request),
-            "candidates.list" => CandidatesList(request),
-            "candidates.get" => CandidatesGet(request),
-            "profiles.create" => ProfilesCreate(request),
-            "profiles.list" => ProfilesList(request),
-            "profiles.get" => ProfilesGet(request),
-            "profiles.update" => ProfilesUpdate(request),
-            "launch.plan" => LaunchPlanHandler(request),
-            "launch.execute" => LaunchExecute(request),
-            "launch.status" => LaunchStatus(request),
-            "launch.history" => LaunchHistory(request),
-            _ => new Envelope<object>
+            return DispatchWithReceipt(request);
+        }
+
+        return DispatchCore(request);
+    }
+
+    /// <summary>
+    /// 幂等收据（契约 7.1）：同键同摘要重放返回原结果，不重复执行；同键不同摘要返回
+    /// IdempotencyConflict。launch.execute 的 prepared 收据在进程已创建但结果未落时，
+    /// 按 PID+启动时间+路径尽力核实，无法证明即 UnknownOutcome，原键重试不再启动。
+    /// </summary>
+    private Envelope<object> DispatchWithReceipt(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return new Envelope<object>
             {
                 RequestId = request.RequestId,
                 Ok = false,
                 Status = OperationStatus.Failed,
                 Error = new RequestError
                 {
-                    Code = ErrorCodes.UnsupportedOperation,
-                    Message = $"操作 {request.OperationId} 已在 catalog 登记但尚未实现",
+                    Code = ErrorCodes.InvalidArgument,
+                    Message = "库未初始化（先 library.init）；幂等收据需要库实例",
                     Retryable = false,
                 },
+            };
+        }
+
+        if (!TryGetStringParameter(request, "idempotencyKey", out var key))
+        {
+            return InvalidArgument(request, $"{request.OperationId} 需要 idempotencyKey 参数");
+        }
+
+        var actor = string.IsNullOrWhiteSpace(request.ClientName) ? "anonymous" : request.ClientName!;
+        var digest = RequestDigest(request);
+        var existing = store.TryGetReceipt(actor, request.OperationId, key);
+        if (existing is not null)
+        {
+            if (existing.RequestDigest != digest)
+            {
+                return new Envelope<object>
+                {
+                    RequestId = request.RequestId,
+                    Ok = false,
+                    Status = OperationStatus.Failed,
+                    Error = new RequestError
+                    {
+                        Code = ErrorCodes.IdempotencyConflict,
+                        Message = $"幂等键已被不同请求使用：{key}",
+                        Retryable = false,
+                    },
+                };
+            }
+
+            if (existing.Status == "completed" && existing.ResultJson is not null)
+            {
+                var replayed = JsonSerializer.Deserialize<Envelope<object>>(existing.ResultJson, ContractJson.Options);
+                if (replayed is not null)
+                {
+                    // 收据重放：结果内容不变，但 RequestId 必须对齐本次请求（客户端按其校验）。
+                    return new Envelope<object>
+                    {
+                        ApiVersion = replayed.ApiVersion,
+                        RequestId = request.RequestId,
+                        LibraryInstanceId = replayed.LibraryInstanceId,
+                        DataEpoch = replayed.DataEpoch,
+                        Ok = replayed.Ok,
+                        Status = replayed.Status,
+                        Data = replayed.Data,
+                        JobId = replayed.JobId,
+                        Error = replayed.Error,
+                        Warnings = replayed.Warnings,
+                        NextActions = replayed.NextActions,
+                    };
+                }
+            }
+
+            if (request.OperationId == "launch.execute")
+            {
+                var recovery = RecoverLaunchReceipt(request, store, existing);
+                if (recovery is not null)
+                {
+                    return recovery;
+                }
+            }
+        }
+
+        var receipt = existing ?? NewReceipt(store, actor, request, key, digest);
+        if (existing is null)
+        {
+            store.InsertPreparedReceipt(receipt);
+        }
+
+        var result = DispatchCore(request);
+        var resultJson = JsonSerializer.Serialize(result, ContractJson.Options);
+        if (request.OperationId == "launch.execute" && result.Ok)
+        {
+            TryAttachAttemptRef(store, receipt, resultJson);
+        }
+
+        store.CompleteReceipt(receipt, resultJson);
+        return result;
+    }
+
+    /// <summary>进程已创建的 launch 收据立即记录尝试引用：缩小"已启动未落收据"的崩溃歧义窗口。</summary>
+    private static void TryAttachAttemptRef(
+        Infrastructure.Persistence.SqliteLibraryStore store,
+        Infrastructure.Persistence.RequestReceipt receipt,
+        string resultJson)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(resultJson);
+            var data = document.RootElement.GetProperty("data");
+            if (data.GetProperty("state").GetString() != "processCreated")
+            {
+                return;
+            }
+
+            var attemptRef = new AttemptRef
+            {
+                AttemptId = data.GetProperty("attemptId").GetString() ?? "",
+                ProcessId = data.GetProperty("processId").GetInt32(),
+                ProcessStartedUtc = DateTime.Parse(
+                    data.GetProperty("processStartedUtc").GetString()!,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.RoundtripKind),
+                ExecutablePath = data.GetProperty("executablePath").GetString() ?? "",
+            };
+            store.UpdateReceiptAttempt(receipt, JsonSerializer.Serialize(attemptRef, ContractJson.Options));
+        }
+        catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
+        {
+            // 尝试引用写不进去只是保留较宽的歧义窗口，不影响执行结果。
+        }
+    }
+
+    /// <summary>
+    /// prepared 收据恢复：有尝试引用则核实（本进程注册表优先，再按 PID/启动时间核实）；
+    /// 核实成功返回尝试现状，无法证明返回 UnknownOutcome 并终结收据；无尝试引用
+    /// （进程尚未创建即中断）返回 null，允许本次执行继续。
+    /// </summary>
+    private Envelope<object>? RecoverLaunchReceipt(IpcRequest request, Infrastructure.Persistence.SqliteLibraryStore store, Infrastructure.Persistence.RequestReceipt existing)
+    {
+        if (existing.AttemptJson is null)
+        {
+            return null;
+        }
+
+        AttemptRef? attemptRef;
+        try
+        {
+            attemptRef = JsonSerializer.Deserialize<AttemptRef>(existing.AttemptJson, ContractJson.Options);
+        }
+        catch (JsonException)
+        {
+            attemptRef = null;
+        }
+
+        if (attemptRef is null)
+        {
+            return null;
+        }
+
+        var attempt = _state.Launches.GetAttempt(attemptRef.AttemptId);
+        if (attempt is not null)
+        {
+            var live = new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = true,
+                Status = OperationStatus.Completed,
+                Data = attempt.ToDto(),
+            };
+            store.CompleteReceipt(existing, JsonSerializer.Serialize(live, ContractJson.Options));
+            return live;
+        }
+
+        if (IsProcessVerified(attemptRef))
+        {
+            // 进程仍在但注册表无记录（不应发生）：保守返回 UnknownOutcome，不重启。
+        }
+
+        var unknown = new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = false,
+            Status = OperationStatus.Failed,
+            Error = new RequestError
+            {
+                Code = ErrorCodes.UnknownOutcome,
+                Message = $"上次执行结果无法证明（attempt {attemptRef.AttemptId}，pid {attemptRef.ProcessId}）；请检查运行状态后用新幂等键显式重试，本键不再启动",
+                Retryable = false,
             },
         };
+        store.CompleteReceipt(existing, JsonSerializer.Serialize(unknown, ContractJson.Options));
+        return unknown;
     }
+
+    private static bool IsProcessVerified(AttemptRef attemptRef)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(attemptRef.ProcessId);
+            process.Refresh();
+            if (process.HasExited)
+            {
+                return false;
+            }
+
+            var drift = Math.Abs((process.StartTime.ToUniversalTime() - attemptRef.ProcessStartedUtc).TotalSeconds);
+            return drift <= 5;
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            return false;
+        }
+    }
+
+    private static Infrastructure.Persistence.RequestReceipt NewReceipt(
+        Infrastructure.Persistence.SqliteLibraryStore store, string actor, IpcRequest request, string key, string digest) =>
+        new()
+        {
+            LibraryInstanceId = store.Info.LibraryInstanceId,
+            Actor = actor,
+            OperationId = request.OperationId,
+            IdempotencyKey = key,
+            RequestDigest = digest,
+            Status = "prepared",
+            CreatedUtc = DateTime.UtcNow,
+            UpdatedUtc = DateTime.UtcNow,
+        };
+
+    private static string RequestDigest(IpcRequest request) =>
+        Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes(request.Parameters?.GetRawText() ?? "")));
+
+    private sealed record AttemptRef
+    {
+        public string AttemptId { get; init; } = "";
+
+        public int ProcessId { get; init; }
+
+        public DateTime ProcessStartedUtc { get; init; }
+
+        public string ExecutablePath { get; init; } = "";
+    }
+
+    private Envelope<object> DispatchCore(IpcRequest request) => request.OperationId switch
+    {
+        "library.init" => LibraryInit(request),
+        "host.status" => new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new
+            {
+                hostInstanceId = _state.Identity.InstanceId,
+                processId = _state.Identity.ProcessId,
+                startedAtUtc = _state.Identity.StartedAtUtc.ToString("O"),
+                appVersion = _state.Identity.AppVersion,
+                apiVersion = ApiConstants.ApiVersion,
+                libraryInitialized = _state.Library.Initialized,
+                libraryState = _state.Library.Status.ToString(),
+                libraryInstanceId = _state.Library.LibraryInstanceId,
+                dataEpoch = _state.Library.DataEpoch,
+                schemaVersion = _state.Library.SchemaVersion,
+            },
+        },
+        "capabilities.get" => new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = BuildCapabilities(),
+        },
+        "schema.get" => BuildSchema(request),
+        "scan.start" => ScanStart(request),
+        "scan.status" or "jobs.get" => JobSnapshotEnvelope(request, request.OperationId == "scan.status" ? "scan" : null),
+        "scan.cancel" => ScanCancel(request),
+        "scan.coverage" => ScanCoverage(request),
+        "scan.inspect" => ScanInspect(request),
+        "roots.add" => RootsAdd(request),
+        "roots.list" => RootsList(request),
+        "candidates.list" => CandidatesList(request),
+        "candidates.get" => CandidatesGet(request),
+        "profiles.create" => ProfilesCreate(request),
+        "profiles.list" => ProfilesList(request),
+        "profiles.get" => ProfilesGet(request),
+        "profiles.update" => ProfilesUpdate(request),
+        "launch.plan" => LaunchPlanHandler(request),
+        "launch.execute" => LaunchExecute(request),
+        "launch.status" => LaunchStatus(request),
+        "launch.history" => LaunchHistory(request),
+        _ => new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = false,
+            Status = OperationStatus.Failed,
+            Error = new RequestError
+            {
+                Code = ErrorCodes.UnsupportedOperation,
+                Message = $"操作 {request.OperationId} 已在 catalog 登记但尚未实现",
+                Retryable = false,
+            },
+        },
+    };
 
     private Envelope<object> ScanStart(IpcRequest request)
     {
@@ -759,6 +1023,95 @@ public sealed class OperationDispatcher
                 Retryable = false,
             },
         };
+
+    /// <summary>
+    /// 显式建库（library.init）。自举豁免前置收据：建库成功后在新库中登记收据，
+    /// 同键重放返回原结果；DB 已存在但收据缺失（建库后、收据前中断）返回 AlreadyInitialized。
+    /// </summary>
+    private Envelope<object> LibraryInit(IpcRequest request)
+    {
+        if (_state.Library.Store is not null)
+        {
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = ErrorCodes.InvalidArgument,
+                    Message = "库已初始化，不能重复执行 library.init",
+                    Retryable = false,
+                },
+            };
+        }
+
+        var identity = _state.Identity;
+        var options = new Infrastructure.Persistence.SqliteLibraryStoreOptions
+        {
+            AppVersion = identity.AppVersion,
+            ApiVersion = ApiConstants.ApiVersion,
+        };
+
+        // InitializeAsync 全部同步完成（本地 SQLite），分发器保持同步签名。
+        var init = Infrastructure.Persistence.SqliteLibraryStore.InitializeAsync(_state.DataDirectory, options, CancellationToken.None)
+            .GetAwaiter().GetResult();
+        if (!init.IsOpened)
+        {
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = ErrorCodes.InvalidArgument,
+                    Message = $"建库失败（{init.Status}）：{init.Detail}",
+                    Retryable = false,
+                },
+            };
+        }
+
+        _state.Library = new HostLibraryState
+        {
+            Status = init.Status,
+            Store = init.Store,
+            Detail = init.Detail,
+        };
+
+        var result = new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new
+            {
+                libraryInstanceId = init.Store!.Info.LibraryInstanceId,
+                dataEpoch = init.Store.Info.DataEpoch,
+                schemaVersion = init.Store.Info.SchemaVersion,
+            },
+        };
+
+        if (TryGetStringParameter(request, "idempotencyKey", out var key))
+        {
+            var actor = string.IsNullOrWhiteSpace(request.ClientName) ? "anonymous" : request.ClientName!;
+            var receipt = new Infrastructure.Persistence.RequestReceipt
+            {
+                LibraryInstanceId = init.Store.Info.LibraryInstanceId,
+                Actor = actor,
+                OperationId = request.OperationId,
+                IdempotencyKey = key,
+                RequestDigest = RequestDigest(request),
+                Status = "prepared",
+                CreatedUtc = DateTime.UtcNow,
+                UpdatedUtc = DateTime.UtcNow,
+            };
+            init.Store.InsertPreparedReceipt(receipt);
+            init.Store.CompleteReceipt(receipt, JsonSerializer.Serialize(result, ContractJson.Options));
+        }
+
+        return result;
+    }
 
     private static IEngineDetector[] DefaultDetectors() =>
     [

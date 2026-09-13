@@ -219,14 +219,22 @@ public static class GameLibraryTools
     public static Task<CallToolResult> RootsList() =>
         InvokeOperationAsync("roots.list", new { });
 
+    [McpServerTool(Name = "library_init")]
+    [Description("在数据目录显式建库；重复执行返回错误。参数：idempotencyKey（建议提供，用于收据重放）。")]
+    public static Task<CallToolResult> LibraryInit([Description("幂等键")] string? idempotencyKey = null) =>
+        idempotencyKey is null
+            ? InvokeOperationAsync("library.init", new { })
+            : InvokeOperationAsync("library.init", new { idempotencyKey });
+
     [McpServerTool(Name = "profiles_create")]
-    [Description("创建启动配置（最小集）：绝对 exe、argv 数组、绝对 cwd。参数：gameId、executablePath、argv、cwd。")]
+    [Description("创建启动配置（最小集）：绝对 exe、argv 数组、绝对 cwd。参数：idempotencyKey、gameId、executablePath、argv、cwd。")]
     public static Task<CallToolResult> ProfilesCreate(
+        [Description("幂等键：相同键重试返回原结果")] string idempotencyKey,
         [Description("所属游戏 ID")] string gameId,
         [Description("启动目标的绝对路径")] string executablePath,
         [Description("argv 参数数组")] string[] argv,
         [Description("工作目录绝对路径")] string cwd) =>
-        InvokeOperationAsync("profiles.create", new { gameId, executablePath, argv, cwd });
+        InvokeOperationAsync("profiles.create", new { idempotencyKey, gameId, executablePath, argv, cwd });
 
     [McpServerTool(Name = "profiles_list")]
     [Description("列出启动配置（可按 gameId 过滤）。参数：gameId（可选）。")]
@@ -241,14 +249,15 @@ public static class GameLibraryTools
         InvokeOperationAsync("profiles.get", new { profileId });
 
     [McpServerTool(Name = "profiles_update")]
-    [Description("更新启动配置；expectedRevision 不一致返回 RevisionConflict，更新使引用旧 Revision 的计划失效。参数：profileId、executablePath、argv、cwd、expectedRevision。")]
+    [Description("更新启动配置；expectedRevision 不一致返回 RevisionConflict，更新使引用旧 Revision 的计划失效。参数：idempotencyKey、profileId、executablePath、argv、cwd、expectedRevision。")]
     public static Task<CallToolResult> ProfilesUpdate(
+        [Description("幂等键：相同键重试返回原结果")] string idempotencyKey,
         [Description("Profile ID")] string profileId,
         [Description("启动目标的绝对路径")] string executablePath,
         [Description("argv 参数数组")] string[] argv,
         [Description("工作目录绝对路径")] string cwd,
         [Description("期望 Revision")] int expectedRevision) =>
-        InvokeOperationAsync("profiles.update", new { profileId, executablePath, argv, cwd, expectedRevision });
+        InvokeOperationAsync("profiles.update", new { idempotencyKey, profileId, executablePath, argv, cwd, expectedRevision });
 
     [McpServerTool(Name = "launch_plan")]
     [Description("生成纯数据启动计划（可预览，无副作用）。参数：gameId、profileId。")]

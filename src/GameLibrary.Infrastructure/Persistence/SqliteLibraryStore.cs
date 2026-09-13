@@ -30,6 +30,19 @@ public sealed class SqliteLibraryStore : IAsyncDisposable
 
     public string DatabasePath => _connection.DataSource;
 
+    /// <summary>幂等收据查询（契约 7.1）；收据属于当前库实例。</summary>
+    public RequestReceipt? TryGetReceipt(string actor, string operationId, string idempotencyKey) =>
+        RequestReceiptStore.TryGet(_connection, Info.LibraryInstanceId, actor, operationId, idempotencyKey);
+
+    public void InsertPreparedReceipt(RequestReceipt receipt) =>
+        RequestReceiptStore.InsertPrepared(_connection, receipt);
+
+    public void UpdateReceiptAttempt(RequestReceipt receipt, string attemptJson) =>
+        RequestReceiptStore.UpdateAttempt(_connection, receipt, attemptJson);
+
+    public void CompleteReceipt(RequestReceipt receipt, string resultJson) =>
+        RequestReceiptStore.Complete(_connection, receipt, resultJson);
+
     /// <summary>一致性备份到新文件（SQLite 备份 API，WAL 下同样一致）。目标已存在则拒绝。</summary>
     public async Task CreateBackupAsync(string targetPath, CancellationToken ct)
     {

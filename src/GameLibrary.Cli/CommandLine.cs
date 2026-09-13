@@ -160,6 +160,7 @@ internal sealed record CommandLine
             "capabilities" when verb == "get" => "capabilities.get",
             "schema" when verb == "get" => "schema.get",
             "host" when verb is "status" or "start" or "stop" => $"host.{verb}",
+            "library" when verb == "init" => "library.init",
             "scan" when verb is "start" or "status" or "cancel" or "coverage" or "inspect" => $"scan.{verb}",
             "roots" when verb is "add" or "list" => $"roots.{verb}",
             "candidates" when verb is "list" or "get" => $"candidates.{verb}",

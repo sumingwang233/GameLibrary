@@ -47,6 +47,7 @@ public static class OperationCatalog
         "capabilities.get",
         "schema.get",
         "host.status",
+        "library.init",
         "scan.start",
         "scan.status",
         "scan.cancel",

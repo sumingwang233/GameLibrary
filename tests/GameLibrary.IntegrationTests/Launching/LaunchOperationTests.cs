@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using GameLibrary.Contracts;
 using GameLibrary.Contracts.Ipc;
@@ -49,6 +50,7 @@ public sealed class LaunchOperationTests : IClassFixture<PipeServerFixture>
         Directory.CreateDirectory(runDir);
         var created = await InvokeAsync("profiles.create", new
         {
+            idempotencyKey = "create-" + gameId,
             gameId,
             executablePath = StubExe,
             argv = new[] { "--game", gameId },
@@ -128,6 +130,7 @@ public sealed class LaunchOperationTests : IClassFixture<PipeServerFixture>
         Directory.CreateDirectory(runDir);
         var created = await InvokeAsync("profiles.create", new
         {
+            idempotencyKey = "create-" + gameId,
             gameId,
             executablePath = StubExe,
             argv = new[] { "--hold-ms", "3000" },
@@ -163,6 +166,7 @@ public sealed class LaunchOperationTests : IClassFixture<PipeServerFixture>
 
         var updated = await InvokeAsync("profiles.update", new
         {
+            idempotencyKey = "update-" + profileId,
             profileId,
             executablePath = StubExe,
             argv = Array.Empty<string>(),
@@ -189,6 +193,7 @@ public sealed class LaunchOperationTests : IClassFixture<PipeServerFixture>
 
         var created = await InvokeAsync("profiles.create", new
         {
+            idempotencyKey = "create-" + gameId,
             gameId,
             executablePath = tempExe,
             argv = Array.Empty<string>(),
@@ -206,6 +211,111 @@ public sealed class LaunchOperationTests : IClassFixture<PipeServerFixture>
 
         var history = await InvokeAsync("launch.history", new { gameId });
         Assert.True(history.Ok, history.Error?.Message);
+    }
+
+    [Fact]
+    public async Task Receipt_SameKeySameParams_ReplaysWithoutDuplicateSideEffect()
+    {
+        var gameId = $"game-{Guid.NewGuid():N}";
+        var runDir = NewRunDir("receipt-replay");
+        Directory.CreateDirectory(runDir);
+        var parameters = new
+        {
+            idempotencyKey = "replay-profile",
+            gameId,
+            executablePath = StubExe,
+            argv = Array.Empty<string>(),
+            cwd = runDir,
+        };
+
+        var first = await InvokeAsync("profiles.create", parameters);
+        Assert.True(first.Ok, first.Error?.Message);
+        var profileId = first.Data.GetProperty("profileId").GetString()!;
+
+        var replay = await InvokeAsync("profiles.create", parameters);
+        Assert.True(replay.Ok);
+        Assert.Equal(profileId, replay.Data.GetProperty("profileId").GetString());
+
+        var list = await InvokeAsync("profiles.list", new { gameId });
+        Assert.Equal(1, list.Data.GetProperty("total").GetInt32());
+    }
+
+    [Fact]
+    public async Task Receipt_SameKeyDifferentParams_IsIdempotencyConflict()
+    {
+        var gameId = $"game-{Guid.NewGuid():N}";
+        var profileId = await CreateProfileAsync(gameId);
+
+        var conflict = await InvokeAsync("profiles.get", new { profileId });
+        Assert.True(conflict.Ok);
+
+        var sameKeyDifferentBody = await InvokeAsync("profiles.create", new
+        {
+            idempotencyKey = "create-" + gameId,
+            gameId,
+            executablePath = StubExe,
+            argv = new[] { "--different" },
+            cwd = NewRunDir("receipt-conflict"),
+        });
+        Assert.False(sameKeyDifferentBody.Ok);
+        Assert.Equal(ErrorCodes.IdempotencyConflict, sameKeyDifferentBody.Error!.Code);
+    }
+
+    [Fact]
+    public async Task Receipt_PreparedWithDeadProcessRef_RecoversAsUnknownOutcomeAndNeverRestarts()
+    {
+        // 构造"进程已创建但收据未终结"的崩溃现场：prepared 收据 + 已退出进程的尝试引用。
+        var deadPid = await StartAndKillStubAsync();
+        var runDir = NewRunDir("receipt-crash");
+        Directory.CreateDirectory(runDir);
+        var gameId = $"game-{Guid.NewGuid():N}";
+        var parameters = new { idempotencyKey = "crash-key", profileId = "profile-recovery", expectedRevision = (int?)null };
+        var digest = Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(parameters))));
+
+        _fixture.State.Library.Store!.InsertPreparedReceipt(new GameLibrary.Infrastructure.Persistence.RequestReceipt
+        {
+            LibraryInstanceId = _fixture.State.Library.Store.Info.LibraryInstanceId,
+            Actor = "launch-test",
+            OperationId = "launch.execute",
+            IdempotencyKey = "crash-key",
+            RequestDigest = digest,
+            Status = "prepared",
+            AttemptJson = JsonSerializer.Serialize(new
+            {
+                attemptId = "attempt-recovery",
+                processId = deadPid,
+                processStartedUtc = DateTime.UtcNow.AddMinutes(-1).ToString("O"),
+                executablePath = StubExe,
+            }),
+            CreatedUtc = DateTime.UtcNow.AddMinutes(-1),
+            UpdatedUtc = DateTime.UtcNow.AddMinutes(-1),
+        });
+
+        var recovered = await InvokeAsync("launch.execute", parameters);
+        Assert.False(recovered.Ok);
+        Assert.Equal(ErrorCodes.UnknownOutcome, recovered.Error!.Code);
+
+        // 原键重试：收据已终结，返回同一 UnknownOutcome，不再启动。
+        var retry = await InvokeAsync("launch.execute", parameters);
+        Assert.False(retry.Ok);
+        Assert.Equal(ErrorCodes.UnknownOutcome, retry.Error!.Code);
+
+        var history = await InvokeAsync("launch.history", new { gameId });
+        Assert.Equal(0, history.Data.GetProperty("total").GetInt32());
+    }
+
+    private static async Task<int> StartAndKillStubAsync()
+    {
+        var process = Process.Start(new ProcessStartInfo
+        {
+            FileName = StubExe,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        })!;
+        await process.WaitForExitAsync();
+        return process.Id;
     }
 
     private async Task WaitForExitAsync(string attemptId)
