@@ -125,5 +125,16 @@ public static class DatabaseMigrations
             ALTER TABLE games ADD COLUMN availability TEXT NOT NULL DEFAULT 'unknown';
             ALTER TABLE games ADD COLUMN missing_since_utc TEXT;
             """),
+        new DatabaseMigration(10, """
+            CREATE TABLE notification_batches (
+                notification_id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL CHECK (kind IN ('candidatesReady')),
+                candidate_ids_json TEXT NOT NULL,
+                title TEXT NOT NULL,
+                state TEXT NOT NULL CHECK (state IN ('pending', 'acknowledged', 'deferred')),
+                created_utc TEXT NOT NULL,
+                updated_utc TEXT NOT NULL
+            )
+            """),
     ];
 }

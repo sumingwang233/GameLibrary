@@ -109,6 +109,9 @@ internal sealed record CommandLine
     /// <summary>games relink 的 --new-path 参数（绝对本地目录路径）。</summary>
     public string? NewPath { get; private init; }
 
+    /// <summary>notifications 的 --notification-id 参数。</summary>
+    public string? NotificationId { get; private init; }
+
     /// <summary>views 的 --view-id 参数。</summary>
     public string? ViewId { get; private init; }
 
@@ -174,6 +177,7 @@ internal sealed record CommandLine
         string? sort = null;
         var favoriteOnly = false;
         string? newPath = null;
+        string? notificationId = null;
         var argList = new List<string>();
         var noStart = false;
         var timeout = 30;
@@ -287,6 +291,9 @@ internal sealed record CommandLine
                 case "--view-id" when i + 1 < args.Length:
                     viewId = args[++i];
                     break;
+                case "--notification-id" when i + 1 < args.Length:
+                    notificationId = args[++i];
+                    break;
                 case "--name" when i + 1 < args.Length:
                     name = args[++i];
                     break;
@@ -335,6 +342,7 @@ internal sealed record CommandLine
             "profiles" when verb is "create" or "list" or "get" or "update" or "set-default" or "remove" or "validate"
                 => verb == "set-default" ? "profiles.set_default" : $"profiles.{verb}",
             "views" when verb is "list" or "get" or "create" or "update" or "remove" or "activate" => $"views.{verb}",
+            "notifications" when verb is "list" or "get" or "acknowledge" or "defer" => $"notifications.{verb}",
             "launch" when verb is "plan" or "execute" or "status" or "history" => $"launch.{verb}",
             "jobs" when verb is "get" or "list" or "wait" or "cancel" => verb == "get" ? "jobs.get" : null,
             _ => null,
@@ -385,6 +393,7 @@ internal sealed record CommandLine
             Sort = sort,
             FavoriteOnly = favoriteOnly,
             NewPath = newPath,
+            NotificationId = notificationId,
             NoStart = noStart,
             TimeoutSeconds = timeout,
         };

@@ -35,6 +35,7 @@ public sealed class HostRuntime : IAsyncDisposable
     public static async Task<HostRuntime> StartAsync(
         string dataDirectory,
         ILoggerFactory loggerFactory,
+        Action? notifyStopRequested = null,
         CancellationToken ct = default)
     {
         var resolved = Contracts.Ipc.DataDirectory.Resolve(dataDirectory);
@@ -66,6 +67,7 @@ public sealed class HostRuntime : IAsyncDisposable
                 Path.Combine(resolved.CanonicalPath!, "logs")),
             Events = events,
             Coordinator = null!,
+            NotifyStopRequested = notifyStopRequested,
         };
         runtimeState.Coordinator = new ScanCoordinator(
             runtimeState.Roots,
@@ -205,4 +207,10 @@ public sealed class HostRuntimeState
         get => _activeViewId;
         set => _activeViewId = value;
     }
+
+    /// <summary>
+    /// host.stop 停机回调（T18）：由 Program 接线到 IHostApplicationLifetime；
+    /// dispatcher 在响应写出前调用，实现内部延迟触发以保证客户端先收到结果。
+    /// </summary>
+    public Action? NotifyStopRequested { get; init; }
 }

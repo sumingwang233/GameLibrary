@@ -222,3 +222,11 @@
 - **实现要点**：缺失两次核对 ≥60 秒才 Missing、离线不累计、恢复重计数（ID-04/05）；可用性写回不占 Revision；relink 仅改 DB + 库根白名单/冲突/存在性校验；副本与备份命名只提示不排除。
 - **未验证范围**：指纹驱动自动 relink 建议（T25）；watcher 重命名事件（T18）；真实 ACL accessError 夹具（T25）。
 - **下一项**：T18（通知/托盘）或 T13 遗留的 settings.*。
+
+## T18 通知/托盘/退出语义 — 2026-09-14 完成
+
+- **改动文件**：`DatabaseMigrations.cs`（v10：notification_batches）、`NotificationStore.cs`（新：批生成/迁移）、`SqliteLibraryStore.cs`（转发）、`ScanCandidatePersistence.cs`（通知生成接线）、`OperationDispatcher.cs`（notifications 四操作 + host.stop 控制面解耦）、HostRuntime/Program（停机回调 + 延迟停机）、Desktop（托盘三菜单 + 关闭缩托盘）、Contracts（+5）、Cli/Mcp（+5 三入口）、`NotificationTests.cs`（5 项）+ `HostStopE2ETests.cs`（真实进程）。
+- **验证结果**：累计 330 项测试通过；format 通过。报告：`artifacts/build-reports/2026-09-14-t18.md`。
+- **实现要点**：ack≠accept（响应带 nextActions 引导显式候选决定）；acknowledged/deferred 批不复活；host.stop 不依赖业务库、响应送达后延迟停机；关闭缩托盘、"退出界面"与"停止后台并退出"语义分离。
+- **未验证范围**：Windows 气泡/全屏专注模式（需实机手测）；开机启动（settings.*）。
+- **下一项**：settings.*（三入口设置 + 视图激活持久化）或 T19 前的补全任务。

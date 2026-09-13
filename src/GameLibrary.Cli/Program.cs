@@ -68,6 +68,9 @@ internal static class Program
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "views.list" or "views.get" or "views.create" or "views.update" or "views.remove" or "views.activate" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
+                "notifications.list" or "notifications.get" or "notifications.acknowledge" or "notifications.defer" =>
+                    await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
+                "host.stop" => await HostStopAsync(parse),
                 "launch.plan" or "launch.execute" or "launch.status" or "launch.history" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 _ => UnknownCommand(parse),
@@ -243,6 +246,13 @@ internal static class Program
             return ExitArgumentError;
         }
 
+        if (operationId is "notifications.get" or "notifications.acknowledge" or "notifications.defer"
+            && cli.NotificationId is null)
+        {
+            Console.Error.WriteLine($"{string.Join(' ', cli.Words)} 需要 --notification-id");
+            return ExitArgumentError;
+        }
+
         if (operationId is "views.get" or "views.update" or "views.remove" or "views.activate" && cli.ViewId is null)
         {
             Console.Error.WriteLine($"{string.Join(' ', cli.Words)} 需要 --view-id");
@@ -304,6 +314,18 @@ internal static class Program
                 expectedRevision = cli.ExpectedRevision,
             },
             "translation.get" => new { gameId = cli.GameId },
+            "notifications.list" => cli.ExpectedRevision is null ? new { } : new { state = cli.Field },
+            "notifications.get" => new { notificationId = cli.NotificationId },
+            "notifications.acknowledge" => new
+            {
+                idempotencyKey = cli.IdempotencyKey ?? $"ack-{cli.NotificationId}",
+                notificationId = cli.NotificationId,
+            },
+            "notifications.defer" => new
+            {
+                idempotencyKey = cli.IdempotencyKey ?? $"def-{cli.NotificationId}",
+                notificationId = cli.NotificationId,
+            },
             "games.relink" => new
             {
                 idempotencyKey = cli.IdempotencyKey ?? $"relink-{Guid.NewGuid():N}",
@@ -619,6 +641,29 @@ internal static class Program
             cli.DataDir, clientName: "cli", timeout: TimeSpan.FromSeconds(cli.TimeoutSeconds));
         var response = await started.InvokeAsync(
             new IpcRequest { RequestId = cli.RequestId, OperationId = "host.status" },
+            CancellationToken.None);
+        WriteEnvelope(response);
+        return EnvelopeExitCode(response);
+    }
+
+    /// <summary>host stop：先收 completed 信封（宿主延迟停机保证送达），连接随宿主退出自然断开。</summary>
+    private static async Task<int> HostStopAsync(CommandLine cli)
+    {
+        if (cli.DataDir is null)
+        {
+            Console.Error.WriteLine("host stop 需要 --data-dir（或部署配置提供）");
+            return ExitArgumentError;
+        }
+
+        await using var connection = await HostProcessLauncher.EnsureStartedAsync(
+            cli.DataDir, clientName: "cli", timeout: TimeSpan.FromSeconds(cli.TimeoutSeconds));
+        var response = await connection.InvokeAsync(
+            new IpcRequest
+            {
+                RequestId = cli.RequestId,
+                OperationId = "host.stop",
+                Parameters = ToParameters(new { idempotencyKey = cli.IdempotencyKey ?? $"stop-{Guid.NewGuid():N}" }),
+            },
             CancellationToken.None);
         WriteEnvelope(response);
         return EnvelopeExitCode(response);

@@ -73,6 +73,18 @@ public static class ScanCandidatePersistence
                 }, utcNow);
             }
         }
+
+        // T18：候选进入 pendingReview 后汇总为通知批（新候选才触发；ack/defer 的旧批不复活）。
+        var notification = store.EnsureCandidateBatch(utcNow);
+        if (notification is not null)
+        {
+            var (batch, created) = notification.Value;
+            events?.Publish(
+                created ? "notification.created" : "notification.updated",
+                $"notification:{batch.NotificationId}",
+                new { notificationId = batch.NotificationId, title = batch.Title, count = batch.CandidateIds.Count },
+                utcNow);
+        }
     }
 
     /// <summary>

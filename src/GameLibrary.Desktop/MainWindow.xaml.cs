@@ -10,6 +10,7 @@ using System.Windows.Threading;
 using GameLibrary.Contracts;
 using GameLibrary.Contracts.Ipc;
 using GameLibrary.HostClient;
+using WinForms = System.Windows.Forms;
 
 namespace GameLibrary.Desktop;
 
@@ -876,10 +877,81 @@ public partial class MainWindow : Window
         base.OnKeyDown(e);
     }
 
-    protected override async void OnClosed(EventArgs e)
+    protected override async void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
+        // T18：关闭窗口默认缩到托盘（策划案 6.2），宿主继续扫描并供 CLI/MCP 使用。
+        if (!_exitRequested)
+        {
+            e.Cancel = true;
+            Hide();
+            _trayIcon ??= CreateTrayIcon();
+            _trayIcon.Visible = true;
+            return;
+        }
+
         _coverLoadCts?.Cancel();
         await DisposeConnectionAsync();
-        base.OnClosed(e);
+        _trayIcon?.Dispose();
+        _trayIcon = null;
+        base.OnClosing(e);
+    }
+
+    /// <summary>true=用户显式退出（托盘菜单）；false=点关闭按钮（缩托盘）。</summary>
+    private bool _exitRequested;
+
+    private WinForms.NotifyIcon? _trayIcon;
+
+    private WinForms.NotifyIcon CreateTrayIcon()
+    {
+        var icon = new WinForms.NotifyIcon
+        {
+            Text = "GameLibrary",
+            Icon = System.Drawing.SystemIcons.Application,
+            Visible = false,
+        };
+        var menu = new WinForms.ContextMenuStrip();
+        menu.Items.Add("显示主窗口", null, (_, _) => ShowFromTray());
+        menu.Items.Add("退出界面（后台继续运行）", null, (_, _) => ExitInterfaceOnly());
+        menu.Items.Add("停止后台并退出", null, (_, _) => StopHostAndExit());
+        icon.ContextMenuStrip = menu;
+        icon.DoubleClick += (_, _) => ShowFromTray();
+        return icon;
+    }
+
+    private void ShowFromTray()
+    {
+        Show();
+        WindowState = WindowState.Normal;
+        Activate();
+        if (_trayIcon is not null)
+        {
+            _trayIcon.Visible = false;
+        }
+    }
+
+    /// <summary>退出界面：只结束 Desktop；Host 继续扫描并供 CLI/MCP 使用（AI-09 退出语义）。</summary>
+    private void ExitInterfaceOnly()
+    {
+        _exitRequested = true;
+        Close();
+    }
+
+    /// <summary>停止后台并退出：host.stop（Host 排空后自行退出，不杀游戏/翻译器），随后关闭界面。</summary>
+    private async void StopHostAndExit()
+    {
+        try
+        {
+            if (_connection is not null)
+            {
+                await InvokeAsync("host.stop", new { idempotencyKey = $"ui-stop-{Guid.NewGuid():N}" });
+            }
+        }
+        catch (Exception)
+        {
+            // 宿主可能已退出；界面退出不受影响。
+        }
+
+        _exitRequested = true;
+        Close();
     }
 }

@@ -35,7 +35,10 @@ public sealed class JobManagerTests
 
         Assert.Equal("running", manager.Get(jobId)!.State);
         Assert.True(manager.RequestCancel(jobId));
-        Assert.Equal("cancelRequested", manager.Get(jobId)!.State);
+        // 取消是请求语义：状态机必须经过 cancelRequested（响应里可见），
+        // 随后在检查点生效转为 cancelled；两者到达顺序由执行器调度决定，均合法。
+        var stateAfterRequest = manager.Get(jobId)!.State;
+        Assert.True(stateAfterRequest is "cancelRequested" or "cancelled", $"实际 {stateAfterRequest}");
         await WaitForTerminalAsync(manager, jobId);
         Assert.Equal("cancelled", manager.Get(jobId)!.State);
     }

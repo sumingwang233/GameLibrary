@@ -88,6 +88,20 @@ public sealed class SqliteLibraryStore : IAsyncDisposable
     public int? RelinkGame(string gameId, string newRootPath, int expectedRevision, DateTime utcNow) =>
         LibraryCatalogStore.RelinkGame(_connection, gameId, newRootPath, expectedRevision, utcNow);
 
+    // T18 通知批转发。
+
+    public (NotificationBatch Batch, bool Created)? EnsureCandidateBatch(DateTime utcNow) =>
+        NotificationStore.EnsureCandidateBatch(_connection, utcNow);
+
+    public IReadOnlyList<NotificationBatch> ListNotifications(string? state) =>
+        NotificationStore.ListBatches(_connection, state);
+
+    public NotificationBatch? TryGetNotification(string notificationId) =>
+        NotificationStore.TryGetBatch(_connection, notificationId);
+
+    public NotificationBatch? TransitionNotification(string notificationId, string toState, DateTime utcNow) =>
+        NotificationStore.TransitionBatch(_connection, notificationId, toState, utcNow);
+
     // T15-C 自定义视图转发。
 
     public void InsertView(LibraryView view) => LibraryViewStore.InsertView(_connection, view);

@@ -61,6 +61,8 @@ public sealed class OperationDispatcher
         "views.update",
         "views.remove",
         "views.activate",
+        "notifications.acknowledge",
+        "notifications.defer",
         "scan.start",
         "candidates.accept",
         "candidates.defer",
@@ -108,6 +110,12 @@ public sealed class OperationDispatcher
 
     private Envelope<object> DispatchInternal(IpcRequest request)
     {
+        // host.stop 是控制面操作：不依赖业务库（未 init 也必须能停机），不走库收据中间件。
+        if (request.OperationId == "host.stop")
+        {
+            return DispatchCore(request);
+        }
+
         var info = OperationCatalog.Catalog.Find(request.OperationId);
         if (info is { RequiresIdempotencyKey: true, IsAvailable: true }
             && ReceiptOperations.Contains(request.OperationId))
@@ -448,6 +456,11 @@ public sealed class OperationDispatcher
         "views.update" => ViewsUpdate(request),
         "views.remove" => ViewsRemove(request),
         "views.activate" => ViewsActivate(request),
+        "notifications.list" => NotificationsList(request),
+        "notifications.get" => NotificationsGet(request),
+        "notifications.acknowledge" => NotificationTransition(request, "acknowledged"),
+        "notifications.defer" => NotificationTransition(request, "deferred"),
+        "host.stop" => HostStop(request),
         "launch.plan" => LaunchPlanHandler(request),
         "launch.execute" => LaunchExecute(request),
         "launch.status" => LaunchStatus(request),
@@ -1995,6 +2008,173 @@ public sealed class OperationDispatcher
             favoriteOnly = view.FavoriteOnly,
             sort = view.Sort,
             revision = (int?)view.Revision,
+        };
+    }
+
+    /// <summary>通知列表（T18）：state 过滤可选；通知是持久存储，重开不丢。</summary>
+    private Envelope<object> NotificationsList(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        string? state = null;
+        if (request.Parameters is { ValueKind: JsonValueKind.Object } nlParameters
+            && nlParameters.TryGetProperty("state", out var stateElement)
+            && stateElement.ValueKind == JsonValueKind.String)
+        {
+            state = stateElement.GetString();
+            if (state is not ("pending" or "acknowledged" or "deferred"))
+            {
+                return InvalidArgument(request, "state 只支持 pending/acknowledged/deferred");
+            }
+        }
+
+        var notifications = store.ListNotifications(state);
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new
+            {
+                total = notifications.Count,
+                items = notifications.Select(n => new
+                {
+                    notificationId = n.NotificationId,
+                    kind = n.Kind,
+                    title = n.Title,
+                    state = n.State,
+                    candidateIds = n.CandidateIds,
+                    createdUtc = n.CreatedUtc.ToString("O"),
+                    updatedUtc = n.UpdatedUtc.ToString("O"),
+                }).ToArray(),
+            },
+        };
+    }
+
+    private Envelope<object> NotificationsGet(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!TryGetStringParameter(request, "notificationId", out var notificationId))
+        {
+            return InvalidArgument(request, "缺少 notificationId 参数");
+        }
+
+        var notification = store.TryGetNotification(notificationId);
+        if (notification is null)
+        {
+            return NotFound(request, $"通知不存在：{notificationId}");
+        }
+
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new
+            {
+                notificationId = notification.NotificationId,
+                kind = notification.Kind,
+                title = notification.Title,
+                state = notification.State,
+                candidateIds = notification.CandidateIds,
+                createdUtc = notification.CreatedUtc.ToString("O"),
+                updatedUtc = notification.UpdatedUtc.ToString("O"),
+            },
+        };
+    }
+
+    /// <summary>
+    /// 通知状态迁移（T18）：acknowledge ≠ 接受候选——只把通知标记为已读，
+    /// 关联候选保持 pendingReview，需显式 candidates.accept/defer/ignore。
+    /// </summary>
+    private Envelope<object> NotificationTransition(IpcRequest request, string toState)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!TryGetStringParameter(request, "notificationId", out var notificationId))
+        {
+            return InvalidArgument(request, "缺少 notificationId 参数");
+        }
+
+        var notification = store.TryGetNotification(notificationId);
+        if (notification is null)
+        {
+            return NotFound(request, $"通知不存在：{notificationId}");
+        }
+
+        var transitioned = store.TransitionNotification(notificationId, toState, DateTime.UtcNow);
+        if (transitioned is null)
+        {
+            return InvalidArgument(request, $"通知当前状态 {notification.State}；仅 pending 可标记为 {toState}");
+        }
+
+        _state.Events.Publish("notification.updated", $"notification:{notificationId}", new
+        {
+            notificationId,
+            state = toState,
+        }, DateTime.UtcNow);
+
+        // ack/defer 都不是候选决定：明确给出后续步骤（LA/AI-11 结构化引导）。
+        var nextActions = new List<NextAction>();
+        if (toState == "acknowledged")
+        {
+            nextActions.Add(new NextAction
+            {
+                OperationId = "candidates.list",
+                Reason = "acknowledge 只标记通知已读；候选仍为 pendingReview，需显式 accept/defer/ignore",
+            });
+        }
+        else
+        {
+            nextActions.Add(new NextAction
+            {
+                OperationId = "notifications.list",
+                Reason = "deferred 的通知默认不再主动提醒；有全新候选时才会生成新通知",
+            });
+        }
+
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new
+            {
+                notificationId,
+                state = toState,
+                candidateIds = notification.CandidateIds,
+                candidatesAccepted = (bool?)null,
+            },
+            NextActions = nextActions,
+        };
+    }
+
+    /// <summary>
+    /// host.stop（T18）：先返回已接收收据，随后在响应送达后请求宿主优雅停机
+    /// （排空连接后退出进程；不杀游戏/翻译器）。stop 属持久收据操作，同键重放幂等。
+    /// </summary>
+    private Envelope<object> HostStop(IpcRequest request)
+    {
+        _state.NotifyStopRequested?.Invoke();
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new { stopping = true, hostInstanceId = _state.Identity.InstanceId },
         };
     }
 

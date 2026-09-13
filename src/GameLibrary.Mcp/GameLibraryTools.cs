@@ -312,6 +312,62 @@ public static class GameLibraryTools
             expectedRevision,
         });
 
+    [McpServerTool(Name = "notifications_list")]
+    [Description("列出通知批（候选审核提醒等）；ack/defer 不等于接受候选。参数：state（pending/acknowledged/deferred，可选）。")]
+    public static Task<CallToolResult> NotificationsList([Description("状态过滤（可选）")] string? state = null) =>
+        state is null
+            ? InvokeOperationAsync("notifications.list", new { })
+            : InvokeOperationAsync("notifications.list", new { state });
+
+    [McpServerTool(Name = "notifications_get")]
+    [Description("查询单个通知批详情（含候选 ID 集合）。参数：notificationId。")]
+    public static Task<CallToolResult> NotificationsGet([Description("通知 ID")] string notificationId) =>
+        InvokeOperationAsync("notifications.get", new { notificationId });
+
+    [McpServerTool(Name = "notifications_acknowledge")]
+    [Description("把通知标记为已读；候选保持 pendingReview，接受仍需显式 candidates.accept。参数：notificationId、idempotencyKey。")]
+    public static Task<CallToolResult> NotificationsAcknowledge(
+        [Description("通知 ID")] string notificationId,
+        [Description("幂等键")] string? idempotencyKey = null) =>
+        InvokeOperationAsync("notifications.acknowledge", new
+        {
+            idempotencyKey = idempotencyKey ?? $"ack-{notificationId}",
+            notificationId,
+        });
+
+    [McpServerTool(Name = "notifications_defer")]
+    [Description("把通知标记为稍后处理；默认不再主动提醒，全新候选才生成新通知。参数：notificationId、idempotencyKey。")]
+    public static Task<CallToolResult> NotificationsDefer(
+        [Description("通知 ID")] string notificationId,
+        [Description("幂等键")] string? idempotencyKey = null) =>
+        InvokeOperationAsync("notifications.defer", new
+        {
+            idempotencyKey = idempotencyKey ?? $"def-{notificationId}",
+            notificationId,
+        });
+
+    [McpServerTool(Name = "host_stop")]
+    [Description("请求宿主优雅停机：响应送达后排空连接退出；不杀游戏/翻译器。参数：idempotencyKey。")]
+    public static async Task<CallToolResult> HostStop([Description("幂等键")] string? idempotencyKey = null)
+    {
+        if (McpSession.DataDirectory is null)
+        {
+            return ToToolResult(Failed("缺少 --data-dir 启动参数", ErrorCodes.InvalidArgument));
+        }
+
+        await using var connection = await HostProcessLauncher.EnsureStartedAsync(
+            McpSession.DataDirectory, clientName: "mcp");
+        var envelope = await connection.InvokeAsync(
+            new IpcRequest
+            {
+                RequestId = NewRequestId(),
+                OperationId = "host.stop",
+                Parameters = ToParameters(new { idempotencyKey = idempotencyKey ?? $"stop-{Guid.NewGuid():N}" }),
+            },
+            CancellationToken.None);
+        return ToToolResult(envelope);
+    }
+
     [McpServerTool(Name = "views_list")]
     [Description("列出内置与自定义视图及当前激活视图。")]
     public static Task<CallToolResult> ViewsList() =>

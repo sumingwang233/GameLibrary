@@ -39,10 +39,22 @@ internal static class Program
 
         using var host = builder.Build();
 
+        // T18 host.stop：dispatcher 先写响应，延迟 500ms 后再请求应用停机，
+        // 保证客户端收到 completed 结果、管道帧完整送达后再退出。
+        var lifetime = host.Services.GetRequiredService<Microsoft.Extensions.Hosting.IHostApplicationLifetime>();
+        Action requestStop = () => Task.Run(async () =>
+        {
+            await Task.Delay(500);
+            lifetime.StopApplication();
+        });
+
         HostRuntime runtime;
         try
         {
-            runtime = await HostRuntime.StartAsync(dataDir, host.Services.GetRequiredService<ILoggerFactory>());
+            runtime = await HostRuntime.StartAsync(
+                dataDir,
+                host.Services.GetRequiredService<ILoggerFactory>(),
+                notifyStopRequested: requestStop);
         }
         catch (InvalidOperationException ex)
         {
