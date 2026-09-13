@@ -72,3 +72,12 @@
 - **实测结论**：Windows Shell 保存快捷方式时即把链解析到最终目标，原生接口无法构造循环/自指 LNK；解析器 Cyclic 分支保留为对第三方原始目标的防御，未用伪结构夹具伪造。
 - **未验证范围**：Duplicate/Backup/Broken 提示标记（T17）；嵌套候选与合集判定（T05）。
 - **下一项**：T05（原生扫描接口：scan start/inspect/coverage、候选查询与 Job 状态同步提供 CLI/MCP；替代 Probe）。
+
+## T05-A 原生扫描接口（宿主内编排）— 2026-09-13 完成
+
+- **改动文件**：`src/GameLibrary.Host/Hosting/JobManager.cs`（新）、`src/GameLibrary.Host/Scanning/ScanJobRunner.cs`（新，仅遍历与覆盖；检测与候选编排在 T05-B）、Contracts（OperationCatalog/ErrorCodes：scan.start/status/cancel/coverage、jobs.get、NotFound）、Host（OperationDispatcher/HostRuntime 接线）、Cli（scan/jobs 命令，自动拉起宿主）、Mcp（scan_start/scan_status/scan_cancel/scan_coverage/jobs_get 工具）、测试（JobManagerTests、ScanOperationTests 进程内回环、ScanE2ETests 真实宿主进程 CLI/MCP E2E）。
+- **验证结果**：累计 215 项测试通过（+13）；format 通过；Release 构建 0 警告 0 错误。报告：`artifacts/build-reports/2026-09-13-t05a.md`。
+- **实现要点**：JobManager 注册表 + JobContext 进度通道 + 终态判定（succeeded/failed/cancelled）；扫描在宿主内执行，CLI/MCP 只做单次调用与轮询；覆盖报告经 coverage 数据实时可查；E2E 测试按 PID 精确清理宿主与自身 MCP 进程。
+- **环境备注**：本任务起开发转入 Qoder 工作树（GitHub：sumingwang233/GameLibrary 私有仓库，origin/main）；D 盘原仓库遗留的 T05-A 未提交改动已导入并修复 ScanE2ETests 的进程清理缺陷（`using var` 位于 try 内导致成功路径也抛 "No process is associated"）。
+- **未验证范围**：取消/暂停的真实进程级注入；检测器接入与候选编排、候选查询操作（T05-B）；事件推送与 Job 状态变更通知（T23）。
+- **下一项**：T05-B（检测器接入扫描作业、候选编排与查询操作）。

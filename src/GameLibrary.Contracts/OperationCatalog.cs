@@ -47,6 +47,11 @@ public static class OperationCatalog
         "capabilities.get",
         "schema.get",
         "host.status",
+        "scan.start",
+        "scan.status",
+        "scan.cancel",
+        "scan.coverage",
+        "jobs.get",
     };
 
     private static readonly Lazy<OperationCatalogData> Data = new(Load);

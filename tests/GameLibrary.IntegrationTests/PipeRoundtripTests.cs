@@ -99,6 +99,7 @@ public sealed class PipeServerFixture : IAsyncDisposable
             Identity = Identity,
             Library = HostLibraryState.NotInitialized(
                 GameLibrary.Infrastructure.Persistence.LibraryOpenStatus.NeedsInitialization, null),
+            Jobs = new JobManager(),
         };
         var dataDir = DataDirectory.Resolve(@$"D:\Official\GameLibrary\artifacts\test-runs\{TestId}\data");
         Assert.True(dataDir.IsValid);

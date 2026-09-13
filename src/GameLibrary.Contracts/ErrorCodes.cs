@@ -9,6 +9,7 @@ public static class ErrorCodes
     public const string InvalidArgument = "InvalidArgument";
     public const string InvalidPath = "InvalidPath";
     public const string UnsupportedPath = "UnsupportedPath";
+    public const string NotFound = "NotFound";
     public const string UnsupportedOperation = "UnsupportedOperation";
     public const string InternalError = "InternalError";
     public const string RevisionConflict = "RevisionConflict";
@@ -46,6 +47,7 @@ public static class ErrorCodes
         InvalidArgument,
         InvalidPath,
         UnsupportedPath,
+        NotFound,
         UnsupportedOperation,
         InternalError,
         RevisionConflict,

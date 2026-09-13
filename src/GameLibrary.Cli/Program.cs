@@ -32,6 +32,9 @@ internal static class Program
                 "capabilities.get" => await CapabilitiesAsync(parse),
                 "schema.get" => Schema(parse),
                 "host.status" => await HostStatusAsync(parse),
+                "scan.start" => await ScanHostOperationAsync(parse, "scan.start", requiresRoot: true),
+                "scan.status" or "scan.cancel" or "scan.coverage" or "jobs.get" =>
+                    await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 _ => UnknownCommand(parse),
             };
         }
@@ -58,8 +61,52 @@ internal static class Program
     private static int UnknownCommand(CommandLine cli)
     {
         Console.Error.WriteLine(
-            $"命令未实现：{string.Join(' ', cli.Words)}（当前已实现：capabilities get / schema get / host status）");
+            $"命令未实现：{string.Join(' ', cli.Words)}（当前已实现：capabilities get / schema get / host status / scan start|status|cancel|coverage / jobs get）");
         return ExitArgumentError;
+    }
+
+    /// <summary>宿主依赖的扫描类操作：自动拉起宿主后单次调用。</summary>
+    private static async Task<int> ScanHostOperationAsync(CommandLine cli, string operationId, bool requiresRoot)
+    {
+        if (cli.DataDir is null)
+        {
+            Console.Error.WriteLine($"{string.Join(' ', cli.Words)} 需要 --data-dir（或部署配置提供）");
+            return ExitArgumentError;
+        }
+
+        if (requiresRoot && cli.RootArgument is null)
+        {
+            Console.Error.WriteLine("scan start 需要 --root <绝对路径>");
+            return ExitArgumentError;
+        }
+
+        var requiresJobId = operationId is "scan.status" or "scan.cancel" or "scan.coverage" or "jobs.get";
+        if (requiresJobId && cli.JobId is null)
+        {
+            Console.Error.WriteLine($"{string.Join(' ', cli.Words)} 需要 --job-id");
+            return ExitArgumentError;
+        }
+
+        await using var connection = await HostProcessLauncher.EnsureStartedAsync(
+            cli.DataDir, clientName: "cli", timeout: TimeSpan.FromSeconds(cli.TimeoutSeconds));
+
+        object parameters = operationId switch
+        {
+            "scan.start" => new { root = cli.RootArgument },
+            _ => new { jobId = cli.JobId },
+        };
+
+        var envelope = await connection.InvokeAsync(
+            new IpcRequest { RequestId = cli.RequestId, OperationId = operationId, Parameters = ToParameters(parameters) },
+            CancellationToken.None);
+        WriteEnvelope(envelope);
+        return EnvelopeExitCode(envelope);
+    }
+
+    private static System.Text.Json.JsonElement? ToParameters(object parameters)
+    {
+        var json = JsonSerializer.Serialize(parameters, ContractJson.Options);
+        return JsonDocument.Parse(json).RootElement.Clone();
     }
 
     /// <summary>capabilities 允许离线：宿主未连接时返回静态编译契约并标注 hostConnected=false。</summary>
@@ -212,7 +259,7 @@ internal static class Program
 
     private static int EnvelopeExitCode(Envelope<JsonElement> envelope)
     {
-        if (envelope.Ok && envelope.Status == OperationStatus.Completed)
+        if (envelope.Ok && envelope.Status is OperationStatus.Completed or OperationStatus.Accepted)
         {
             return ExitOk;
         }
@@ -220,6 +267,7 @@ internal static class Program
         return envelope.Error?.Code switch
         {
             ErrorCodes.InvalidArgument or ErrorCodes.UnsupportedPath or ErrorCodes.InvalidPath => ExitArgumentError,
+            ErrorCodes.NotFound => 3,
             ErrorCodes.RevisionConflict or ErrorCodes.IdempotencyConflict => 4,
             ErrorCodes.PermissionDenied => 5,
             ErrorCodes.NeedsAuthorization => 6,

@@ -50,7 +50,12 @@ public sealed class HostRuntime : IAsyncDisposable
 
         var identity = new HostIdentity();
         var library = await OpenLibraryAsync(resolved.CanonicalPath!, identity, loggerFactory, ct);
-        var runtimeState = new HostRuntimeState { Identity = identity, Library = library };
+        var runtimeState = new HostRuntimeState
+        {
+            Identity = identity,
+            Library = library,
+            Jobs = new JobManager(),
+        };
 
         var logger = loggerFactory.CreateLogger<PipeServer>();
         var server = new PipeServer(
@@ -119,4 +124,6 @@ public sealed class HostRuntimeState
     public required HostIdentity Identity { get; init; }
 
     public required HostLibraryState Library { get; init; }
+
+    public required JobManager Jobs { get; init; }
 }

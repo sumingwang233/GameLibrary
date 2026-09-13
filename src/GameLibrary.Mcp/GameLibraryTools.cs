@@ -118,6 +118,74 @@ public static class GameLibraryTools
         return ToToolResult(envelope);
     }
 
+    [McpServerTool(Name = "scan_start")]
+    [Description("对一个绝对本地路径启动只读扫描作业，返回受理的 jobId（status=accepted）。参数：root。")]
+    public static async Task<CallToolResult> ScanStart([Description("扫描根的绝对本地路径")] string root)
+    {
+        if (McpSession.DataDirectory is null)
+        {
+            return ToToolResult(Failed("缺少 --data-dir 启动参数", ErrorCodes.InvalidArgument));
+        }
+
+        await using var connection = await HostProcessLauncher.EnsureStartedAsync(
+            McpSession.DataDirectory, clientName: "mcp");
+        var envelope = await connection.InvokeAsync(
+            new IpcRequest
+            {
+                RequestId = NewRequestId(),
+                OperationId = "scan.start",
+                Parameters = ToParameters(new { root }),
+            },
+            CancellationToken.None);
+        return ToToolResult(envelope);
+    }
+
+    [McpServerTool(Name = "scan_status")]
+    [Description("查询扫描作业状态（running/cancelRequested/cancelled/succeeded/failed）。参数：jobId。")]
+    public static Task<CallToolResult> ScanStatus([Description("作业 ID")] string jobId) =>
+        InvokeJobOperationAsync("scan.status", jobId);
+
+    [McpServerTool(Name = "scan_cancel")]
+    [Description("请求取消扫描作业；返回 cancelRequested，取消在检查点生效。参数：jobId。")]
+    public static Task<CallToolResult> ScanCancel([Description("作业 ID")] string jobId) =>
+        InvokeJobOperationAsync("scan.cancel", jobId);
+
+    [McpServerTool(Name = "scan_coverage")]
+    [Description("查询扫描作业的覆盖报告（运行中返回实时计数，完成后返回完整覆盖）。参数：jobId。")]
+    public static Task<CallToolResult> ScanCoverage([Description("作业 ID")] string jobId) =>
+        InvokeJobOperationAsync("scan.coverage", jobId);
+
+    [McpServerTool(Name = "jobs_get")]
+    [Description("查询任意作业的状态快照。参数：jobId。")]
+    public static Task<CallToolResult> JobsGet([Description("作业 ID")] string jobId) =>
+        InvokeJobOperationAsync("jobs.get", jobId);
+
+    private static async Task<CallToolResult> InvokeJobOperationAsync(string operationId, string jobId)
+    {
+        if (McpSession.DataDirectory is null)
+        {
+            return ToToolResult(Failed("缺少 --data-dir 启动参数", ErrorCodes.InvalidArgument));
+        }
+
+        await using var connection = await HostProcessLauncher.EnsureStartedAsync(
+            McpSession.DataDirectory, clientName: "mcp");
+        var envelope = await connection.InvokeAsync(
+            new IpcRequest
+            {
+                RequestId = NewRequestId(),
+                OperationId = operationId,
+                Parameters = ToParameters(new { jobId }),
+            },
+            CancellationToken.None);
+        return ToToolResult(envelope);
+    }
+
+    private static System.Text.Json.JsonElement? ToParameters(object parameters)
+    {
+        var json = System.Text.Json.JsonSerializer.Serialize(parameters, ContractJson.Options);
+        return System.Text.Json.JsonDocument.Parse(json).RootElement.Clone();
+    }
+
     private static Envelope<object> Failed(string message, string code) =>
         new()
         {

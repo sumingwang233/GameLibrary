@@ -25,6 +25,12 @@ internal sealed record CommandLine
     /// <summary>schema get 的 --operation 参数（操作 ID）。</summary>
     public string? OperationArgument { get; private init; }
 
+    /// <summary>scan start 的 --root 参数或 scan inspect 的 --path 参数。</summary>
+    public string? RootArgument { get; private init; }
+
+    /// <summary>作业查询/取消的 --job-id 参数。</summary>
+    public string? JobId { get; private init; }
+
     public bool NoStart { get; private init; }
 
     public int TimeoutSeconds { get; private init; } = 30;
@@ -42,6 +48,8 @@ internal sealed record CommandLine
         var verb = args[1].ToLowerInvariant();
         string? dataDir = null;
         string? operationArg = null;
+        string? rootArg = null;
+        string? jobId = null;
         var noStart = false;
         var timeout = 30;
 
@@ -54,6 +62,12 @@ internal sealed record CommandLine
                     break;
                 case "--operation" when i + 1 < args.Length:
                     operationArg = args[++i];
+                    break;
+                case "--root" or "--path" when i + 1 < args.Length:
+                    rootArg = args[++i];
+                    break;
+                case "--job-id" when i + 1 < args.Length:
+                    jobId = args[++i];
                     break;
                 case "--no-start":
                     noStart = true;
@@ -75,6 +89,8 @@ internal sealed record CommandLine
             "capabilities" when verb == "get" => "capabilities.get",
             "schema" when verb == "get" => "schema.get",
             "host" when verb is "status" or "start" or "stop" => $"host.{verb}",
+            "scan" when verb is "start" or "status" or "cancel" or "coverage" or "inspect" => $"scan.{verb}",
+            "jobs" when verb is "get" or "list" or "wait" or "cancel" => verb == "get" ? "jobs.get" : null,
             _ => null,
         };
 
@@ -89,6 +105,8 @@ internal sealed record CommandLine
             DataDir = dataDir,
             OperationId = operationId,
             OperationArgument = operationArg,
+            RootArgument = rootArg,
+            JobId = jobId,
             NoStart = noStart,
             TimeoutSeconds = timeout,
         };
