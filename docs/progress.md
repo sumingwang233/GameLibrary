@@ -48,3 +48,11 @@
 - **实现要点**：WAL/外键/busy_timeout/Pooling=False；schema_info 版本；损坏与 0 字节不建空库；连续版本单事务迁移+迁移前快照+失败不半升级；SQLite 备份 API 一致快照；dataEpoch 更换持久化；Host 唯一连接所有者。
 - **未验证范围**：迁移边界故障注入与恢复控制区（T27）；业务表/实体 Revision 随 T11/T23 追加迁移；RecoveryRequired 操作级限制随权限模型（T23）。
 - **下一项**：T02（Filesystem：分段/取消/暂停、安全游标、规则优先级和覆盖字段）。
+
+## T02 Filesystem — 2026-09-13 完成（A 规则引擎 / B 枚举器 两个提交）
+
+- **改动文件**：`src/GameLibrary.Domain/Scan/`（ScanRule/ScanRuleMatcher/ScanRuleSet）、`src/GameLibrary.Infrastructure/Scanning/DirectoryWalker.cs`、`tests/GameLibrary.UnitTests/Scan/`（21 项）、`tests/GameLibrary.IntegrationTests/Scanning/`（7 项）。
+- **验证结果**：累计 149 项测试通过；format 通过。报告：`artifacts/build-reports/2026-09-13-t02.md`。
+- **实现要点**：受限 matcher（无正则执行）；SystemMandatory 排除不可绕过；预算分段+续扫游标（合计=完整扫描）；取消/暂停检查点；重解析点不跟随；目录级排除剪枝；分支问题分类与覆盖计数；有缺口即 partial。
+- **未验证范围**：真实重解析点/ACL/长路径夹具（T03/T25）；每目录 256 读取上限属检测器阶段（T03）；汇总与分页（T16）。
+- **下一项**：T03（检测器：五类首批引擎/格式、正负/不可读证据、置信度、确定冲突消解）。
