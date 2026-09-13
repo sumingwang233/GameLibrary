@@ -71,5 +71,24 @@ public static class DatabaseMigrations
                 created_utc TEXT NOT NULL
             )
             """),
+        new DatabaseMigration(4, """
+            CREATE TABLE game_fields (
+                game_id TEXT NOT NULL,
+                field_key TEXT NOT NULL CHECK (field_key IN ('title', 'summary')),
+                value TEXT,
+                source TEXT NOT NULL CHECK (source IN ('user', 'auto')),
+                revision INTEGER NOT NULL,
+                updated_utc TEXT NOT NULL,
+                PRIMARY KEY (game_id, field_key)
+            );
+            CREATE TABLE game_assets (
+                asset_id TEXT PRIMARY KEY,
+                game_id TEXT NOT NULL,
+                kind TEXT NOT NULL CHECK (kind IN ('cover')),
+                file_path TEXT NOT NULL,
+                is_current INTEGER NOT NULL CHECK (is_current IN (0, 1)),
+                imported_utc TEXT NOT NULL
+            )
+            """),
     ];
 }

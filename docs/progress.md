@@ -148,4 +148,12 @@
 - **验证结果**：累计 263 项测试通过；format 通过；Release 构建 0 警告 0 错误。实机截图核验：深色主题、侧边栏选中高亮、候选详情与绿色「接受入库」按钮排、状态栏计数正常。报告：`artifacts/build-reports/2026-09-13-t15a.md`。
 - **实现要点**：审核列表只含 pendingReview 候选（accepted 以游戏卡片呈现，与 CLI/MCP 审核语义一致）；全部操作仍只经 HostClient；详情面板含游戏 meta 与候选说明（忽略将登记 ExactPath 规则）。
 - **未验证范围**：虚拟化/搜索/收藏/视图 API（T15 剩余）；封面图（T14）；自动化 UI 测试。
-- **下一项**：T16（ScanCoordinator）、T08/T09（其余适配器）或 T14（Metadata/Assets）。
+- **下一项**：T14（Metadata/Assets）。
+
+## T14-A 资料编辑与封面图 — 2026-09-13 完成
+
+- **改动文件**：DatabaseMigrations（v4 game_fields/game_assets）、`GameProfileStore.cs`（新：字段分层/事务 Revision/资产导入）、`OperationDispatcher.cs`（fields.set + assets.import/list/get + GameDto 升级）、Cli（`fields set`、`assets import/list/get`）、Mcp（fields_set、assets_*）、Contracts（+4）、Desktop（封面头图/编辑标题/导入封面）、测试（GameProfileTests 3）。
+- **验证结果**：累计 266 项测试通过（+3）；format 通过；Release 构建 0 警告 0 错误。实机验证：CLI 导入封面+改标题后，Desktop 详情页头图渲染、标题来源 user 标注、侧边栏镜像同步。报告：`artifacts/build-reports/2026-09-13-t14a.md`。
+- **实现要点**：字段用户层覆盖自动层（value=null=用户清空）；fields.set 以游戏卡片 Revision 乐观校验并镜像 games.title；封面资产复制入应用自有目录不反写游戏目录，导入即当前封面，受限预览 ≤1 MiB；fields.set/assets.import 接入收据中间件。
+- **未验证范围**：fields.clear/reset、assets.choose/crop/reset/remove、metadata.preview/refresh、标签 Suppress（T14-B）；缩略图/LRU（T15/T26）。
+- **下一项**：T16（ScanCoordinator）、T08/T09（其余适配器）或 T14-B（fields.clear/reset 与 metadata）。

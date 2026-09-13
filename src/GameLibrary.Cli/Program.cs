@@ -48,6 +48,10 @@ internal static class Program
                 "diagnostics.status" or "diagnostics.logs" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "tools.discover" => await ScanHostOperationAsync(parse, "tools.discover", requiresRoot: true),
+                "fields.set" => await ScanHostOperationAsync(parse, "fields.set", requiresRoot: false),
+                "assets.import" => await ScanHostOperationAsync(parse, "assets.import", requiresRoot: false),
+                "assets.list" or "assets.get" =>
+                    await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "ignores.list" or "ignores.create" or "ignores.remove" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "profiles.create" or "profiles.list" or "profiles.get" or "profiles.update" =>
@@ -223,6 +227,22 @@ internal static class Program
             "diagnostics.status" => new { },
             "diagnostics.logs" => cli.Limit is null ? null : new { limit = cli.Limit },
             "tools.discover" => new { idempotencyKey = cli.IdempotencyKey ?? ("discover-" + Guid.NewGuid().ToString("N")), path = cli.RootArgument },
+            "fields.set" => new
+            {
+                idempotencyKey = cli.IdempotencyKey ?? $"field-{Guid.NewGuid():N}",
+                gameId = cli.GameId,
+                field = cli.Field,
+                value = cli.Value,
+                expectedRevision = cli.ExpectedRevision,
+            },
+            "assets.import" => new
+            {
+                idempotencyKey = cli.IdempotencyKey ?? $"import-{Guid.NewGuid():N}",
+                gameId = cli.GameId,
+                sourcePath = cli.SourcePath,
+            },
+            "assets.list" => new { gameId = cli.GameId },
+            "assets.get" => new { assetId = cli.CandidateId },
             "ignores.list" => new { },
             "ignores.create" => new
             {

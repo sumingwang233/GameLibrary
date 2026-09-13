@@ -80,6 +80,26 @@ public sealed class SqliteLibraryStore : IAsyncDisposable
     public bool IsSuppressedByIgnoreRule(string physicalPath, string? boundGameId) =>
         LibraryCatalogStore.IsSuppressedByIgnoreRule(_connection, physicalPath, boundGameId);
 
+    // T14 资料与封面转发。
+
+    public int? SetGameField(string gameId, string fieldKey, string? value, string source, int expectedRevision, DateTime utcNow) =>
+        GameProfileStore.SetGameField(_connection, gameId, fieldKey, value, source, expectedRevision, utcNow);
+
+    public int? ResetGameField(string gameId, string fieldKey, string autoValue, int expectedRevision, DateTime utcNow) =>
+        GameProfileStore.ResetGameField(_connection, gameId, fieldKey, autoValue, expectedRevision, utcNow);
+
+    public (string? Value, string Source) EffectiveField(string gameId, string fieldKey, string fallback) =>
+        GameProfileStore.EffectiveField(_connection, gameId, fieldKey, fallback);
+
+    public GameAsset ImportAsset(string gameId, string importedFilePath, DateTime utcNow) =>
+        GameProfileStore.ImportAsset(_connection, gameId, importedFilePath, utcNow);
+
+    public IReadOnlyList<GameAsset> ListAssets(string gameId) =>
+        GameProfileStore.ListAssets(_connection, gameId);
+
+    public GameAsset? TryGetAsset(string assetId) =>
+        GameProfileStore.TryGetAsset(_connection, assetId);
+
     /// <summary>一致性备份到新文件（SQLite 备份 API，WAL 下同样一致）。目标已存在则拒绝。</summary>
     public async Task CreateBackupAsync(string targetPath, CancellationToken ct)
     {

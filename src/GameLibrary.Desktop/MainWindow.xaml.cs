@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using GameLibrary.Contracts;
 using GameLibrary.Contracts.Ipc;
 using GameLibrary.HostClient;
@@ -190,6 +191,214 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>游戏详情：封面头图 + 标题（可编辑）+ 摘要 + meta + 操作按钮排（T14）。</summary>
+    private void RenderGameDetail(Entry entry)
+    {
+        var raw = entry.Raw;
+        var gameId = entry.Id;
+        var revision = raw.GetProperty("revision").GetInt32();
+        var title = raw.GetProperty("title").GetString() ?? "";
+        var titleSource = raw.TryGetProperty("titleSource", out var ts) ? ts.GetString() : null;
+        var summary = raw.TryGetProperty("summary", out var sm) && sm.ValueKind == JsonValueKind.String ? sm.GetString() : "";
+        var coverAssetId = raw.TryGetProperty("coverAssetId", out var cai) && cai.ValueKind == JsonValueKind.String ? cai.GetString() : null;
+
+        // 封面头图。
+        if (coverAssetId is not null)
+        {
+            var cover = new Image
+            {
+                Height = 190,
+                Width = 340,
+                Stretch = Stretch.UniformToFill,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Margin = new Thickness(0, 0, 0, 12),
+            };
+            _ = LoadCoverAsync(coverAssetId, cover);
+            DetailPanel.Children.Add(cover);
+        }
+        else
+        {
+            DetailPanel.Children.Add(new Border
+            {
+                Height = 190,
+                Width = 340,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Margin = new Thickness(0, 0, 0, 12),
+                CornerRadius = new CornerRadius(4),
+                Background = new SolidColorBrush(Color.FromRgb(0x22, 0x30, 0x3c)),
+                Child = new TextBlock
+                {
+                    Text = "暂无封面",
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Foreground = TryFindResource<SolidColorBrush>("TextMuted"),
+                },
+            });
+        }
+
+        // 标题行 + 编辑按钮。
+        var titleRow = new StackPanel { Orientation = Orientation.Horizontal };
+        var titleBlock = new TextBlock
+        {
+            Text = title,
+            FontSize = 26,
+            FontWeight = FontWeights.Bold,
+            Foreground = TryFindResource<SolidColorBrush>("TextPrimary"),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        titleRow.Children.Add(titleBlock);
+        var editButton = new Button
+        {
+            Content = "编辑标题",
+            Style = (Style)TryFindResource("SteamButton"),
+            Margin = new Thickness(12, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        titleRow.Children.Add(editButton);
+        DetailPanel.Children.Add(titleRow);
+
+        var editRow = new StackPanel { Orientation = Orientation.Horizontal, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 6, 0, 0) };
+        var editBox = new TextBox { Width = 320, Text = title };
+        var saveButton = new Button { Content = "保存", Style = (Style)TryFindResource("SteamGreenButton"), Margin = new Thickness(8, 0, 0, 0) };
+        var cancelButton = new Button { Content = "取消", Style = (Style)TryFindResource("SteamButton"), Margin = new Thickness(6, 0, 0, 0) };
+        editRow.Children.Add(editBox);
+        editRow.Children.Add(saveButton);
+        editRow.Children.Add(cancelButton);
+        DetailPanel.Children.Add(editRow);
+
+        editButton.Click += (_, _) =>
+        {
+            editRow.Visibility = Visibility.Visible;
+            editButton.Visibility = Visibility.Collapsed;
+            editBox.Focus();
+        };
+        cancelButton.Click += (_, _) =>
+        {
+            editRow.Visibility = Visibility.Collapsed;
+            editButton.Visibility = Visibility.Visible;
+        };
+        saveButton.Click += async (_, _) =>
+        {
+            await SetTitleAsync(gameId, editBox.Text.Trim(), revision);
+        };
+
+        DetailPanel.Children.Add(new TextBlock
+        {
+            Text = $"引擎 {raw.GetProperty("engine").GetString() ?? "未识别"} · {raw.GetProperty("kind").GetString()} · rev {revision} · 标题来源 {titleSource ?? "auto"}",
+            FontSize = 13,
+            Foreground = TryFindResource<SolidColorBrush>("Accent"),
+            Margin = new Thickness(0, 4, 0, 12),
+        });
+
+        if (!string.IsNullOrEmpty(summary))
+        {
+            DetailPanel.Children.Add(new TextBlock
+            {
+                Text = summary,
+                FontSize = 13,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 10),
+            });
+        }
+
+        DetailPanel.Children.Add(MetaLine("路径", raw.GetProperty("rootPath").GetString() ?? ""));
+        DetailPanel.Children.Add(MetaLine("入库时间", raw.GetProperty("acceptedUtc").GetString() ?? ""));
+
+        DetailPanel.Children.Add(ButtonRow(
+            ("导入封面", () => ImportCoverAsync(gameId), "SteamButton"),
+            ("打开目录", () => OpenDirectoryAsync(entry.PhysicalPath), "SteamButton")));
+    }
+
+    private async Task LoadCoverAsync(string assetId, Image coverImage)
+    {
+        try
+        {
+            var asset = await InvokeAsync("assets.get", new { assetId });
+            if (!asset.Ok)
+            {
+                return;
+            }
+
+            var bytes = Convert.FromBase64String(asset.Data.GetProperty("dataBase64").GetString()!);
+            var bitmap = new BitmapImage();
+            bitmap.BeginInit();
+            bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            using var stream = new MemoryStream(bytes);
+            bitmap.StreamSource = stream;
+            bitmap.EndInit();
+            bitmap.Freeze();
+            coverImage.Source = bitmap;
+        }
+        catch (Exception)
+        {
+            // 封面加载失败不影响详情页。
+        }
+    }
+
+    private async Task ImportCoverAsync(string gameId)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "选择封面图片",
+            Filter = "图片|*.png;*.jpg;*.jpeg;*.webp;*.gif",
+        };
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        try
+        {
+            var envelope = await InvokeAsync("assets.import", new
+            {
+                idempotencyKey = $"cover-{Guid.NewGuid():N}",
+                gameId,
+                sourcePath = dialog.FileName,
+            });
+            if (!envelope.Ok)
+            {
+                ShowError($"导入封面失败：{envelope.Error?.Message}");
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowError($"导入封面失败：{ex.Message}");
+        }
+
+        await RefreshAsync();
+    }
+
+    private async Task SetTitleAsync(string gameId, string newTitle, int expectedRevision)
+    {
+        if (newTitle.Length == 0)
+        {
+            ShowError("标题不能为空（清空语义随 fields.clear 提供）。");
+            return;
+        }
+
+        try
+        {
+            var envelope = await InvokeAsync("fields.set", new
+            {
+                idempotencyKey = $"title-{Guid.NewGuid():N}",
+                gameId,
+                field = "title",
+                value = newTitle,
+                expectedRevision,
+            });
+            if (!envelope.Ok)
+            {
+                ShowError($"保存失败：{envelope.Error?.Message}");
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowError($"保存失败：{ex.Message}");
+        }
+
+        await RefreshAsync();
+    }
+
     private void RenderDetailPlaceholder()
     {
         DetailPanel.Children.Clear();
@@ -218,26 +427,7 @@ public partial class MainWindow : Window
 
         if (entry.Kind == "game")
         {
-            var raw = entry.Raw;
-            DetailPanel.Children.Add(new TextBlock
-            {
-                Text = entry.Title,
-                FontSize = 26,
-                FontWeight = FontWeights.Bold,
-                Foreground = TryFindResource<SolidColorBrush>("TextPrimary"),
-            });
-            DetailPanel.Children.Add(new TextBlock
-            {
-                Text = $"引擎 {raw.GetProperty("engine").GetString() ?? "未识别"} · {raw.GetProperty("kind").GetString()} · rev {raw.GetProperty("revision").GetInt32()}",
-                FontSize = 13,
-                Foreground = TryFindResource<SolidColorBrush>("Accent"),
-                Margin = new Thickness(0, 4, 0, 12),
-            });
-            DetailPanel.Children.Add(MetaLine("路径", raw.GetProperty("rootPath").GetString() ?? ""));
-            DetailPanel.Children.Add(MetaLine("入库时间", raw.GetProperty("acceptedUtc").GetString() ?? ""));
-
-            DetailPanel.Children.Add(ButtonRow(
-                ("打开目录", () => OpenDirectoryAsync(entry.PhysicalPath), "SteamButton")));
+            RenderGameDetail(entry);
             return;
         }
 

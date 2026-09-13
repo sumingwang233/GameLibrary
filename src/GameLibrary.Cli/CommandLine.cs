@@ -73,6 +73,15 @@ internal sealed record CommandLine
     /// <summary>diagnostics logs 的 --limit 参数。</summary>
     public int? Limit { get; private init; }
 
+    /// <summary>fields set 的 --field 参数（title/summary）。</summary>
+    public string? Field { get; private init; }
+
+    /// <summary>fields set 的 --value 参数。</summary>
+    public string? Value { get; private init; }
+
+    /// <summary>assets import 的 --source-path 参数。</summary>
+    public string? SourcePath { get; private init; }
+
     public bool NoStart { get; private init; }
 
     public int TimeoutSeconds { get; private init; } = 30;
@@ -104,6 +113,9 @@ internal sealed record CommandLine
         string? reason = null;
         string? ignoreId = null;
         int? limit = null;
+        string? field = null;
+        string? value = null;
+        string? sourcePath = null;
         int? expectedRevision = null;
         var argList = new List<string>();
         var noStart = false;
@@ -169,6 +181,15 @@ internal sealed record CommandLine
                     limit = limitValue;
                     i++;
                     break;
+                case "--field" when i + 1 < args.Length:
+                    field = args[++i];
+                    break;
+                case "--value" when i + 1 < args.Length:
+                    value = args[++i];
+                    break;
+                case "--source-path" when i + 1 < args.Length:
+                    sourcePath = args[++i];
+                    break;
                 case "--no-start":
                     noStart = true;
                     break;
@@ -196,6 +217,8 @@ internal sealed record CommandLine
             "games" when verb is "list" or "get" => $"games.{verb}",
             "diagnostics" when verb is "status" or "logs" => $"diagnostics.{verb}",
             "tools" when verb == "discover" => "tools.discover",
+            "fields" when verb == "set" => "fields.set",
+            "assets" when verb is "import" or "list" or "get" => $"assets.{verb}",
             "ignores" when verb is "list" or "create" or "remove" => $"ignores.{verb}",
             "profiles" when verb is "create" or "list" or "get" or "update" => $"profiles.{verb}",
             "launch" when verb is "plan" or "execute" or "status" or "history" => $"launch.{verb}",
@@ -230,6 +253,9 @@ internal sealed record CommandLine
             Reason = reason,
             IgnoreId = ignoreId,
             Limit = limit,
+            Field = field,
+            Value = value,
+            SourcePath = sourcePath,
             NoStart = noStart,
             TimeoutSeconds = timeout,
         };

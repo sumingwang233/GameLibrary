@@ -53,6 +53,8 @@ public sealed class OperationDispatcher
         "candidates.accept",
         "candidates.defer",
         "candidates.ignore",
+        "fields.set",
+        "assets.import",
         "ignores.create",
         "ignores.remove",
     };
@@ -386,6 +388,10 @@ public sealed class OperationDispatcher
         "diagnostics.status" => DiagnosticsStatus(request),
         "diagnostics.logs" => DiagnosticsLogs(request),
         "tools.discover" => ToolsDiscover(request),
+        "fields.set" => FieldsSet(request),
+        "assets.import" => AssetsImport(request),
+        "assets.list" => AssetsList(request),
+        "assets.get" => AssetsGet(request),
         "ignores.list" => IgnoresList(request),
         "ignores.create" => IgnoresCreate(request),
         "ignores.remove" => IgnoresRemove(request),
@@ -1055,7 +1061,7 @@ public sealed class OperationDispatcher
             RequestId = request.RequestId,
             Ok = true,
             Status = OperationStatus.Completed,
-            Data = new { total = games.Count, items = games.Select(GameDto).ToArray() },
+            Data = new { total = games.Count, items = games.Select(g => GameDto(store, g)).ToArray() },
         };
     }
 
@@ -1083,7 +1089,7 @@ public sealed class OperationDispatcher
             RequestId = request.RequestId,
             Ok = true,
             Status = OperationStatus.Completed,
-            Data = GameDto(game),
+            Data = GameDto(store, game),
         };
     }
 
@@ -1244,18 +1250,261 @@ public sealed class OperationDispatcher
         };
     }
 
-    private static object GameDto(GameCard game) => new
+    private static readonly string[] ImageExtensions = [".png", ".jpg", ".jpeg", ".webp", ".gif"];
+    private const long MaxAssetBytes = 1 * 1024 * 1024;
+
+    /// <summary>资料字段设置（T14，fields.set）：Revision 即游戏卡片 Revision；title 变更镜像到 games 列表。</summary>
+    private Envelope<object> FieldsSet(IpcRequest request)
     {
-        gameId = game.GameId,
-        title = game.Title,
-        rootPath = game.RootPath,
-        kind = game.Kind,
-        engine = game.Engine,
-        entryPath = game.EntryPath,
-        membership = game.Membership,
-        revision = game.Revision,
-        acceptedUtc = game.AcceptedUtc.ToString("O"),
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!TryGetStringParameter(request, "gameId", out var gameId)
+            || !TryGetStringParameter(request, "field", out var field)
+            || !TryGetIntParameter(request, "expectedRevision", out var expectedRevision)
+            || expectedRevision is null)
+        {
+            return InvalidArgument(request, "fields.set 需要 gameId、field、expectedRevision 参数");
+        }
+
+        if (field is not ("title" or "summary"))
+        {
+            return InvalidArgument(request, $"不支持的字段：{field}（当前支持 title、summary）");
+        }
+
+        string? value = null;
+        if (request.Parameters is { ValueKind: JsonValueKind.Object } fsParameters
+            && fsParameters.TryGetProperty("value", out var valueElement)
+            && valueElement.ValueKind == JsonValueKind.String)
+        {
+            value = valueElement.GetString();
+        }
+
+        var newRevision = store.SetGameField(gameId, field, value, "user", expectedRevision.Value, DateTime.UtcNow);
+        if (newRevision is null)
+        {
+            var card = store.TryGetGame(gameId);
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = card is null ? ErrorCodes.NotFound : ErrorCodes.RevisionConflict,
+                    Message = card is null ? $"游戏不存在：{gameId}" : $"Revision 不一致：期望 {expectedRevision}，当前 {card.Revision}",
+                    Retryable = false,
+                },
+            };
+        }
+
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new { gameId, field, value, source = "user", revision = newRevision },
+        };
+    }
+
+    /// <summary>封面导入（T14，assets.import）：用户图片复制入应用自有目录，不反写游戏目录。</summary>
+    private Envelope<object> AssetsImport(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!TryGetStringParameter(request, "gameId", out var gameId)
+            || !TryGetStringParameter(request, "sourcePath", out var sourcePath))
+        {
+            return InvalidArgument(request, "assets.import 需要 gameId、sourcePath 参数");
+        }
+
+        if (store.TryGetGame(gameId) is null)
+        {
+            return NotFound(request, $"游戏不存在：{gameId}");
+        }
+
+        var extension = Path.GetExtension(sourcePath).ToLowerInvariant();
+        if (!ImageExtensions.Contains(extension))
+        {
+            return InvalidArgument(request, $"不支持的图片格式：{extension}（支持 {string.Join("/", ImageExtensions)}）");
+        }
+
+        if (!File.Exists(sourcePath))
+        {
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = ErrorCodes.NotFound,
+                    Message = $"源图片不存在：{sourcePath}",
+                    Retryable = false,
+                },
+            };
+        }
+
+        if (new FileInfo(sourcePath).Length > MaxAssetBytes)
+        {
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = ErrorCodes.ResourceTooLarge,
+                    Message = $"图片超过 1 MiB 上限：{sourcePath}",
+                    Retryable = false,
+                },
+            };
+        }
+
+        var assetDirectory = Path.Combine(_state.DataDirectory, "assets", gameId);
+        Directory.CreateDirectory(assetDirectory);
+        var importedPath = Path.Combine(assetDirectory, $"{Guid.NewGuid():N}{extension}");
+        File.Copy(sourcePath, importedPath, overwrite: false);
+
+        var asset = store.ImportAsset(gameId, importedPath, DateTime.UtcNow);
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = AssetDto(asset),
+        };
+    }
+
+    private Envelope<object> AssetsList(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!TryGetStringParameter(request, "gameId", out var listGameId))
+        {
+            return InvalidArgument(request, "缺少 gameId 参数");
+        }
+
+        var assets = store.ListAssets(listGameId);
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new { total = assets.Count, items = assets.Select(AssetDto).ToArray() },
+        };
+    }
+
+    /// <summary>资产读取（契约 5.x）：受限预览 ≤1 MiB，base64 返回。</summary>
+    private Envelope<object> AssetsGet(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!TryGetStringParameter(request, "assetId", out var assetId))
+        {
+            return InvalidArgument(request, "缺少 assetId 参数");
+        }
+
+        var asset = store.TryGetAsset(assetId);
+        if (asset is null)
+        {
+            return NotFound(request, $"资产不存在：{assetId}");
+        }
+
+        if (!File.Exists(asset.FilePath))
+        {
+            return NotFound(request, $"资产文件缺失：{asset.FilePath}");
+        }
+
+        var bytes = File.ReadAllBytes(asset.FilePath);
+        if (bytes.Length > MaxAssetBytes)
+        {
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = ErrorCodes.ResourceTooLarge,
+                    Message = "资产超过 1 MiB 预览上限",
+                    Retryable = false,
+                },
+            };
+        }
+
+        var mimeType = asset.FilePath switch
+        {
+            var p when p.EndsWith(".png", StringComparison.OrdinalIgnoreCase) => "image/png",
+            var p when p.EndsWith(".gif", StringComparison.OrdinalIgnoreCase) => "image/gif",
+            var p when p.EndsWith(".webp", StringComparison.OrdinalIgnoreCase) => "image/webp",
+            _ => "image/jpeg",
+        };
+
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new
+            {
+                assetId = asset.AssetId,
+                gameId = asset.GameId,
+                kind = asset.Kind,
+                isCurrent = asset.IsCurrent,
+                mimeType,
+                sizeBytes = bytes.LongLength,
+                dataBase64 = Convert.ToBase64String(bytes),
+            },
+        };
+    }
+
+    private static object AssetDto(GameAsset asset) => new
+    {
+        assetId = asset.AssetId,
+        gameId = asset.GameId,
+        kind = asset.Kind,
+        isCurrent = asset.IsCurrent,
+        importedUtc = asset.ImportedUtc.ToString("O"),
     };
+
+    private object GameDto(SqliteLibraryStore store, GameCard game)
+    {
+        var (title, titleSource) = store.EffectiveField(game.GameId, "title", game.Title);
+        var (summary, summarySource) = store.EffectiveField(game.GameId, "summary", "");
+        var coverAssetId = store.ListAssets(game.GameId).FirstOrDefault(a => a.IsCurrent)?.AssetId;
+        return new
+        {
+            gameId = game.GameId,
+            title = title ?? "",
+            titleSource,
+            summary,
+            summarySource,
+            coverAssetId,
+            rootPath = game.RootPath,
+            kind = game.Kind,
+            engine = game.Engine,
+            entryPath = game.EntryPath,
+            membership = game.Membership,
+            revision = game.Revision,
+            acceptedUtc = game.AcceptedUtc.ToString("O"),
+        };
+    }
 
     private Envelope<object> IgnoresList(IpcRequest request)
     {

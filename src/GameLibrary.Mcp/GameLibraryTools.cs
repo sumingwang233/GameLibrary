@@ -364,6 +364,34 @@ public static class GameLibraryTools
     public static Task<CallToolResult> ToolsDiscover([Description("游戏根的绝对本地路径")] string path) =>
         InvokeOperationAsync("tools.discover", new { idempotencyKey = $"discover-{Guid.NewGuid():N}", path });
 
+    [McpServerTool(Name = "fields_set")]
+    [Description("设置游戏资料字段（title/summary，用户来源）；Revision 即游戏卡片 Revision。参数：idempotencyKey、gameId、field、value、expectedRevision。")]
+    public static Task<CallToolResult> FieldsSet(
+        [Description("幂等键")] string idempotencyKey,
+        [Description("游戏 ID")] string gameId,
+        [Description("字段名：title 或 summary")] string field,
+        [Description("字段值（不传 = 清空）")] string? value = null,
+        [Description("期望 Revision")] int expectedRevision = 0) =>
+        InvokeOperationAsync("fields.set", new { idempotencyKey, gameId, field, value, expectedRevision });
+
+    [McpServerTool(Name = "assets_import")]
+    [Description("导入封面图（≤1 MiB，png/jpg/webp/gif），复制入应用自有目录并设为当前封面；不反写游戏目录。参数：idempotencyKey、gameId、sourcePath。")]
+    public static Task<CallToolResult> AssetsImport(
+        [Description("幂等键")] string idempotencyKey,
+        [Description("游戏 ID")] string gameId,
+        [Description("源图片绝对路径")] string sourcePath) =>
+        InvokeOperationAsync("assets.import", new { idempotencyKey, gameId, sourcePath });
+
+    [McpServerTool(Name = "assets_list")]
+    [Description("列出游戏资产（cover）。参数：gameId。")]
+    public static Task<CallToolResult> AssetsList([Description("游戏 ID")] string gameId) =>
+        InvokeOperationAsync("assets.list", new { gameId });
+
+    [McpServerTool(Name = "assets_get")]
+    [Description("读取资产受限预览（≤1 MiB，base64）。参数：assetId。")]
+    public static Task<CallToolResult> AssetsGet([Description("资产 ID")] string assetId) =>
+        InvokeOperationAsync("assets.get", new { assetId });
+
     private static async Task<CallToolResult> InvokeOperationAsync(string operationId, object parameters)
     {
         if (McpSession.DataDirectory is null)
