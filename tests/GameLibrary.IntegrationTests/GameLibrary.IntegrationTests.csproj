@@ -12,8 +12,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\GameLibrary.Host\GameLibrary.Host.csproj" />
     <ProjectReference Include="..\..\src\GameLibrary.HostClient\GameLibrary.HostClient.csproj" />
+    <ProjectReference Include="..\..\src\GameLibrary.Infrastructure\GameLibrary.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>
