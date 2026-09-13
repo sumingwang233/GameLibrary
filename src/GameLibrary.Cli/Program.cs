@@ -34,6 +34,8 @@ internal static class Program
                 "host.status" => await HostStatusAsync(parse),
                 "scan.start" => await ScanHostOperationAsync(parse, "scan.start", requiresRoot: true),
                 "scan.inspect" => await ScanHostOperationAsync(parse, "scan.inspect", requiresRoot: true),
+                "roots.add" => await ScanHostOperationAsync(parse, "roots.add", requiresRoot: true),
+                "roots.list" => await ScanHostOperationAsync(parse, "roots.list", requiresRoot: false),
                 "scan.status" or "scan.cancel" or "scan.coverage" or "jobs.get" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "candidates.list" or "candidates.get" =>
@@ -83,9 +85,12 @@ internal static class Program
 
         if (requiresRoot && cli.RootArgument is null)
         {
-            Console.Error.WriteLine(operationId == "scan.inspect"
-                ? "scan inspect 需要 --path <绝对目录路径>"
-                : "scan start 需要 --root <绝对路径>");
+            Console.Error.WriteLine(operationId switch
+            {
+                "scan.inspect" => "scan inspect 需要 --path <绝对目录路径>",
+                "roots.add" => "roots add 需要 --root <绝对路径>",
+                _ => "scan start 需要 --root <绝对路径>",
+            });
             return ExitArgumentError;
         }
 
@@ -158,6 +163,8 @@ internal static class Program
         {
             "scan.start" => new { root = cli.RootArgument },
             "scan.inspect" => new { path = cli.RootArgument },
+            "roots.add" => new { root = cli.RootArgument },
+            "roots.list" => new { },
             "candidates.list" => cli.JobId is null ? null : new { jobId = cli.JobId },
             "candidates.get" => new { candidateId = cli.CandidateId },
             "profiles.create" => new { gameId = cli.GameId, executablePath = cli.ExePath, argv = cli.ArgList, cwd = cli.Cwd },

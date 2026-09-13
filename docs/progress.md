@@ -93,8 +93,9 @@
 ## T06 启动计划/执行器与桩 — 2026-09-13 完成
 
 - **改动文件**：`src/GameLibrary.Host/Launching/LaunchRegistry.cs`（新：Profile/Plan/Attempt + 执行器）、`OperationDispatcher.cs`（profiles.*4 + launch.*4 handler）、Contracts（ImplementedOperations +8）、Cli（profiles/launch 命令，--arg 可重复、--idempotency-key、--plan-id/--profile-id）、Mcp（profiles_*4、launch_*4 工具）、TestProcessStub（--hold-ms）、测试（LaunchOperationTests 5 + LaunchE2ETests 1 + 契约守卫更新）。
-- **验证结果**：累计 229 项测试通过（+6）；format 通过；Release 构建 0 警告 0 错误。报告：`artifacts/build-reports/2026-09-13-t06.md`。
+- **验证结果**：累计 230 项测试通过（+7）；format 通过；Release 构建 0 警告 0 错误。报告：`artifacts/build-reports/2026-09-13-t06.md`。
 - **实现要点**：全入口互斥按游戏维度（进行中启动拒绝第二次 execute，观察退出释放）；幂等键重放返回原尝试；Profile Revision 使旧计划 PlanStale；execute 只接受经 Profile 四道校验的 exe/cwd，任意 EXE 路径不能绕过 Profile；不等待游戏退出，观察在查询时尽力刷新。
+- **L3 审计修复（CWE-22 路径包含，high）**：推送前 L3 深度审查发现调用方路径直达进程执行/文件系统读取。新增 `RootRegistry`（库根白名单，`src/GameLibrary.Host/Scanning/RootRegistry.cs`，GamePath 规范化 + 重解析点拒绝 + 前缀包含 + 幂等注册）与 `roots.add`/`roots.list` 三入口映射；`scan.start`/`scan.inspect`/`profiles.create`/`profiles.update` 在 dispatcher 边界统一收口，白名单外返回 `PermissionDenied`；测试 +1（白名单外拒绝用例）并更新全部路径类测试。
 - **守卫更新**：契约测试 `SchemaFiles_AreNotYetClaimedAsImplemented` 按"实现即事实"解除 launch.execute 断言（T22 骨架守卫）。
 - **未验证范围**：启动收据持久化与崩溃恢复（UnknownOutcome）随 T23/T27；Profile 默认配置/工具绑定/翻译策略随 T13；PlanExpired/事件推送随 T16/T24。
 - **下一项**：T11（入库/忽略，依赖 T05/T10/T23）前可先补 T23（共享执行语义：收据/Revision/Job 取消事件）。

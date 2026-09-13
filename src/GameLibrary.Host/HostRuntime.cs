@@ -58,6 +58,7 @@ public sealed class HostRuntime : IAsyncDisposable
             Jobs = new JobManager(),
             Candidates = new CandidateRegistry(),
             Launches = new Launching.LaunchRegistry(),
+            Roots = new RootRegistry(),
         };
 
         var logger = loggerFactory.CreateLogger<PipeServer>();
@@ -135,4 +136,7 @@ public sealed class HostRuntimeState
 
     /// <summary>启动 Profile/计划/尝试注册表（宿主内存态；收据持久化随 T23/T27）。</summary>
     public required Launching.LaunchRegistry Launches { get; init; }
+
+    /// <summary>库根白名单：扫描/启动路径包含边界（宿主内存态；持久化随 T16）。</summary>
+    public required Scanning.RootRegistry Roots { get; init; }
 }

@@ -161,6 +161,7 @@ internal sealed record CommandLine
             "schema" when verb == "get" => "schema.get",
             "host" when verb is "status" or "start" or "stop" => $"host.{verb}",
             "scan" when verb is "start" or "status" or "cancel" or "coverage" or "inspect" => $"scan.{verb}",
+            "roots" when verb is "add" or "list" => $"roots.{verb}",
             "candidates" when verb is "list" or "get" => $"candidates.{verb}",
             "profiles" when verb is "create" or "list" or "get" or "update" => $"profiles.{verb}",
             "launch" when verb is "plan" or "execute" or "status" or "history" => $"launch.{verb}",

@@ -209,6 +209,16 @@ public static class GameLibraryTools
     public static Task<CallToolResult> CandidatesGet([Description("候选 ID")] string candidateId) =>
         InvokeOperationAsync("candidates.get", new { candidateId });
 
+    [McpServerTool(Name = "roots_add")]
+    [Description("注册库根（显式授权）：此后 scan/启动目标必须落在已注册根内。参数：root（绝对本地路径）。")]
+    public static Task<CallToolResult> RootsAdd([Description("库根的绝对本地路径")] string root) =>
+        InvokeOperationAsync("roots.add", new { root });
+
+    [McpServerTool(Name = "roots_list")]
+    [Description("列出已注册库根。")]
+    public static Task<CallToolResult> RootsList() =>
+        InvokeOperationAsync("roots.list", new { });
+
     [McpServerTool(Name = "profiles_create")]
     [Description("创建启动配置（最小集）：绝对 exe、argv 数组、绝对 cwd。参数：gameId、executablePath、argv、cwd。")]
     public static Task<CallToolResult> ProfilesCreate(

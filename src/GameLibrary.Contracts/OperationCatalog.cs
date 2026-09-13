@@ -52,6 +52,8 @@ public static class OperationCatalog
         "scan.cancel",
         "scan.coverage",
         "scan.inspect",
+        "roots.add",
+        "roots.list",
         "candidates.list",
         "candidates.get",
         "profiles.create",

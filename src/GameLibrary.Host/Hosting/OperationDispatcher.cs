@@ -77,6 +77,8 @@ public sealed class OperationDispatcher
             "scan.cancel" => ScanCancel(request),
             "scan.coverage" => ScanCoverage(request),
             "scan.inspect" => ScanInspect(request),
+            "roots.add" => RootsAdd(request),
+            "roots.list" => RootsList(request),
             "candidates.list" => CandidatesList(request),
             "candidates.get" => CandidatesGet(request),
             "profiles.create" => ProfilesCreate(request),
@@ -141,6 +143,11 @@ public sealed class OperationDispatcher
                     Retryable = true,
                 },
             };
+        }
+
+        if (RejectPathOutsideRoots(request, rootPath.PhysicalPath) is { } outsideRoot)
+        {
+            return outsideRoot;
         }
 
         var jobId = _state.Jobs.Create(
@@ -247,6 +254,80 @@ public sealed class OperationDispatcher
         };
     }
 
+    /// <summary>注册库根（显式授权动作）；重复注册同一规范化路径幂等。</summary>
+    private Envelope<object> RootsAdd(IpcRequest request)
+    {
+        if (!TryGetStringParameter(request, "root", out var root))
+        {
+            return InvalidArgument(request, "缺少 root 参数（绝对本地路径）");
+        }
+
+        try
+        {
+            var libraryRoot = _state.Roots.Add(root);
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = true,
+                Status = OperationStatus.Completed,
+                Data = libraryRoot.ToDto(),
+            };
+        }
+        catch (Scanning.RootRegistryException ex)
+        {
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = ex.Code,
+                    Message = ex.Message,
+                    Retryable = false,
+                },
+            };
+        }
+    }
+
+    private Envelope<object> RootsList(IpcRequest request)
+    {
+        var roots = _state.Roots.List();
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new
+            {
+                total = roots.Count,
+                items = roots.Select(r => r.ToDto()).ToArray(),
+            },
+        };
+    }
+
+    /// <summary>路径包含校验（CWE-22 边界）：调用方路径必须在已注册库根内。</summary>
+    private Envelope<object>? RejectPathOutsideRoots(IpcRequest request, string physicalPath)
+    {
+        if (_state.Roots.Contains(physicalPath))
+        {
+            return null;
+        }
+
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = false,
+            Status = OperationStatus.Failed,
+            Error = new RequestError
+            {
+                Code = ErrorCodes.PermissionDenied,
+                Message = $"路径不在已注册库根内（先通过 roots.add 注册）：{physicalPath}",
+                Retryable = false,
+            },
+        };
+    }
+
     /// <summary>只读单路径识别（契约 scan.inspect）：不落候选、不启动作业。</summary>
     private Envelope<object> ScanInspect(IpcRequest request)
     {
@@ -286,6 +367,11 @@ public sealed class OperationDispatcher
                     Retryable = true,
                 },
             };
+        }
+
+        if (RejectPathOutsideRoots(request, validation.Path.PhysicalPath) is { } inspectOutsideRoot)
+        {
+            return inspectOutsideRoot;
         }
 
         var snapshot = new FileSystemDirectorySnapshot(validation.Path);
@@ -403,6 +489,11 @@ public sealed class OperationDispatcher
                     Retryable = false,
                 },
             };
+        }
+
+        if (RejectPathOutsideRoots(request, executablePath) is { } createOutsideRoot)
+        {
+            return createOutsideRoot;
         }
 
         if (!Directory.Exists(cwd))
@@ -524,6 +615,11 @@ public sealed class OperationDispatcher
                     Retryable = false,
                 },
             };
+        }
+
+        if (RejectPathOutsideRoots(request, executablePath) is { } updateOutsideRoot)
+        {
+            return updateOutsideRoot;
         }
 
         var updated = _state.Launches.UpdateProfile(profileId, executablePath, argv, cwd);

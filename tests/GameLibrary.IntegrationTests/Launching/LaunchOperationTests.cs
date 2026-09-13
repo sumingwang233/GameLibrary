@@ -44,6 +44,7 @@ public sealed class LaunchOperationTests : IClassFixture<PipeServerFixture>
 
     private async Task<string> CreateProfileAsync(string gameId)
     {
+        await EnsureRootsAsync();
         var runDir = NewRunDir("launch-profile");
         Directory.CreateDirectory(runDir);
         var created = await InvokeAsync("profiles.create", new
@@ -55,6 +56,16 @@ public sealed class LaunchOperationTests : IClassFixture<PipeServerFixture>
         });
         Assert.True(created.Ok, created.Error?.Message);
         return created.Data.GetProperty("profileId").GetString()!;
+    }
+
+    /// <summary>路径包含边界：stub 所在测试输出目录与 test-runs 夹具区注册为库根（幂等）。</summary>
+    private Task<Envelope<JsonElement>> EnsureRootAsync(string path) =>
+        InvokeAsync("roots.add", new { root = path });
+
+    private async Task EnsureRootsAsync()
+    {
+        await EnsureRootAsync(AppContext.BaseDirectory);
+        await EnsureRootAsync(@"D:\Official\GameLibrary\artifacts\test-runs");
     }
 
     [Fact]
@@ -90,6 +101,7 @@ public sealed class LaunchOperationTests : IClassFixture<PipeServerFixture>
     [Fact]
     public async Task LaunchExecute_SameIdempotencyKey_ReplaysSameAttemptWithoutSecondProcess()
     {
+        await EnsureRootsAsync();
         var gameId = $"game-{Guid.NewGuid():N}";
         var profileId = await CreateProfileAsync(gameId);
 
@@ -110,6 +122,7 @@ public sealed class LaunchOperationTests : IClassFixture<PipeServerFixture>
     [Fact]
     public async Task LaunchExecute_ConcurrentLaunchForSameGame_IsRejectedByMutualExclusion()
     {
+        await EnsureRootsAsync();
         var gameId = $"game-{Guid.NewGuid():N}";
         var runDir = NewRunDir("launch-mutex");
         Directory.CreateDirectory(runDir);
@@ -141,6 +154,7 @@ public sealed class LaunchOperationTests : IClassFixture<PipeServerFixture>
     [Fact]
     public async Task LaunchExecute_OldPlanAfterProfileUpdate_FailsWithPlanStale()
     {
+        await EnsureRootsAsync();
         var gameId = $"game-{Guid.NewGuid():N}";
         var profileId = await CreateProfileAsync(gameId);
 
@@ -166,6 +180,7 @@ public sealed class LaunchOperationTests : IClassFixture<PipeServerFixture>
     [Fact]
     public async Task LaunchExecute_ExeDeletedAfterPlan_FailsWithToolMissing()
     {
+        await EnsureRootsAsync();
         var gameId = $"game-{Guid.NewGuid():N}";
         var runDir = NewRunDir("launch-vanish");
         Directory.CreateDirectory(runDir);

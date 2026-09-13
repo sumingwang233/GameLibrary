@@ -32,6 +32,11 @@ public sealed class ScanE2ETests
         int? hostPid = null;
         try
         {
+            // 路径包含边界：先注册扫描根。
+            var rootAdd = await RunCliAsync(
+                "roots", "add", "--root", scanRoot, "--data-dir", dataDir, "--format", "json");
+            Assert.Equal(0, rootAdd.ExitCode);
+
             var start = await RunCliAsync(
                 "scan", "start", "--root", scanRoot, "--data-dir", dataDir, "--format", "json");
             Assert.Equal(0, start.ExitCode);
@@ -117,7 +122,15 @@ public sealed class ScanE2ETests
             });
             await WriteLineAsync(mcpProcess, """{"jsonrpc":"2.0","method":"notifications/initialized"}""");
 
-            var call = await SendRequestAsync(mcpProcess, 2, "tools/call", new
+            // 路径包含边界：先注册扫描根。
+            var rootAdd = await SendRequestAsync(mcpProcess, 2, "tools/call", new
+            {
+                name = "roots_add",
+                arguments = new { root = scanRoot },
+            });
+            Assert.False(rootAdd.GetProperty("result").GetProperty("isError").GetBoolean());
+
+            var call = await SendRequestAsync(mcpProcess, 3, "tools/call", new
             {
                 name = "scan_start",
                 arguments = new { root = scanRoot },
@@ -130,7 +143,7 @@ public sealed class ScanE2ETests
             Assert.False(string.IsNullOrWhiteSpace(jobId));
 
             // host_status 工具拿宿主 PID 用于清理。
-            var hostCall = await SendRequestAsync(mcpProcess, 3, "tools/call", new
+            var hostCall = await SendRequestAsync(mcpProcess, 4, "tools/call", new
             {
                 name = "host_status",
                 arguments = new { },
@@ -140,7 +153,7 @@ public sealed class ScanE2ETests
             hostPid = hostEnvelope.RootElement.GetProperty("data").GetProperty("processId").GetInt32();
 
             // scan_inspect：对发现的安装根目录只读识别。
-            var inspectCall = await SendRequestAsync(mcpProcess, 4, "tools/call", new
+            var inspectCall = await SendRequestAsync(mcpProcess, 5, "tools/call", new
             {
                 name = "scan_inspect",
                 arguments = new { path = Path.Combine(scanRoot, "GameA") },

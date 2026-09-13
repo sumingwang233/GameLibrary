@@ -28,6 +28,13 @@ public sealed class LaunchE2ETests
         try
         {
             var gameId = $"game-{Guid.NewGuid():N}";
+
+            // 路径包含边界：stub 所在目录注册为库根后，profiles.create 才接受该 exe。
+            var rootAdd = await RunCliAsync(
+                "roots", "add", "--root", AppContext.BaseDirectory,
+                "--data-dir", dataDir, "--format", "json");
+            Assert.Equal(0, rootAdd.ExitCode);
+
             var create = await RunCliAsync(
                 "profiles", "create", "--game-id", gameId, "--exe", StubExe,
                 "--arg", "--from-cli", "--cwd", cwd,

@@ -34,10 +34,15 @@ public sealed class ScanOperationTests : IClassFixture<PipeServerFixture>
             CancellationToken.None);
     }
 
+    /// <summary>扫描路径包含边界（roots 白名单）：夹具都位于 test-runs 下，注册一次即可。</summary>
+    private Task<Envelope<JsonElement>> EnsureRootAsync() =>
+        InvokeAsync("roots.add", new { root = @"D:\Official\GameLibrary\artifacts\test-runs" });
+
     [Fact]
     public async Task ScanStart_AcceptsJobAndCompletesWithCoverage()
     {
         var root = CreateFixtureTree("scanop-full");
+        await EnsureRootAsync();
 
         var start = await InvokeAsync("scan.start", new { root });
         Assert.True(start.Ok, start.Error?.Message);
@@ -99,9 +104,22 @@ public sealed class ScanOperationTests : IClassFixture<PipeServerFixture>
     }
 
     [Fact]
+    public async Task ScanStart_PathOutsideRegisteredRoots_IsDenied()
+    {
+        await EnsureRootAsync();
+
+        // artifacts 与已注册的 artifacts\test-runs 平级：存在但不在白名单内。
+        var envelope = await InvokeAsync("scan.start", new { root = @"D:\Official\GameLibrary\artifacts" });
+
+        Assert.False(envelope.Ok);
+        Assert.Equal(ErrorCodes.PermissionDenied, envelope.Error!.Code);
+    }
+
+    [Fact]
     public async Task ScanCancel_AfterCompletion_IsInvalidArgument()
     {
         var root = CreateFixtureTree("scanop-cancel");
+        await EnsureRootAsync();
         var start = await InvokeAsync("scan.start", new { root });
         var jobId = start.JobId!;
         await WaitForJobAsync(jobId, "succeeded");
@@ -116,6 +134,7 @@ public sealed class ScanOperationTests : IClassFixture<PipeServerFixture>
     public async Task CandidatesQuery_AfterScan_ReturnsDiscoveredCandidate()
     {
         var root = CreateFixtureTree("scanop-cands");
+        await EnsureRootAsync();
         var start = await InvokeAsync("scan.start", new { root });
         var jobId = start.JobId!;
         await WaitForJobAsync(jobId, "succeeded");
@@ -147,6 +166,7 @@ public sealed class ScanOperationTests : IClassFixture<PipeServerFixture>
     public async Task ScanInspect_SinglePathRecognition_DoesNotCreateCandidates()
     {
         var root = CreateFixtureTree("scanop-inspect");
+        await EnsureRootAsync();
         var gameDir = Path.Combine(root, "GameA");
 
         var inspect = await InvokeAsync("scan.inspect", new { path = gameDir });
