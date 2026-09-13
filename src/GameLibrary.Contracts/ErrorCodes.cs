@@ -7,6 +7,8 @@ namespace GameLibrary.Contracts;
 public static class ErrorCodes
 {
     public const string InvalidArgument = "InvalidArgument";
+    public const string InvalidPath = "InvalidPath";
+    public const string UnsupportedPath = "UnsupportedPath";
     public const string UnsupportedOperation = "UnsupportedOperation";
     public const string RevisionConflict = "RevisionConflict";
     public const string IdempotencyConflict = "IdempotencyConflict";
@@ -41,6 +43,8 @@ public static class ErrorCodes
     public static readonly IReadOnlyList<string> RequiredCodes =
     [
         InvalidArgument,
+        InvalidPath,
+        UnsupportedPath,
         UnsupportedOperation,
         RevisionConflict,
         IdempotencyConflict,
