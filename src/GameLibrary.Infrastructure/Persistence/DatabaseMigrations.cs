@@ -105,5 +105,6 @@ public static class DatabaseMigrations
                 updated_utc TEXT NOT NULL
             )
             """),
+        new DatabaseMigration(6, "ALTER TABLE games ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0"),
     ];
 }

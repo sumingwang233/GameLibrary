@@ -189,3 +189,11 @@
 - **实现要点**：appid 仅取自本地 appmanifest 且校验十进制正整数（前导零/非数字拒绝）；无清单 → SteamManifestMissing 标注，不凭目录名硬填；-applaunch 为 Valve 公开稳定参数可生成模板，steam:// 协议未本机验收不生成；播放器模板 = exe + [目标路径]（公开稳定行为），参数差异须逐播放器样本验证；Steam 安装经注册表只读 SteamPath + 常见目录回退；steam 分支不收调用方路径（自动探测），player/mtool/renpythief 路径仍经库根白名单。
 - **未验证范围**：steam:// 的 Shell 集成验收（策划案明示待验收）；播放器逐样本验证与 ExternalPlayer 配置（T13）；多 Steam 库 libraryfolders.vdf（T25）。
 - **下一项**：T15 剩余（搜索/收藏/虚拟化）、T13（翻译配置三入口）或 T17（Reconcile/Identity）。
+
+## T15-B 游戏库 UI（搜索/收藏/虚拟化/图像管理）— 2026-09-13 完成
+
+- **改动文件**：迁移 v6（games.favorite）、`LibraryCatalogStore.cs`（SetFavorite/BuiltInViews/Favorite 字段）、`OperationDispatcher.cs`（games.update + views.list/get/activate + games.list 过滤 + game.updated/view.activated 事件）、Desktop（视图切换/搜索防抖/收藏按钮/封面 LRU+取消/虚拟化/app.manifest PerMonitorV2/Ctrl+F）、测试适配。
+- **验证结果**：累计 295 项测试通过；format 通过；Release 构建 0 警告 0 错误。报告：`artifacts/build-reports/2026-09-13-t15b.md`。
+- **实现要点**：收藏为 games.update 受限字段（契约 note）+ Revision 乐观校验；views.activate API 控制激活视图（内存态）；games.list 支持 favorite/search 参数（agent 直用）；Desktop 搜索 300ms 防抖客户端过滤、封面 LRU 32 张+切换取消加载、列表虚拟化 Recycling、PerMonitorV2 DPI、Ctrl+F。
+- **未验证范围**：自定义视图 CRUD 与视图持久化（T15-C）；5000 条/200 查询性能基线（T26）；UI 自动化测试。
+- **下一项**：T13（翻译配置三入口）或 T17（Reconcile/Identity）。

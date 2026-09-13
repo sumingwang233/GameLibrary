@@ -1068,12 +1068,39 @@ public sealed class OperationDispatcher
         }
 
         var games = store.ListGames();
+        string? search = null;
+        bool? favoriteFilter = null;
+        if (request.Parameters is { ValueKind: JsonValueKind.Object } glParameters)
+        {
+            if (glParameters.TryGetProperty("search", out var searchElement) && searchElement.ValueKind == JsonValueKind.String)
+            {
+                search = searchElement.GetString();
+            }
+
+            if (glParameters.TryGetProperty("favorite", out var favElement) && favElement.ValueKind == JsonValueKind.True)
+            {
+                favoriteFilter = true;
+            }
+        }
+
+        var filtered = games.AsEnumerable();
+        if (favoriteFilter == true)
+        {
+            filtered = filtered.Where(g => g.Favorite);
+        }
+
+        if (!string.IsNullOrEmpty(search))
+        {
+            filtered = filtered.Where(g => g.Title.Contains(search, StringComparison.OrdinalIgnoreCase));
+        }
+
+        var dtos = filtered.Select(g => GameDto(store, g)).ToArray();
         return new Envelope<object>
         {
             RequestId = request.RequestId,
             Ok = true,
             Status = OperationStatus.Completed,
-            Data = new { total = games.Count, items = games.Select(g => GameDto(store, g)).ToArray() },
+            Data = new { total = dtos.Length, items = dtos },
         };
     }
 
@@ -2224,6 +2251,7 @@ public sealed class OperationDispatcher
         return new
         {
             gameId = game.GameId,
+            favorite = game.Favorite,
             title = title ?? "",
             titleSource,
             summary,

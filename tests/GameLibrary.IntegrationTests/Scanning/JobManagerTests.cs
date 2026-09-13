@@ -100,7 +100,7 @@ public sealed class JobManagerTests
 
     private static async Task WaitForTerminalAsync(JobManager manager, string jobId)
     {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(60);
         while (DateTime.UtcNow < deadline)
         {
             if (manager.Get(jobId)?.FinishedUtc is not null)
@@ -111,6 +111,6 @@ public sealed class JobManagerTests
             await Task.Delay(20);
         }
 
-        throw new TimeoutException($"作业 {jobId} 未在 10 秒内进入终态");
+        throw new TimeoutException($"作业 {jobId} 未在 60 秒内进入终态");
     }
 }

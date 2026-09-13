@@ -47,11 +47,24 @@ public sealed record GameCard
 
     public required string Membership { get; init; }
 
+    public bool Favorite { get; init; }
+
     public int Revision { get; init; } = 1;
 
     public required DateTime AcceptedUtc { get; init; }
 
     public required DateTime UpdatedUtc { get; init; }
+}
+
+/// <summary>内置视图（T15）：视图自定义随 T15-C。</summary>
+public static class BuiltInViews
+{
+    public static readonly IReadOnlyList<(string ViewId, string Name)> All =
+    [
+        ("all", "全部游戏"),
+        ("favorites", "收藏"),
+        ("pending", "待审核候选"),
+    ];
 }
 
 /// <summary>忽略规则（T11）：scope 默认 ExactPath；撤销匹配规则是恢复候选提示的唯一途径。</summary>
@@ -226,8 +239,8 @@ public static class LibraryCatalogStore
         using var command = connection.CreateCommand();
         command.CommandText = """
             INSERT INTO games
-                (game_id, title, root_path, kind, engine, entry_path, membership, revision, accepted_utc, updated_utc)
-            VALUES ($id, $title, $root, $kind, $engine, $entry, 'active', 1, $accepted, $accepted)
+                (game_id, title, root_path, kind, engine, entry_path, membership, favorite, revision, accepted_utc, updated_utc)
+            VALUES ($id, $title, $root, $kind, $engine, $entry, 'active', 0, 1, $accepted, $accepted)
             """;
         command.Parameters.AddWithValue("$id", game.GameId);
         command.Parameters.AddWithValue("$title", game.Title);
@@ -243,7 +256,7 @@ public static class LibraryCatalogStore
     {
         using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT game_id, title, root_path, kind, engine, entry_path, membership, revision, accepted_utc, updated_utc
+            SELECT game_id, title, root_path, kind, engine, entry_path, membership, favorite, revision, accepted_utc, updated_utc
             FROM games WHERE game_id = $id
             """;
         command.Parameters.AddWithValue("$id", gameId);
@@ -256,7 +269,7 @@ public static class LibraryCatalogStore
         var result = new List<GameCard>();
         using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT game_id, title, root_path, kind, engine, entry_path, membership, revision, accepted_utc, updated_utc
+            SELECT game_id, title, root_path, kind, engine, entry_path, membership, favorite, revision, accepted_utc, updated_utc
             FROM games ORDER BY accepted_utc, game_id
             """;
         using var reader = command.ExecuteReader();
@@ -272,12 +285,55 @@ public static class LibraryCatalogStore
     {
         using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT game_id, title, root_path, kind, engine, entry_path, membership, revision, accepted_utc, updated_utc
+            SELECT game_id, title, root_path, kind, engine, entry_path, membership, favorite, revision, accepted_utc, updated_utc
             FROM games WHERE root_path = $root AND membership = 'active'
             """;
         command.Parameters.AddWithValue("$root", rootPath);
         using var reader = command.ExecuteReader();
         return reader.Read() ? ReadGame(reader) : null;
+    }
+
+    /// <summary>收藏切换（games.update 受限字段）：期望 Revision 对齐 games.revision，事务内更新并递增；冲突返回 null。</summary>
+    public static int? SetFavorite(SqliteConnection connection, string gameId, bool favorite, int expectedRevision, DateTime utcNow)
+    {
+        using var transaction = (SqliteTransaction)connection.BeginTransaction();
+        int currentRevision;
+        using (var select = connection.CreateCommand())
+        {
+            select.Transaction = transaction;
+            select.CommandText = "SELECT revision FROM games WHERE game_id = $game";
+            select.Parameters.AddWithValue("$game", gameId);
+            var result = select.ExecuteScalar();
+            if (result is null)
+            {
+                transaction.Rollback();
+                return null;
+            }
+
+            currentRevision = Convert.ToInt32(result);
+        }
+
+        if (currentRevision != expectedRevision)
+        {
+            transaction.Rollback();
+            return null;
+        }
+
+        using (var update = connection.CreateCommand())
+        {
+            update.Transaction = transaction;
+            update.CommandText = """
+                UPDATE games SET favorite = $favorite, revision = revision + 1, updated_utc = $now
+                WHERE game_id = $game
+                """;
+            update.Parameters.AddWithValue("$favorite", favorite ? 1 : 0);
+            update.Parameters.AddWithValue("$now", utcNow.ToString("O", CultureInfo.InvariantCulture));
+            update.Parameters.AddWithValue("$game", gameId);
+            update.ExecuteNonQuery();
+        }
+
+        transaction.Commit();
+        return currentRevision + 1;
     }
 
     public static void InsertIgnoreRule(SqliteConnection connection, IgnoreRule rule)
@@ -423,8 +479,9 @@ public static class LibraryCatalogStore
         Engine = reader.IsDBNull(4) ? null : reader.GetString(4),
         EntryPath = reader.IsDBNull(5) ? null : reader.GetString(5),
         Membership = reader.GetString(6),
-        Revision = reader.GetInt32(7),
-        AcceptedUtc = DateTime.Parse(reader.GetString(8), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
-        UpdatedUtc = DateTime.Parse(reader.GetString(9), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+        Favorite = reader.GetInt64(7) == 1,
+        Revision = reader.GetInt32(8),
+        AcceptedUtc = DateTime.Parse(reader.GetString(9), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+        UpdatedUtc = DateTime.Parse(reader.GetString(10), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
     };
 }

@@ -50,17 +50,25 @@
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
-            <!-- 左：游戏列表（Steam 侧边栏） -->
+            <!-- 左：视图切换 + 搜索 + 游戏列表（Steam 侧边栏，虚拟化） -->
             <Border Grid.Column="0" Background="{StaticResource BgPanel}" BorderBrush="{StaticResource Sep}" BorderThickness="0,0,1,0">
                 <DockPanel>
+                    <ComboBox Name="ViewSelector" DockPanel.Dock="Top" Margin="8,10,8,4"
+                              Background="{StaticResource BgPanel}" Foreground="{StaticResource TextBody}"
+                              SelectionChanged="OnViewSelectorChanged" />
+                    <TextBox Name="SearchBox" DockPanel.Dock="Top" Margin="8,0,8,6"
+                             ToolTip="搜索游戏标题（Ctrl+F 聚焦，300ms 防抖）" />
                     <TextBlock DockPanel.Dock="Top" Text="库" FontSize="13" FontWeight="SemiBold"
-                               Foreground="{StaticResource TextMuted}" Margin="12,10,0,6" />
+                               Foreground="{StaticResource TextMuted}" Margin="12,4,0,6" />
                     <ListBox Name="LibraryList"
                              Background="Transparent"
                              BorderThickness="0"
                              ItemContainerStyle="{StaticResource SidebarItem}"
                              SelectionMode="Single"
-                             SelectionChanged="OnLibrarySelectionChanged" />
+                             SelectionChanged="OnLibrarySelectionChanged"
+                             VirtualizingPanel.IsVirtualizing="True"
+                             VirtualizingPanel.VirtualizationMode="Recycling"
+                             ScrollViewer.CanContentScroll="True" />
                 </DockPanel>
             </Border>
 

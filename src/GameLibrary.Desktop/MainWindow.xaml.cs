@@ -3,8 +3,10 @@ using System.IO;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using GameLibrary.Contracts;
 using GameLibrary.Contracts.Ipc;
 using GameLibrary.HostClient;
@@ -12,8 +14,9 @@ using GameLibrary.HostClient;
 namespace GameLibrary.Desktop;
 
 /// <summary>
-/// Desktop 纵切（T12/T15-A）：Steam 库风格视图——左侧游戏列表、右侧详情与操作。
+/// Desktop 纵切（T12/T15）：Steam 库风格视图——左侧视图切换/搜索/游戏列表、右侧详情与操作。
 /// 仅经 HostClient 与宿主通信，与 CLI/MCP 同库同契约；数据落库重启保留。
+/// T15：搜索 300ms 防抖、收藏（games.update）、封面 LRU + 取消加载、列表虚拟化、PerMonitorV2 DPI、Ctrl+F。
 /// </summary>
 public partial class MainWindow : Window
 {
@@ -27,14 +30,40 @@ public partial class MainWindow : Window
         string Title,
         string Subtitle,
         string PhysicalPath,
+        bool Favorite,
         JsonElement Raw);
 
-    private List<Entry> _entries = [];
+    private List<Entry> _allEntries = [];
+    private string _searchText = "";
+
+    /// <summary>封面位图 LRU 缓存（T15：图像取消/LRU；容量 32）。</summary>
+    private static readonly Dictionary<string, BitmapImage> CoverCache = new();
+    private static readonly LinkedList<string> CoverLruOrder = new();
+    private const int MaxCachedCovers = 32;
+    private CancellationTokenSource? _coverLoadCts;
+
+    private readonly DispatcherTimer _searchTimer;
 
     public MainWindow()
     {
         InitializeComponent();
         ParseArgs();
+        ViewSelector.Items.Add(new ComboBoxItem { Content = "全部游戏", Tag = "all" });
+        ViewSelector.Items.Add(new ComboBoxItem { Content = "收藏", Tag = "favorites" });
+        ViewSelector.Items.Add(new ComboBoxItem { Content = "待审核候选", Tag = "pending" });
+        ViewSelector.SelectedIndex = 0;
+        _searchTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+        _searchTimer.Tick += (_, _) =>
+        {
+            _searchTimer.Stop();
+            _searchText = SearchBox.Text.Trim();
+            RenderSidebar();
+        };
+        SearchBox.TextChanged += (_, _) =>
+        {
+            _searchTimer.Stop();
+            _searchTimer.Start();
+        };
         Loaded += async (_, _) => await ConnectAsync();
     }
 
@@ -97,14 +126,14 @@ public partial class MainWindow : Window
                 ? state.GetString()
                 : null;
 
-            var games = await InvokeAsync("games.list");
+            var favoriteFilter = ViewSelector.SelectedItem is ComboBoxItem item && (string)item.Tag == "favorites";
+            var games = await InvokeAsync("games.list", favoriteFilter ? new { favorite = true } : null);
             var candidates = await InvokeAsync("candidates.list");
             RenderSidebar(games, candidates);
 
             var gameCount = games.Data.GetProperty("total").GetInt32();
-            var pendingCount = candidates.Data.GetProperty("items").EnumerateArray()
-                .Count(c => c.GetProperty("reviewState").GetString() == "pendingReview");
-            SetStatus($"已连接 · 库 {libraryState} · 游戏 {gameCount} · 待审核 {pendingCount}");
+            var candidateCount = candidates.Data.GetProperty("total").GetInt32();
+            SetStatus($"已连接 · 库 {libraryState} · 游戏 {gameCount} · 待审核 {candidateCount}");
             ShowError(null);
         }
         catch (Exception ex)
@@ -127,6 +156,7 @@ public partial class MainWindow : Window
                 title,
                 engine,
                 game.GetProperty("rootPath").GetString() ?? "",
+                game.GetProperty("favorite").GetBoolean(),
                 game));
         }
 
@@ -142,18 +172,37 @@ public partial class MainWindow : Window
                 string.IsNullOrEmpty(relativePath) || relativePath == "" ? "(库根)" : relativePath!,
                 "待审核",
                 candidate.GetProperty("physicalPath").GetString() ?? "",
+                false,
                 candidate));
         }
 
-        _entries = entries;
+        _allEntries = entries;
+        RenderSidebar();
+    }
 
+    /// <summary>应用当前视图与搜索文本渲染侧边栏（T15：搜索防抖后调用）。</summary>
+    private void RenderSidebar()
+    {
+        var activeView = ViewSelector.SelectedItem is ComboBoxItem item ? (string)item.Tag : "all";
+        IEnumerable<Entry> visible = _allEntries;
+        if (activeView == "favorites")
+        {
+            visible = visible.Where(e => e.Kind == "game" && e.Favorite);
+        }
+
+        if (_searchText.Length > 0)
+        {
+            visible = visible.Where(e => e.Title.Contains(_searchText, StringComparison.OrdinalIgnoreCase));
+        }
+
+        var list = visible.ToList();
         LibraryList.Items.Clear();
-        foreach (var entry in entries)
+        foreach (var entry in list)
         {
             var panel = new StackPanel();
             panel.Children.Add(new TextBlock
             {
-                Text = entry.Title,
+                Text = (entry.Favorite ? "★ " : "") + entry.Title,
                 FontSize = 13,
                 TextTrimming = TextTrimming.CharacterEllipsis,
             });
@@ -172,26 +221,97 @@ public partial class MainWindow : Window
         {
             LibraryList.Items.Add(new TextBlock
             {
-                Text = "库是空的。填写目录 → 注册库根 → 扫描，候选会出现在这里。",
+                Text = _searchText.Length > 0
+                    ? $"没有匹配「{_searchText}」的条目。"
+                    : "库是空的。填写目录 → 注册库根 → 扫描，候选会出现在这里。",
                 FontSize = 11,
                 Foreground = TryFindResource<SolidColorBrush>("TextMuted"),
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(10, 6, 10, 6),
             });
-            RenderDetailPlaceholder();
+            DetailPanel.Children.Clear();
             return;
         }
 
-        // 保持既有选中或选第一个。
         var previous = LibraryList.SelectedIndex;
-        LibraryList.SelectedIndex = previous >= 0 && previous < _entries.Count ? previous : 0;
+        LibraryList.SelectedIndex = previous >= 0 && previous < list.Count ? previous : 0;
         if (LibraryList.SelectedIndex < 0)
         {
-            RenderDetailPlaceholder();
+            DetailPanel.Children.Clear();
         }
     }
 
-    /// <summary>游戏详情：封面头图 + 标题（可编辑）+ 摘要 + meta + 操作按钮排（T14）。</summary>
+    private void OnLibrarySelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        var index = LibraryList.SelectedIndex;
+        if (index < 0 || index >= LibraryList.Items.Count)
+        {
+            return;
+        }
+
+        // 视图过滤后侧边栏项与 _allEntries 不再一一对应——按选中项标题查找。
+        if (LibraryList.Items[index] is StackPanel panel
+            && panel.Children[0] is TextBlock titleBlock)
+        {
+            var title = titleBlock.Text.TrimStart('★', ' ');
+            var entry = _allEntries.FirstOrDefault(en => en.Title == title);
+            if (entry is not null)
+            {
+                RenderDetail(entry);
+                return;
+            }
+        }
+
+        RenderDetailPlaceholder();
+    }
+
+    private void RenderDetail(Entry entry)
+    {
+        DetailPanel.Children.Clear();
+        _coverLoadCts?.Cancel();
+        _coverLoadCts = new CancellationTokenSource();
+
+        if (entry.Kind == "game")
+        {
+            RenderGameDetail(entry);
+            return;
+        }
+
+        // 候选详情
+        var candidate = entry.Raw;
+        DetailPanel.Children.Add(new TextBlock
+        {
+            Text = entry.Title.Length == 0 ? "(库根)" : entry.Title,
+            FontSize = 26,
+            FontWeight = FontWeights.Bold,
+            Foreground = TryFindResource<SolidColorBrush>("TextPrimary"),
+        });
+        DetailPanel.Children.Add(new TextBlock
+        {
+            Text = $"待审核 · {candidate.GetProperty("kind").GetString()} · rev {candidate.GetProperty("revision").GetInt32()}",
+            FontSize = 13,
+            Foreground = TryFindResource<SolidColorBrush>("Green"),
+            Margin = new Thickness(0, 4, 0, 12),
+        });
+        DetailPanel.Children.Add(MetaLine("路径", entry.PhysicalPath));
+        DetailPanel.Children.Add(MetaLine("候选 ID", entry.Id));
+        DetailPanel.Children.Add(new TextBlock
+        {
+            Text = "接受后创建游戏卡片；忽略将登记 ExactPath 规则（撤销规则才恢复提示）。",
+            FontSize = 12,
+            Foreground = TryFindResource<SolidColorBrush>("TextMuted"),
+            Margin = new Thickness(0, 10, 0, 4),
+            TextWrapping = TextWrapping.Wrap,
+        });
+
+        var revision = candidate.GetProperty("revision").GetInt32();
+        DetailPanel.Children.Add(ButtonRow(
+            ("接受入库", () => ReviewAsync(entry.Id, revision, "candidates.accept"), "SteamGreenButton"),
+            ("暂缓", () => ReviewAsync(entry.Id, revision, "candidates.defer"), "SteamButton"),
+            ("忽略", () => ReviewAsync(entry.Id, revision, "candidates.ignore"), "SteamButton")));
+    }
+
+    /// <summary>游戏详情：封面头图 + 标题（可编辑）+ 收藏 + 摘要 + meta + 操作按钮排（T14/T15）。</summary>
     private void RenderGameDetail(Entry entry)
     {
         var raw = entry.Raw;
@@ -202,7 +322,7 @@ public partial class MainWindow : Window
         var summary = raw.TryGetProperty("summary", out var sm) && sm.ValueKind == JsonValueKind.String ? sm.GetString() : "";
         var coverAssetId = raw.TryGetProperty("coverAssetId", out var cai) && cai.ValueKind == JsonValueKind.String ? cai.GetString() : null;
 
-        // 封面头图。
+        // 封面头图（LRU 缓存 + 可取消加载）。
         if (coverAssetId is not null)
         {
             var cover = new Image
@@ -236,22 +356,40 @@ public partial class MainWindow : Window
             });
         }
 
-        // 标题行 + 编辑按钮。
+        // 标题行 + 收藏 + 编辑按钮。
         var titleRow = new StackPanel { Orientation = Orientation.Horizontal };
-        var titleBlock = new TextBlock
+        titleRow.Children.Add(new TextBlock
         {
             Text = title,
             FontSize = 26,
             FontWeight = FontWeights.Bold,
             Foreground = TryFindResource<SolidColorBrush>("TextPrimary"),
             VerticalAlignment = VerticalAlignment.Center,
+        });
+        var favoriteButton = new Button
+        {
+            Content = entry.Favorite ? "★ 已收藏" : "☆ 收藏",
+            Style = (Style)TryFindResource("SteamButton"),
+            Margin = new Thickness(12, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
         };
-        titleRow.Children.Add(titleBlock);
+        favoriteButton.Click += async (_, _) =>
+        {
+            await InvokeAsync("games.update", new
+            {
+                idempotencyKey = $"fav-{Guid.NewGuid():N}",
+                gameId,
+                favorite = !entry.Favorite,
+                expectedRevision = revision,
+            });
+            await RefreshAsync();
+        };
+        titleRow.Children.Add(favoriteButton);
         var editButton = new Button
         {
             Content = "编辑标题",
             Style = (Style)TryFindResource("SteamButton"),
-            Margin = new Thickness(12, 0, 0, 0),
+            Margin = new Thickness(6, 0, 0, 0),
             VerticalAlignment = VerticalAlignment.Center,
         };
         titleRow.Children.Add(editButton);
@@ -309,12 +447,20 @@ public partial class MainWindow : Window
             ("打开目录", () => OpenDirectoryAsync(entry.PhysicalPath), "SteamButton")));
     }
 
+    /// <summary>封面加载：LRU 缓存命中直接用；否则经 assets.get 读取（详情切换取消旧加载）。</summary>
     private async Task LoadCoverAsync(string assetId, Image coverImage)
     {
+        if (CoverCache.TryGetValue(assetId, out var cached))
+        {
+            coverImage.Source = cached;
+            return;
+        }
+
+        var cts = _coverLoadCts;
         try
         {
             var asset = await InvokeAsync("assets.get", new { assetId });
-            if (!asset.Ok)
+            if (!asset.Ok || cts is null || cts.IsCancellationRequested || !ReferenceEquals(_coverLoadCts, cts))
             {
                 return;
             }
@@ -327,7 +473,20 @@ public partial class MainWindow : Window
             bitmap.StreamSource = stream;
             bitmap.EndInit();
             bitmap.Freeze();
+
+            if (cts.IsCancellationRequested || !ReferenceEquals(_coverLoadCts, cts))
+            {
+                return;
+            }
+
             coverImage.Source = bitmap;
+            CoverCache[assetId] = bitmap;
+            CoverLruOrder.AddFirst(assetId);
+            while (CoverLruOrder.Count > MaxCachedCovers && CoverLruOrder.Last is { } oldestNode)
+            {
+                CoverLruOrder.RemoveLast();
+                CoverCache.Remove(oldestNode.Value);
+            }
         }
         catch (Exception)
         {
@@ -410,61 +569,6 @@ public partial class MainWindow : Window
         });
     }
 
-    private void OnLibrarySelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        var index = LibraryList.SelectedIndex;
-        if (index < 0 || index >= _entries.Count)
-        {
-            return;
-        }
-
-        RenderDetail(_entries[index]);
-    }
-
-    private void RenderDetail(Entry entry)
-    {
-        DetailPanel.Children.Clear();
-
-        if (entry.Kind == "game")
-        {
-            RenderGameDetail(entry);
-            return;
-        }
-
-        // 候选详情
-        var candidate = entry.Raw;
-        DetailPanel.Children.Add(new TextBlock
-        {
-            Text = entry.Title.Length == 0 ? "(库根)" : entry.Title,
-            FontSize = 26,
-            FontWeight = FontWeights.Bold,
-            Foreground = TryFindResource<SolidColorBrush>("TextPrimary"),
-        });
-        DetailPanel.Children.Add(new TextBlock
-        {
-            Text = $"待审核 · {candidate.GetProperty("kind").GetString()} · rev {candidate.GetProperty("revision").GetInt32()}",
-            FontSize = 13,
-            Foreground = TryFindResource<SolidColorBrush>("Green"),
-            Margin = new Thickness(0, 4, 0, 12),
-        });
-        DetailPanel.Children.Add(MetaLine("路径", entry.PhysicalPath));
-        DetailPanel.Children.Add(MetaLine("候选 ID", entry.Id));
-        DetailPanel.Children.Add(new TextBlock
-        {
-            Text = "接受后创建游戏卡片；忽略将登记 ExactPath 规则（撤销规则才恢复提示）。",
-            FontSize = 12,
-            Foreground = TryFindResource<SolidColorBrush>("TextMuted"),
-            Margin = new Thickness(0, 10, 0, 4),
-            TextWrapping = TextWrapping.Wrap,
-        });
-
-        var revision = candidate.GetProperty("revision").GetInt32();
-        DetailPanel.Children.Add(ButtonRow(
-            ("接受入库", () => ReviewAsync(entry.Id, revision, "candidates.accept"), "SteamGreenButton"),
-            ("暂缓", () => ReviewAsync(entry.Id, revision, "candidates.defer"), "SteamButton"),
-            ("忽略", () => ReviewAsync(entry.Id, revision, "candidates.ignore"), "SteamButton")));
-    }
-
     private static TextBlock MetaLine(string label, string value) => new()
     {
         Text = $"{label}：{value}",
@@ -492,6 +596,16 @@ public partial class MainWindow : Window
         }
 
         return row;
+    }
+
+    private void OnViewSelectorChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (ViewSelector.SelectedItem is ComboBoxItem item && _connection is not null)
+        {
+            _ = InvokeAsync("views.activate", new { viewId = (string)item.Tag });
+        }
+
+        RenderSidebar();
     }
 
     private async Task ReviewAsync(string candidateId, int revision, string operationId)
@@ -674,8 +788,21 @@ public partial class MainWindow : Window
         }
     }
 
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        // Ctrl+F 聚焦搜索（T15 键盘支持）。
+        if (e.Key == Key.F && Keyboard.Modifiers == ModifierKeys.Control)
+        {
+            SearchBox.Focus();
+            e.Handled = true;
+        }
+
+        base.OnKeyDown(e);
+    }
+
     protected override async void OnClosed(EventArgs e)
     {
+        _coverLoadCts?.Cancel();
         await DisposeConnectionAsync();
         base.OnClosed(e);
     }
