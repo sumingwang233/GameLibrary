@@ -442,9 +442,84 @@ public partial class MainWindow : Window
         DetailPanel.Children.Add(MetaLine("路径", raw.GetProperty("rootPath").GetString() ?? ""));
         DetailPanel.Children.Add(MetaLine("入库时间", raw.GetProperty("acceptedUtc").GetString() ?? ""));
 
+        // T13 接入：翻译策略显示与循环切换（Auto→Required→NotRequired）。
+        var translationText = new TextBlock
+        {
+            Text = "翻译策略：加载中…",
+            FontSize = 13,
+            Foreground = TryFindResource<SolidColorBrush>("TextPrimary"),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var translationButton = new Button
+        {
+            Content = "切换策略",
+            Style = (Style)TryFindResource("SteamButton"),
+            Margin = new Thickness(10, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var translationRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 4) };
+        translationRow.Children.Add(translationText);
+        translationRow.Children.Add(translationButton);
+        DetailPanel.Children.Add(translationRow);
+        _ = LoadTranslationAsync(gameId, translationText);
+        translationButton.Click += async (_, _) =>
+        {
+            // effective 在异步加载后才有值；从当前文本解析失败则按 Auto 处理。
+            var match = System.Text.RegularExpressions.Regex.Match(translationText.Text, @"策略：(\w+)");
+            var current = match.Success ? match.Groups[1].Value : "Auto";
+            await CycleTranslationAsync(gameId, current, revision);
+        };
+
         DetailPanel.Children.Add(ButtonRow(
             ("导入封面", () => ImportCoverAsync(gameId), "SteamButton"),
             ("打开目录", () => OpenDirectoryAsync(entry.PhysicalPath), "SteamButton")));
+    }
+
+    private async Task LoadTranslationAsync(string gameId, TextBlock target)
+    {
+        try
+        {
+            var envelope = await InvokeAsync("translation.get", new { gameId });
+            if (!envelope.Ok)
+            {
+                return;
+            }
+
+            var data = envelope.Data;
+            var inherited = data.GetProperty("inherited").GetString();
+            var userOverride = data.GetProperty("userOverride").GetString();
+            var effective = data.GetProperty("effective").GetString();
+            var display = userOverride == "Auto" ? $"{effective}（继承 {inherited}）" : $"{effective}（用户覆盖）";
+            target.Text = $"翻译策略：{display}";
+        }
+        catch (InvalidOperationException)
+        {
+            // 连接断开时详情页无需更新。
+        }
+    }
+
+    private async Task CycleTranslationAsync(string gameId, string currentEffective, int expectedRevision)
+    {
+        var next = currentEffective switch
+        {
+            "Required" => "NotRequired",
+            "NotRequired" => "Auto",
+            _ => "Required",
+        };
+        var envelope = await InvokeAsync("translation.set", new
+        {
+            idempotencyKey = $"ui-trans-{Guid.NewGuid():N}",
+            gameId,
+            @override = next,
+            expectedRevision,
+        });
+        if (!envelope.Ok)
+        {
+            ShowError($"translation.set 失败：{envelope.Error?.Code} {envelope.Error?.Message}");
+            return;
+        }
+
+        await RefreshAsync();
     }
 
     /// <summary>封面加载：LRU 缓存命中直接用；否则经 assets.get 读取（详情切换取消旧加载）。</summary>
@@ -602,7 +677,8 @@ public partial class MainWindow : Window
     {
         if (ViewSelector.SelectedItem is ComboBoxItem item && _connection is not null)
         {
-            _ = InvokeAsync("views.activate", new { viewId = (string)item.Tag });
+            // 同视图同幂等键：激活是幂等语义，重放返回原结果（契约：views.activate 需幂等键）。
+            _ = InvokeAsync("views.activate", new { idempotencyKey = $"ui-viewact-{(string)item.Tag}", viewId = (string)item.Tag });
         }
 
         RenderSidebar();

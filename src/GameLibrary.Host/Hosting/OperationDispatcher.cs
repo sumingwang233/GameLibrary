@@ -56,6 +56,10 @@ public sealed class OperationDispatcher
         "profiles.remove",
         "translation.set",
         "games.update",
+        "views.create",
+        "views.update",
+        "views.remove",
+        "views.activate",
         "scan.start",
         "candidates.accept",
         "candidates.defer",
@@ -436,6 +440,12 @@ public sealed class OperationDispatcher
         "translation.get" => TranslationGet(request),
         "translation.set" => TranslationSet(request),
         "games.update" => GamesUpdate(request),
+        "views.list" => ViewsList(request),
+        "views.get" => ViewsGet(request),
+        "views.create" => ViewsCreate(request),
+        "views.update" => ViewsUpdate(request),
+        "views.remove" => ViewsRemove(request),
+        "views.activate" => ViewsActivate(request),
         "launch.plan" => LaunchPlanHandler(request),
         "launch.execute" => LaunchExecute(request),
         "launch.status" => LaunchStatus(request),
@@ -1099,6 +1109,7 @@ public sealed class OperationDispatcher
         var games = store.ListGames();
         string? search = null;
         bool? favoriteFilter = null;
+        string? sort = null;
         if (request.Parameters is { ValueKind: JsonValueKind.Object } glParameters)
         {
             if (glParameters.TryGetProperty("search", out var searchElement) && searchElement.ValueKind == JsonValueKind.String)
@@ -1109,6 +1120,36 @@ public sealed class OperationDispatcher
             if (glParameters.TryGetProperty("favorite", out var favElement) && favElement.ValueKind == JsonValueKind.True)
             {
                 favoriteFilter = true;
+            }
+
+            if (glParameters.TryGetProperty("sort", out var sortElement) && sortElement.ValueKind == JsonValueKind.String)
+            {
+                sort = sortElement.GetString();
+            }
+
+            // T15-C：viewId 直接套用该视图的筛选/排序语义（agent 可不先读视图定义）。
+            if (glParameters.TryGetProperty("viewId", out var viewElement) && viewElement.ValueKind == JsonValueKind.String)
+            {
+                var viewId = viewElement.GetString();
+                var builtinView = BuiltInViews.All.FirstOrDefault(v => v.ViewId == viewId);
+                if (builtinView.ViewId == "favorites")
+                {
+                    favoriteFilter = true;
+                }
+                else if (builtinView.ViewId is null)
+                {
+                    var view = store.TryGetView(viewId!);
+                    if (view is not null)
+                    {
+                        search ??= view.Search;
+                        if (view.FavoriteOnly)
+                        {
+                            favoriteFilter = true;
+                        }
+
+                        sort ??= view.Sort;
+                    }
+                }
             }
         }
 
@@ -1121,6 +1162,16 @@ public sealed class OperationDispatcher
         if (!string.IsNullOrEmpty(search))
         {
             filtered = filtered.Where(g => g.Title.Contains(search, StringComparison.OrdinalIgnoreCase));
+        }
+
+        // T15-C：排序语义（title 默认 / recent 最近更新在前）。
+        if (sort == "recent")
+        {
+            filtered = filtered.OrderByDescending(g => g.UpdatedUtc).ThenBy(g => g.GameId, StringComparer.Ordinal);
+        }
+        else
+        {
+            filtered = filtered.OrderBy(g => g.Title, StringComparer.OrdinalIgnoreCase).ThenBy(g => g.GameId, StringComparer.Ordinal);
         }
 
         var dtos = filtered.Select(g => GameDto(store, g)).ToArray();
@@ -1483,6 +1534,326 @@ public sealed class OperationDispatcher
                 isDefault = profile.IsDefault,
                 issues,
             },
+        };
+    }
+
+    /// <summary>内置视图 + 自定义视图（T15-C）；activeViewId 为宿主内存态。</summary>
+    private Envelope<object> ViewsList(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        var builtin = BuiltInViews.All.Select(v => new
+        {
+            viewId = v.ViewId,
+            name = v.Name,
+            kind = "builtin",
+            search = (string?)null,
+            favoriteOnly = v.ViewId == "favorites",
+            sort = "title",
+            revision = (int?)null,
+            active = string.Equals(_state.ActiveViewId, v.ViewId, StringComparison.Ordinal),
+        });
+        var custom = store.ListViews().Select(v => new
+        {
+            viewId = v.ViewId,
+            name = v.Name,
+            kind = "custom",
+            search = v.Search,
+            favoriteOnly = v.FavoriteOnly,
+            sort = v.Sort,
+            revision = (int?)v.Revision,
+            active = string.Equals(_state.ActiveViewId, v.ViewId, StringComparison.Ordinal),
+        });
+
+        var items = builtin.Concat(custom).ToArray();
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new { total = items.Length, items, activeViewId = _state.ActiveViewId },
+        };
+    }
+
+    private Envelope<object> ViewsGet(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!TryGetStringParameter(request, "viewId", out var viewId))
+        {
+            return InvalidArgument(request, "缺少 viewId 参数");
+        }
+
+        var builtin = BuiltInViews.All.FirstOrDefault(v => v.ViewId == viewId);
+        if (builtin.ViewId is not null)
+        {
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = true,
+                Status = OperationStatus.Completed,
+                Data = new
+                {
+                    viewId = builtin.ViewId,
+                    name = builtin.Name,
+                    kind = "builtin",
+                    search = (string?)null,
+                    favoriteOnly = builtin.ViewId == "favorites",
+                    sort = "title",
+                    revision = (int?)null,
+                },
+            };
+        }
+
+        var view = store.TryGetView(viewId);
+        if (view is null)
+        {
+            return NotFound(request, $"视图不存在：{viewId}");
+        }
+
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new
+            {
+                viewId = view.ViewId,
+                name = view.Name,
+                kind = "custom",
+                search = view.Search,
+                favoriteOnly = view.FavoriteOnly,
+                sort = view.Sort,
+                revision = (int?)view.Revision,
+            },
+        };
+    }
+
+    private Envelope<object> ViewsCreate(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!TryGetStringParameter(request, "name", out var name) || name.Length == 0)
+        {
+            return InvalidArgument(request, "缺少 name 参数");
+        }
+
+        TryGetStringParameter(request, "search", out var search);
+        TryGetBoolParameter(request, "favoriteOnly", out var favoriteOnly);
+        TryGetStringParameter(request, "sort", out var sort);
+        if (sort.Length > 0 && sort is not ("title" or "recent"))
+        {
+            return InvalidArgument(request, "sort 只支持 title/recent");
+        }
+
+        var now = DateTime.UtcNow;
+        var view = new LibraryView
+        {
+            ViewId = $"view-{Guid.NewGuid():N}",
+            Name = name,
+            Search = search.Length > 0 ? search : null,
+            FavoriteOnly = favoriteOnly == true,
+            Sort = sort.Length > 0 ? sort : "title",
+            CreatedUtc = now,
+            UpdatedUtc = now,
+        };
+        store.InsertView(view);
+        _state.Events.Publish("view.updated", $"view:{view.ViewId}", new { viewId = view.ViewId, name }, now);
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = ViewDto(store, view.ViewId),
+        };
+    }
+
+    private Envelope<object> ViewsUpdate(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!TryGetStringParameter(request, "viewId", out var viewId))
+        {
+            return InvalidArgument(request, "缺少 viewId 参数");
+        }
+
+        if (!TryGetIntParameter(request, "expectedRevision", out var expectedRevision) || expectedRevision is null)
+        {
+            return InvalidArgument(request, "缺少 expectedRevision 参数");
+        }
+
+        if (BuiltInViews.All.Any(v => v.ViewId == viewId))
+        {
+            return InvalidArgument(request, $"内置视图 {viewId} 不可修改");
+        }
+
+        TryGetStringParameter(request, "name", out var name);
+        TryGetStringParameter(request, "search", out var search);
+        TryGetBoolParameter(request, "favoriteOnly", out var favoriteOnly);
+        TryGetStringParameter(request, "sort", out var sort);
+        if (sort.Length > 0 && sort is not ("title" or "recent"))
+        {
+            return InvalidArgument(request, "sort 只支持 title/recent");
+        }
+
+        var newRevision = store.UpdateView(
+            viewId,
+            name.Length > 0 ? name : null,
+            search.Length > 0 ? search : null,
+            favoriteOnly,
+            sort.Length > 0 ? sort : null,
+            expectedRevision.Value,
+            DateTime.UtcNow);
+        if (newRevision is null)
+        {
+            var latest = store.TryGetView(viewId);
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = ErrorCodes.RevisionConflict,
+                    Message = $"视图 Revision 不一致：期望 {expectedRevision}，当前 {latest?.Revision}",
+                    Retryable = false,
+                    CurrentRevision = latest?.Revision,
+                },
+            };
+        }
+
+        _state.Events.Publish("view.updated", $"view:{viewId}", new { viewId, revision = newRevision }, DateTime.UtcNow);
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = ViewDto(store, viewId),
+        };
+    }
+
+    private Envelope<object> ViewsRemove(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!TryGetStringParameter(request, "viewId", out var viewId))
+        {
+            return InvalidArgument(request, "缺少 viewId 参数");
+        }
+
+        if (!TryGetIntParameter(request, "expectedRevision", out var expectedRevision) || expectedRevision is null)
+        {
+            return InvalidArgument(request, "缺少 expectedRevision 参数");
+        }
+
+        if (BuiltInViews.All.Any(v => v.ViewId == viewId))
+        {
+            return InvalidArgument(request, $"内置视图 {viewId} 不可删除");
+        }
+
+        var view = store.TryGetView(viewId);
+        if (view is null)
+        {
+            return NotFound(request, $"视图不存在：{viewId}");
+        }
+
+        if (view.Revision != expectedRevision.Value)
+        {
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = ErrorCodes.RevisionConflict,
+                    Message = $"视图 Revision 不一致：期望 {expectedRevision}，当前 {view.Revision}",
+                    Retryable = false,
+                    CurrentRevision = view.Revision,
+                },
+            };
+        }
+
+        store.DeleteView(viewId);
+        if (string.Equals(_state.ActiveViewId, viewId, StringComparison.Ordinal))
+        {
+            _state.ActiveViewId = null;
+        }
+
+        _state.Events.Publish("view.updated", $"view:{viewId}", new { viewId, removed = true }, DateTime.UtcNow);
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new { viewId, removed = true },
+        };
+    }
+
+    /// <summary>激活视图：校验存在性，记录内存态并广播 view.activated（瞬时语义，收据同键重放幂等）。</summary>
+    private Envelope<object> ViewsActivate(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!TryGetStringParameter(request, "viewId", out var viewId))
+        {
+            return InvalidArgument(request, "缺少 viewId 参数");
+        }
+
+        var isBuiltin = BuiltInViews.All.Any(v => v.ViewId == viewId);
+        var view = store.TryGetView(viewId);
+        if (!isBuiltin && view is null)
+        {
+            return NotFound(request, $"视图不存在：{viewId}");
+        }
+
+        _state.ActiveViewId = viewId;
+        _state.Events.Publish("view.activated", $"view:{viewId}", new { viewId }, DateTime.UtcNow);
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new { viewId, active = true },
+        };
+    }
+
+    private object ViewDto(SqliteLibraryStore store, string viewId)
+    {
+        var view = store.TryGetView(viewId)!;
+        return new
+        {
+            viewId = view.ViewId,
+            name = view.Name,
+            kind = "custom",
+            search = view.Search,
+            favoriteOnly = view.FavoriteOnly,
+            sort = view.Sort,
+            revision = (int?)view.Revision,
         };
     }
 

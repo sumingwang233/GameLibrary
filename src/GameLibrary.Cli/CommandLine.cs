@@ -106,6 +106,21 @@ internal sealed record CommandLine
     /// <summary>profiles create 的 --is-default 标记。</summary>
     public bool IsDefault { get; private init; }
 
+    /// <summary>views 的 --view-id 参数。</summary>
+    public string? ViewId { get; private init; }
+
+    /// <summary>views create/update 的 --name 参数。</summary>
+    public string? Name { get; private init; }
+
+    /// <summary>views create/update 的 --search 参数。</summary>
+    public string? Search { get; private init; }
+
+    /// <summary>views 的 --sort 参数（title/recent）。</summary>
+    public string? Sort { get; private init; }
+
+    /// <summary>views 的 --favorite-only 标记。</summary>
+    public bool FavoriteOnly { get; private init; }
+
     public bool NoStart { get; private init; }
 
     public int TimeoutSeconds { get; private init; } = 30;
@@ -150,6 +165,11 @@ internal sealed record CommandLine
         bool? favorite = null;
         string? toolId = null;
         var isDefault = false;
+        string? viewId = null;
+        string? name = null;
+        string? search = null;
+        string? sort = null;
+        var favoriteOnly = false;
         var argList = new List<string>();
         var noStart = false;
         var timeout = 30;
@@ -257,6 +277,21 @@ internal sealed record CommandLine
                 case "--is-default":
                     isDefault = true;
                     break;
+                case "--view-id" when i + 1 < args.Length:
+                    viewId = args[++i];
+                    break;
+                case "--name" when i + 1 < args.Length:
+                    name = args[++i];
+                    break;
+                case "--search" when i + 1 < args.Length:
+                    search = args[++i];
+                    break;
+                case "--sort" when i + 1 < args.Length:
+                    sort = args[++i];
+                    break;
+                case "--favorite-only":
+                    favoriteOnly = true;
+                    break;
                 case "--no-start":
                     noStart = true;
                     break;
@@ -292,6 +327,7 @@ internal sealed record CommandLine
             "ignores" when verb is "list" or "create" or "remove" => $"ignores.{verb}",
             "profiles" when verb is "create" or "list" or "get" or "update" or "set-default" or "remove" or "validate"
                 => verb == "set-default" ? "profiles.set_default" : $"profiles.{verb}",
+            "views" when verb is "list" or "get" or "create" or "update" or "remove" or "activate" => $"views.{verb}",
             "launch" when verb is "plan" or "execute" or "status" or "history" => $"launch.{verb}",
             "jobs" when verb is "get" or "list" or "wait" or "cancel" => verb == "get" ? "jobs.get" : null,
             _ => null,
@@ -336,6 +372,11 @@ internal sealed record CommandLine
             Favorite = favorite,
             ToolId = toolId,
             IsDefault = isDefault,
+            ViewId = viewId,
+            Name = name,
+            Search = search,
+            Sort = sort,
+            FavoriteOnly = favoriteOnly,
             NoStart = noStart,
             TimeoutSeconds = timeout,
         };

@@ -110,5 +110,16 @@ public static class DatabaseMigrations
             ALTER TABLE games ADD COLUMN translation_inherited INTEGER NOT NULL DEFAULT 0;
             ALTER TABLE games ADD COLUMN translation_override TEXT;
             """),
+        new DatabaseMigration(8, """
+            CREATE TABLE library_views (
+                view_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                filter_json TEXT NOT NULL,
+                sort TEXT NOT NULL CHECK (sort IN ('title', 'recent')),
+                revision INTEGER NOT NULL,
+                created_utc TEXT NOT NULL,
+                updated_utc TEXT NOT NULL
+            )
+            """),
     ];
 }

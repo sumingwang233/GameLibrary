@@ -80,6 +80,20 @@ public sealed class SqliteLibraryStore : IAsyncDisposable
     public int? SetTranslationOverride(string gameId, string? overrideValue, int expectedRevision, DateTime utcNow) =>
         LibraryCatalogStore.SetTranslationOverride(_connection, gameId, overrideValue, expectedRevision, utcNow);
 
+    // T15-C 自定义视图转发。
+
+    public void InsertView(LibraryView view) => LibraryViewStore.InsertView(_connection, view);
+
+    public LibraryView? TryGetView(string viewId) => LibraryViewStore.TryGetView(_connection, viewId);
+
+    public IReadOnlyList<LibraryView> ListViews() => LibraryViewStore.ListViews(_connection);
+
+    public int? UpdateView(
+        string viewId, string? name, string? search, bool? favoriteOnly, string? sort, int expectedRevision, DateTime utcNow) =>
+        LibraryViewStore.UpdateView(_connection, viewId, name, search, favoriteOnly, sort, expectedRevision, utcNow);
+
+    public bool DeleteView(string viewId) => LibraryViewStore.DeleteView(_connection, viewId);
+
     public IReadOnlyList<IgnoreRule> ListIgnoreRules() => LibraryCatalogStore.ListIgnoreRules(_connection);
 
     public IReadOnlyList<string> RemoveIgnoreRule(string ignoreId) =>

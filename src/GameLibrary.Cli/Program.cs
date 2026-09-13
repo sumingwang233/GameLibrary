@@ -66,6 +66,8 @@ internal static class Program
                 "profiles.create" or "profiles.list" or "profiles.get" or "profiles.update"
                     or "profiles.set_default" or "profiles.remove" or "profiles.validate" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
+                "views.list" or "views.get" or "views.create" or "views.update" or "views.remove" or "views.activate" =>
+                    await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "launch.plan" or "launch.execute" or "launch.status" or "launch.history" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 _ => UnknownCommand(parse),
@@ -234,6 +236,25 @@ internal static class Program
             return ExitArgumentError;
         }
 
+        if (operationId is "views.get" or "views.update" or "views.remove" or "views.activate" && cli.ViewId is null)
+        {
+            Console.Error.WriteLine($"{string.Join(' ', cli.Words)} 需要 --view-id");
+            return ExitArgumentError;
+        }
+
+        if (operationId is "views.create" && cli.Name is null)
+        {
+            Console.Error.WriteLine("views create 需要 --name（--search/--favorite-only/--sort 可选）");
+            return ExitArgumentError;
+        }
+
+        if (operationId is "views.update"
+            && (cli.Name is null && cli.Search is null && !cli.FavoriteOnly && cli.Sort is null))
+        {
+            Console.Error.WriteLine("views update 至少提供 --name/--search/--favorite-only/--sort 之一");
+            return ExitArgumentError;
+        }
+
         if (operationId is "ignores.create"
             && (cli.RootArgument is null && cli.GameId is null))
         {
@@ -387,6 +408,37 @@ internal static class Program
                 profileId = cli.ProfileId,
             },
             "profiles.validate" => new { profileId = cli.ProfileId },
+            "views.list" => new { },
+            "views.get" => new { viewId = cli.ViewId },
+            "views.create" => new
+            {
+                idempotencyKey = cli.IdempotencyKey ?? $"viewnew-{Guid.NewGuid():N}",
+                name = cli.Name,
+                search = cli.Search,
+                favoriteOnly = cli.FavoriteOnly,
+                sort = cli.Sort,
+            },
+            "views.update" => new
+            {
+                idempotencyKey = cli.IdempotencyKey ?? $"viewupd-{Guid.NewGuid():N}",
+                viewId = cli.ViewId,
+                name = cli.Name,
+                search = cli.Search,
+                favoriteOnly = cli.FavoriteOnly ? true : (bool?)null,
+                sort = cli.Sort,
+                expectedRevision = cli.ExpectedRevision,
+            },
+            "views.remove" => new
+            {
+                idempotencyKey = cli.IdempotencyKey ?? $"viewrm-{Guid.NewGuid():N}",
+                viewId = cli.ViewId,
+                expectedRevision = cli.ExpectedRevision,
+            },
+            "views.activate" => new
+            {
+                idempotencyKey = cli.IdempotencyKey ?? $"viewact-{cli.ViewId}",
+                viewId = cli.ViewId,
+            },
             "profiles.update" => new
             {
                 idempotencyKey = cli.IdempotencyKey,

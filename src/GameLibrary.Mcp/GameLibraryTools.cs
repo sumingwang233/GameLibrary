@@ -297,6 +297,78 @@ public static class GameLibraryTools
     public static Task<CallToolResult> ProfilesValidate([Description("Profile ID")] string profileId) =>
         InvokeOperationAsync("profiles.validate", new { profileId });
 
+    [McpServerTool(Name = "views_list")]
+    [Description("列出内置与自定义视图及当前激活视图。")]
+    public static Task<CallToolResult> ViewsList() =>
+        InvokeOperationAsync("views.list", new { });
+
+    [McpServerTool(Name = "views_get")]
+    [Description("查询单个视图定义（筛选/排序语义）。参数：viewId。")]
+    public static Task<CallToolResult> ViewsGet([Description("视图 ID")] string viewId) =>
+        InvokeOperationAsync("views.get", new { viewId });
+
+    [McpServerTool(Name = "views_create")]
+    [Description("创建自定义视图（搜索/仅收藏/排序的语义状态）。参数：name、search、favoriteOnly、sort、idempotencyKey。")]
+    public static Task<CallToolResult> ViewsCreate(
+        [Description("视图名称")] string name,
+        [Description("搜索词（可选）")] string? search = null,
+        [Description("仅显示收藏")] bool favoriteOnly = false,
+        [Description("排序：title/recent")] string? sort = null,
+        [Description("幂等键")] string? idempotencyKey = null) =>
+        InvokeOperationAsync("views.create", new
+        {
+            idempotencyKey = idempotencyKey ?? $"viewnew-{Guid.NewGuid():N}",
+            name,
+            search,
+            favoriteOnly,
+            sort,
+        });
+
+    [McpServerTool(Name = "views_update")]
+    [Description("更新自定义视图的受限字段；未提供字段保持不变。参数：viewId、expectedRevision、name/search/favoriteOnly/sort、idempotencyKey。")]
+    public static Task<CallToolResult> ViewsUpdate(
+        [Description("视图 ID")] string viewId,
+        [Description("期望 Revision")] int expectedRevision,
+        [Description("视图名称（可选）")] string? name = null,
+        [Description("搜索词（可选）")] string? search = null,
+        [Description("仅显示收藏（可选）")] bool? favoriteOnly = null,
+        [Description("排序 title/recent（可选）")] string? sort = null,
+        [Description("幂等键")] string? idempotencyKey = null) =>
+        InvokeOperationAsync("views.update", new
+        {
+            idempotencyKey = idempotencyKey ?? $"viewupd-{Guid.NewGuid():N}",
+            viewId,
+            name,
+            search,
+            favoriteOnly,
+            sort,
+            expectedRevision,
+        });
+
+    [McpServerTool(Name = "views_remove")]
+    [Description("删除自定义视图；内置视图不可删除。参数：viewId、expectedRevision、idempotencyKey。")]
+    public static Task<CallToolResult> ViewsRemove(
+        [Description("视图 ID")] string viewId,
+        [Description("期望 Revision")] int expectedRevision,
+        [Description("幂等键")] string? idempotencyKey = null) =>
+        InvokeOperationAsync("views.remove", new
+        {
+            idempotencyKey = idempotencyKey ?? $"viewrm-{Guid.NewGuid():N}",
+            viewId,
+            expectedRevision,
+        });
+
+    [McpServerTool(Name = "views_activate")]
+    [Description("激活视图（语义状态；广播 view.activated 事件）。参数：viewId、idempotencyKey（同视图同键幂等）。")]
+    public static Task<CallToolResult> ViewsActivate(
+        [Description("视图 ID")] string viewId,
+        [Description("幂等键")] string? idempotencyKey = null) =>
+        InvokeOperationAsync("views.activate", new
+        {
+            idempotencyKey = idempotencyKey ?? $"viewact-{viewId}",
+            viewId,
+        });
+
     [McpServerTool(Name = "profiles_create")]
     [Description("创建启动配置（最小集）：绝对 exe、argv 数组、绝对 cwd。参数：idempotencyKey、gameId、executablePath、argv、cwd。")]
     public static Task<CallToolResult> ProfilesCreate(

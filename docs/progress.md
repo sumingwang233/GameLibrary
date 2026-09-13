@@ -206,3 +206,11 @@
 - **接手发现**：T15-B 声称的 games.update/views.* 实际未实现（Desktop 收藏/视图切换不可用、无测试覆盖）；本提交补齐 games.update，views.* 登记为 T15-C 待办。
 - **未验证范围**：T17 对账刷新 inherited；views.*（T15-C）；工具指纹联动 validate；Desktop 界面接入新操作。
 - **下一项**：T15-C（views 补全 + Desktop 接入 translation/games.update）或 T17（Reconcile/Identity）。
+
+## T15-C 视图补全与 Desktop 翻译接入 — 2026-09-14 完成
+
+- **改动文件**：`DatabaseMigrations.cs`（v8：library_views）、`LibraryViewStore.cs`（新）、`SqliteLibraryStore.cs`（视图转发 + InsertGame favorite 修复）、`HostRuntime.cs`（ActiveViewId）、`OperationDispatcher.cs`（views 六操作 + games.list viewId/sort）、Contracts（+6）、Cli/Mcp（+6 三入口）、Desktop（翻译策略行 + 切换按钮 + views.activate 幂等键修复）、`tests/.../Translation/ViewsTests.cs`（6 项）。
+- **验证结果**：累计 316 项测试通过；format 通过。报告：`artifacts/build-reports/2026-09-14-t15c.md`。
+- **实现要点**：内置/自定义视图统一语义（search/favoriteOnly/sort）；激活为宿主内存态 + view.activated 事件；games.list 支持 viewId 直查；修复 T15-B 遗留的 views.activate 缺幂等键（Desktop 视图切换恢复可用）与 InsertGame 忽略 Favorite 的缺陷。
+- **未验证范围**：activeViewId 持久化（随 settings.*）；Desktop 服务端视图过滤接入；UI 自动化。
+- **下一项**：T17（Reconcile/Identity）或 T18（通知/托盘）。

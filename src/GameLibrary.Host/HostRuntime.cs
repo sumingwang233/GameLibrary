@@ -183,4 +183,13 @@ public sealed class HostRuntimeState
 
     /// <summary>扫描协调器（T16）：周期核对、手动/后台互斥。构造后接线（依赖闭包）。</summary>
     public Scanning.ScanCoordinator Coordinator { get; set; } = null!;
+
+    private volatile string? _activeViewId;
+
+    /// <summary>当前激活视图（T15-C，宿主内存态；跨重启持久化随视图设置落库任务）。</summary>
+    public string? ActiveViewId
+    {
+        get => _activeViewId;
+        set => _activeViewId = value;
+    }
 }
