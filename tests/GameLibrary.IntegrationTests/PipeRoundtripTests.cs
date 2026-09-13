@@ -1,0 +1,120 @@
+using GameLibrary.Contracts.Ipc;
+using GameLibrary.Host.Hosting;
+using GameLibrary.Host.Ipc;
+using GameLibrary.HostClient;
+using Microsoft.Extensions.Logging.Abstractions;
+using Xunit;
+
+
+namespace GameLibrary.IntegrationTests;
+
+/// <summary>进程内管道回环：真实 NamedPipeServerStream + HostClient，不起 Host 进程。</summary>
+public sealed class PipeRoundtripTests : IClassFixture<PipeServerFixture>
+{
+    private readonly PipeServerFixture _fixture;
+
+    public PipeRoundtripTests(PipeServerFixture fixture)
+    {
+        _fixture = fixture;
+    }
+
+    [Fact]
+    public async Task Connect_CompletesHandshakeWithInstanceInfo()
+    {
+        await using var client = await HostConnection.ConnectAsync(
+            @$"D:\Official\GameLibrary\artifacts\test-runs\{_fixture.TestId}\data",
+            clientName: "contract-test",
+            CancellationToken.None);
+
+        Assert.Equal("1", client.Handshake.ApiVersion);
+        Assert.Equal(_fixture.Identity.InstanceId, client.Handshake.HostInstanceId);
+        Assert.False(client.Handshake.LibraryInitialized);
+        Assert.NotEmpty(client.Handshake.AppVersion);
+    }
+
+    [Fact]
+    public async Task Invoke_HostStatus_ReturnsCompletedEnvelope()
+    {
+        await using var client = await HostConnection.ConnectAsync(
+            @$"D:\Official\GameLibrary\artifacts\test-runs\{_fixture.TestId}\data",
+            clientName: null,
+            CancellationToken.None);
+
+        var envelope = await client.InvokeAsync(
+            new Contracts.Ipc.IpcRequest { RequestId = "req-status-1", OperationId = "host.status" },
+            CancellationToken.None);
+
+        Assert.True(envelope.Ok);
+        Assert.Equal(Contracts.OperationStatus.Completed, envelope.Status);
+        Assert.Equal("req-status-1", envelope.RequestId);
+        Assert.Equal(_fixture.Identity.InstanceId, envelope.Data.GetProperty("hostInstanceId").GetString());
+        Assert.Equal("1", envelope.Data.GetProperty("apiVersion").GetString());
+    }
+
+    [Fact]
+    public async Task Invoke_UnimplementedOperation_ReturnsUnsupportedOperation()
+    {
+        await using var client = await HostConnection.ConnectAsync(
+            @$"D:\Official\GameLibrary\artifacts\test-runs\{_fixture.TestId}\data",
+            clientName: null,
+            CancellationToken.None);
+
+        var envelope = await client.InvokeAsync(
+            new Contracts.Ipc.IpcRequest { RequestId = "req-x-1", OperationId = "games.list" },
+            CancellationToken.None);
+
+        Assert.False(envelope.Ok);
+        Assert.Equal(Contracts.OperationStatus.Failed, envelope.Status);
+        Assert.Equal(Contracts.ErrorCodes.UnsupportedOperation, envelope.Error!.Code);
+    }
+
+    [Fact]
+    public async Task TwoClients_CanConnectAndInvokeConcurrently()
+    {
+        var dataDir = @$"D:\Official\GameLibrary\artifacts\test-runs\{_fixture.TestId}\data";
+        await using var client1 = await HostConnection.ConnectAsync(dataDir, "c1", CancellationToken.None);
+        await using var client2 = await HostConnection.ConnectAsync(dataDir, "c2", CancellationToken.None);
+
+        var results = await Task.WhenAll(
+            client1.InvokeAsync(new Contracts.Ipc.IpcRequest { RequestId = "r1", OperationId = "host.status" }, CancellationToken.None),
+            client2.InvokeAsync(new Contracts.Ipc.IpcRequest { RequestId = "r2", OperationId = "host.status" }, CancellationToken.None));
+
+        Assert.True(results[0].Ok);
+        Assert.True(results[1].Ok);
+        Assert.Equal("r1", results[0].RequestId);
+        Assert.Equal("r2", results[1].RequestId);
+    }
+}
+
+public sealed class PipeServerFixture : IAsyncDisposable
+{
+    public PipeServerFixture()
+    {
+        TestId = Guid.NewGuid().ToString("N");
+        Identity = new HostIdentity();
+        var dataDir = DataDirectory.Resolve(@$"D:\Official\GameLibrary\artifacts\test-runs\{TestId}\data");
+        Assert.True(dataDir.IsValid);
+        Server = new PipeServer(
+            ChannelNames.PipeName(dataDir.ComparisonKey!),
+            Identity,
+            new OperationDispatcher(Identity),
+            NullLogger.Instance);
+        Server.Start();
+    }
+
+    public string TestId { get; }
+
+    public HostIdentity Identity { get; }
+
+    public PipeServer Server { get; }
+
+    public async ValueTask DisposeAsync()
+    {
+        await Server.DisposeAsync();
+        var testRoot = @$"D:\Official\GameLibrary\artifacts\test-runs\{TestId}";
+        if (Directory.Exists(testRoot))
+        {
+            Directory.Delete(testRoot, recursive: true);
+        }
+    }
+}

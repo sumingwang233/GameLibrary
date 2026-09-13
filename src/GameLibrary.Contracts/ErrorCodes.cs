@@ -10,6 +10,7 @@ public static class ErrorCodes
     public const string InvalidPath = "InvalidPath";
     public const string UnsupportedPath = "UnsupportedPath";
     public const string UnsupportedOperation = "UnsupportedOperation";
+    public const string InternalError = "InternalError";
     public const string RevisionConflict = "RevisionConflict";
     public const string IdempotencyConflict = "IdempotencyConflict";
     public const string PermissionDenied = "PermissionDenied";
@@ -46,6 +47,7 @@ public static class ErrorCodes
         InvalidPath,
         UnsupportedPath,
         UnsupportedOperation,
+        InternalError,
         RevisionConflict,
         IdempotencyConflict,
         PermissionDenied,
