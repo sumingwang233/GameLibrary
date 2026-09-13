@@ -26,9 +26,45 @@ public sealed class SqliteLibraryStore : IAsyncDisposable
         Info = info;
     }
 
-    public LibraryDatabaseInfo Info { get; }
+    public LibraryDatabaseInfo Info { get; private set; }
 
     public string DatabasePath => _connection.DataSource;
+
+    /// <summary>一致性备份到新文件（SQLite 备份 API，WAL 下同样一致）。目标已存在则拒绝。</summary>
+    public async Task CreateBackupAsync(string targetPath, CancellationToken ct)
+    {
+        if (File.Exists(targetPath))
+        {
+            throw new IOException($"备份目标已存在：{targetPath}");
+        }
+
+        var parent = Path.GetDirectoryName(targetPath);
+        if (!string.IsNullOrEmpty(parent))
+        {
+            Directory.CreateDirectory(parent);
+        }
+
+        await using var target = new SqliteConnection($"Data Source={targetPath}{ConnectionSuffix}");
+        await target.OpenAsync(ct);
+        _connection.BackupDatabase(target);
+    }
+
+    /// <summary>更换数据纪元（备份恢复后调用）；旧 Revision/游标/计划随之失效。</summary>
+    public async Task<string> RenewDataEpochAsync(CancellationToken ct)
+    {
+        var epoch = Guid.NewGuid().ToString("N");
+        var now = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+        await ExecuteAsync(
+            _connection,
+            null,
+            "UPDATE schema_info SET data_epoch = $e, updated_utc = $u WHERE id = 1",
+            ct,
+            ("$e", epoch),
+            ("$u", now));
+
+        Info = Info with { DataEpoch = epoch };
+        return epoch;
+    }
 
     /// <summary>显式建库（library.init）。库已存在返回 AlreadyInitialized；0 字节残留文件可安全重建。</summary>
     public static async Task<LibraryOpenResult> InitializeAsync(

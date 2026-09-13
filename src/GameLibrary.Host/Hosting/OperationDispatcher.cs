@@ -27,14 +27,14 @@ public sealed class HostIdentity
     public int ProcessId => Environment.ProcessId;
 }
 
-/// <summary>T21 骨架分发器：host.status 可用；其余已在 catalog 登记但未实现，返回 UnsupportedOperation。</summary>
+/// <summary>T21/T10 骨架分发器：host.status / capabilities.get / schema.get 可用；其余返回 UnsupportedOperation。</summary>
 public sealed class OperationDispatcher
 {
-    private readonly HostIdentity _identity;
+    private readonly HostRuntimeState _state;
 
-    public OperationDispatcher(HostIdentity identity)
+    public OperationDispatcher(HostRuntimeState state)
     {
-        _identity = identity;
+        _state = state;
     }
 
     public Envelope<object> Dispatch(IpcRequest request)
@@ -48,12 +48,16 @@ public sealed class OperationDispatcher
                 Status = OperationStatus.Completed,
                 Data = new
                 {
-                    hostInstanceId = _identity.InstanceId,
-                    processId = _identity.ProcessId,
-                    startedAtUtc = _identity.StartedAtUtc.ToString("O"),
-                    appVersion = _identity.AppVersion,
+                    hostInstanceId = _state.Identity.InstanceId,
+                    processId = _state.Identity.ProcessId,
+                    startedAtUtc = _state.Identity.StartedAtUtc.ToString("O"),
+                    appVersion = _state.Identity.AppVersion,
                     apiVersion = ApiConstants.ApiVersion,
-                    libraryInitialized = false,
+                    libraryInitialized = _state.Library.Initialized,
+                    libraryState = _state.Library.Status.ToString(),
+                    libraryInstanceId = _state.Library.LibraryInstanceId,
+                    dataEpoch = _state.Library.DataEpoch,
+                    schemaVersion = _state.Library.SchemaVersion,
                 },
             },
             "capabilities.get" => new Envelope<object>

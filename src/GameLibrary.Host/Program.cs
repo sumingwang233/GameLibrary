@@ -42,7 +42,7 @@ internal static class Program
         HostRuntime runtime;
         try
         {
-            runtime = HostRuntime.Start(dataDir, host.Services.GetRequiredService<ILoggerFactory>());
+            runtime = await HostRuntime.StartAsync(dataDir, host.Services.GetRequiredService<ILoggerFactory>());
         }
         catch (InvalidOperationException ex)
         {

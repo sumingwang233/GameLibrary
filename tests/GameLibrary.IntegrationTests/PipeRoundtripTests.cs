@@ -1,7 +1,9 @@
 using GameLibrary.Contracts.Ipc;
+using GameLibrary.Host;
 using GameLibrary.Host.Hosting;
 using GameLibrary.Host.Ipc;
 using GameLibrary.HostClient;
+using GameLibrary.Infrastructure.Persistence;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -92,12 +94,18 @@ public sealed class PipeServerFixture : IAsyncDisposable
     {
         TestId = Guid.NewGuid().ToString("N");
         Identity = new HostIdentity();
+        State = new HostRuntimeState
+        {
+            Identity = Identity,
+            Library = HostLibraryState.NotInitialized(
+                GameLibrary.Infrastructure.Persistence.LibraryOpenStatus.NeedsInitialization, null),
+        };
         var dataDir = DataDirectory.Resolve(@$"D:\Official\GameLibrary\artifacts\test-runs\{TestId}\data");
         Assert.True(dataDir.IsValid);
         Server = new PipeServer(
             ChannelNames.PipeName(dataDir.ComparisonKey!),
-            Identity,
-            new OperationDispatcher(Identity),
+            State,
+            new OperationDispatcher(State),
             NullLogger.Instance);
         Server.Start();
     }
@@ -105,6 +113,8 @@ public sealed class PipeServerFixture : IAsyncDisposable
     public string TestId { get; }
 
     public HostIdentity Identity { get; }
+
+    public HostRuntimeState State { get; }
 
     public PipeServer Server { get; }
 

@@ -57,6 +57,65 @@ public sealed class HostProcessE2ETests
         }
     }
 
+    [Fact]
+    public async Task HostProcess_WithInitializedLibrary_ReportsLibraryInHandshakeAndStatus()
+    {
+        Assert.True(File.Exists(HostExePath), $"找不到宿主可执行文件：{HostExePath}");
+        var testId = Guid.NewGuid().ToString("N");
+        var dataDir = @$"D:\Official\GameLibrary\artifacts\test-runs\{testId}\data";
+        Directory.CreateDirectory(dataDir);
+
+        var library = await GameLibrary.Infrastructure.Persistence.SqliteLibraryStore.InitializeAsync(
+            dataDir,
+            new GameLibrary.Infrastructure.Persistence.SqliteLibraryStoreOptions
+            {
+                AppVersion = "0.1.0-dev",
+                ApiVersion = "1",
+            },
+            CancellationToken.None);
+        Assert.True(library.IsOpened, library.Detail);
+        var instanceId = library.Store!.Info.LibraryInstanceId;
+        var epoch = library.Store.Info.DataEpoch;
+        await library.Store.DisposeAsync();
+
+        using var host = StartHost(dataDir);
+        try
+        {
+            await using var client = await WaitForHostAsync(dataDir);
+
+            Assert.True(client.Handshake.LibraryInitialized);
+            Assert.Equal(instanceId, client.Handshake.LibraryInstanceId);
+            Assert.Equal(epoch, client.Handshake.DataEpoch);
+
+            var envelope = await client.InvokeAsync(
+                new Contracts.Ipc.IpcRequest { RequestId = "e2e-lib-1", OperationId = "host.status" },
+                CancellationToken.None);
+            Assert.True(envelope.Ok);
+            Assert.Equal("Opened", envelope.Data.GetProperty("libraryState").GetString());
+            Assert.Equal(instanceId, envelope.Data.GetProperty("libraryInstanceId").GetString());
+            Assert.Equal(epoch, envelope.Data.GetProperty("dataEpoch").GetString());
+        }
+        finally
+        {
+            if (!host.HasExited)
+            {
+                host.Kill(entireProcessTree: true);
+                await WaitForExitAsync(host, TimeSpan.FromSeconds(10));
+            }
+
+            if (Directory.Exists(@$"D:\Official\GameLibrary\artifacts\test-runs\{testId}"))
+            {
+                try
+                {
+                    Directory.Delete(@$"D:\Official\GameLibrary\artifacts\test-runs\{testId}", recursive: true);
+                }
+                catch (IOException)
+                {
+                }
+            }
+        }
+    }
+
     private static Process StartHost(string dataDir)
     {
         return Process.Start(new ProcessStartInfo

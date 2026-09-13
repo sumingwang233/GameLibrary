@@ -40,3 +40,11 @@
 - **实现要点**：目录单一来源嵌入程序集，可用性由代码声明（tools/list 不列未实现）；CLI JSON/退出码/stderr 分离；宿主拉起用 ShellExecute 避免句柄继承（修复管道捕获挂死缺陷）+ --detach-stdio。
 - **未验证范围**：MCP Resources 模板、退出码全分支、跨用户/提权矩阵、断连注入（随 T23/T29 与首个数据操作落地）。
 - **下一项**：按依赖图，T10（Persistence 基础，前置 T01/T20/T21 已就绪）。
+
+## T10 Persistence 基础 — 2026-09-13 完成（A/B/C 三个小提交）
+
+- **改动文件**：`src/GameLibrary.Infrastructure/Persistence/`（SqliteLibraryStore/DatabaseMigrations/Options/LibraryOpenResult）、`src/GameLibrary.Host/`（HostLibraryState/HostRuntimeState、HostRuntime.StartAsync 打开库、握手与 host.status 上报真实库状态）、`tests/GameLibrary.IntegrationTests/Persistence/`（15 项）+ 带库宿主 E2E（1 项）。
+- **验证结果**：累计 121 项测试通过；format 通过。报告：`artifacts/build-reports/2026-09-13-t10.md`。
+- **实现要点**：WAL/外键/busy_timeout/Pooling=False；schema_info 版本；损坏与 0 字节不建空库；连续版本单事务迁移+迁移前快照+失败不半升级；SQLite 备份 API 一致快照；dataEpoch 更换持久化；Host 唯一连接所有者。
+- **未验证范围**：迁移边界故障注入与恢复控制区（T27）；业务表/实体 Revision 随 T11/T23 追加迁移；RecoveryRequired 操作级限制随权限模型（T23）。
+- **下一项**：T02（Filesystem：分段/取消/暂停、安全游标、规则优先级和覆盖字段）。

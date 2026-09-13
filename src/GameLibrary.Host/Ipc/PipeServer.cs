@@ -13,7 +13,7 @@ namespace GameLibrary.Host.Ipc;
 public sealed class PipeServer : IAsyncDisposable
 {
     private readonly string _pipeName;
-    private readonly HostIdentity _identity;
+    private readonly HostRuntimeState _state;
     private readonly OperationDispatcher _dispatcher;
     private readonly ILogger _logger;
     private readonly CancellationTokenSource _shutdown = new();
@@ -21,10 +21,10 @@ public sealed class PipeServer : IAsyncDisposable
     private readonly object _clientsLock = new();
     private Task? _acceptLoop;
 
-    public PipeServer(string pipeName, HostIdentity identity, OperationDispatcher dispatcher, ILogger logger)
+    public PipeServer(string pipeName, HostRuntimeState state, OperationDispatcher dispatcher, ILogger logger)
     {
         _pipeName = pipeName;
-        _identity = identity;
+        _state = state;
         _dispatcher = dispatcher;
         _logger = logger;
     }
@@ -86,9 +86,11 @@ public sealed class PipeServer : IAsyncDisposable
             await IpcFrame.WriteJsonAsync(pipe, new HandshakeResponse
             {
                 ApiVersion = ApiConstants.ApiVersion,
-                HostInstanceId = _identity.InstanceId,
-                LibraryInitialized = false,
-                AppVersion = _identity.AppVersion,
+                HostInstanceId = _state.Identity.InstanceId,
+                LibraryInstanceId = _state.Library.LibraryInstanceId,
+                DataEpoch = _state.Library.DataEpoch,
+                LibraryInitialized = _state.Library.Initialized,
+                AppVersion = _state.Identity.AppVersion,
             }, ct);
 
             while (!ct.IsCancellationRequested && pipe.IsConnected)
