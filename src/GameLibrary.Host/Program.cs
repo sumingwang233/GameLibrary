@@ -27,13 +27,16 @@ internal static class Program
         }
 
         var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder([]);
+        // 显式只留 Console：默认的 Windows EventLog 提供程序需要
+        // System.Diagnostics.EventLog 程序集，自包含布局下可能缺失导致启动崩溃。
+        builder.Logging.ClearProviders();
         if (detachStdio)
         {
             // 后台模式无控制台；文件日志在可观测性任务（T24）落地。
-            builder.Logging.ClearProviders();
         }
         else
         {
+            builder.Logging.AddConsole();
             builder.Logging.SetMinimumLevel(LogLevel.Information);
         }
 

@@ -136,5 +136,12 @@ public static class DatabaseMigrations
                 updated_utc TEXT NOT NULL
             )
             """),
+        new DatabaseMigration(11, """
+            CREATE TABLE app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_utc TEXT NOT NULL
+            )
+            """),
     ];
 }

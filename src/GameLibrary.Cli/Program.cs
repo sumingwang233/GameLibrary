@@ -70,6 +70,8 @@ internal static class Program
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "notifications.list" or "notifications.get" or "notifications.acknowledge" or "notifications.defer" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
+                "settings.get" or "settings.update" or "settings.reset" =>
+                    await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "host.stop" => await HostStopAsync(parse),
                 "launch.plan" or "launch.execute" or "launch.status" or "launch.history" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
@@ -253,6 +255,14 @@ internal static class Program
             return ExitArgumentError;
         }
 
+        if (operationId is "settings.update"
+            && cli.ExpectedRevision is null
+            && cli.Autostart is null && cli.Interval is null && cli.Theme is null && cli.CloseToTray is null)
+        {
+            Console.Error.WriteLine("settings update 需要 --expected-revision 与至少一个设置字段（--autostart/--no-autostart、--interval、--theme、--close-to-tray/--no-close-to-tray）");
+            return ExitArgumentError;
+        }
+
         if (operationId is "views.get" or "views.update" or "views.remove" or "views.activate" && cli.ViewId is null)
         {
             Console.Error.WriteLine($"{string.Join(' ', cli.Words)} 需要 --view-id");
@@ -325,6 +335,20 @@ internal static class Program
             {
                 idempotencyKey = cli.IdempotencyKey ?? $"def-{cli.NotificationId}",
                 notificationId = cli.NotificationId,
+            },
+            "settings.get" => new { },
+            "settings.update" => new
+            {
+                idempotencyKey = cli.IdempotencyKey ?? $"setupd-{Guid.NewGuid():N}",
+                expectedRevision = cli.ExpectedRevision,
+                autostartEnabled = cli.Autostart,
+                scanIntervalMinutes = cli.Interval,
+                theme = cli.Theme,
+                closeToTray = cli.CloseToTray,
+            },
+            "settings.reset" => new
+            {
+                idempotencyKey = cli.IdempotencyKey ?? $"setreset-{Guid.NewGuid():N}",
             },
             "games.relink" => new
             {

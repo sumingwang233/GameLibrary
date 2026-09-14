@@ -230,3 +230,11 @@
 - **实现要点**：ack≠accept（响应带 nextActions 引导显式候选决定）；acknowledged/deferred 批不复活；host.stop 不依赖业务库、响应送达后延迟停机；关闭缩托盘、"退出界面"与"停止后台并退出"语义分离。
 - **未验证范围**：Windows 气泡/全屏专注模式（需实机手测）；开机启动（settings.*）。
 - **下一项**：settings.*（三入口设置 + 视图激活持久化）或 T19 前的补全任务。
+
+## settings.* 三入口 + 持久化 + 开机启动 — 2026-09-14 完成
+
+- **改动文件**：`DatabaseMigrations.cs`（v11：app_settings）、`SettingsStore.cs`（新）、`StartupShortcutManager.cs`（新：启动文件夹 .lnk，目录可注入）、`SqliteLibraryStore.cs`（转发）、`OperationDispatcher.cs`（settings 三操作 + views.activate/remove 持久化激活视图）、HostRuntime（启动读取设置：恢复激活视图 + 核对间隔生效）、Host/Program（日志提供程序显式化修复启动崩溃）、Contracts（+3 操作、+ConfigurationInvalid）、Cli/Mcp（+3 三入口）、`SettingsTests.cs`（7 项）。
+- **验证结果**：累计 337 项测试通过；format 通过。报告：`artifacts/build-reports/2026-09-14-settings.md`。
+- **实现要点**：受限字段 patch（未知拒绝）；开机启动走启动文件夹快捷方式（不碰注册表/服务/环境变量）；activeViewId 三处写一致 + 启动恢复；扫描间隔启动时生效。
+- **未验证范围**：theme/closeToTray 的 Desktop 消费；实机重启验证开机启动；间隔动态调整需重启。
+- **下一项**：T23-B/T24-B 语义收尾，或 T26/T27 性能与恢复演练。

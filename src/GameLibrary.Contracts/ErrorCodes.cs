@@ -11,6 +11,7 @@ public static class ErrorCodes
     public const string UnsupportedPath = "UnsupportedPath";
     public const string NotFound = "NotFound";
     public const string UnsupportedOperation = "UnsupportedOperation";
+    public const string ConfigurationInvalid = "ConfigurationInvalid";
     public const string InternalError = "InternalError";
     public const string RevisionConflict = "RevisionConflict";
     public const string IdempotencyConflict = "IdempotencyConflict";
@@ -51,6 +52,7 @@ public static class ErrorCodes
         NotFound,
         UnsupportedOperation,
         InternalError,
+        ConfigurationInvalid,
         RevisionConflict,
         IdempotencyConflict,
         PermissionDenied,

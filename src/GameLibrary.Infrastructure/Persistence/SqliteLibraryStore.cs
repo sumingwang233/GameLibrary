@@ -102,6 +102,15 @@ public sealed class SqliteLibraryStore : IAsyncDisposable
     public NotificationBatch? TransitionNotification(string notificationId, string toState, DateTime utcNow) =>
         NotificationStore.TransitionBatch(_connection, notificationId, toState, utcNow);
 
+    // settings 转发。
+
+    public AppSettingsSnapshot ReadSettings() => SettingsStore.Read(_connection);
+
+    public int WriteSettingsKeys(IEnumerable<(string Key, string? Value)> keys, DateTime utcNow) =>
+        SettingsStore.WriteKeys(_connection, keys, utcNow);
+
+    public int ResetSettings(DateTime utcNow) => SettingsStore.ResetAll(_connection, utcNow);
+
     // T15-C 自定义视图转发。
 
     public void InsertView(LibraryView view) => LibraryViewStore.InsertView(_connection, view);

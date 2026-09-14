@@ -63,6 +63,8 @@ public sealed class OperationDispatcher
         "views.activate",
         "notifications.acknowledge",
         "notifications.defer",
+        "settings.update",
+        "settings.reset",
         "scan.start",
         "candidates.accept",
         "candidates.defer",
@@ -460,6 +462,9 @@ public sealed class OperationDispatcher
         "notifications.get" => NotificationsGet(request),
         "notifications.acknowledge" => NotificationTransition(request, "acknowledged"),
         "notifications.defer" => NotificationTransition(request, "deferred"),
+        "settings.get" => SettingsGet(request),
+        "settings.update" => SettingsUpdate(request),
+        "settings.reset" => SettingsReset(request),
         "host.stop" => HostStop(request),
         "launch.plan" => LaunchPlanHandler(request),
         "launch.execute" => LaunchExecute(request),
@@ -1952,6 +1957,7 @@ public sealed class OperationDispatcher
         if (string.Equals(_state.ActiveViewId, viewId, StringComparison.Ordinal))
         {
             _state.ActiveViewId = null;
+            store.WriteSettingsKeys([("activeViewId", null)], DateTime.UtcNow);
         }
 
         _state.Events.Publish("view.updated", $"view:{viewId}", new { viewId, removed = true }, DateTime.UtcNow);
@@ -1986,6 +1992,8 @@ public sealed class OperationDispatcher
         }
 
         _state.ActiveViewId = viewId;
+        // T-settings：激活视图持久化（跨重启恢复）。
+        store.WriteSettingsKeys([("activeViewId", viewId)], DateTime.UtcNow);
         _state.Events.Publish("view.activated", $"view:{viewId}", new { viewId }, DateTime.UtcNow);
         return new Envelope<object>
         {
@@ -2161,6 +2169,267 @@ public sealed class OperationDispatcher
             NextActions = nextActions,
         };
     }
+
+    /// <summary>
+    /// settings.get：返回快照（受限字段集 + 单调 Revision）。字段应用点：
+    /// activeViewId（宿主恢复/保存）、scanIntervalMinutes（宿主启动时构造核对周期）、
+    /// autostartEnabled（启动文件夹快捷方式）；theme/closeToTray 供 Desktop 消费。
+    /// </summary>
+    private Envelope<object> SettingsGet(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = SettingsDto(store.ReadSettings()),
+        };
+    }
+
+    /// <summary>
+    /// settings.update：受限字段 patch（未知字段拒绝）；期望 Revision 乐观校验。
+    /// autostartEnabled 先应用启动文件夹快捷方式（不写注册表），成功后才落库。
+    /// </summary>
+    private Envelope<object> SettingsUpdate(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!TryGetIntParameter(request, "expectedRevision", out var expectedRevision) || expectedRevision is null)
+        {
+            return InvalidArgument(request, "缺少 expectedRevision 参数");
+        }
+
+        if (request.Parameters is not { ValueKind: JsonValueKind.Object } parameters)
+        {
+            return InvalidArgument(request, "缺少 patch 字段");
+        }
+
+        var declared = new HashSet<string>(StringComparer.Ordinal)
+            { "expectedRevision", "idempotencyKey", "activeViewId", "autostartEnabled", "scanIntervalMinutes", "theme", "closeToTray" };
+        var unknown = parameters.EnumerateObject()
+            .Where(p => !declared.Contains(p.Name))
+            .Select(p => p.Name)
+            .ToArray();
+        if (unknown.Length > 0)
+        {
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = ErrorCodes.InvalidArgument,
+                    Message = $"未知 patch 字段：{string.Join(", ", unknown)}",
+                    Retryable = false,
+                },
+            };
+        }
+
+        var current = store.ReadSettings();
+        if (current.Revision != expectedRevision.Value)
+        {
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = ErrorCodes.RevisionConflict,
+                    Message = $"设置 Revision 不一致：期望 {expectedRevision}，当前 {current.Revision}",
+                    Retryable = false,
+                    CurrentRevision = current.Revision,
+                },
+            };
+        }
+
+        string? activeViewId = current.ActiveViewId;
+        var autostartEnabled = current.AutostartEnabled;
+        var scanIntervalMinutes = current.ScanIntervalMinutes;
+        var theme = current.Theme;
+        var closeToTray = current.CloseToTray;
+        var keys = new List<(string Key, string? Value)>();
+
+        if (parameters.TryGetProperty("activeViewId", out var viewElement))
+        {
+            if (viewElement.ValueKind is JsonValueKind.Null)
+            {
+                activeViewId = null;
+                keys.Add(("activeViewId", null));
+            }
+            else if (viewElement.ValueKind == JsonValueKind.String)
+            {
+                var viewId = viewElement.GetString();
+                var known = GameLibrary.Infrastructure.Persistence.BuiltInViews.All.Any(v => v.ViewId == viewId)
+                    || store.TryGetView(viewId!) is not null;
+                if (!known)
+                {
+                    return InvalidArgument(request, $"视图不存在：{viewId}");
+                }
+
+                activeViewId = viewId;
+                keys.Add(("activeViewId", viewId));
+            }
+            else
+            {
+                return InvalidArgument(request, "activeViewId 必须是字符串或 null");
+            }
+        }
+
+        if (parameters.TryGetProperty("autostartEnabled", out var autostartElement))
+        {
+            if (autostartElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            {
+                return InvalidArgument(request, "autostartEnabled 必须是布尔值");
+            }
+
+            var desired = autostartElement.ValueKind == JsonValueKind.True;
+            if (desired != current.AutostartEnabled)
+            {
+                var manager = _state.StartupShortcuts;
+                var result = desired ? manager.Enable() : manager.Disable();
+                if (!result.Success)
+                {
+                    return new Envelope<object>
+                    {
+                        RequestId = request.RequestId,
+                        Ok = false,
+                        Status = OperationStatus.Failed,
+                        Error = new RequestError
+                        {
+                            Code = ErrorCodes.ConfigurationInvalid,
+                            Message = $"开机启动配置失败：{result.Error}",
+                            Retryable = true,
+                        },
+                    };
+                }
+            }
+
+            autostartEnabled = desired;
+            keys.Add(("autostartEnabled", desired ? "true" : null));
+        }
+
+        if (parameters.TryGetProperty("scanIntervalMinutes", out var intervalElement))
+        {
+            if (intervalElement.ValueKind != JsonValueKind.Number || !intervalElement.TryGetInt32(out var interval)
+                || interval is < 1 or > 10080)
+            {
+                return InvalidArgument(request, "scanIntervalMinutes 必须是 1–10080 的整数（分钟）");
+            }
+
+            scanIntervalMinutes = interval;
+            keys.Add(("scanIntervalMinutes", interval.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        }
+
+        if (parameters.TryGetProperty("theme", out var themeElement))
+        {
+            if (themeElement.ValueKind != JsonValueKind.String
+                || themeElement.GetString() is not ("dark" or "light" or "system"))
+            {
+                return InvalidArgument(request, "theme 只支持 dark/light/system");
+            }
+
+            theme = themeElement.GetString()!;
+            keys.Add(("theme", theme));
+        }
+
+        if (parameters.TryGetProperty("closeToTray", out var trayElement))
+        {
+            if (trayElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            {
+                return InvalidArgument(request, "closeToTray 必须是布尔值");
+            }
+
+            closeToTray = trayElement.ValueKind == JsonValueKind.True;
+            keys.Add(("closeToTray", closeToTray ? "true" : null));
+        }
+
+        var newRevision = keys.Count > 0
+            ? store.WriteSettingsKeys(keys, DateTime.UtcNow)
+            : current.Revision;
+        _state.ActiveViewId = activeViewId;
+        _state.Events.Publish("settings.updated", "settings", new { revision = newRevision }, DateTime.UtcNow);
+
+        var updated = current with
+        {
+            Revision = newRevision,
+            ActiveViewId = activeViewId,
+            AutostartEnabled = autostartEnabled,
+            ScanIntervalMinutes = scanIntervalMinutes,
+            Theme = theme,
+            CloseToTray = closeToTray,
+        };
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = SettingsDto(updated),
+        };
+    }
+
+    /// <summary>settings.reset：恢复默认值；开机启动一并关闭（移除快捷方式）。</summary>
+    private Envelope<object> SettingsReset(IpcRequest request)
+    {
+        var store = _state.Library.Store;
+        if (store is null)
+        {
+            return InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        var current = store.ReadSettings();
+        if (current.AutostartEnabled)
+        {
+            var result = _state.StartupShortcuts.Disable();
+            if (!result.Success)
+            {
+                return new Envelope<object>
+                {
+                    RequestId = request.RequestId,
+                    Ok = false,
+                    Status = OperationStatus.Failed,
+                    Error = new RequestError
+                    {
+                        Code = ErrorCodes.ConfigurationInvalid,
+                        Message = $"移除开机启动快捷方式失败：{result.Error}",
+                        Retryable = true,
+                    },
+                };
+            }
+        }
+
+        var revision = store.ResetSettings(DateTime.UtcNow);
+        _state.ActiveViewId = null;
+        _state.Events.Publish("settings.updated", "settings", new { revision, reset = true }, DateTime.UtcNow);
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = SettingsDto(AppSettingsSnapshot.Defaults(revision)),
+        };
+    }
+
+    private static object SettingsDto(AppSettingsSnapshot settings) => new
+    {
+        revision = settings.Revision,
+        activeViewId = settings.ActiveViewId,
+        autostartEnabled = settings.AutostartEnabled,
+        scanIntervalMinutes = settings.ScanIntervalMinutes,
+        theme = settings.Theme,
+        closeToTray = settings.CloseToTray,
+    };
 
     /// <summary>
     /// host.stop（T18）：先返回已接收收据，随后在响应送达后请求宿主优雅停机

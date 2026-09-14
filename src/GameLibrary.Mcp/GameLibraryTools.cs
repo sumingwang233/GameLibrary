@@ -368,6 +368,37 @@ public static class GameLibraryTools
         return ToToolResult(envelope);
     }
 
+    [McpServerTool(Name = "settings_get")]
+    [Description("读取应用设置快照：激活视图、开机启动、核对周期、主题、托盘行为与 Revision。")]
+    public static Task<CallToolResult> SettingsGet() =>
+        InvokeOperationAsync("settings.get", new { });
+
+    [McpServerTool(Name = "settings_update")]
+    [Description("更新受限设置字段；未知字段拒绝。autostart 通过用户启动文件夹快捷方式实现（不写注册表）。参数：expectedRevision 与任意字段组合、idempotencyKey。")]
+    public static Task<CallToolResult> SettingsUpdate(
+        [Description("期望的设置 Revision")] int expectedRevision,
+        [Description("激活视图 ID（或 null 清除）")] string? activeViewId = null,
+        [Description("开机启动")] bool? autostartEnabled = null,
+        [Description("周期核对间隔（分钟，1-10080）")] int? scanIntervalMinutes = null,
+        [Description("主题 dark/light/system")] string? theme = null,
+        [Description("关闭窗口缩到托盘")] bool? closeToTray = null,
+        [Description("幂等键")] string? idempotencyKey = null) =>
+        InvokeOperationAsync("settings.update", new
+        {
+            idempotencyKey = idempotencyKey ?? $"setupd-{Guid.NewGuid():N}",
+            expectedRevision,
+            activeViewId,
+            autostartEnabled,
+            scanIntervalMinutes,
+            theme,
+            closeToTray,
+        });
+
+    [McpServerTool(Name = "settings_reset")]
+    [Description("恢复默认设置；开机启动一并关闭。参数：idempotencyKey。")]
+    public static Task<CallToolResult> SettingsReset([Description("幂等键")] string? idempotencyKey = null) =>
+        InvokeOperationAsync("settings.reset", new { idempotencyKey = idempotencyKey ?? $"setreset-{Guid.NewGuid():N}" });
+
     [McpServerTool(Name = "views_list")]
     [Description("列出内置与自定义视图及当前激活视图。")]
     public static Task<CallToolResult> ViewsList() =>

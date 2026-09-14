@@ -132,6 +132,8 @@ public sealed class PipeServerFixture : IAsyncDisposable
             AuditLog = new GameLibrary.Host.Observability.AuditLogWriter(
                 System.IO.Path.Combine(dataDir.CanonicalPath!, "logs")),
         };
+        StartupDir = System.IO.Path.Combine(dataDir.CanonicalPath!, "startup");
+        State.StartupShortcuts = new GameLibrary.Infrastructure.Shell.StartupShortcutManager(StartupDir);
         Server = new PipeServer(
             ChannelNames.PipeName(dataDir.ComparisonKey!),
             State,
@@ -147,6 +149,9 @@ public sealed class PipeServerFixture : IAsyncDisposable
     public HostRuntimeState State { get; }
 
     public PipeServer Server { get; }
+
+    /// <summary>测试注入的启动文件夹（settings 开机启动用）。</summary>
+    public string StartupDir { get; }
 
     public async ValueTask DisposeAsync()
     {

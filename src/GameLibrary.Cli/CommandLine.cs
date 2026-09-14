@@ -112,6 +112,18 @@ internal sealed record CommandLine
     /// <summary>notifications 的 --notification-id 参数。</summary>
     public string? NotificationId { get; private init; }
 
+    /// <summary>settings update 的 --autostart/--no-autostart 标记。</summary>
+    public bool? Autostart { get; private init; }
+
+    /// <summary>settings update 的 --interval 参数（核对周期分钟数）。</summary>
+    public int? Interval { get; private init; }
+
+    /// <summary>settings update 的 --theme 参数（dark/light/system）。</summary>
+    public string? Theme { get; private init; }
+
+    /// <summary>settings update 的 --close-to-tray/--no-close-to-tray 标记。</summary>
+    public bool? CloseToTray { get; private init; }
+
     /// <summary>views 的 --view-id 参数。</summary>
     public string? ViewId { get; private init; }
 
@@ -178,6 +190,10 @@ internal sealed record CommandLine
         var favoriteOnly = false;
         string? newPath = null;
         string? notificationId = null;
+        bool? autostart = null;
+        int? interval = null;
+        string? theme = null;
+        bool? closeToTray = null;
         var argList = new List<string>();
         var noStart = false;
         var timeout = 30;
@@ -294,6 +310,25 @@ internal sealed record CommandLine
                 case "--notification-id" when i + 1 < args.Length:
                     notificationId = args[++i];
                     break;
+                case "--autostart":
+                    autostart = true;
+                    break;
+                case "--no-autostart":
+                    autostart = false;
+                    break;
+                case "--interval" when i + 1 < args.Length && int.TryParse(args[i + 1], out var intervalValue):
+                    interval = intervalValue;
+                    i++;
+                    break;
+                case "--theme" when i + 1 < args.Length:
+                    theme = args[++i];
+                    break;
+                case "--close-to-tray":
+                    closeToTray = true;
+                    break;
+                case "--no-close-to-tray":
+                    closeToTray = false;
+                    break;
                 case "--name" when i + 1 < args.Length:
                     name = args[++i];
                     break;
@@ -343,6 +378,7 @@ internal sealed record CommandLine
                 => verb == "set-default" ? "profiles.set_default" : $"profiles.{verb}",
             "views" when verb is "list" or "get" or "create" or "update" or "remove" or "activate" => $"views.{verb}",
             "notifications" when verb is "list" or "get" or "acknowledge" or "defer" => $"notifications.{verb}",
+            "settings" when verb is "get" or "update" or "reset" => $"settings.{verb}",
             "launch" when verb is "plan" or "execute" or "status" or "history" => $"launch.{verb}",
             "jobs" when verb is "get" or "list" or "wait" or "cancel" => verb == "get" ? "jobs.get" : null,
             _ => null,
@@ -394,6 +430,10 @@ internal sealed record CommandLine
             FavoriteOnly = favoriteOnly,
             NewPath = newPath,
             NotificationId = notificationId,
+            Autostart = autostart,
+            Interval = interval,
+            Theme = theme,
+            CloseToTray = closeToTray,
             NoStart = noStart,
             TimeoutSeconds = timeout,
         };

@@ -69,10 +69,21 @@ public sealed class HostRuntime : IAsyncDisposable
             Coordinator = null!,
             NotifyStopRequested = notifyStopRequested,
         };
+
+        // settings（T-settings）：库就绪后读取持久化设置——激活视图恢复、核对周期生效。
+        TimeSpan reconcileInterval = ScanCoordinator.DefaultInterval;
+        if (library.Store is not null)
+        {
+            var settings = library.Store.ReadSettings();
+            runtimeState.ActiveViewId = settings.ActiveViewId;
+            reconcileInterval = TimeSpan.FromMinutes(settings.ScanIntervalMinutes);
+        }
+
         runtimeState.Coordinator = new ScanCoordinator(
             runtimeState.Roots,
             events,
-            rootPath => RunReconcileScan(runtimeState, rootPath));
+            rootPath => RunReconcileScan(runtimeState, rootPath),
+            reconcileInterval);
 
         var logger = loggerFactory.CreateLogger<PipeServer>();
         var server = new PipeServer(
@@ -213,4 +224,8 @@ public sealed class HostRuntimeState
     /// dispatcher 在响应写出前调用，实现内部延迟触发以保证客户端先收到结果。
     /// </summary>
     public Action? NotifyStopRequested { get; init; }
+
+    /// <summary>开机启动快捷方式管理（settings）：目录可注入（测试/绿色部署）；默认用户启动文件夹。</summary>
+    public GameLibrary.Infrastructure.Shell.StartupShortcutManager StartupShortcuts { get; set; } =
+        new();
 }
