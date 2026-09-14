@@ -295,3 +295,10 @@
 - **关键数字**：热扫 429 ms / 1,000 目录（≈2,329 目录/秒）；内存增量 0 MiB（≤256 MiB 达标）；取消停止 P95 = 2 ms（≤2000 ms 达标）。
 - **如实声明**：缩减规模 1/10，全量 10 万文件版用同一生成器在 T30 前复核。
 - **下一项**：T19/T30 发布验收。
+
+## T19 发布与文档（v1 内部版）— 2026-09-14 完成
+
+- **改动文件**：`artifacts/publish/win-x64/`（四组件自包含发布 + README.txt）、`artifacts/GameLibrary-win-x64.zip`（73 MiB）、`artifacts/build-reports/2026-09-14-t19.md`。
+- **验证结果**：REC-05 近似冒烟全过——发布目录直接运行 capabilities/host status(±no-start)/library init/host stop，自包含无需 SDK；优雅停机复核 running:false。
+- **如实声明**：真"无 SDK 机器"验证、F 盘实盘全盘扫描覆盖、10 万文件全量性能复核、REC-02 宿主崩溃续演 → T30 前手动步骤。
+- **下一项**：T30 发布前统一验收（核对清单逐项过）。
