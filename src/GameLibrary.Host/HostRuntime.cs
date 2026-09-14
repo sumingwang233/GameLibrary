@@ -54,21 +54,24 @@ public sealed class HostRuntime : IAsyncDisposable
         var identity = new HostIdentity();
         var library = await OpenLibraryAsync(resolved.CanonicalPath!, identity, loggerFactory, ct);
         var events = new EventStream(library.Store);
+        var metrics = new Observability.HostMetrics();
         var runtimeState = new HostRuntimeState
         {
             Identity = identity,
             DataDirectory = resolved.CanonicalPath!,
             Library = library,
-            Jobs = new JobManager(),
+            Jobs = new JobManager { OnJobFinished = metrics.RecordJobFinished },
             Candidates = new CandidateRegistry(),
             Launches = new Launching.LaunchRegistry(),
             Roots = new RootRegistry(),
             AuditLog = new Observability.AuditLogWriter(
                 Path.Combine(resolved.CanonicalPath!, "logs")),
+            Metrics = metrics,
             Events = events,
             Coordinator = null!,
             NotifyStopRequested = notifyStopRequested,
         };
+        events.OnPublished = (coalesced, overflowed) => metrics.RecordEventPublished(coalesced, overflowed);
 
         // settings（T-settings）：库就绪后读取持久化设置——激活视图恢复、核对周期生效。
         TimeSpan reconcileInterval = ScanCoordinator.DefaultInterval;
@@ -203,6 +206,9 @@ public sealed class HostRuntimeState
 
     /// <summary>业务审计日志（T24）：JSONL 追加、轮转与保留期受控。</summary>
     public required Observability.AuditLogWriter AuditLog { get; init; }
+
+    /// <summary>运行指标（T24-B）：请求延迟/错误码、事件计数、作业终态；经 diagnostics.status 暴露。</summary>
+    public required Observability.HostMetrics Metrics { get; init; }
 
     /// <summary>库事件流（T16）：容量 4096、2s 折叠、游标增量读取。</summary>
     public required Scanning.EventStream Events { get; init; }

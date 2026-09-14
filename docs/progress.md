@@ -246,3 +246,11 @@
 - **实现要点**：发布同步落库（折叠 UPSERT 同序号，与 T16 游标语义一致）；序号跨重启单调；events.read 库优先 + 当前 epoch 过滤 + CursorExpired；保留 7 天/100,000 条惰性裁剪；落库失败不阻塞业务。
 - **未验证范围**：恢复演练端到端（REC-02）；裁剪性能（T25）。
 - **下一项**：T24-B（诊断指标深化）或 T26/T27。
+
+## T24-B 诊断指标深化 — 2026-09-14 完成
+
+- **改动文件**：`Observability/HostMetrics.cs`（新）、`EventStream.cs`（OnPublished 回调 + OccupiedSlots/OverflowedCount）、`JobManager.cs`（OnJobFinished 回调）、HostRuntime（指标实例 + 三处接线）、`OperationDispatcher.cs`（RecordRequest + diagnostics.status 扩展 metrics/eventStream 段）、PipeRoundtrip 夹具适配、`MetricsTests.cs`（2 项）。
+- **验证结果**：累计 341 项测试通过；format 通过。报告：`artifacts/build-reports/2026-09-14-t24b.md`。
+- **实现要点**：请求延迟/错误码计数与审计同源同值；事件发布/折叠/槽淘汰计数；作业终态计数；diagnostics.status 新增 metrics 与 eventStream 段。
+- **未验证范围**：SQLite 提交延迟/首屏/UI 帧时长/图片缓存命中（T26）；枚举吞吐（T25）；指标跨进程汇总。
+- **下一项**：T26/T27 性能与恢复演练，或 T28 覆盖审计。

@@ -107,6 +107,7 @@ public sealed class OperationDispatcher
             ResultCode = result.Ok ? result.Status.ToString() : result.Error?.Code ?? "Unknown",
             DurationMs = started.ElapsedMilliseconds,
         });
+        _state.Metrics.RecordRequest(request.OperationId, result.Ok, result.Ok ? null : result.Error?.Code, started.ElapsedMilliseconds);
         return result;
     }
 
@@ -2480,6 +2481,12 @@ public sealed class OperationDispatcher
                     retentionDays = Observability.AuditLogWriter.DefaultRetentionDays,
                 },
                 jobs = new { activeCount = _state.Jobs.ActiveJobCount() },
+                metrics = _state.Metrics.ToDto(),
+                eventStream = new
+                {
+                    occupiedSlots = _state.Events.OccupiedSlots,
+                    overflowed = _state.Events.OverflowedCount,
+                },
             },
         };
     }

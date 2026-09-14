@@ -38,6 +38,25 @@ public sealed class EventStream
     private long _sequence;
     private int _head; // 下一写入位
 
+    /// <summary>指标计数（T24-B）：占用量与淘汰次数。</summary>
+    private long _overflowed;
+
+    public long OccupiedSlots
+    {
+        get
+        {
+            lock (_ring)
+            {
+                return _ring.Count(s => s is not null);
+            }
+        }
+    }
+
+    public long OverflowedCount => Interlocked.Read(ref _overflowed);
+
+    /// <summary>发布指标回调（T24-B）：参数为 (是否折叠, 是否发生槽淘汰)。HostRuntime 接线到 HostMetrics。</summary>
+    public Action<bool, bool>? OnPublished { get; set; }
+
     public EventStream(SqliteLibraryStore? store = null)
     {
         _store = store;
@@ -69,6 +88,7 @@ public sealed class EventStream
                     };
                     _ring[existingIndex] = merged;
                     Persist(merged);
+                    OnPublished?.Invoke(true, false);
                     return ToEvent(merged);
                 }
             }
@@ -80,6 +100,7 @@ public sealed class EventStream
             {
                 // 槽被复用：清除旧实体索引（最旧事件自然淘汰）。
                 _indexByEntity.TryRemove(new KeyValuePair<string, int>(overwritten.EntityKey, index));
+                Interlocked.Increment(ref _overflowed);
             }
 
             var slot = new Slot(next, utcNow, type, entityKey, payloadJson);
@@ -87,6 +108,7 @@ public sealed class EventStream
             _indexByEntity[entityKey] = index;
             _head = (index + 1) % Capacity;
             Persist(slot);
+            OnPublished?.Invoke(false, overwritten is not null);
             return ToEvent(slot);
         }
     }

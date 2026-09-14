@@ -109,6 +109,7 @@ public sealed class PipeServerFixture : IAsyncDisposable
             CancellationToken.None).GetAwaiter().GetResult();
         Assert.True(init.IsOpened, init.Detail);
         var roots = new GameLibrary.Host.Scanning.RootRegistry();
+        var metrics = new GameLibrary.Host.Observability.HostMetrics();
         var events = new GameLibrary.Host.Scanning.EventStream(init.Store);
         State = new HostRuntimeState
         {
@@ -119,7 +120,7 @@ public sealed class PipeServerFixture : IAsyncDisposable
                 Status = GameLibrary.Infrastructure.Persistence.LibraryOpenStatus.Opened,
                 Store = init.Store,
             },
-            Jobs = new JobManager(),
+            Jobs = new JobManager { OnJobFinished = metrics.RecordJobFinished },
             Candidates = new GameLibrary.Host.Scanning.CandidateRegistry(),
             Launches = new GameLibrary.Host.Launching.LaunchRegistry(),
             Roots = roots,
@@ -131,7 +132,9 @@ public sealed class PipeServerFixture : IAsyncDisposable
                 TimeSpan.FromMinutes(15)),
             AuditLog = new GameLibrary.Host.Observability.AuditLogWriter(
                 System.IO.Path.Combine(dataDir.CanonicalPath!, "logs")),
+            Metrics = metrics,
         };
+        events.OnPublished = (coalesced, overflowed) => metrics.RecordEventPublished(coalesced, overflowed);
         StartupDir = System.IO.Path.Combine(dataDir.CanonicalPath!, "startup");
         State.StartupShortcuts = new GameLibrary.Infrastructure.Shell.StartupShortcutManager(StartupDir);
         Server = new PipeServer(

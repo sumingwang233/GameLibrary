@@ -75,6 +75,9 @@ public sealed class JobManager
 
     private readonly ConcurrentDictionary<string, JobEntry> _jobs = new();
 
+    /// <summary>作业终态指标回调（T24-B）：进入 succeeded/failed/cancelled 时调用，参数为终态字符串。</summary>
+    public Action<string>? OnJobFinished { get; set; }
+
     public string Create(string kind, Func<JobContext, Task<JobOutcome>> executor)
     {
         var entry = new JobEntry { Id = $"job-{Guid.NewGuid():N}", Kind = kind };
@@ -155,6 +158,7 @@ public sealed class JobManager
         finally
         {
             entry.FinishedUtc = DateTime.UtcNow;
+            OnJobFinished?.Invoke(entry.State);
         }
     }
 
