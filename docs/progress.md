@@ -254,3 +254,11 @@
 - **实现要点**：请求延迟/错误码计数与审计同源同值；事件发布/折叠/槽淘汰计数；作业终态计数；diagnostics.status 新增 metrics 与 eventStream 段。
 - **未验证范围**：SQLite 提交延迟/首屏/UI 帧时长/图片缓存命中（T26）；枚举吞吐（T25）；指标跨进程汇总。
 - **下一项**：T26/T27 性能与恢复演练，或 T28 覆盖审计。
+
+## T27 故障恢复演练（第一轮 REC-01/03/04）— 2026-09-14 完成
+
+- **改动文件**：`OperationDispatcher.cs`（CacheRebuild 实现）、contracts（cache_rebuild execution=sync 更正）、Contracts（+1 操作）、Cli/Mcp（+1 三入口）、`FaultRecoveryTests.cs`（5 项：REC-01 中段迁移失败、REC-03 配置损坏回落+缓存重建不触碰原图、REC-04 三场景收据边界）。
+- **验证结果**：累计 346 项测试通过；format 通过。报告：`artifacts/build-reports/2026-09-14-t27.md`。
+- **演练结论**：多步迁移中段失败停在最后成功版本且可修复续升；配置损坏可自愈；launch 崩溃歧义三边界（可继续/UnknownOutcome-孤儿/UnknownOutcome-死亡）均不重复启动。同键异参 → IdempotencyConflict 分支另行覆盖。
+- **未覆盖**：REC-02（依赖 backups.restore 实现）、REC-05（随 T19 打包）、真机 kill 注入（T30）。
+- **下一项**：T26/T25 性能基线或 T28 覆盖审计。

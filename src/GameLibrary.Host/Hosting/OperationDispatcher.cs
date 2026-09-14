@@ -63,6 +63,7 @@ public sealed class OperationDispatcher
         "views.activate",
         "notifications.acknowledge",
         "notifications.defer",
+        "diagnostics.cache_rebuild",
         "settings.update",
         "settings.reset",
         "scan.start",
@@ -421,6 +422,7 @@ public sealed class OperationDispatcher
         "events.read" => EventsRead(request),
         "diagnostics.status" => DiagnosticsStatus(request),
         "diagnostics.logs" => DiagnosticsLogs(request),
+        "diagnostics.cache_rebuild" => CacheRebuild(request),
         "tools.discover" => ToolsDiscover(request),
         "verification.start" => VerificationStart(request),
         "verification.report" => VerificationReport(request),
@@ -2445,6 +2447,53 @@ public sealed class OperationDispatcher
             Ok = true,
             Status = OperationStatus.Completed,
             Data = new { stopping = true, hostInstanceId = _state.Identity.InstanceId },
+        };
+    }
+
+    /// <summary>
+    /// diagnostics.cache_rebuild（T27/REC-03）：清空可再生缓存目录（缩略图等派生物），
+    /// 用户原图（assets/）与游戏目录永不触碰。损坏的缓存随目录删除自然"重建"（下次按需生成）。
+    /// </summary>
+    private Envelope<object> CacheRebuild(IpcRequest request)
+    {
+        var cacheDirectory = Path.Combine(_state.DataDirectory, "cache");
+        long removedFiles = 0;
+        long removedBytes = 0;
+        if (Directory.Exists(cacheDirectory))
+        {
+            foreach (var file in Directory.EnumerateFiles(cacheDirectory, "*", SearchOption.AllDirectories))
+            {
+                try
+                {
+                    var info = new FileInfo(file);
+                    Interlocked.Add(ref removedBytes, info.Length);
+                    File.Delete(file);
+                    removedFiles++;
+                }
+                catch (IOException)
+                {
+                    // 单个缓存文件被占用：跳过，不影响其余重建。
+                }
+            }
+        }
+
+        var assetsDirectory = Path.Combine(_state.DataDirectory, "assets");
+        var userAssets = Directory.Exists(assetsDirectory)
+            ? Directory.EnumerateFiles(assetsDirectory, "*", SearchOption.AllDirectories).LongCount()
+            : 0;
+
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new
+            {
+                cacheDirectory,
+                removedFiles,
+                removedBytes,
+                userAssetFilesUntouched = userAssets,
+            },
         };
     }
 

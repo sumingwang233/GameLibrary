@@ -50,7 +50,7 @@ internal static class Program
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "translation.get" or "translation.set" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
-                "diagnostics.status" or "diagnostics.logs" =>
+                "diagnostics.status" or "diagnostics.logs" or "diagnostics.cache_rebuild" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "tools.discover" => await ScanHostOperationAsync(parse, "tools.discover", requiresRoot: true),
                 "fields.set" => await ScanHostOperationAsync(parse, "fields.set", requiresRoot: false),
@@ -366,6 +366,7 @@ internal static class Program
             },
             "diagnostics.status" => new { },
             "diagnostics.logs" => cli.Limit is null ? null : new { limit = cli.Limit },
+            "diagnostics.cache_rebuild" => new { idempotencyKey = cli.IdempotencyKey ?? $"cache-{Guid.NewGuid():N}" },
             "tools.discover" => new { idempotencyKey = cli.IdempotencyKey ?? ("discover-" + Guid.NewGuid().ToString("N")), path = cli.RootArgument },
             "fields.set" => new
             {

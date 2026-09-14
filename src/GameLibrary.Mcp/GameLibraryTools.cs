@@ -368,6 +368,14 @@ public static class GameLibraryTools
         return ToToolResult(envelope);
     }
 
+    [McpServerTool(Name = "diagnostics_cache_rebuild")]
+    [Description("清空可再生缓存目录（缩略图等派生物）；用户原图与游戏目录永不触碰。损坏缓存随删除自然重建。")]
+    public static Task<CallToolResult> DiagnosticsCacheRebuild([Description("幂等键")] string? idempotencyKey = null) =>
+        InvokeOperationAsync("diagnostics.cache_rebuild", new
+        {
+            idempotencyKey = idempotencyKey ?? $"cache-{Guid.NewGuid():N}",
+        });
+
     [McpServerTool(Name = "settings_get")]
     [Description("读取应用设置快照：激活视图、开机启动、核对周期、主题、托盘行为与 Revision。")]
     public static Task<CallToolResult> SettingsGet() =>

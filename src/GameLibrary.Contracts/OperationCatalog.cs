@@ -64,6 +64,7 @@ public static class OperationCatalog
         "games.get",
         "diagnostics.status",
         "diagnostics.logs",
+        "diagnostics.cache_rebuild",
         "events.read",
         "verification.start",
         "verification.report",
