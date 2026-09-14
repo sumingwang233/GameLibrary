@@ -262,3 +262,11 @@
 - **演练结论**：多步迁移中段失败停在最后成功版本且可修复续升；配置损坏可自愈；launch 崩溃歧义三边界（可继续/UnknownOutcome-孤儿/UnknownOutcome-死亡）均不重复启动。同键异参 → IdempotencyConflict 分支另行覆盖。
 - **未覆盖**：REC-02（依赖 backups.restore 实现）、REC-05（随 T19 打包）、真机 kill 注入（T30）。
 - **下一项**：T26/T25 性能基线或 T28 覆盖审计。
+
+## T28 三入口覆盖审计 — 2026-09-14 完成
+
+- **改动文件**：`tests/.../Coverage/ThreeEntranceCoverageTests.cs`（4 项门禁）、`src/GameLibrary.Cli/CommandLine.cs`（补 9 个 CLI 映射缺口）、`docs/coverage.md`（覆盖报告）、IntegrationTests 引用 Cli/Mcp。
+- **验证结果**：累计 350 项测试通过；format 通过。报告：`artifacts/build-reports/2026-09-14-t28.md`。
+- **审计结论**：71 操作三入口齐备并由 AI-12 门禁锁定；审计抓到并修复 9 个 CLI 映射缺口（fields clear/reset、metadata ×2、assets choose/crop/reset/remove、diagnostics cache-rebuild——此前 handler+MCP 在但 CLI 报"未知命令"）；58 个 planned 操作明确登记归属。
+- **未验证范围**：真实第三方 MCP 客户端全操作遍历（T29）；planned 操作按归属任务实现。
+- **下一项**：T25/T26 性能基线（需夹具生成器）或 T29 协议边界检查。
