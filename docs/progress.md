@@ -278,3 +278,12 @@
 - **边界结论**：路径攻击双层拦截（GamePath + 库根白名单）；审计无参数原文；未知字段/越界 ID 全部拒绝；未发现需修补的产品缺陷（本轮）。
 - **未验证范围**：权限运行时强制（随权限模型）；真实第三方 MCP 客户端遍历（现有 stdio 覆盖主路径）。
 - **下一项**：T25/T26 性能基线或 T19/T30 发布验收。
+
+## backups.* 五操作 + REC-02 恢复演练 — 2026-09-14 完成
+
+- **改动文件**：`DatabaseMigrations.cs`（v12：event_records，T23-B）、`Infrastructure/Backups/`（BackupArchive/ControlAreaStore）、`SqliteLibraryStore.cs`（DatabaseConnection 访问器）、`HostLibraryState.cs`（Store 可写）、`OperationDispatcher.cs`（backups 五 handler + PipeServer 容错 + 响应属性冲突修复）、`HostClient/HostConnection.cs`（InvokeAsync 断连重连重试）、Cli/Mcp（+6 三入口）、`BackupsTests.cs`（6 项）、`EventStreamTests.cs`（+2 持久化回放）。
+- **验证结果**：累计 366 项测试通过；format 通过。报告：`artifacts/build-reports/2026-09-14-backups.md`。
+- **实现要点**：备份 = 库快照+原图+哈希清单；restore = 安全备份→关连接→暂存替换→重开校验→原图恢复→dataEpoch 续期；控制收据/维护日志在控制区不随库回滚；同键重试重放原结果不再覆盖（REC-02）；HostClient 断连重连重试（AI-03）。
+- **过程修复**：PipeServer 接受循环无容错（单次异常宿主假死）；inspect 响应 JSON 属性名冲突导致连接断开。
+- **未验证范围**：恢复中途 kill 进程的续演（T30）；event_records 裁剪性能（T25）。
+- **下一项**：T25/T26 性能基线或 T19/T30 发布验收。

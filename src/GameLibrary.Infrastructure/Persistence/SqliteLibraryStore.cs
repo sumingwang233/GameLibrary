@@ -33,6 +33,38 @@ public sealed class SqliteLibraryStore : IAsyncDisposable
     /// <summary>宿主内部组件（事件持久化等）共享的连接；仅限 Host/Infrastructure 组合内部使用，外部不得直接执行 SQL。</summary>
     public SqliteConnection DatabaseConnection => _connection;
 
+    /// <summary>
+    /// 维护切换（backups.restore / REC-02）：关闭当前连接 → 用暂存库文件替换当前 library.db
+    /// （连带清除 WAL/SHM 残留）→ 重新打开并走完整校验/迁移路径。
+    /// 替换失败时旧库文件保持原样（先复制后删残留，覆盖是原子性的 Copy(overwrite) 不保证——
+    /// 因此恢复前调用方必须已生成当前状态安全备份）。
+    /// </summary>
+    public static async Task<SqliteLibraryStore> SwapFromStagedAsync(
+        string canonicalDataDirectory,
+        string stagedDatabasePath,
+        SqliteLibraryStoreOptions options,
+        CancellationToken ct)
+    {
+        var target = Path.Combine(canonicalDataDirectory, DatabaseFileName);
+        File.Copy(stagedDatabasePath, target, overwrite: true);
+        foreach (var residue in new[] { target + "-wal", target + "-shm" })
+        {
+            if (File.Exists(residue))
+            {
+                File.Delete(residue);
+            }
+        }
+
+        var reopened = await TryOpenAsync(canonicalDataDirectory, options, ct);
+        if (!reopened.IsOpened)
+        {
+            throw new InvalidOperationException(
+                $"恢复后的库无法打开（{reopened.Status}）：{reopened.Detail}");
+        }
+
+        return reopened.Store!;
+    }
+
     /// <summary>幂等收据查询（契约 7.1）；收据属于当前库实例。</summary>
     public RequestReceipt? TryGetReceipt(string actor, string operationId, string idempotencyKey) =>
         RequestReceiptStore.TryGet(_connection, Info.LibraryInstanceId, actor, operationId, idempotencyKey);

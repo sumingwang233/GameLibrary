@@ -50,7 +50,7 @@ internal static class Program
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "translation.get" or "translation.set" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
-                "diagnostics.status" or "diagnostics.logs" or "diagnostics.cache_rebuild" =>
+                "diagnostics.status" or "diagnostics.logs" or "diagnostics.cache_rebuild" or "backups.list" or "backups.create" or "backups.inspect" or "backups.restore_plan" or "backups.restore" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "tools.discover" => await ScanHostOperationAsync(parse, "tools.discover", requiresRoot: true),
                 "fields.set" => await ScanHostOperationAsync(parse, "fields.set", requiresRoot: false),
@@ -263,7 +263,8 @@ internal static class Program
             return ExitArgumentError;
         }
 
-        if (operationId is "views.get" or "views.update" or "views.remove" or "views.activate" && cli.ViewId is null)
+        if ((operationId is "views.get" or "views.update" or "views.remove" or "views.activate" && cli.ViewId is null)
+            || (operationId is "backups.inspect" or "backups.restore_plan" or "backups.restore" && cli.BackupId is null))
         {
             Console.Error.WriteLine($"{string.Join(' ', cli.Words)} 需要 --view-id");
             return ExitArgumentError;
@@ -367,6 +368,16 @@ internal static class Program
             "diagnostics.status" => new { },
             "diagnostics.logs" => cli.Limit is null ? null : new { limit = cli.Limit },
             "diagnostics.cache_rebuild" => new { idempotencyKey = cli.IdempotencyKey ?? $"cache-{Guid.NewGuid():N}" },
+            "backups.list" => new { },
+            "backups.create" => new { idempotencyKey = cli.IdempotencyKey ?? $"bkcreate-{Guid.NewGuid():N}" },
+            "backups.inspect" => new { backupId = cli.BackupId },
+            "backups.restore_plan" => new { backupId = cli.BackupId },
+            "backups.restore" => new
+            {
+                idempotencyKey = cli.IdempotencyKey ?? $"bkrestore-{cli.BackupId}",
+                backupId = cli.BackupId,
+                planId = cli.PlanId,
+            },
             "tools.discover" => new { idempotencyKey = cli.IdempotencyKey ?? ("discover-" + Guid.NewGuid().ToString("N")), path = cli.RootArgument },
             "fields.set" => new
             {

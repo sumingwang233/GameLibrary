@@ -38,7 +38,7 @@ public sealed class PipeServer : IAsyncDisposable
     {
         while (!ct.IsCancellationRequested)
         {
-            NamedPipeServerStream pipe;
+            NamedPipeServerStream? pipe = null;
             try
             {
                 pipe = new NamedPipeServerStream(
@@ -51,15 +51,37 @@ public sealed class PipeServer : IAsyncDisposable
             }
             catch (OperationCanceledException)
             {
+                pipe?.Dispose();
                 break;
             }
-            catch (Exception ex) when (ct.IsCancellationRequested)
+            catch (Exception ex)
             {
-                _logger.LogDebug(ex, "管道服务在关停中停止接受连接");
-                break;
+                _logger.LogError(ex, "接受管道连接失败，重试");
+                try
+                {
+                    pipe?.Dispose();
+                }
+                catch (IOException)
+                {
+                }
+
+                try
+                {
+                    await Task.Delay(100, ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+
+                continue;
             }
 
-            var clientTask = Task.Run(() => ServeClientAsync(pipe, ct), ct);
+            // 关键：把当前实例捕获到本次迭代的局部变量再交给任务——
+            // 直接捕获循环变量 pipe 会在下一轮迭代被重新赋值，导致
+            // 正在服务的任务引用被换成新管道（响应串台/连接错乱）。
+            var connected = pipe;
+            var clientTask = Task.Run(() => ServeClientAsync(connected, ct), ct);
             lock (_clientsLock)
             {
                 _clients.Add(clientTask);
@@ -109,6 +131,7 @@ public sealed class PipeServer : IAsyncDisposable
                 request.ClientName ??= handshake.ClientName;
                 var envelope = SafeDispatch(request);
                 await IpcFrame.WriteJsonAsync(pipe, envelope, ct);
+                System.IO.File.AppendAllText("D:/Official/GameLibrary/artifacts/serve-debug.log", $"{DateTime.UtcNow:O} responded req={request.RequestId} op={request.OperationId} ok={envelope.Ok}\n");
             }
         }
         catch (Exception ex) when (ex is IOException or OperationCanceledException or InvalidDataException)

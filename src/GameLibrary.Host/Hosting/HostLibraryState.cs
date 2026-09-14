@@ -12,8 +12,8 @@ public sealed class HostLibraryState
 
     public string? Detail { get; init; }
 
-    /// <summary>打开成功时非空；由 HostRuntime 持有并在关停时释放。</summary>
-    public SqliteLibraryStore? Store { get; init; }
+    /// <summary>打开成功时非空；由 HostRuntime 持有并在关停时释放。恢复替换时可写。</summary>
+    public SqliteLibraryStore? Store { get; set; }
 
     public bool Initialized => Status == LibraryOpenStatus.Opened && Store is not null;
 

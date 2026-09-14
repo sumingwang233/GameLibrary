@@ -150,12 +150,12 @@ public sealed class OperationCatalogTests
     [Fact]
     public void SchemaFiles_AreNotYetClaimedAsImplemented()
     {
-        // T15-C 已交付 views.*；backups.*（T27）、library.export（T19）仍未实现。
+        // T-backups 已交付 backups.*（含 REC-02 恢复演练）；library.export/import 与 desktop.* 仍未实现。
         var implemented = OperationCatalog.ImplementedOperations;
-        Assert.DoesNotContain("backups.create", implemented);
         Assert.DoesNotContain("library.export", implemented);
-        Assert.Contains("games.update", implemented);
-        Assert.Contains("views.activate", implemented);
+        Assert.DoesNotContain("desktop.show", implemented);
+        Assert.Contains("backups.create", implemented);
+        Assert.Contains("backups.restore", implemented);
         Assert.Contains("translation.set", implemented);
     }
 }

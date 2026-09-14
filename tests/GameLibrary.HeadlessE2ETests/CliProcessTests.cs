@@ -96,9 +96,9 @@ public sealed class CliProcessTests
             .EnumerateArray().Select(v => v.GetString()).ToList();
         Assert.Contains("host.status", available);
         Assert.Contains("capabilities.get", available);
-        Assert.Contains("games.update", available);
-        // 尚未实现的操作不得出现在可用集合（backups.* 属 T27）。
-        Assert.DoesNotContain("backups.create", available);
+        Assert.Contains("backups.create", available);
+        // 尚未实现的操作不得出现在可用集合（library.export 属 T19）。
+        Assert.DoesNotContain("library.export", available);
     }
 
     [Fact]

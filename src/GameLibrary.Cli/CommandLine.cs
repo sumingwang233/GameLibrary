@@ -109,6 +109,9 @@ public sealed record CommandLine
     /// <summary>games relink 的 --new-path 参数（绝对本地目录路径）。</summary>
     public string? NewPath { get; private init; }
 
+    /// <summary>backups 的 --backup-id 参数。</summary>
+    public string? BackupId { get; private init; }
+
     /// <summary>notifications 的 --notification-id 参数。</summary>
     public string? NotificationId { get; private init; }
 
@@ -190,6 +193,7 @@ public sealed record CommandLine
         var favoriteOnly = false;
         string? newPath = null;
         string? notificationId = null;
+        string? backupId = null;
         bool? autostart = null;
         int? interval = null;
         string? theme = null;
@@ -310,6 +314,9 @@ public sealed record CommandLine
                 case "--notification-id" when i + 1 < args.Length:
                     notificationId = args[++i];
                     break;
+                case "--backup-id" when i + 1 < args.Length:
+                    backupId = args[++i];
+                    break;
                 case "--autostart":
                     autostart = true;
                     break;
@@ -369,6 +376,8 @@ public sealed record CommandLine
             "translation" when verb is "get" or "set" => $"translation.{verb}",
             "diagnostics" when verb is "status" or "logs" or "cache-rebuild" =>
                 verb == "cache-rebuild" ? "diagnostics.cache_rebuild" : $"diagnostics.{verb}",
+            "backups" when verb is "list" or "create" or "inspect" or "restore-plan" or "restore"
+                => verb == "restore-plan" ? "backups.restore_plan" : $"backups.{verb}",
             "tools" when verb == "discover" => "tools.discover",
             "events" when verb == "read" => "events.read",
             "verification" when verb is "start" or "report" or "invalidate" or "get" or "list" => $"verification.{verb}",
@@ -432,6 +441,7 @@ public sealed record CommandLine
             FavoriteOnly = favoriteOnly,
             NewPath = newPath,
             NotificationId = notificationId,
+            BackupId = backupId,
             Autostart = autostart,
             Interval = interval,
             Theme = theme,

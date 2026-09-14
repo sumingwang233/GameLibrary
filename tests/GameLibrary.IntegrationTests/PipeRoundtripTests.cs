@@ -64,7 +64,7 @@ public sealed class PipeRoundtripTests : IClassFixture<PipeServerFixture>
             CancellationToken.None);
 
         var envelope = await client.InvokeAsync(
-            new Contracts.Ipc.IpcRequest { RequestId = "req-x-1", OperationId = "backups.create" },
+            new Contracts.Ipc.IpcRequest { RequestId = "req-x-1", OperationId = "library.export" },
             CancellationToken.None);
 
         Assert.False(envelope.Ok);
@@ -162,7 +162,35 @@ public sealed class PipeServerFixture : IAsyncDisposable
         var testRoot = @$"D:\Official\GameLibrary\artifacts\test-runs\{TestId}";
         if (Directory.Exists(testRoot))
         {
-            Directory.Delete(testRoot, recursive: true);
+            // Directory.Delete(testRoot, recursive: true); // T27 调试期保留现场
+        }
+    }
+}
+
+/// <summary>夹具调试用文件日志：把管道服务器异常写到测试目录，避免 NullLogger 吞掉现场。</summary>
+public sealed class FileTestLogger : Microsoft.Extensions.Logging.ILogger
+{
+    private readonly string _path;
+
+    public FileTestLogger(string path) => _path = path;
+
+    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+    public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+
+    public void Log<TState>(
+        Microsoft.Extensions.Logging.LogLevel logLevel,
+        Microsoft.Extensions.Logging.EventId eventId,
+        TState state,
+        Exception? exception,
+        Func<TState, Exception?, string> formatter)
+    {
+        try
+        {
+            File.AppendAllText(_path, $"{DateTime.UtcNow:O} [{logLevel}] {formatter(state, exception)}\n{exception}\n");
+        }
+        catch (IOException)
+        {
         }
     }
 }

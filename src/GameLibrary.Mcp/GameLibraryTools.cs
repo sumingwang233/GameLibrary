@@ -376,6 +376,39 @@ public static class GameLibraryTools
             idempotencyKey = idempotencyKey ?? $"cache-{Guid.NewGuid():N}",
         });
 
+    [McpServerTool(Name = "backups_list")]
+    [Description("列出可用备份（含库快照与用户原图，逐文件 SHA-256 清单）。")]
+    public static Task<CallToolResult> BackupsList() =>
+        InvokeOperationAsync("backups.list", new { });
+
+    [McpServerTool(Name = "backups_create")]
+    [Description("创建备份（作业）：SQLite 备份 API 一致快照 + 用户原图 + 哈希清单。返回 jobId。")]
+    public static Task<CallToolResult> BackupsCreate([Description("幂等键")] string? idempotencyKey = null) =>
+        InvokeOperationAsync("backups.create", new { idempotencyKey = idempotencyKey ?? $"bkcreate-{Guid.NewGuid():N}" });
+
+    [McpServerTool(Name = "backups_inspect")]
+    [Description("备份完整性核查：逐文件大小与 SHA-256 校验。参数：backupId。")]
+    public static Task<CallToolResult> BackupsInspect([Description("备份 ID")] string backupId) =>
+        InvokeOperationAsync("backups.inspect", new { backupId });
+
+    [McpServerTool(Name = "backups_restore_plan")]
+    [Description("生成恢复影响计划（10 分钟有效）：恢复后的实例/epoch 变化与资产数量。参数：backupId。")]
+    public static Task<CallToolResult> BackupsRestorePlan([Description("备份 ID")] string backupId) =>
+        InvokeOperationAsync("backups.restore_plan", new { backupId });
+
+    [McpServerTool(Name = "backups_restore")]
+    [Description("执行恢复（维护操作）：先备份当前状态，暂存替换，dataEpoch 续期使旧游标失效。参数：backupId、planId、idempotencyKey。")]
+    public static Task<CallToolResult> BackupsRestore(
+        [Description("备份 ID")] string backupId,
+        [Description("恢复计划 ID（来自 backups_restore_plan）")] string planId,
+        [Description("幂等键")] string? idempotencyKey = null) =>
+        InvokeOperationAsync("backups.restore", new
+        {
+            idempotencyKey = idempotencyKey ?? $"bkrestore-{Guid.NewGuid():N}",
+            backupId,
+            planId,
+        });
+
     [McpServerTool(Name = "settings_get")]
     [Description("读取应用设置快照：激活视图、开机启动、核对周期、主题、托盘行为与 Revision。")]
     public static Task<CallToolResult> SettingsGet() =>
