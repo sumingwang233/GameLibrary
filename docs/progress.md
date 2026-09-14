@@ -270,3 +270,11 @@
 - **审计结论**：71 操作三入口齐备并由 AI-12 门禁锁定；审计抓到并修复 9 个 CLI 映射缺口（fields clear/reset、metadata ×2、assets choose/crop/reset/remove、diagnostics cache-rebuild——此前 handler+MCP 在但 CLI 报"未知命令"）；58 个 planned 操作明确登记归属。
 - **未验证范围**：真实第三方 MCP 客户端全操作遍历（T29）；planned 操作按归属任务实现。
 - **下一项**：T25/T26 性能基线（需夹具生成器）或 T29 协议边界检查。
+
+## T29 协议与边界检查 — 2026-09-14 完成
+
+- **改动文件**：`tests/.../Coverage/ProtocolBoundaryTests.cs`（10 项：路径攻击矩阵 ×6、重关联穿越/分段边界、资源越界 ID、审计隐私、未知字段攻击）。
+- **验证结果**：累计 356 项测试通过；format 通过。报告：`artifacts/build-reports/2026-09-14-t29.md`。
+- **边界结论**：路径攻击双层拦截（GamePath + 库根白名单）；审计无参数原文；未知字段/越界 ID 全部拒绝；未发现需修补的产品缺陷（本轮）。
+- **未验证范围**：权限运行时强制（随权限模型）；真实第三方 MCP 客户端遍历（现有 stdio 覆盖主路径）。
+- **下一项**：T25/T26 性能基线或 T19/T30 发布验收。
