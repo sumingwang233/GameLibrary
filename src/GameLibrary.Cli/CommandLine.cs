@@ -4,7 +4,7 @@ namespace GameLibrary.Cli;
 /// 最小命令行解析：名词 动词 + 全局 flag（--data-dir/--format/--timeout/--operation/--no-start）。
 /// 不引入交互；未知参数直接参数错误（退出码 2）。
 /// </summary>
-internal sealed record CommandLine
+public sealed record CommandLine
 {
     private CommandLine(bool isValid, string? error)
     {
@@ -367,12 +367,14 @@ internal sealed record CommandLine
             "candidates" when verb is "list" or "get" or "accept" or "defer" or "ignore" => $"candidates.{verb}",
             "games" when verb is "list" or "get" or "update" or "relink" => $"games.{verb}",
             "translation" when verb is "get" or "set" => $"translation.{verb}",
-            "diagnostics" when verb is "status" or "logs" => $"diagnostics.{verb}",
+            "diagnostics" when verb is "status" or "logs" or "cache-rebuild" =>
+                verb == "cache-rebuild" ? "diagnostics.cache_rebuild" : $"diagnostics.{verb}",
             "tools" when verb == "discover" => "tools.discover",
             "events" when verb == "read" => "events.read",
             "verification" when verb is "start" or "report" or "invalidate" or "get" or "list" => $"verification.{verb}",
-            "fields" when verb == "set" => "fields.set",
-            "assets" when verb is "import" or "list" or "get" => $"assets.{verb}",
+            "fields" when verb is "set" or "clear" or "reset" => $"fields.{verb}",
+            "assets" when verb is "import" or "list" or "get" or "choose" or "crop" or "reset" or "remove" => $"assets.{verb}",
+            "metadata" when verb is "preview" or "refresh" => $"metadata.{verb}",
             "ignores" when verb is "list" or "create" or "remove" => $"ignores.{verb}",
             "profiles" when verb is "create" or "list" or "get" or "update" or "set-default" or "remove" or "validate"
                 => verb == "set-default" ? "profiles.set_default" : $"profiles.{verb}",
