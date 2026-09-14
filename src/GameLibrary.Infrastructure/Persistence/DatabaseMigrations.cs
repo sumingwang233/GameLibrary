@@ -143,5 +143,16 @@ public static class DatabaseMigrations
                 updated_utc TEXT NOT NULL
             )
             """),
+        new DatabaseMigration(12, """
+            CREATE TABLE event_records (
+                sequence INTEGER PRIMARY KEY,
+                data_epoch TEXT NOT NULL,
+                type TEXT NOT NULL,
+                entity_key TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                timestamp_utc TEXT NOT NULL
+            );
+            CREATE INDEX idx_event_records_epoch ON event_records (data_epoch, sequence)
+            """),
     ];
 }

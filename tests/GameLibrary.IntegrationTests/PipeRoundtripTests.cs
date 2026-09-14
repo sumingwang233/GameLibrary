@@ -109,7 +109,7 @@ public sealed class PipeServerFixture : IAsyncDisposable
             CancellationToken.None).GetAwaiter().GetResult();
         Assert.True(init.IsOpened, init.Detail);
         var roots = new GameLibrary.Host.Scanning.RootRegistry();
-        var events = new GameLibrary.Host.Scanning.EventStream();
+        var events = new GameLibrary.Host.Scanning.EventStream(init.Store);
         State = new HostRuntimeState
         {
             Identity = Identity,

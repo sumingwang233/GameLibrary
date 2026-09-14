@@ -30,6 +30,9 @@ public sealed class SqliteLibraryStore : IAsyncDisposable
 
     public string DatabasePath => _connection.DataSource;
 
+    /// <summary>宿主内部组件（事件持久化等）共享的连接；仅限 Host/Infrastructure 组合内部使用，外部不得直接执行 SQL。</summary>
+    public SqliteConnection DatabaseConnection => _connection;
+
     /// <summary>幂等收据查询（契约 7.1）；收据属于当前库实例。</summary>
     public RequestReceipt? TryGetReceipt(string actor, string operationId, string idempotencyKey) =>
         RequestReceiptStore.TryGet(_connection, Info.LibraryInstanceId, actor, operationId, idempotencyKey);

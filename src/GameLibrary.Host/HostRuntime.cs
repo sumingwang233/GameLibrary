@@ -53,7 +53,7 @@ public sealed class HostRuntime : IAsyncDisposable
 
         var identity = new HostIdentity();
         var library = await OpenLibraryAsync(resolved.CanonicalPath!, identity, loggerFactory, ct);
-        var events = new EventStream();
+        var events = new EventStream(library.Store);
         var runtimeState = new HostRuntimeState
         {
             Identity = identity,

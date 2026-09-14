@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using GameLibrary.Infrastructure.Persistence;
 
 namespace GameLibrary.Host.Scanning;
 
@@ -19,9 +20,10 @@ public sealed record LibraryEvent
 }
 
 /// <summary>
-/// 库事件流（T16）：内存环形队列，容量 4096（契约队列上限）；
-/// 同实体 2 秒抖动窗口内合并（更新最后一条 payload，不新增行）——事件风暴折叠；
-/// 跨重启不保留：旧游标读取返回 CursorExpired 由调用方全量重取。
+/// 库事件流（T16/T23-B）：内存环形队列折叠事件风暴（容量 4096、同实体 2 秒合并）；
+/// 每条发布事件同步落库（event_records，折叠结果为唯一事实）——重启后序号延续、事件可回放；
+/// 库可用时 events.read 以库为准（含 CursorExpired 判定与 dataEpoch 过滤），
+/// 库未初始化时退回纯内存语义。保留策略 7 天 / 100,000 条惰性裁剪。
 /// </summary>
 public sealed class EventStream
 {
@@ -32,15 +34,28 @@ public sealed class EventStream
 
     private readonly Slot[] _ring = new Slot[Capacity];
     private readonly ConcurrentDictionary<string, int> _indexByEntity = new(StringComparer.Ordinal);
+    private readonly SqliteLibraryStore? _store;
     private long _sequence;
     private int _head; // 下一写入位
+
+    public EventStream(SqliteLibraryStore? store = null)
+    {
+        _store = store;
+        if (store is not null)
+        {
+            // 跨重启单调：序号从持久层恢复。
+            _sequence = EventRecordStore.LatestSequence(
+                store.DatabaseConnection,
+                store.Info.DataEpoch);
+        }
+    }
 
     public LibraryEvent Publish(string type, string entityKey, object payload, DateTime utcNow)
     {
         var payloadJson = System.Text.Json.JsonSerializer.Serialize(payload, GameLibrary.Contracts.ContractJson.Options);
         lock (_ring)
         {
-            // 折叠：2 秒窗口内同实体事件覆盖原槽（风暴合并）。
+            // 折叠：2 秒窗口内同实体事件覆盖原槽（风暴合并；序号不变，持久层 UPSERT 同行）。
             if (_indexByEntity.TryGetValue(entityKey, out var existingIndex))
             {
                 var existing = _ring[existingIndex];
@@ -53,11 +68,12 @@ public sealed class EventStream
                         PayloadJson = payloadJson,
                     };
                     _ring[existingIndex] = merged;
+                    Persist(merged);
                     return ToEvent(merged);
                 }
             }
 
-            var sequence = ++_sequence;
+            var next = ++_sequence;
             var index = _head;
             var overwritten = _ring[index];
             if (overwritten is not null)
@@ -66,18 +82,56 @@ public sealed class EventStream
                 _indexByEntity.TryRemove(new KeyValuePair<string, int>(overwritten.EntityKey, index));
             }
 
-            _ring[index] = new Slot(sequence, utcNow, type, entityKey, payloadJson);
+            var slot = new Slot(next, utcNow, type, entityKey, payloadJson);
+            _ring[index] = slot;
             _indexByEntity[entityKey] = index;
             _head = (index + 1) % Capacity;
-            return ToEvent(_ring[index]);
+            Persist(slot);
+            return ToEvent(slot);
+        }
+    }
+
+    private void Persist(Slot slot)
+    {
+        if (_store is null)
+        {
+            return;
+        }
+
+        try
+        {
+            EventRecordStore.AppendWithPrune(
+                _store.DatabaseConnection,
+                new PersistedEvent(
+                    slot.Sequence,
+                    _store.Info.DataEpoch,
+                    slot.Type,
+                    slot.EntityKey,
+                    slot.PayloadJson,
+                    slot.TimestampUtc));
+        }
+        catch (Exception ex) when (ex is Microsoft.Data.Sqlite.SqliteException or IOException)
+        {
+            // 事件落库失败不阻塞业务路径：内存环仍可读，持久化缺口由下次扫描补齐。
         }
     }
 
     /// <summary>
-    /// 增量读取：afterSequence 之后的事件按序返回；游标早于缓冲起点（已被淘汰）时返回 null（CursorExpired）。
+    /// 增量读取：库可用时以持久层为准（跨重启可回放、CursorExpired 判定含旧 epoch）；
+    /// 库未初始化时退回内存环。
     /// </summary>
     public IReadOnlyList<LibraryEvent>? ReadAfter(long? afterSequence, int limit)
     {
+        if (_store is not null)
+        {
+            var persisted = EventRecordStore.ReadAfter(
+                _store.DatabaseConnection,
+                _store.Info.DataEpoch,
+                afterSequence,
+                limit);
+            return persisted is null ? null : persisted.Select(ToEvent).ToArray();
+        }
+
         lock (_ring)
         {
             var slots = _ring.Where(s => s is not null).OrderBy(s => s.Sequence).ToArray();
@@ -116,5 +170,14 @@ public sealed class EventStream
         Type = slot.Type,
         EntityKey = slot.EntityKey,
         PayloadJson = slot.PayloadJson,
+    };
+
+    private static LibraryEvent ToEvent(PersistedEvent evt) => new()
+    {
+        Sequence = evt.Sequence,
+        TimestampUtc = evt.TimestampUtc,
+        Type = evt.Type,
+        EntityKey = evt.EntityKey,
+        PayloadJson = evt.PayloadJson,
     };
 }

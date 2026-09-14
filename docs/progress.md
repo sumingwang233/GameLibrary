@@ -238,3 +238,11 @@
 - **实现要点**：受限字段 patch（未知拒绝）；开机启动走启动文件夹快捷方式（不碰注册表/服务/环境变量）；activeViewId 三处写一致 + 启动恢复；扫描间隔启动时生效。
 - **未验证范围**：theme/closeToTray 的 Desktop 消费；实机重启验证开机启动；间隔动态调整需重启。
 - **下一项**：T23-B/T24-B 语义收尾，或 T26/T27 性能与恢复演练。
+
+## T23-B 事件持久化与游标恢复 — 2026-09-14 完成
+
+- **改动文件**：`DatabaseMigrations.cs`（v12：event_records）、`EventRecordStore.cs`（新：UPSERT/裁剪/按 epoch 读取）、`EventStream.cs`（构造注入 store、发布落库、序号从库恢复、读取以持久层为准）、`SqliteLibraryStore.cs`（DatabaseConnection 访问器）、HostRuntime/PipeRoundtrip 夹具（传入 store）、`EventStreamTests.cs`（+2：跨重启回放/epoch 失效）。
+- **验证结果**：累计 339 项测试通过；format 通过。报告：`artifacts/build-reports/2026-09-14-t23b.md`。
+- **实现要点**：发布同步落库（折叠 UPSERT 同序号，与 T16 游标语义一致）；序号跨重启单调；events.read 库优先 + 当前 epoch 过滤 + CursorExpired；保留 7 天/100,000 条惰性裁剪；落库失败不阻塞业务。
+- **未验证范围**：恢复演练端到端（REC-02）；裁剪性能（T25）。
+- **下一项**：T24-B（诊断指标深化）或 T26/T27。
