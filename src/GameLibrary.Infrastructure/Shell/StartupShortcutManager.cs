@@ -39,7 +39,11 @@ public sealed class StartupShortcutManager
 
     public bool IsEnabled() => File.Exists(ShortcutPath);
 
-    public StartupStateResult Enable()
+    /// <summary>
+    /// 创建开机启动快捷方式。dataDirectory 非空时写入 --data-dir 参数
+    /// （v1 审查意见：只设 EXE 与工作目录、不带数据目录参数，会让开机后进入错误状态）。
+    /// </summary>
+    public StartupStateResult Enable(string? dataDirectory = null)
     {
         var target = ResolveDesktopExe();
         if (target is null)
@@ -57,6 +61,11 @@ public sealed class StartupShortcutManager
                     var link = ShellLinkInterop.CreateShellLink();
                     link.SetPath(target);
                     link.SetWorkingDirectory(AppContext.BaseDirectory);
+                    if (!string.IsNullOrWhiteSpace(dataDirectory))
+                    {
+                        link.SetArguments($"--data-dir \"{dataDirectory}\"");
+                    }
+
                     ((IPersistFile)link).Save(ShortcutPath, fRemember: false);
                     return (string?)null;
                 }

@@ -40,13 +40,17 @@ internal static class Program
                 "scan.inspect" => await ScanHostOperationAsync(parse, "scan.inspect", requiresRoot: true),
                 "roots.add" => await ScanHostOperationAsync(parse, "roots.add", requiresRoot: true),
                 "roots.list" => await ScanHostOperationAsync(parse, "roots.list", requiresRoot: false),
+                "roots.remove" => await ScanHostOperationAsync(parse, "roots.remove", requiresRoot: false),
+                "tags.list" or "tags.create" or "tags.update" or "tags.remove"
+                    or "tags.assign" or "tags.unassign" or "tags.suppress" or "tags.reset" =>
+                    await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "scan.status" or "scan.cancel" or "scan.coverage" or "jobs.get" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "candidates.list" or "candidates.get" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "candidates.accept" or "candidates.defer" or "candidates.ignore" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
-                "games.list" or "games.get" or "games.update" or "games.relink" =>
+                "games.list" or "games.get" or "games.create" or "games.update" or "games.relink" or "games.remove" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "translation.get" or "translation.set" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
@@ -105,6 +109,24 @@ internal static class Program
         return ExitArgumentError;
     }
 
+    private static Dictionary<string, object> BuildSettingsPatch(CommandLine cli)
+    {
+        var patch = new Dictionary<string, object>
+        {
+            ["idempotencyKey"] = cli.IdempotencyKey ?? $"setupd-{Guid.NewGuid():N}",
+            ["expectedRevision"] = cli.ExpectedRevision!.Value,
+        };
+        if (cli.Autostart is { } autostart) patch["autostartEnabled"] = autostart;
+        if (cli.Interval is { } interval) patch["scanIntervalMinutes"] = interval;
+        if (cli.Theme is { } theme) patch["theme"] = theme;
+        if (cli.CloseToTray is { } closeToTray) patch["closeToTray"] = closeToTray;
+        if (cli.UiFontFamily is { } family) patch["uiFontFamily"] = family;
+        if (cli.UiFontScale is { } scale) patch["uiFontScale"] = scale;
+        if (cli.ResetCacheParentDirectory) patch["cacheParentDirectory"] = null!;
+        else if (cli.CacheParentDirectory is { } cacheDirectory) patch["cacheParentDirectory"] = cacheDirectory;
+        return patch;
+    }
+
     /// <summary>宿主依赖的扫描/候选类操作：自动拉起宿主后单次调用。</summary>
     private static async Task<int> ScanHostOperationAsync(CommandLine cli, string operationId, bool requiresRoot)
     {
@@ -131,6 +153,12 @@ internal static class Program
             return ExitArgumentError;
         }
 
+        if (operationId == "roots.remove" && cli.RootId is null)
+        {
+            Console.Error.WriteLine("roots remove 需要 --root-id <库根 ID>（roots list 查询）");
+            return ExitArgumentError;
+        }
+
         var requiresJobId = operationId is "scan.status" or "scan.cancel" or "scan.coverage" or "jobs.get";
         if (requiresJobId && cli.JobId is null)
         {
@@ -151,6 +179,18 @@ internal static class Program
                 Console.Error.WriteLine("profiles create 需要 --game-id、--exe、--cwd（argv 用 --arg 可重复提供）");
                 return ExitArgumentError;
             }
+        }
+
+        if (operationId == "games.create" && cli.SourcePath is null)
+        {
+            Console.Error.WriteLine("games create 需要 --source-path；可选 --name 指定标题");
+            return ExitArgumentError;
+        }
+
+        if (operationId == "games.remove" && (cli.GameId is null || cli.ExpectedRevision is null))
+        {
+            Console.Error.WriteLine("games remove 需要 --game-id 和 --expected-revision；不会删除游戏文件");
+            return ExitArgumentError;
         }
 
         if (operationId is "profiles.update"
@@ -256,10 +296,12 @@ internal static class Program
         }
 
         if (operationId is "settings.update"
-            && cli.ExpectedRevision is null
-            && cli.Autostart is null && cli.Interval is null && cli.Theme is null && cli.CloseToTray is null)
+            && (cli.ExpectedRevision is null
+                || cli.Autostart is null && cli.Interval is null && cli.Theme is null
+                    && cli.CloseToTray is null && cli.UiFontFamily is null && cli.UiFontScale is null
+                    && cli.CacheParentDirectory is null && !cli.ResetCacheParentDirectory))
         {
-            Console.Error.WriteLine("settings update 需要 --expected-revision 与至少一个设置字段（--autostart/--no-autostart、--interval、--theme、--close-to-tray/--no-close-to-tray）");
+            Console.Error.WriteLine("settings update 需要 --expected-revision 与至少一个设置字段（--theme、--font-family、--cache-dir 等）");
             return ExitArgumentError;
         }
 
@@ -296,6 +338,32 @@ internal static class Program
             return ExitArgumentError;
         }
 
+        if (operationId is "tags.create" && cli.Name is null)
+        {
+            Console.Error.WriteLine("tags create 需要 --name");
+            return ExitArgumentError;
+        }
+
+        if (operationId is "tags.update" && (cli.TagId is null || cli.ExpectedRevision is null))
+        {
+            Console.Error.WriteLine("tags update 需要 --tag-id 和 --expected-revision（改名用 --name，颜色用 --color）");
+            return ExitArgumentError;
+        }
+
+        if (operationId is "tags.remove" && (cli.TagId is null || cli.ExpectedRevision is null))
+        {
+            Console.Error.WriteLine("tags remove 需要 --tag-id 和 --expected-revision");
+            return ExitArgumentError;
+        }
+
+        if (operationId.StartsWith("tags.", StringComparison.Ordinal)
+            && operationId is not ("tags.list" or "tags.create" or "tags.update" or "tags.remove")
+            && (cli.GameId is null || cli.TagId is null || cli.ExpectedRevision is null))
+        {
+            Console.Error.WriteLine($"{string.Join(' ', cli.Words)} 需要 --game-id、--tag-id 和 --expected-revision");
+            return ExitArgumentError;
+        }
+
         await using var connection = await HostProcessLauncher.EnsureStartedAsync(
             cli.DataDir, clientName: "cli", timeout: TimeSpan.FromSeconds(cli.TimeoutSeconds));
 
@@ -307,6 +375,12 @@ internal static class Program
             "scan.inspect" => new { path = cli.RootArgument },
             "roots.add" => new { root = cli.RootArgument },
             "roots.list" => new { },
+            "roots.remove" => new
+            {
+                idempotencyKey = cli.IdempotencyKey ?? $"rootrm-{Guid.NewGuid():N}",
+                rootId = cli.RootId,
+                expectedRevision = cli.ExpectedRevision,
+            },
             "candidates.list" => cli.JobId is null ? null : new { jobId = cli.JobId },
             "candidates.get" => new { candidateId = cli.CandidateId },
             "candidates.accept" or "candidates.defer" or "candidates.ignore" => new
@@ -315,7 +389,13 @@ internal static class Program
                 candidateId = cli.CandidateId,
                 expectedRevision = cli.ExpectedRevision,
             },
-            "games.list" => new { },
+            "games.list" => new
+            {
+                search = cli.Search,
+                tagId = cli.TagId,
+                limit = cli.Limit,
+                offset = 0,
+            },
             "games.get" => new { gameId = cli.GameId },
             "games.update" => new
             {
@@ -338,15 +418,7 @@ internal static class Program
                 notificationId = cli.NotificationId,
             },
             "settings.get" => new { },
-            "settings.update" => new
-            {
-                idempotencyKey = cli.IdempotencyKey ?? $"setupd-{Guid.NewGuid():N}",
-                expectedRevision = cli.ExpectedRevision,
-                autostartEnabled = cli.Autostart,
-                scanIntervalMinutes = cli.Interval,
-                theme = cli.Theme,
-                closeToTray = cli.CloseToTray,
-            },
+            "settings.update" => BuildSettingsPatch(cli),
             "settings.reset" => new
             {
                 idempotencyKey = cli.IdempotencyKey ?? $"setreset-{Guid.NewGuid():N}",
@@ -467,7 +539,47 @@ internal static class Program
                 ignoreId = cli.IgnoreId,
                 expectedRevision = cli.ExpectedRevision,
             },
+            "tags.list" => new { },
+            "tags.create" => new
+            {
+                idempotencyKey = cli.IdempotencyKey ?? $"tagc-{Guid.NewGuid():N}",
+                name = cli.Name,
+                color = cli.Color,
+            },
+            "tags.update" => new
+            {
+                idempotencyKey = cli.IdempotencyKey ?? $"tagu-{Guid.NewGuid():N}",
+                tagId = cli.TagId,
+                name = cli.Name,
+                color = cli.Color,
+                expectedRevision = cli.ExpectedRevision,
+            },
+            "tags.remove" => new
+            {
+                idempotencyKey = cli.IdempotencyKey ?? $"tagrm-{Guid.NewGuid():N}",
+                tagId = cli.TagId,
+                expectedRevision = cli.ExpectedRevision,
+            },
+            "tags.assign" or "tags.unassign" or "tags.suppress" or "tags.reset" => new
+            {
+                idempotencyKey = cli.IdempotencyKey ?? $"tag{operationId[5..]}-{Guid.NewGuid():N}",
+                gameId = cli.GameId,
+                tagId = cli.TagId,
+                expectedRevision = cli.ExpectedRevision,
+            },
             "profiles.create" => new { idempotencyKey = cli.IdempotencyKey, gameId = cli.GameId, executablePath = cli.ExePath, argv = cli.ArgList, cwd = cli.Cwd, toolId = cli.ToolId, isDefault = cli.IsDefault },
+            "games.create" => new
+            {
+                idempotencyKey = cli.IdempotencyKey ?? $"gamecreate-{Guid.NewGuid():N}",
+                sourcePath = cli.SourcePath,
+                title = cli.Name,
+            },
+            "games.remove" => new
+            {
+                idempotencyKey = cli.IdempotencyKey ?? $"gameremove-{Guid.NewGuid():N}",
+                gameId = cli.GameId,
+                expectedRevision = cli.ExpectedRevision,
+            },
             "profiles.set_default" => new
             {
                 idempotencyKey = cli.IdempotencyKey ?? $"setdef-{Guid.NewGuid():N}",

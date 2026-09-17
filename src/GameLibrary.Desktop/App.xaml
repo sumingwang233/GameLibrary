@@ -3,151 +3,171 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- 主题色板：启动时按设置切换 Dark/Light（App.xaml.cs ReplaceTheme）。
+                     样式一律 DynamicResource 引用色键，支持运行中实时切换。 -->
+                <ResourceDictionary Source="Theme/Dark.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <FontFamily x:Key="UiFontFamily">Segoe UI</FontFamily>
 
-        <!-- Steam 库风格色板 -->
-        <SolidColorBrush x:Key="BgTop" Color="#171a21" />
-        <SolidColorBrush x:Key="BgMain" Color="#1b2838" />
-        <SolidColorBrush x:Key="BgPanel" Color="#16202d" />
-        <SolidColorBrush x:Key="BgRow" Color="#16202d" />
-        <SolidColorBrush x:Key="BgRowHover" Color="#2a475e" />
-        <SolidColorBrush x:Key="BgRowSelected" Color="#316282" />
-        <SolidColorBrush x:Key="Accent" Color="#66c0f4" />
-        <SolidColorBrush x:Key="AccentDim" Color="#417a9b" />
-        <SolidColorBrush x:Key="TextPrimary" Color="#ffffff" />
-        <SolidColorBrush x:Key="TextBody" Color="#c7d5e0" />
-        <SolidColorBrush x:Key="TextMuted" Color="#8f98a0" />
-        <SolidColorBrush x:Key="Green" Color="#a1cd44" />
-        <SolidColorBrush x:Key="GreenHover" Color="#b6dd5c" />
-        <SolidColorBrush x:Key="Danger" Color="#c15959" />
+            <!-- 基础文字 -->
+            <Style TargetType="TextBlock">
+                <Setter Property="Foreground" Value="{DynamicResource TextBody}" />
+                <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
+            </Style>
 
-        <!-- 基础文字 -->
-        <Style TargetType="TextBlock">
-            <Setter Property="Foreground" Value="{StaticResource TextBody}" />
-            <Setter Property="FontFamily" Value="Segoe UI" />
-        </Style>
+            <!-- 顶栏/普通按钮（审查修复：明确焦点视觉样式，键盘可达） -->
+            <Style x:Key="SteamButton" TargetType="Button">
+                <Setter Property="Background" Value="{DynamicResource BgRowHover}" />
+                <Setter Property="Foreground" Value="{DynamicResource TextBody}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource AccentDim}" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Padding" Value="12,5" />
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="FocusVisualStyle">
+                    <Setter.Value>
+                        <Style>
+                            <Setter Property="Control.Template">
+                                <Setter.Value>
+                                    <ControlTemplate>
+                                        <Rectangle StrokeThickness="1.5"
+                                                   Stroke="{DynamicResource Accent}"
+                                                   StrokeDashArray="2 1.5"
+                                                   SnapsToDevicePixels="True" />
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </Setter.Value>
+                </Setter>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="2">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                  Margin="{TemplateBinding Padding}" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource AccentDim}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter Property="BorderBrush" Value="{DynamicResource Accent}" />
+                                    <Setter Property="BorderThickness" Value="1.5" />
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource BgPanel}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
 
-        <!-- 顶栏/普通按钮 -->
-        <Style x:Key="SteamButton" TargetType="Button">
-            <Setter Property="Background" Value="{StaticResource BgRowHover}" />
-            <Setter Property="Foreground" Value="{StaticResource TextBody}" />
-            <Setter Property="BorderBrush" Value="{StaticResource AccentDim}" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Padding" Value="12,5" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="FontFamily" Value="Segoe UI" />
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="2">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
-                                              Margin="{TemplateBinding Padding}" />
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="bd" Property="Background" Value="{StaticResource AccentDim}" />
-                                <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="bd" Property="Background" Value="#22303c" />
-                                <Setter Property="Foreground" Value="{StaticResource TextMuted}" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
+            <!-- 绿色主操作（接受入库/启动游戏） -->
+            <Style x:Key="SteamGreenButton" TargetType="Button" BasedOn="{StaticResource SteamButton}">
+                <Setter Property="Background" Value="{DynamicResource Green}" />
+                <Setter Property="Foreground" Value="#0f2a10" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="2">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                  Margin="{TemplateBinding Padding}" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource GreenHover}" />
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter Property="BorderBrush" Value="{DynamicResource Accent}" />
+                                    <Setter Property="BorderThickness" Value="1.5" />
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource BgPanel}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
 
-        <!-- 绿色主操作（接受入库） -->
-        <Style x:Key="SteamGreenButton" TargetType="Button" BasedOn="{StaticResource SteamButton}">
-            <Setter Property="Background" Value="{StaticResource Green}" />
-            <Setter Property="Foreground" Value="#0f2a10" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="2">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
-                                              Margin="{TemplateBinding Padding}" />
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="bd" Property="Background" Value="{StaticResource GreenHover}" />
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="bd" Property="Background" Value="#3a4a30" />
-                                <Setter Property="Foreground" Value="{StaticResource TextMuted}" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
+            <!-- 蓝色强调（扫描） -->
+            <Style x:Key="SteamBlueButton" TargetType="Button" BasedOn="{StaticResource SteamButton}">
+                <Setter Property="Background" Value="{DynamicResource Accent}" />
+                <Setter Property="Foreground" Value="#10293b" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="2">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                  Margin="{TemplateBinding Padding}" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="bd" Property="Background" Value="#8ad1f8" />
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter Property="BorderBrush" Value="{DynamicResource TextPrimary}" />
+                                    <Setter Property="BorderThickness" Value="1.5" />
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource BgPanel}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
 
-        <!-- 蓝色强调（扫描） -->
-        <Style x:Key="SteamBlueButton" TargetType="Button" BasedOn="{StaticResource SteamButton}">
-            <Setter Property="Background" Value="{StaticResource Accent}" />
-            <Setter Property="Foreground" Value="#10293b" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="2">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
-                                              Margin="{TemplateBinding Padding}" />
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="bd" Property="Background" Value="#8ad1f8" />
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="bd" Property="Background" Value="#2c4a5e" />
-                                <Setter Property="Foreground" Value="{StaticResource TextMuted}" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
+            <!-- 输入框 -->
+            <Style TargetType="TextBox">
+                <Setter Property="Background" Value="{DynamicResource BgPanel}" />
+                <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource AccentDim}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="Padding" Value="6,4" />
+                <Setter Property="CaretBrush" Value="{DynamicResource Accent}" />
+                <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
+                <Setter Property="FontSize" Value="12" />
+            </Style>
 
-        <!-- 输入框 -->
-        <Style TargetType="TextBox">
-            <Setter Property="Background" Value="{StaticResource BgPanel}" />
-            <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
-            <Setter Property="BorderBrush" Value="#2a475e" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Padding" Value="6,4" />
-            <Setter Property="CaretBrush" Value="{StaticResource Accent}" />
-            <Setter Property="FontFamily" Value="Segoe UI" />
-            <Setter Property="FontSize" Value="12" />
-        </Style>
+            <!-- 侧边栏列表项 -->
+            <Style x:Key="SidebarItem" TargetType="ListBoxItem">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="Foreground" Value="{DynamicResource TextBody}" />
+                <Setter Property="Padding" Value="10,6" />
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ListBoxItem">
+                            <Border x:Name="bd" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource BgRowHover}" />
+                                </Trigger>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource BgRowSelected}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
 
-        <!-- 侧边栏列表项 -->
-        <Style x:Key="SidebarItem" TargetType="ListBoxItem">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Foreground" Value="{StaticResource TextBody}" />
-            <Setter Property="Padding" Value="10,6" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ListBoxItem">
-                        <Border x:Name="bd" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
-                            <ContentPresenter />
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="bd" Property="Background" Value="{StaticResource BgRowHover}" />
-                            </Trigger>
-                            <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="bd" Property="Background" Value="{StaticResource BgRowSelected}" />
-                                <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
+        </ResourceDictionary>
     </Application.Resources>
 </Application>

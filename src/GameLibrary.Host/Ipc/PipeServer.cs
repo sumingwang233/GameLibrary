@@ -2,6 +2,7 @@ using System.IO.Pipes;
 using GameLibrary.Contracts;
 using GameLibrary.Contracts.Ipc;
 using GameLibrary.Host.Hosting;
+using GameLibrary.Host.Observability;
 using Microsoft.Extensions.Logging;
 
 namespace GameLibrary.Host.Ipc;
@@ -105,6 +106,10 @@ public sealed class PipeServer : IAsyncDisposable
                 return;
             }
 
+            // 连接代数快照：library.init / backups.restore 成功后代数递增，
+            // 下一轮循环检测到不一致即断开——旧纪元客户端必须重连获取新纪元（契约恢复语义）。
+            var generationAtHandshake = Volatile.Read(ref _state.ConnectionGeneration);
+
             await IpcFrame.WriteJsonAsync(pipe, new HandshakeResponse
             {
                 ApiVersion = ApiConstants.ApiVersion,
@@ -127,11 +132,21 @@ public sealed class PipeServer : IAsyncDisposable
                     break;
                 }
 
-                // 收据 actor 与审计需要调用方标签：握手声明回填到每个请求。
+                // 收据 actor 与审计需要调用方标签：握手声明回填到每个请求；
+                // 握手声明的权限集合同样回填（null=不限权）。
                 request.ClientName ??= handshake.ClientName;
+                request.GrantedPermissions = handshake.Permissions;
                 var envelope = SafeDispatch(request);
                 await IpcFrame.WriteJsonAsync(pipe, envelope, ct);
-                System.IO.File.AppendAllText("D:/Official/GameLibrary/artifacts/serve-debug.log", $"{DateTime.UtcNow:O} responded req={request.RequestId} op={request.OperationId} ok={envelope.Ok}\n");
+
+                // 库会话切换（init/restore）后旧连接立即失效：本轮响应已送达，主动断开。
+                if (Volatile.Read(ref _state.ConnectionGeneration) != generationAtHandshake)
+                {
+                    _logger.LogInformation(
+                        "库会话已切换（library.init/restore），断开旧纪元连接 client={Client}",
+                        LogSanitizer.Sanitize(handshake.ClientName, _state.DataDirectory));
+                    break;
+                }
             }
         }
         catch (Exception ex) when (ex is IOException or OperationCanceledException or InvalidDataException)

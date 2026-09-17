@@ -147,6 +147,68 @@ public sealed class CliProcessTests
     }
 
     [Fact]
+    public async Task SettingsUpdate_CacheDirectory_CanSetAndRestoreDefault()
+    {
+        var dataDir = TestRunDirectory.Create("cli-cache-setting");
+        var cacheParent = Path.Combine(dataDir, "selected-cache-parent");
+        Directory.CreateDirectory(cacheParent);
+        try
+        {
+            var initialized = await RunCliAsync(
+                "library", "init", "--data-dir", dataDir, "--format", "json");
+            Assert.Equal(0, initialized.ExitCode);
+
+            var get = await RunCliAsync(
+                "settings", "get", "--data-dir", dataDir, "--format", "json");
+            Assert.Equal(0, get.ExitCode);
+            using var getJson = JsonDocument.Parse(get.StdOut);
+            var revision = getJson.RootElement.GetProperty("data").GetProperty("revision").GetInt32();
+
+            var update = await RunCliAsync(
+                "settings", "update",
+                "--expected-revision", revision.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                "--cache-dir", cacheParent,
+                "--data-dir", dataDir,
+                "--format", "json");
+            Assert.Equal(0, update.ExitCode);
+            using var updateJson = JsonDocument.Parse(update.StdOut);
+            var updateData = updateJson.RootElement.GetProperty("data");
+            Assert.Equal(cacheParent, updateData.GetProperty("cacheParentDirectory").GetString());
+
+            var restore = await RunCliAsync(
+                "settings", "update",
+                "--expected-revision", updateData.GetProperty("revision").GetInt32()
+                    .ToString(System.Globalization.CultureInfo.InvariantCulture),
+                "--default-cache-dir",
+                "--data-dir", dataDir,
+                "--format", "json");
+            Assert.Equal(0, restore.ExitCode);
+            using var restoreJson = JsonDocument.Parse(restore.StdOut);
+            Assert.Equal(JsonValueKind.Null,
+                restoreJson.RootElement.GetProperty("data").GetProperty("cacheParentDirectory").ValueKind);
+        }
+        finally
+        {
+            _ = await RunCliAsync(
+                "host", "stop", "--data-dir", dataDir,
+                "--idempotency-key", $"cli-cache-stop-{Guid.NewGuid():N}",
+                "--format", "json");
+            for (var attempt = 0; attempt < 50; attempt++)
+            {
+                try
+                {
+                    TestRunDirectory.Delete(dataDir);
+                    break;
+                }
+                catch (IOException) when (attempt < 49)
+                {
+                    await Task.Delay(100);
+                }
+            }
+        }
+    }
+
+    [Fact]
     public async Task UnknownCommand_Exits2WithErrorOnStderr()
     {
         var (code, stdout, stderr) = await RunCliAsync("frobnicate", "list");

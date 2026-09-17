@@ -37,8 +37,11 @@ public sealed class HostIdentity
     public int ProcessId => Environment.ProcessId;
 }
 
-/// <summary>T21/T10 骨架分发器：host.status / capabilities.get / schema.get 可用；其余返回 UnsupportedOperation。</summary>
-public sealed class OperationDispatcher
+/// <summary>
+/// 操作分发器（按域拆分为 partial：OperationDispatcher.Tags/Backups/Views.Notifications.Settings/…）。
+/// 本文件承载：请求门/纪元校验/收据中间件/路由 + 系统（capabilities/schema/host）与扫描候选域。
+/// </summary>
+public sealed partial class OperationDispatcher
 {
     private readonly HostRuntimeState _state;
 
@@ -58,6 +61,8 @@ public sealed class OperationDispatcher
         "profiles.remove",
         "translation.set",
         "games.update",
+        "games.create",
+        "games.remove",
         "games.relink",
         "views.create",
         "views.update",
@@ -87,12 +92,36 @@ public sealed class OperationDispatcher
         "metadata.refresh",
         "ignores.create",
         "ignores.remove",
+        "roots.remove",
+        "tags.create",
+        "tags.update",
+        "tags.remove",
+        "tags.assign",
+        "tags.unassign",
+        "tags.suppress",
+        "tags.reset",
     };
+
+    /// <summary>
+    /// 维护模式下仍可用的操作（REC-02）：只读诊断/状态与恢复自身、停机；
+    /// 其余变更请求一律 MaintenanceMode 拒绝。
+    /// </summary>
+    private static readonly HashSet<string> MaintenanceAllowedOperations = new(StringComparer.Ordinal)
+    {
+        "host.status", "host.stop", "capabilities.get", "schema.get",
+        "jobs.get", "scan.status", "scan.coverage",
+        "diagnostics.status", "diagnostics.logs", "events.read",
+        "backups.list", "backups.inspect", "backups.restore_plan", "backups.restore",
+    };
+
+    /// <summary>宿主级请求门：所有 IPC 请求在此串行（v1 审查修复：单写队列语义——
+    /// 请求处理不并发进入，后台作业另由 Store 内部锁串行化）。</summary>
+    private readonly object _requestGate = new();
 
     public Envelope<object> Dispatch(IpcRequest request)
     {
         var started = System.Diagnostics.Stopwatch.StartNew();
-        var result = DispatchInternal(request);
+        var result = DispatchGated(request);
         started.Stop();
 
         // 业务审计（T24，补充规格 4.3）：固定字段；参数原文不写入，actor 来自握手回填。
@@ -112,7 +141,143 @@ public sealed class OperationDispatcher
             DurationMs = started.ElapsedMilliseconds,
         });
         _state.Metrics.RecordRequest(request.OperationId, result.Ok, result.Ok ? null : result.Error?.Code, started.ElapsedMilliseconds);
-        return result;
+
+        // 信封补全（契约 3）：响应必须携带当前库实例与数据纪元——
+        // 旧纪元客户端由此发现恢复已发生，重连后携带新纪元重试。
+        return Stamp(result);
+    }
+
+    private Envelope<object> DispatchGated(IpcRequest request)
+    {
+        // host.stop 是控制面操作：不依赖业务库、不参与串行（停机不得被长请求阻塞）。
+        if (request.OperationId == "host.stop")
+        {
+            return DispatchInternal(request);
+        }
+
+        lock (_requestGate)
+        {
+            var info = OperationCatalog.Catalog.Find(request.OperationId);
+            if (info is not null && !HasPermission(request, info.Permission))
+            {
+                return new Envelope<object>
+                {
+                    RequestId = request.RequestId,
+                    Ok = false,
+                    Status = OperationStatus.Failed,
+                    Error = new RequestError
+                    {
+                        Code = ErrorCodes.PermissionDenied,
+                        Message = $"客户端握手未声明操作所需权限（{info.Permission}）：{request.OperationId}",
+                        Retryable = false,
+                    },
+                };
+            }
+
+            if (_state.MaintenanceMode && !MaintenanceAllowedOperations.Contains(request.OperationId))
+            {
+                return new Envelope<object>
+                {
+                    RequestId = request.RequestId,
+                    Ok = false,
+                    Status = OperationStatus.Failed,
+                    Error = new RequestError
+                    {
+                        Code = ErrorCodes.MaintenanceMode,
+                        Message = "库处于维护状态（备份恢复进行中），变更请求已拒绝；请稍后重试",
+                        Retryable = true,
+                    },
+                };
+            }
+
+            if (ValidateEpoch(request) is { } epochError)
+            {
+                return epochError;
+            }
+
+            return DispatchInternal(request);
+        }
+    }
+
+    /// <summary>
+    /// 库实例/纪元校验（契约 5）：客户端握手获得 libraryInstanceId/dataEpoch 后，
+    /// 变更请求应原样携带。不携带时跳过（兼容未升级的 CLI/MCP）；携带不一致即拒绝。
+    /// </summary>
+    private Envelope<object>? ValidateEpoch(IpcRequest request)
+    {
+        var library = _state.Library;
+        if (request.LibraryInstanceId is { Length: > 0 } requestedInstance
+            && library.Store is not null
+            && !string.Equals(requestedInstance, library.Store.Info.LibraryInstanceId, StringComparison.Ordinal))
+        {
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = ErrorCodes.LibraryInstanceMismatch,
+                    Message = "请求携带的库实例与当前宿主不一致（库可能已被重建）；请重连后重试",
+                    Retryable = false,
+                },
+            };
+        }
+
+        if (request.ExpectedDataEpoch is { Length: > 0 } requestedEpoch
+            && library.Store is not null
+            && !string.Equals(requestedEpoch, library.Store.Info.DataEpoch, StringComparison.Ordinal))
+        {
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = ErrorCodes.DataEpochMismatch,
+                    Message = "数据纪元已更换（备份恢复已发生）；请重连获取新纪元后重试",
+                    Retryable = false,
+                },
+            };
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 权限校验（契约 access.*）：握手未声明权限集 = 不限权（第一方 CLI/Desktop）；
+    /// 声明后须包含操作所需权限，或持有 access.admin（全权）。
+    /// </summary>
+    private static bool HasPermission(IpcRequest request, string permission)
+    {
+        if (permission == "none" || request.GrantedPermissions is null)
+        {
+            return true;
+        }
+
+        return request.GrantedPermissions.Contains(permission, StringComparer.Ordinal)
+            || request.GrantedPermissions.Contains("access.admin", StringComparer.Ordinal);
+    }
+
+    /// <summary>以当前库状态补全信封的库实例/纪元字段（null 键保留，值以当前状态为准）。</summary>
+    private Envelope<object> Stamp(Envelope<object> result)
+    {
+        var library = _state.Library;
+        return new Envelope<object>
+        {
+            ApiVersion = result.ApiVersion,
+            RequestId = result.RequestId,
+            LibraryInstanceId = library.LibraryInstanceId,
+            DataEpoch = library.DataEpoch,
+            Ok = result.Ok,
+            Status = result.Status,
+            Data = result.Data,
+            JobId = result.JobId,
+            Error = result.Error,
+            Warnings = result.Warnings,
+            NextActions = result.NextActions,
+        };
     }
 
     private Envelope<object> DispatchInternal(IpcRequest request)
@@ -160,6 +325,11 @@ public sealed class OperationDispatcher
         if (!TryGetStringParameter(request, "idempotencyKey", out var key))
         {
             return InvalidArgument(request, $"{request.OperationId} 需要 idempotencyKey 参数");
+        }
+
+        if (!IsValidIdempotencyKey(key))
+        {
+            return InvalidArgument(request, "idempotencyKey 非法（1–200 字符、不含控制字符与路径分隔符）");
         }
 
         var actor = string.IsNullOrWhiteSpace(request.ClientName) ? "anonymous" : request.ClientName!;
@@ -367,6 +537,28 @@ public sealed class OperationDispatcher
             System.Security.Cryptography.SHA256.HashData(
                 System.Text.Encoding.UTF8.GetBytes(request.Parameters?.GetRawText() ?? "")));
 
+    /// <summary>
+    /// 幂等键约束（v1 审查意见）：长度受限、不含控制字符。路径分隔符允许——
+    /// 收据主键在 SQLite、控制区文件名已改为键的 SHA-256，路径字符不再产生穿越风险。
+    /// </summary>
+    private static bool IsValidIdempotencyKey(string key)
+    {
+        if (key.Length is < 1 or > 200)
+        {
+            return false;
+        }
+
+        foreach (var c in key)
+        {
+            if (char.IsControl(c))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     private sealed record AttemptRef
     {
         public string AttemptId { get; init; } = "";
@@ -415,6 +607,7 @@ public sealed class OperationDispatcher
         "scan.inspect" => ScanInspect(request),
         "roots.add" => RootsAdd(request),
         "roots.list" => RootsList(request),
+        "roots.remove" => RootsRemove(request),
         "candidates.list" => CandidatesList(request),
         "candidates.get" => CandidatesGet(request),
         "candidates.accept" => CandidateReview(request, "accept"),
@@ -422,6 +615,16 @@ public sealed class OperationDispatcher
         "candidates.ignore" => CandidateReview(request, "ignore"),
         "games.list" => GamesList(request),
         "games.get" => GamesGet(request),
+        "games.create" => GamesCreate(request),
+        "games.remove" => GamesRemove(request),
+        "tags.list" => TagsList(request),
+        "tags.create" => TagsCreate(request),
+        "tags.update" => TagsUpdate(request),
+        "tags.remove" => TagsRemove(request),
+        "tags.assign" => TagsAssign(request),
+        "tags.unassign" => TagsUnassign(request),
+        "tags.suppress" => TagsSuppress(request),
+        "tags.reset" => TagsReset(request),
         "events.read" => EventsRead(request),
         "diagnostics.status" => DiagnosticsStatus(request),
         "diagnostics.logs" => DiagnosticsLogs(request),
@@ -680,7 +883,7 @@ public sealed class OperationDispatcher
         };
     }
 
-    /// <summary>注册库根（显式授权动作）；重复注册同一规范化路径幂等。</summary>
+    /// <summary>注册库根（显式授权动作）；重复注册同一规范化路径幂等；同步落库（v13+）。</summary>
     private Envelope<object> RootsAdd(IpcRequest request)
     {
         if (!TryGetStringParameter(request, "root", out var root))
@@ -691,6 +894,9 @@ public sealed class OperationDispatcher
         try
         {
             var libraryRoot = _state.Roots.Add(root);
+            _state.Library.Store?.UpsertRoot(
+                new PersistedRoot(libraryRoot.RootId, libraryRoot.Path.PhysicalPath, libraryRoot.Revision, libraryRoot.CreatedUtc),
+                DateTime.UtcNow);
             return new Envelope<object>
             {
                 RequestId = request.RequestId,
@@ -714,6 +920,62 @@ public sealed class OperationDispatcher
                 },
             };
         }
+    }
+
+    /// <summary>
+    /// 移除库根（roots.remove）：仅解除扫描/启动边界，不触碰游戏数据与记录；
+    /// 库内已绑定该根的游戏保留并按 RootUnbound 语义提示。期望 Revision 乐观校验。
+    /// </summary>
+    private Envelope<object> RootsRemove(IpcRequest request)
+    {
+        if (!TryGetStringParameter(request, "rootId", out var rootId))
+        {
+            return InvalidArgument(request, "缺少 rootId 参数");
+        }
+
+        if (!TryGetIntParameter(request, "expectedRevision", out var expectedRevision) || expectedRevision is null)
+        {
+            return InvalidArgument(request, "缺少 expectedRevision 参数");
+        }
+
+        var root = _state.Roots.List().FirstOrDefault(r => string.Equals(r.RootId, rootId, StringComparison.Ordinal));
+        if (root is null)
+        {
+            return NotFound(request, $"库根不存在：{rootId}");
+        }
+
+        if (root.Revision != expectedRevision.Value)
+        {
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = ErrorCodes.RevisionConflict,
+                    Message = $"库根 Revision 不一致：期望 {expectedRevision}，当前 {root.Revision}",
+                    Retryable = false,
+                    CurrentRevision = root.Revision,
+                },
+            };
+        }
+
+        var removed = _state.Roots.Remove(rootId);
+        if (removed is null)
+        {
+            return NotFound(request, $"库根不存在：{rootId}");
+        }
+
+        _state.Library.Store?.DeleteRoot(rootId);
+        _state.Events.Publish("root.removed", $"root:{rootId}", new { rootId }, DateTime.UtcNow);
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new { rootId, removed = true },
+        };
     }
 
     private Envelope<object> RootsList(IpcRequest request)
@@ -1012,6 +1274,8 @@ public sealed class OperationDispatcher
                     AcceptedUtc = utcNow,
                     UpdatedUtc = utcNow,
                 });
+                // 入库即登记引擎自动标签（tags.×8）：engine 标签供筛选与"需要翻译"类展示。
+                store.EnsureEngineTagAssigned(gameId, TopEngine(current.PayloadJson) ?? "", utcNow);
             }
         }
 
@@ -1151,10 +1415,13 @@ public sealed class OperationDispatcher
             return InvalidArgument(request, "库未初始化（先 library.init）");
         }
 
-        var games = store.ListGames();
+        // 阶段三：搜索/过滤/排序/分页全部下沉 SQL——5000+ 条目不再整表载入内存。
         string? search = null;
-        bool? favoriteFilter = null;
+        var favoriteFilter = false;
         string? sort = null;
+        string? tagId = null;
+        var limit = 0;
+        var offset = 0;
         if (request.Parameters is { ValueKind: JsonValueKind.Object } glParameters)
         {
             if (glParameters.TryGetProperty("search", out var searchElement) && searchElement.ValueKind == JsonValueKind.String)
@@ -1170,6 +1437,11 @@ public sealed class OperationDispatcher
             if (glParameters.TryGetProperty("sort", out var sortElement) && sortElement.ValueKind == JsonValueKind.String)
             {
                 sort = sortElement.GetString();
+            }
+
+            if (glParameters.TryGetProperty("tagId", out var tagElement) && tagElement.ValueKind == JsonValueKind.String)
+            {
+                tagId = tagElement.GetString();
             }
 
             // T15-C：viewId 直接套用该视图的筛选/排序语义（agent 可不先读视图定义）。
@@ -1196,36 +1468,31 @@ public sealed class OperationDispatcher
                     }
                 }
             }
+
+            // 分页：未携带 limit 保持全量（兼容既有 CLI/MCP 消费方）；携带后按 offset 截页。
+            if (glParameters.TryGetProperty("limit", out var limitElement)
+                && limitElement.ValueKind == JsonValueKind.Number
+                && limitElement.TryGetInt32(out var parsedLimit))
+            {
+                limit = Math.Clamp(parsedLimit, 1, 1000);
+                if (glParameters.TryGetProperty("offset", out var offsetElement)
+                    && offsetElement.ValueKind == JsonValueKind.Number
+                    && offsetElement.TryGetInt32(out var parsedOffset))
+                {
+                    offset = Math.Max(0, parsedOffset);
+                }
+            }
         }
 
-        var filtered = games.AsEnumerable();
-        if (favoriteFilter == true)
-        {
-            filtered = filtered.Where(g => g.Favorite);
-        }
+        var (total, games) = store.QueryGames(search, favoriteFilter, tagId, sort, limit, offset);
+        var dtos = games.Select(g => GameDto(store, g)).ToArray();
 
-        if (!string.IsNullOrEmpty(search))
-        {
-            filtered = filtered.Where(g => g.Title.Contains(search, StringComparison.OrdinalIgnoreCase));
-        }
-
-        // T15-C：排序语义（title 默认 / recent 最近更新在前）。
-        if (sort == "recent")
-        {
-            filtered = filtered.OrderByDescending(g => g.UpdatedUtc).ThenBy(g => g.GameId, StringComparer.Ordinal);
-        }
-        else
-        {
-            filtered = filtered.OrderBy(g => g.Title, StringComparer.OrdinalIgnoreCase).ThenBy(g => g.GameId, StringComparer.Ordinal);
-        }
-
-        var dtos = filtered.Select(g => GameDto(store, g)).ToArray();
         return new Envelope<object>
         {
             RequestId = request.RequestId,
             Ok = true,
             Status = OperationStatus.Completed,
-            Data = new { total = dtos.Length, items = dtos },
+            Data = new { total, items = dtos },
         };
     }
 
@@ -1591,861 +1858,6 @@ public sealed class OperationDispatcher
         };
     }
 
-    private Envelope<object> ProfilesSetDefault(IpcRequest request)
-    {
-        if (!TryGetStringParameter(request, "gameId", out var gameId)
-            || !TryGetStringParameter(request, "profileId", out var profileId))
-        {
-            return InvalidArgument(request, "profiles set_default 需要 gameId、profileId 参数");
-        }
-
-        try
-        {
-            var updated = _state.Launches.SetDefault(gameId, profileId);
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = true,
-                Status = OperationStatus.Completed,
-                Data = ProfileDto(updated),
-            };
-        }
-        catch (GameLibrary.Host.Launching.LaunchException ex)
-        {
-            return LaunchError(request, ex);
-        }
-    }
-
-    private Envelope<object> ProfilesRemove(IpcRequest request)
-    {
-        if (!TryGetStringParameter(request, "profileId", out var profileId))
-        {
-            return InvalidArgument(request, "缺少 profileId 参数");
-        }
-
-        try
-        {
-            var removed = _state.Launches.RemoveProfile(profileId);
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = true,
-                Status = OperationStatus.Completed,
-                Data = new { profileId = removed.ProfileId, gameId = removed.GameId, removed = true },
-            };
-        }
-        catch (GameLibrary.Host.Launching.LaunchException ex) when (ex.Code == ErrorCodes.InvalidArgument)
-        {
-            // 默认配置移除需明确替代项（契约 3.1）：给出可执行修复入口。
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ex.Code,
-                    Message = ex.Message,
-                    Retryable = false,
-                    RecoveryOperation = "profiles.set_default",
-                },
-            };
-        }
-        catch (GameLibrary.Host.Launching.LaunchException ex)
-        {
-            return LaunchError(request, ex);
-        }
-    }
-
-    private Envelope<object> ProfilesValidate(IpcRequest request)
-    {
-        if (!TryGetStringParameter(request, "profileId", out var profileId))
-        {
-            return InvalidArgument(request, "缺少 profileId 参数");
-        }
-
-        var profile = _state.Launches.GetProfile(profileId);
-        if (profile is null)
-        {
-            return NotFound(request, $"Profile 不存在：{profileId}");
-        }
-
-        var issues = new List<object>();
-        if (!File.Exists(profile.ExecutablePath))
-        {
-            issues.Add(new { code = "EntryMissing", detail = $"入口不存在：{profile.ExecutablePath}" });
-        }
-
-        if (!Directory.Exists(profile.WorkingDirectory))
-        {
-            issues.Add(new { code = "WorkingDirectoryMissing", detail = $"工作目录不存在：{profile.WorkingDirectory}" });
-        }
-
-        if (profile.ToolId is not null)
-        {
-            issues.Add(new
-            {
-                code = "ToolUnverified",
-                detail = $"绑定工具 {profile.ToolId} 的能力验证状态用 verification.list 查询；validate 不执行工具",
-            });
-        }
-
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new
-            {
-                profileId = profile.ProfileId,
-                gameId = profile.GameId,
-                available = issues.Count == 0,
-                toolId = profile.ToolId,
-                isDefault = profile.IsDefault,
-                issues,
-            },
-        };
-    }
-
-    /// <summary>内置视图 + 自定义视图（T15-C）；activeViewId 为宿主内存态。</summary>
-    private Envelope<object> ViewsList(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        var builtin = BuiltInViews.All.Select(v => new
-        {
-            viewId = v.ViewId,
-            name = v.Name,
-            kind = "builtin",
-            search = (string?)null,
-            favoriteOnly = v.ViewId == "favorites",
-            sort = "title",
-            revision = (int?)null,
-            active = string.Equals(_state.ActiveViewId, v.ViewId, StringComparison.Ordinal),
-        });
-        var custom = store.ListViews().Select(v => new
-        {
-            viewId = v.ViewId,
-            name = v.Name,
-            kind = "custom",
-            search = v.Search,
-            favoriteOnly = v.FavoriteOnly,
-            sort = v.Sort,
-            revision = (int?)v.Revision,
-            active = string.Equals(_state.ActiveViewId, v.ViewId, StringComparison.Ordinal),
-        });
-
-        var items = builtin.Concat(custom).ToArray();
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new { total = items.Length, items, activeViewId = _state.ActiveViewId },
-        };
-    }
-
-    private Envelope<object> ViewsGet(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        if (!TryGetStringParameter(request, "viewId", out var viewId))
-        {
-            return InvalidArgument(request, "缺少 viewId 参数");
-        }
-
-        var builtin = BuiltInViews.All.FirstOrDefault(v => v.ViewId == viewId);
-        if (builtin.ViewId is not null)
-        {
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = true,
-                Status = OperationStatus.Completed,
-                Data = new
-                {
-                    viewId = builtin.ViewId,
-                    name = builtin.Name,
-                    kind = "builtin",
-                    search = (string?)null,
-                    favoriteOnly = builtin.ViewId == "favorites",
-                    sort = "title",
-                    revision = (int?)null,
-                },
-            };
-        }
-
-        var view = store.TryGetView(viewId);
-        if (view is null)
-        {
-            return NotFound(request, $"视图不存在：{viewId}");
-        }
-
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new
-            {
-                viewId = view.ViewId,
-                name = view.Name,
-                kind = "custom",
-                search = view.Search,
-                favoriteOnly = view.FavoriteOnly,
-                sort = view.Sort,
-                revision = (int?)view.Revision,
-            },
-        };
-    }
-
-    private Envelope<object> ViewsCreate(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        if (!TryGetStringParameter(request, "name", out var name) || name.Length == 0)
-        {
-            return InvalidArgument(request, "缺少 name 参数");
-        }
-
-        TryGetStringParameter(request, "search", out var search);
-        TryGetBoolParameter(request, "favoriteOnly", out var favoriteOnly);
-        TryGetStringParameter(request, "sort", out var sort);
-        if (sort.Length > 0 && sort is not ("title" or "recent"))
-        {
-            return InvalidArgument(request, "sort 只支持 title/recent");
-        }
-
-        var now = DateTime.UtcNow;
-        var view = new LibraryView
-        {
-            ViewId = $"view-{Guid.NewGuid():N}",
-            Name = name,
-            Search = search.Length > 0 ? search : null,
-            FavoriteOnly = favoriteOnly == true,
-            Sort = sort.Length > 0 ? sort : "title",
-            CreatedUtc = now,
-            UpdatedUtc = now,
-        };
-        store.InsertView(view);
-        _state.Events.Publish("view.updated", $"view:{view.ViewId}", new { viewId = view.ViewId, name }, now);
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = ViewDto(store, view.ViewId),
-        };
-    }
-
-    private Envelope<object> ViewsUpdate(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        if (!TryGetStringParameter(request, "viewId", out var viewId))
-        {
-            return InvalidArgument(request, "缺少 viewId 参数");
-        }
-
-        if (!TryGetIntParameter(request, "expectedRevision", out var expectedRevision) || expectedRevision is null)
-        {
-            return InvalidArgument(request, "缺少 expectedRevision 参数");
-        }
-
-        if (BuiltInViews.All.Any(v => v.ViewId == viewId))
-        {
-            return InvalidArgument(request, $"内置视图 {viewId} 不可修改");
-        }
-
-        TryGetStringParameter(request, "name", out var name);
-        TryGetStringParameter(request, "search", out var search);
-        TryGetBoolParameter(request, "favoriteOnly", out var favoriteOnly);
-        TryGetStringParameter(request, "sort", out var sort);
-        if (sort.Length > 0 && sort is not ("title" or "recent"))
-        {
-            return InvalidArgument(request, "sort 只支持 title/recent");
-        }
-
-        var newRevision = store.UpdateView(
-            viewId,
-            name.Length > 0 ? name : null,
-            search.Length > 0 ? search : null,
-            favoriteOnly,
-            sort.Length > 0 ? sort : null,
-            expectedRevision.Value,
-            DateTime.UtcNow);
-        if (newRevision is null)
-        {
-            var latest = store.TryGetView(viewId);
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ErrorCodes.RevisionConflict,
-                    Message = $"视图 Revision 不一致：期望 {expectedRevision}，当前 {latest?.Revision}",
-                    Retryable = false,
-                    CurrentRevision = latest?.Revision,
-                },
-            };
-        }
-
-        _state.Events.Publish("view.updated", $"view:{viewId}", new { viewId, revision = newRevision }, DateTime.UtcNow);
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = ViewDto(store, viewId),
-        };
-    }
-
-    private Envelope<object> ViewsRemove(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        if (!TryGetStringParameter(request, "viewId", out var viewId))
-        {
-            return InvalidArgument(request, "缺少 viewId 参数");
-        }
-
-        if (!TryGetIntParameter(request, "expectedRevision", out var expectedRevision) || expectedRevision is null)
-        {
-            return InvalidArgument(request, "缺少 expectedRevision 参数");
-        }
-
-        if (BuiltInViews.All.Any(v => v.ViewId == viewId))
-        {
-            return InvalidArgument(request, $"内置视图 {viewId} 不可删除");
-        }
-
-        var view = store.TryGetView(viewId);
-        if (view is null)
-        {
-            return NotFound(request, $"视图不存在：{viewId}");
-        }
-
-        if (view.Revision != expectedRevision.Value)
-        {
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ErrorCodes.RevisionConflict,
-                    Message = $"视图 Revision 不一致：期望 {expectedRevision}，当前 {view.Revision}",
-                    Retryable = false,
-                    CurrentRevision = view.Revision,
-                },
-            };
-        }
-
-        store.DeleteView(viewId);
-        if (string.Equals(_state.ActiveViewId, viewId, StringComparison.Ordinal))
-        {
-            _state.ActiveViewId = null;
-            store.WriteSettingsKeys([("activeViewId", null)], DateTime.UtcNow);
-        }
-
-        _state.Events.Publish("view.updated", $"view:{viewId}", new { viewId, removed = true }, DateTime.UtcNow);
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new { viewId, removed = true },
-        };
-    }
-
-    /// <summary>激活视图：校验存在性，记录内存态并广播 view.activated（瞬时语义，收据同键重放幂等）。</summary>
-    private Envelope<object> ViewsActivate(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        if (!TryGetStringParameter(request, "viewId", out var viewId))
-        {
-            return InvalidArgument(request, "缺少 viewId 参数");
-        }
-
-        var isBuiltin = BuiltInViews.All.Any(v => v.ViewId == viewId);
-        var view = store.TryGetView(viewId);
-        if (!isBuiltin && view is null)
-        {
-            return NotFound(request, $"视图不存在：{viewId}");
-        }
-
-        _state.ActiveViewId = viewId;
-        // T-settings：激活视图持久化（跨重启恢复）。
-        store.WriteSettingsKeys([("activeViewId", viewId)], DateTime.UtcNow);
-        _state.Events.Publish("view.activated", $"view:{viewId}", new { viewId }, DateTime.UtcNow);
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new { viewId, active = true },
-        };
-    }
-
-    private object ViewDto(SqliteLibraryStore store, string viewId)
-    {
-        var view = store.TryGetView(viewId)!;
-        return new
-        {
-            viewId = view.ViewId,
-            name = view.Name,
-            kind = "custom",
-            search = view.Search,
-            favoriteOnly = view.FavoriteOnly,
-            sort = view.Sort,
-            revision = (int?)view.Revision,
-        };
-    }
-
-    /// <summary>通知列表（T18）：state 过滤可选；通知是持久存储，重开不丢。</summary>
-    private Envelope<object> NotificationsList(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        string? state = null;
-        if (request.Parameters is { ValueKind: JsonValueKind.Object } nlParameters
-            && nlParameters.TryGetProperty("state", out var stateElement)
-            && stateElement.ValueKind == JsonValueKind.String)
-        {
-            state = stateElement.GetString();
-            if (state is not ("pending" or "acknowledged" or "deferred"))
-            {
-                return InvalidArgument(request, "state 只支持 pending/acknowledged/deferred");
-            }
-        }
-
-        var notifications = store.ListNotifications(state);
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new
-            {
-                total = notifications.Count,
-                items = notifications.Select(n => new
-                {
-                    notificationId = n.NotificationId,
-                    kind = n.Kind,
-                    title = n.Title,
-                    state = n.State,
-                    candidateIds = n.CandidateIds,
-                    createdUtc = n.CreatedUtc.ToString("O"),
-                    updatedUtc = n.UpdatedUtc.ToString("O"),
-                }).ToArray(),
-            },
-        };
-    }
-
-    private Envelope<object> NotificationsGet(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        if (!TryGetStringParameter(request, "notificationId", out var notificationId))
-        {
-            return InvalidArgument(request, "缺少 notificationId 参数");
-        }
-
-        var notification = store.TryGetNotification(notificationId);
-        if (notification is null)
-        {
-            return NotFound(request, $"通知不存在：{notificationId}");
-        }
-
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new
-            {
-                notificationId = notification.NotificationId,
-                kind = notification.Kind,
-                title = notification.Title,
-                state = notification.State,
-                candidateIds = notification.CandidateIds,
-                createdUtc = notification.CreatedUtc.ToString("O"),
-                updatedUtc = notification.UpdatedUtc.ToString("O"),
-            },
-        };
-    }
-
-    /// <summary>
-    /// 通知状态迁移（T18）：acknowledge ≠ 接受候选——只把通知标记为已读，
-    /// 关联候选保持 pendingReview，需显式 candidates.accept/defer/ignore。
-    /// </summary>
-    private Envelope<object> NotificationTransition(IpcRequest request, string toState)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        if (!TryGetStringParameter(request, "notificationId", out var notificationId))
-        {
-            return InvalidArgument(request, "缺少 notificationId 参数");
-        }
-
-        var notification = store.TryGetNotification(notificationId);
-        if (notification is null)
-        {
-            return NotFound(request, $"通知不存在：{notificationId}");
-        }
-
-        var transitioned = store.TransitionNotification(notificationId, toState, DateTime.UtcNow);
-        if (transitioned is null)
-        {
-            return InvalidArgument(request, $"通知当前状态 {notification.State}；仅 pending 可标记为 {toState}");
-        }
-
-        _state.Events.Publish("notification.updated", $"notification:{notificationId}", new
-        {
-            notificationId,
-            state = toState,
-        }, DateTime.UtcNow);
-
-        // ack/defer 都不是候选决定：明确给出后续步骤（LA/AI-11 结构化引导）。
-        var nextActions = new List<NextAction>();
-        if (toState == "acknowledged")
-        {
-            nextActions.Add(new NextAction
-            {
-                OperationId = "candidates.list",
-                Reason = "acknowledge 只标记通知已读；候选仍为 pendingReview，需显式 accept/defer/ignore",
-            });
-        }
-        else
-        {
-            nextActions.Add(new NextAction
-            {
-                OperationId = "notifications.list",
-                Reason = "deferred 的通知默认不再主动提醒；有全新候选时才会生成新通知",
-            });
-        }
-
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new
-            {
-                notificationId,
-                state = toState,
-                candidateIds = notification.CandidateIds,
-                candidatesAccepted = (bool?)null,
-            },
-            NextActions = nextActions,
-        };
-    }
-
-    /// <summary>
-    /// settings.get：返回快照（受限字段集 + 单调 Revision）。字段应用点：
-    /// activeViewId（宿主恢复/保存）、scanIntervalMinutes（宿主启动时构造核对周期）、
-    /// autostartEnabled（启动文件夹快捷方式）；theme/closeToTray 供 Desktop 消费。
-    /// </summary>
-    private Envelope<object> SettingsGet(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = SettingsDto(store.ReadSettings()),
-        };
-    }
-
-    /// <summary>
-    /// settings.update：受限字段 patch（未知字段拒绝）；期望 Revision 乐观校验。
-    /// autostartEnabled 先应用启动文件夹快捷方式（不写注册表），成功后才落库。
-    /// </summary>
-    private Envelope<object> SettingsUpdate(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        if (!TryGetIntParameter(request, "expectedRevision", out var expectedRevision) || expectedRevision is null)
-        {
-            return InvalidArgument(request, "缺少 expectedRevision 参数");
-        }
-
-        if (request.Parameters is not { ValueKind: JsonValueKind.Object } parameters)
-        {
-            return InvalidArgument(request, "缺少 patch 字段");
-        }
-
-        var declared = new HashSet<string>(StringComparer.Ordinal)
-            { "expectedRevision", "idempotencyKey", "activeViewId", "autostartEnabled", "scanIntervalMinutes", "theme", "closeToTray" };
-        var unknown = parameters.EnumerateObject()
-            .Where(p => !declared.Contains(p.Name))
-            .Select(p => p.Name)
-            .ToArray();
-        if (unknown.Length > 0)
-        {
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ErrorCodes.InvalidArgument,
-                    Message = $"未知 patch 字段：{string.Join(", ", unknown)}",
-                    Retryable = false,
-                },
-            };
-        }
-
-        var current = store.ReadSettings();
-        if (current.Revision != expectedRevision.Value)
-        {
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ErrorCodes.RevisionConflict,
-                    Message = $"设置 Revision 不一致：期望 {expectedRevision}，当前 {current.Revision}",
-                    Retryable = false,
-                    CurrentRevision = current.Revision,
-                },
-            };
-        }
-
-        string? activeViewId = current.ActiveViewId;
-        var autostartEnabled = current.AutostartEnabled;
-        var scanIntervalMinutes = current.ScanIntervalMinutes;
-        var theme = current.Theme;
-        var closeToTray = current.CloseToTray;
-        var keys = new List<(string Key, string? Value)>();
-
-        if (parameters.TryGetProperty("activeViewId", out var viewElement))
-        {
-            if (viewElement.ValueKind is JsonValueKind.Null)
-            {
-                activeViewId = null;
-                keys.Add(("activeViewId", null));
-            }
-            else if (viewElement.ValueKind == JsonValueKind.String)
-            {
-                var viewId = viewElement.GetString();
-                var known = GameLibrary.Infrastructure.Persistence.BuiltInViews.All.Any(v => v.ViewId == viewId)
-                    || store.TryGetView(viewId!) is not null;
-                if (!known)
-                {
-                    return InvalidArgument(request, $"视图不存在：{viewId}");
-                }
-
-                activeViewId = viewId;
-                keys.Add(("activeViewId", viewId));
-            }
-            else
-            {
-                return InvalidArgument(request, "activeViewId 必须是字符串或 null");
-            }
-        }
-
-        if (parameters.TryGetProperty("autostartEnabled", out var autostartElement))
-        {
-            if (autostartElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
-            {
-                return InvalidArgument(request, "autostartEnabled 必须是布尔值");
-            }
-
-            var desired = autostartElement.ValueKind == JsonValueKind.True;
-            if (desired != current.AutostartEnabled)
-            {
-                var manager = _state.StartupShortcuts;
-                var result = desired ? manager.Enable() : manager.Disable();
-                if (!result.Success)
-                {
-                    return new Envelope<object>
-                    {
-                        RequestId = request.RequestId,
-                        Ok = false,
-                        Status = OperationStatus.Failed,
-                        Error = new RequestError
-                        {
-                            Code = ErrorCodes.ConfigurationInvalid,
-                            Message = $"开机启动配置失败：{result.Error}",
-                            Retryable = true,
-                        },
-                    };
-                }
-            }
-
-            autostartEnabled = desired;
-            keys.Add(("autostartEnabled", desired ? "true" : null));
-        }
-
-        if (parameters.TryGetProperty("scanIntervalMinutes", out var intervalElement))
-        {
-            if (intervalElement.ValueKind != JsonValueKind.Number || !intervalElement.TryGetInt32(out var interval)
-                || interval is < 1 or > 10080)
-            {
-                return InvalidArgument(request, "scanIntervalMinutes 必须是 1–10080 的整数（分钟）");
-            }
-
-            scanIntervalMinutes = interval;
-            keys.Add(("scanIntervalMinutes", interval.ToString(System.Globalization.CultureInfo.InvariantCulture)));
-        }
-
-        if (parameters.TryGetProperty("theme", out var themeElement))
-        {
-            if (themeElement.ValueKind != JsonValueKind.String
-                || themeElement.GetString() is not ("dark" or "light" or "system"))
-            {
-                return InvalidArgument(request, "theme 只支持 dark/light/system");
-            }
-
-            theme = themeElement.GetString()!;
-            keys.Add(("theme", theme));
-        }
-
-        if (parameters.TryGetProperty("closeToTray", out var trayElement))
-        {
-            if (trayElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
-            {
-                return InvalidArgument(request, "closeToTray 必须是布尔值");
-            }
-
-            closeToTray = trayElement.ValueKind == JsonValueKind.True;
-            keys.Add(("closeToTray", closeToTray ? "true" : null));
-        }
-
-        var newRevision = keys.Count > 0
-            ? store.WriteSettingsKeys(keys, DateTime.UtcNow)
-            : current.Revision;
-        _state.ActiveViewId = activeViewId;
-        _state.Events.Publish("settings.updated", "settings", new { revision = newRevision }, DateTime.UtcNow);
-
-        var updated = current with
-        {
-            Revision = newRevision,
-            ActiveViewId = activeViewId,
-            AutostartEnabled = autostartEnabled,
-            ScanIntervalMinutes = scanIntervalMinutes,
-            Theme = theme,
-            CloseToTray = closeToTray,
-        };
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = SettingsDto(updated),
-        };
-    }
-
-    /// <summary>settings.reset：恢复默认值；开机启动一并关闭（移除快捷方式）。</summary>
-    private Envelope<object> SettingsReset(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        var current = store.ReadSettings();
-        if (current.AutostartEnabled)
-        {
-            var result = _state.StartupShortcuts.Disable();
-            if (!result.Success)
-            {
-                return new Envelope<object>
-                {
-                    RequestId = request.RequestId,
-                    Ok = false,
-                    Status = OperationStatus.Failed,
-                    Error = new RequestError
-                    {
-                        Code = ErrorCodes.ConfigurationInvalid,
-                        Message = $"移除开机启动快捷方式失败：{result.Error}",
-                        Retryable = true,
-                    },
-                };
-            }
-        }
-
-        var revision = store.ResetSettings(DateTime.UtcNow);
-        _state.ActiveViewId = null;
-        _state.Events.Publish("settings.updated", "settings", new { revision, reset = true }, DateTime.UtcNow);
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = SettingsDto(AppSettingsSnapshot.Defaults(revision)),
-        };
-    }
-
-    private static object SettingsDto(AppSettingsSnapshot settings) => new
-    {
-        revision = settings.Revision,
-        activeViewId = settings.ActiveViewId,
-        autostartEnabled = settings.AutostartEnabled,
-        scanIntervalMinutes = settings.ScanIntervalMinutes,
-        theme = settings.Theme,
-        closeToTray = settings.CloseToTray,
-    };
-
-    /// <summary>
-    /// host.stop（T18）：先返回已接收收据，随后在响应送达后请求宿主优雅停机
-    /// （排空连接后退出进程；不杀游戏/翻译器）。stop 属持久收据操作，同键重放幂等。
-    /// </summary>
     private Envelope<object> HostStop(IpcRequest request)
     {
         _state.NotifyStopRequested?.Invoke();
@@ -2462,2234 +1874,7 @@ public sealed class OperationDispatcher
     /// diagnostics.cache_rebuild（T27/REC-03）：清空可再生缓存目录（缩略图等派生物），
     /// 用户原图（assets/）与游戏目录永不触碰。损坏的缓存随目录删除自然"重建"（下次按需生成）。
     /// </summary>
-    private Envelope<object> CacheRebuild(IpcRequest request)
-    {
-        var cacheDirectory = Path.Combine(_state.DataDirectory, "cache");
-        long removedFiles = 0;
-        long removedBytes = 0;
-        if (Directory.Exists(cacheDirectory))
-        {
-            foreach (var file in Directory.EnumerateFiles(cacheDirectory, "*", SearchOption.AllDirectories))
-            {
-                try
-                {
-                    var info = new FileInfo(file);
-                    Interlocked.Add(ref removedBytes, info.Length);
-                    File.Delete(file);
-                    removedFiles++;
-                }
-                catch (IOException)
-                {
-                    // 单个缓存文件被占用：跳过，不影响其余重建。
-                }
-            }
-        }
 
-        var assetsDirectory = Path.Combine(_state.DataDirectory, "assets");
-        var userAssets = Directory.Exists(assetsDirectory)
-            ? Directory.EnumerateFiles(assetsDirectory, "*", SearchOption.AllDirectories).LongCount()
-            : 0;
-
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new
-            {
-                cacheDirectory,
-                removedFiles,
-                removedBytes,
-                userAssetFilesUntouched = userAssets,
-            },
-        };
-    }
-
-    /// <summary>备份计划注册表：planId → (backupId, 过期时刻)。10 分钟有效期（契约 9.3）。</summary>
-    private static readonly TimeSpan PlanLifetime = TimeSpan.FromMinutes(10);
-
-    private sealed class BackupPlan
-    {
-        public required string BackupId { get; init; }
-
-        public DateTime ExpiresUtc { get; init; }
-    }
-
-    private readonly ConcurrentDictionary<string, BackupPlan> _backupPlans = new(StringComparer.Ordinal);
-
-    private string BackupsRoot => Path.Combine(_state.DataDirectory, "backups");
-
-    private ControlAreaStore ControlArea => new(Path.Combine(_state.DataDirectory, "control"));
-
-    private static object BackupDto(string backupId, BackupManifest manifest) => new
-    {
-        backupId,
-        libraryInstanceId = manifest.LibraryInstanceId,
-        sourceDataEpoch = manifest.SourceDataEpoch,
-        appVersion = manifest.AppVersion,
-        schemaVersion = manifest.SchemaVersion,
-        createdUtc = manifest.CreatedUtc.ToString("O"),
-        fileCount = manifest.Files.Count,
-    };
-
-    /// <summary>backups.create（作业）：SQLite 备份 API 一致快照 + 用户原图复制 + 清单哈希。</summary>
-    private Envelope<object> BackupsCreate(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        var backupId = $"backup-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}";
-        var jobId = _state.Jobs.Create(
-            "backup",
-            async context =>
-            {
-                // 让出时间片：dispatcher 先把 accepted 响应与收据写完，避免与备份
-                // 的连接使用并发（同一 SQLite 连接不允许跨线程并发操作）。
-                await Task.Delay(100, context.Token);
-                var backupDir = Infrastructure.Backups.BackupArchive.BackupDirectory(BackupsRoot, backupId);
-                Directory.CreateDirectory(backupDir);
-                var stagedDb = Path.Combine(backupDir, Infrastructure.Backups.BackupArchive.DatabaseFileName);
-
-                // 1. 一致性库快照（SQLite 备份 API）。
-                store.CreateBackupAsync(stagedDb, context.Token).GetAwaiter().GetResult();
-
-                // 2. 用户原图复制（应用目录 assets/；缓存与外部游戏不入备份）。
-                var assetsSource = Path.Combine(_state.DataDirectory, "assets");
-                var assetCount = Directory.Exists(assetsSource)
-                    ? Infrastructure.Backups.BackupArchive.CopyDirectory(assetsSource, Path.Combine(backupDir, "assets"))
-                    : 0;
-
-                // 3. 清单（逐文件哈希）。
-                var manifest = new Infrastructure.Backups.BackupManifest
-                {
-                    BackupId = backupId,
-                    LibraryInstanceId = store.Info.LibraryInstanceId,
-                    SourceDataEpoch = store.Info.DataEpoch,
-                    AppVersion = store.Info.AppVersion,
-                    SchemaVersion = store.Info.SchemaVersion,
-                    CreatedUtc = DateTime.UtcNow,
-                    Files = Infrastructure.Backups.BackupArchive.EnumerateFiles(backupDir),
-                };
-                Infrastructure.Backups.BackupArchive.WriteManifest(backupDir, manifest);
-                context.ReportProgress(new { backupId, assetCount, fileCount = manifest.Files.Count });
-                return JobOutcome.Succeeded();
-            });
-
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Accepted,
-            JobId = jobId,
-            Data = new { jobId, kind = "backup", state = "running" },
-        };
-    }
-
-    /// <summary>backups.list：扫描 backups 根下含有效清单的备份目录。</summary>
-    private Envelope<object> BackupsList(IpcRequest request)
-    {
-        var items = new List<object>();
-        if (Directory.Exists(BackupsRoot))
-        {
-            foreach (var dir in Directory.EnumerateDirectories(BackupsRoot))
-            {
-                var manifest = Infrastructure.Backups.BackupArchive.TryReadManifest(dir);
-                if (manifest is null)
-                {
-                    continue;
-                }
-
-                items.Add(new
-                {
-                    backupId = manifest.BackupId,
-                    libraryInstanceId = manifest.LibraryInstanceId,
-                    createdUtc = manifest.CreatedUtc.ToString("O"),
-                    schemaVersion = manifest.SchemaVersion,
-                    fileCount = manifest.Files.Count,
-                });
-            }
-        }
-
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new { total = items.Count, items },
-        };
-    }
-
-    /// <summary>backups.inspect：清单 + 逐文件 SHA-256 完整性核查。</summary>
-    private Envelope<object> BackupsInspect(IpcRequest request)
-    {
-        System.IO.File.AppendAllText("D:/Official/GameLibrary/artifacts/inspect-steps.log", $"{DateTime.UtcNow:O} begin req={request.RequestId}\n");
-        if (!TryGetStringParameter(request, "backupId", out var backupId))
-        {
-            return InvalidArgument(request, "缺少 backupId 参数");
-        }
-
-        System.IO.File.AppendAllText("D:/Official/GameLibrary/artifacts/inspect-steps.log", $"{DateTime.UtcNow:O} manifest-read begin\n");
-        var backupDir = Infrastructure.Backups.BackupArchive.BackupDirectory(BackupsRoot, backupId);
-        var manifest = Infrastructure.Backups.BackupArchive.TryReadManifest(backupDir);
-        System.IO.File.AppendAllText("D:/Official/GameLibrary/artifacts/inspect-steps.log", $"{DateTime.UtcNow:O} manifest-read end null={manifest is null}\n");
-        if (manifest is null)
-        {
-            return NotFound(request, $"备份不存在或清单损坏：{backupId}");
-        }
-
-        System.IO.File.AppendAllText("D:/Official/GameLibrary/artifacts/inspect-steps.log", $"{DateTime.UtcNow:O} verify begin\n");
-        var problems = Infrastructure.Backups.BackupArchive.Verify(backupDir, manifest);
-        System.IO.File.AppendAllText("D:/Official/GameLibrary/artifacts/inspect-steps.log", $"{DateTime.UtcNow:O} verify end problems={problems.Count}\n");
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = problems.Count == 0,
-            Status = problems.Count == 0 ? OperationStatus.Completed : OperationStatus.Failed,
-            Error = problems.Count == 0 ? null : new RequestError
-            {
-                Code = ErrorCodes.InvalidArgument,
-                Message = $"备份完整性校验失败：{string.Join("; ", problems)}",
-                Retryable = false,
-            },
-            Data = new
-            {
-                integrity = problems.Count == 0 ? "ok" : "failed",
-                problems,
-                manifest.LibraryInstanceId,
-                manifest.SourceDataEpoch,
-                manifest.CreatedUtc,
-                manifest.Files.Count,
-            } as object ?? new { backupId, integrity = problems.Count == 0 ? "ok" : "failed", problems },
-        };
-    }
-
-    /// <summary>backups.restore_plan：影响预览 + 10 分钟有效的计划 ID。</summary>
-    private Envelope<object> BackupsRestorePlan(IpcRequest request)
-    {
-        if (!TryGetStringParameter(request, "backupId", out var backupId))
-        {
-            return InvalidArgument(request, "缺少 backupId 参数");
-        }
-
-        var backupDir = Infrastructure.Backups.BackupArchive.BackupDirectory(BackupsRoot, backupId);
-        var manifest = Infrastructure.Backups.BackupArchive.TryReadManifest(backupDir);
-        if (manifest is null)
-        {
-            return NotFound(request, $"备份不存在或清单损坏：{backupId}");
-        }
-
-        var problems = Infrastructure.Backups.BackupArchive.Verify(backupDir, manifest);
-        if (problems.Count > 0)
-        {
-            return InvalidArgument(request, $"备份完整性校验失败：{string.Join("; ", problems)}");
-        }
-
-        var planId = $"plan-{Guid.NewGuid():N}";
-        _backupPlans[planId] = new BackupPlan { BackupId = backupId, ExpiresUtc = DateTime.UtcNow + PlanLifetime };
-        var store = _state.Library.Store;
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new
-            {
-                planId,
-                expiresUtc = DateTime.UtcNow.Add(PlanLifetime).ToString("O"),
-                backupId,
-                backupLibraryInstanceId = manifest.LibraryInstanceId,
-                currentLibraryInstanceId = store?.Info.LibraryInstanceId,
-                currentDataEpoch = store?.Info.DataEpoch,
-                // 恢复后 dataEpoch 更换：旧游标/旧计划/旧 Revision 语境全部失效（AI-10）。
-                willRenewDataEpoch = true,
-                assetFiles = manifest.Files.Count(f => f.RelativePath.StartsWith("assets/", StringComparison.Ordinal)),
-            },
-        };
-    }
-
-    /// <summary>
-    /// backups.restore（REC-02）：控制收据（控制区文件，不随业务库回滚）→ 先备份当前状态
-    /// → 关连接 → 暂存替换 → 重开校验 → dataEpoch 续期 → 维护日志每步落盘。
-    /// 同键重试返回原结果，不再覆盖。
-    /// </summary>
-    private async Task<Envelope<object>> BackupsRestore(IpcRequest request)
-    {
-        if (!TryGetStringParameter(request, "backupId", out var backupId))
-        {
-            return InvalidArgument(request, "缺少 backupId 参数");
-        }
-
-        if (!TryGetStringParameter(request, "planId", out var planId))
-        {
-            return InvalidArgument(request, "缺少 planId 参数（先 backups.restore_plan）");
-        }
-
-        if (!TryGetStringParameter(request, "idempotencyKey", out var idempotencyKey))
-        {
-            return InvalidArgument(request, "缺少 idempotencyKey 参数");
-        }
-
-        // 控制收据检查优先于 plan 校验：同键同参 → 重试返回原结果；同键异参 → IdempotencyConflict。
-        var retryParameters = JsonSerializer.Serialize(new { backupId, planId }, ContractJson.Options);
-        var retryDigest = Convert.ToHexString(
-            System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(retryParameters)));
-        var control = ControlArea;
-        var (existingResult, conflict) = control.BeginRestoreReceipt(idempotencyKey, retryDigest);
-        if (conflict is not null)
-        {
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ErrorCodes.IdempotencyConflict,
-                    Message = conflict,
-                    Retryable = false,
-                },
-            };
-        }
-
-        if (existingResult is not null)
-        {
-            // REC-02：相同恢复请求重试返回原结果，不再覆盖。
-            // 信封内容不变，但 RequestId 必须对齐本次请求（客户端按其校验）。
-            var replayed = JsonSerializer.Deserialize<Envelope<object>>(existingResult, ContractJson.Options);
-            if (replayed is null)
-            {
-                return InvalidArgument(request, "控制收据损坏");
-            }
-
-            return new Envelope<object>
-            {
-                ApiVersion = replayed.ApiVersion,
-                RequestId = request.RequestId,
-                LibraryInstanceId = replayed.LibraryInstanceId,
-                DataEpoch = replayed.DataEpoch,
-                Ok = replayed.Ok,
-                Status = replayed.Status,
-                Data = replayed.Data,
-                JobId = replayed.JobId,
-                Error = replayed.Error,
-                Warnings = replayed.Warnings,
-                NextActions = replayed.NextActions,
-            };
-        }
-
-        if (!_backupPlans.TryGetValue(planId, out var plan) || plan.ExpiresUtc < DateTime.UtcNow)
-        {
-            // 已有同键完成收据时按原结果重放，不会被 plan 校验打断。
-            var completed = control.TryReadRestoreResult(idempotencyKey);
-            if (completed is not null)
-            {
-                return JsonSerializer.Deserialize<Envelope<object>>(completed, ContractJson.Options)
-                    ?? InvalidArgument(request, "控制收据损坏");
-            }
-
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ErrorCodes.PlanExpired,
-                    Message = $"恢复计划不存在或已过期（10 分钟有效）：{planId}；请重新 restore_plan",
-                    Retryable = false,
-                },
-            };
-        }
-
-        if (plan.BackupId != backupId)
-        {
-            return InvalidArgument(request, $"计划 {planId} 对应备份 {plan.BackupId}，与请求的 {backupId} 不一致");
-        }
-
-        var backupDir = Infrastructure.Backups.BackupArchive.BackupDirectory(BackupsRoot, backupId);
-        var manifest = Infrastructure.Backups.BackupArchive.TryReadManifest(backupDir);
-        if (manifest is null)
-        {
-            return NotFound(request, $"备份不存在或清单损坏：{backupId}");
-        }
-
-        control.AppendMaintenanceLog($"restore begin: backup={backupId} plan={planId}");
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化；恢复目标必须存在已初始化的库");
-        }
-
-        try
-        {
-            // 1. 恢复前先备份当前状态（原库保留语义的第一层）。
-            var safetyId = $"pre-restore-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}";
-            var safetyDir = Infrastructure.Backups.BackupArchive.BackupDirectory(BackupsRoot, safetyId);
-            Directory.CreateDirectory(safetyDir);
-            var safetyDb = Path.Combine(safetyDir, Infrastructure.Backups.BackupArchive.DatabaseFileName);
-            store.CreateBackupAsync(safetyDb, CancellationToken.None).GetAwaiter().GetResult();
-            control.AppendMaintenanceLog($"safety backup: {safetyId}");
-
-            // 2. 校验备份完整性。
-            var problems = Infrastructure.Backups.BackupArchive.Verify(backupDir, manifest);
-            if (problems.Count > 0)
-            {
-                control.AppendMaintenanceLog($"verify failed: {string.Join("; ", problems)}");
-                return InvalidArgument(request, $"备份完整性校验失败：{string.Join("; ", problems)}");
-            }
-
-            // 3. 关闭旧连接（WAL checkpoint 归属旧连接）后才能替换文件。
-            var previousStore = _state.Library.Store!;
-            _state.Library.Store = null;
-            await previousStore.DisposeAsync();
-            control.AppendMaintenanceLog("old connection closed");
-
-            SqliteLibraryStore? restoredStore = null;
-            try
-            {
-                // 4. 替换库文件 → 重开并走完整校验/迁移路径。
-                var stagedDb = Path.Combine(backupDir, Infrastructure.Backups.BackupArchive.DatabaseFileName);
-                File.Copy(stagedDb, Path.Combine(_state.DataDirectory, "library.db"), overwrite: true);
-                foreach (var residue in new[] { "library.db-wal", "library.db-shm" })
-                {
-                    var residuePath = Path.Combine(_state.DataDirectory, residue);
-                    if (File.Exists(residuePath))
-                    {
-                        File.Delete(residuePath);
-                    }
-                }
-
-                restoredStore = (await SqliteLibraryStore.TryOpenAsync(_state.DataDirectory, new SqliteLibraryStoreOptions
-                {
-                    AppVersion = _state.Identity.AppVersion,
-                    ApiVersion = ApiConstants.ApiVersion,
-                }, CancellationToken.None)).Store;
-                if (restoredStore is null)
-                {
-                    throw new InvalidOperationException("恢复后的库无法打开");
-                }
-
-                _state.Library.Store = restoredStore;
-                control.AppendMaintenanceLog("database swapped");
-            }
-            catch (Exception ex)
-            {
-                // 恢复失败：从安全备份文件回退，重开旧库继续服务。
-                control.AppendMaintenanceLog($"swap failed: {ex.Message}; rolling back to safety backup");
-                File.Copy(safetyDb, Path.Combine(_state.DataDirectory, "library.db"), overwrite: true);
-                var rolledBack = await SqliteLibraryStore.TryOpenAsync(_state.DataDirectory, new SqliteLibraryStoreOptions
-                {
-                    AppVersion = _state.Identity.AppVersion,
-                    ApiVersion = ApiConstants.ApiVersion,
-                }, CancellationToken.None);
-                if (rolledBack.IsOpened)
-                {
-                    _state.Library.Store = rolledBack.Store;
-                }
-
-                throw;
-            }
-
-            // 5. 用户原图恢复（assets/ 覆盖回应用目录）。
-            var backupAssets = Path.Combine(backupDir, "assets");
-            if (Directory.Exists(backupAssets))
-            {
-                Infrastructure.Backups.BackupArchive.CopyDirectory(
-                    backupAssets, Path.Combine(_state.DataDirectory, "assets"));
-                control.AppendMaintenanceLog("assets restored");
-            }
-
-            // 6. dataEpoch 续期：旧游标/旧计划/旧 Revision 语境全部失效。
-            var newEpoch = restoredStore!.RenewDataEpochAsync(CancellationToken.None).GetAwaiter().GetResult();
-            control.AppendMaintenanceLog($"epoch renewed: {newEpoch}");
-
-            var result = new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = true,
-                Status = OperationStatus.Completed,
-                Data = new
-                {
-                    backupId,
-                    restoredLibraryInstanceId = manifest.LibraryInstanceId,
-                    dataEpoch = newEpoch,
-                    safetyBackupId = safetyId,
-                    restored = true,
-                },
-            };
-            control.AppendMaintenanceLog($"restore completed: backup={backupId}");
-            control.CompleteRestoreReceipt(idempotencyKey, retryDigest, JsonSerializer.Serialize(result, ContractJson.Options));
-            return result;
-        }
-        catch (Exception ex) when (ex is IOException or InvalidOperationException or Microsoft.Data.Sqlite.SqliteException)
-        {
-            control.AppendMaintenanceLog($"restore failed: {ex.Message}");
-            var failure = new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ErrorCodes.InternalError,
-                    Message = $"恢复失败（原库保留；安全备份与控制日志在 backups/control 区）：{ex.Message}",
-                    Retryable = true,
-                },
-            };
-            control.CompleteRestoreReceipt(idempotencyKey, retryDigest, JsonSerializer.Serialize(failure, ContractJson.Options));
-            return failure;
-        }
-    }
-
-    /// <summary>诊断状态（T24）：进程/库/审计日志统计与队列指标；不含任何业务数据原文。</summary>
-    private Envelope<object> DiagnosticsStatus(IpcRequest request)
-    {
-        var (currentFile, currentBytes, fileCount) = _state.AuditLog.Describe();
-        var library = _state.Library;
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new
-            {
-                processId = _state.Identity.ProcessId,
-                startedAtUtc = _state.Identity.StartedAtUtc.ToString("O"),
-                appVersion = _state.Identity.AppVersion,
-                apiVersion = ApiConstants.ApiVersion,
-                library = new
-                {
-                    status = library.Status.ToString(),
-                    initialized = library.Initialized,
-                    schemaVersion = library.SchemaVersion,
-                    detail = LogSanitizer.Sanitize(library.Detail, _state.DataDirectory),
-                },
-                audit = new
-                {
-                    currentFile,
-                    currentBytes,
-                    fileCount,
-                    maxFileBytes = Observability.AuditLogWriter.DefaultMaxFileBytes,
-                    maxFiles = Observability.AuditLogWriter.DefaultMaxFiles,
-                    retentionDays = Observability.AuditLogWriter.DefaultRetentionDays,
-                },
-                jobs = new { activeCount = _state.Jobs.ActiveJobCount() },
-                metrics = _state.Metrics.ToDto(),
-                eventStream = new
-                {
-                    occupiedSlots = _state.Events.OccupiedSlots,
-                    overflowed = _state.Events.OverflowedCount,
-                },
-            },
-        };
-    }
-
-    /// <summary>脱敏审计日志读取（diagnostics.logs）：返回最近 limit 条审计记录。</summary>
-    private Envelope<object> DiagnosticsLogs(IpcRequest request)
-    {
-        var limit = 100;
-        if (request.Parameters is { ValueKind: JsonValueKind.Object } logParameters
-            && logParameters.TryGetProperty("limit", out var limitElement)
-            && limitElement.ValueKind == JsonValueKind.Number
-            && limitElement.TryGetInt32(out var parsedLimit))
-        {
-            limit = Math.Clamp(parsedLimit, 1, 1000);
-        }
-
-        var lines = _state.AuditLog.ReadRecentLines(limit);
-        var records = new List<object>();
-        foreach (var line in lines)
-        {
-            try
-            {
-                records.Add(JsonSerializer.Deserialize<JsonElement>(line, ContractJson.Options).Clone());
-            }
-            catch (JsonException)
-            {
-                // 单行损坏不阻塞诊断读取。
-            }
-        }
-
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new { total = records.Count, items = records },
-        };
-    }
-
-    /// <summary>
-    /// 工具发现（T07/T09，tools.discover）：按 tool 分派——mtool（默认，游戏根配方）、
-    /// renpythief（安装指纹与 Guided 计划）、player（常见播放器发现+本地文件参数模板）、
-    /// steam（注册表/常见路径发现 + appmanifest 清单）。只读，不自启动任何进程；
-    /// 调用方路径仍经库根白名单收口。
-    /// </summary>
-    private Envelope<object> ToolsDiscover(IpcRequest request)
-    {
-        TryGetStringParameter(request, "tool", out var discoverTool);
-        var hasPath = TryGetStringParameter(request, "path", out var path) && path.Length > 0;
-
-        if (string.Equals(discoverTool, "steam", StringComparison.Ordinal))
-        {
-            var steam = new Infrastructure.Tools.SteamAdapter().Discover();
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = true,
-                Status = OperationStatus.Completed,
-                Data = new
-                {
-                    toolId = "steam",
-                    found = steam.Found,
-                    steamRoot = steam.SteamRoot,
-                    steamExecutablePath = steam.SteamExecutablePath,
-                    manifestMissing = steam.ManifestMissing,
-                    capability = steam.Capability,
-                    manifests = steam.Manifests.Select(m => new
-                    {
-                        appId = m.AppId,
-                        name = m.Name,
-                        installDir = m.InstallDir,
-                    }).ToArray(),
-                    notice = LogSanitizer.Sanitize(steam.Notice, _state.DataDirectory),
-                },
-            };
-        }
-
-        if (string.Equals(discoverTool, "player", StringComparison.Ordinal))
-        {
-            var players = new Infrastructure.Tools.PlayerAdapter().Discover();
-            string? templateJson = null;
-            string? templateTarget = null;
-            if (hasPath && File.Exists(path) && players.Count > 0)
-            {
-                var validation = Domain.Paths.GamePath.TryCreate(path);
-                if (validation.IsValid && _state.Roots.Contains(validation.Path!.PhysicalPath))
-                {
-                    var template = players[0] is { } first
-                        ? new Infrastructure.Tools.PlayerAdapter().BuildLaunchTemplate(first, validation.Path.PhysicalPath)
-                        : null;
-                    if (template is not null)
-                    {
-                        templateTarget = validation.Path.PhysicalPath;
-                        templateJson = JsonSerializer.Serialize(new
-                        {
-                            player = players[0].Name,
-                            executablePath = template.ExecutablePath,
-                            argv = template.Arguments,
-                            cwd = template.WorkingDirectory,
-                            waitForExit = template.WaitForExit,
-                        }, ContractJson.Options);
-                    }
-                }
-            }
-
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = true,
-                Status = OperationStatus.Completed,
-                Data = new
-                {
-                    toolId = "player",
-                    players = players.Select(p => new { name = p.Name, executablePath = p.ExecutablePath }).ToArray(),
-                    templateFor = templateTarget,
-                    template = templateJson is null ? (JsonElement?)null : JsonSerializer.Deserialize<JsonElement>(templateJson, ContractJson.Options).Clone(),
-                    notice = "参数模板仅覆盖公开稳定行为（打开本地文件）；参数差异须逐播放器以用户样本验证后保存 ExternalPlayer 配置",
-                },
-            };
-        }
-
-        if (!hasPath)
-        {
-            return InvalidArgument(request, "缺少 path 参数（游戏根的绝对路径）");
-        }
-
-        var pathValidation = Domain.Paths.GamePath.TryCreate(path);
-        if (!pathValidation.IsValid)
-        {
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = pathValidation.IsUnsupported ? ErrorCodes.UnsupportedPath : ErrorCodes.InvalidPath,
-                    Message = $"路径非法（{pathValidation.Reason}）：{path}",
-                    Retryable = false,
-                },
-            };
-        }
-
-        if (RejectPathOutsideRoots(request, pathValidation.Path!.PhysicalPath) is { } discoverOutsideRoot)
-        {
-            return discoverOutsideRoot;
-        }
-
-        if (!Directory.Exists(pathValidation.Path.PhysicalPath))
-        {
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ErrorCodes.RootOffline,
-                    Message = $"路径不存在或离线：{pathValidation.Path.PhysicalPath}",
-                    Retryable = true,
-                },
-            };
-        }
-
-        if (string.Equals(discoverTool, "renpythief", StringComparison.Ordinal))
-        {
-            var renpy = new Infrastructure.Tools.RenpyThiefAdapter().Discover(pathValidation.Path.PhysicalPath);
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = true,
-                Status = OperationStatus.Completed,
-                Data = new
-                {
-                    toolId = "renpythief",
-                    path = pathValidation.Path.PhysicalPath,
-                    found = renpy.Found,
-                    evidenceKind = "Static",
-                    capability = renpy.Capability,
-                    fingerprint = renpy.Fingerprint,
-                    mainExecutablePath = renpy.MainExecutablePath,
-                    launcherPath = renpy.LauncherPath,
-                    guidedPlan = renpy.GuidedPlan is null ? null : new
-                    {
-                        executablePath = renpy.GuidedPlan.ExecutablePath,
-                        argv = renpy.GuidedPlan.Arguments,
-                        cwd = renpy.GuidedPlan.WorkingDirectory,
-                    },
-                    notice = LogSanitizer.Sanitize(renpy.Notice, _state.DataDirectory),
-                },
-            };
-        }
-
-        var mtoolDiscovery = new Infrastructure.Tools.MToolAdapter().Discover(pathValidation.Path.PhysicalPath);
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new
-            {
-                toolId = Infrastructure.Tools.MToolDiscovery.ToolId,
-                path = pathValidation.Path.PhysicalPath,
-                evidenceKind = mtoolDiscovery.EvidenceKind,
-                capability = mtoolDiscovery.Capability,
-                recipe = mtoolDiscovery.Recipe is null
-                    ? null
-                    : new
-                    {
-                        sourcePath = mtoolDiscovery.Recipe.SourcePath,
-                        scriptSha256 = mtoolDiscovery.Recipe.ScriptSha256,
-                        isBroken = mtoolDiscovery.Recipe.IsBroken,
-                        brokenPaths = mtoolDiscovery.Recipe.BrokenPaths,
-                        referencedFiles = mtoolDiscovery.Recipe.ReferencedFiles,
-                        steps = mtoolDiscovery.Recipe.Steps.Select(step => new
-                        {
-                            sequence = step.Sequence,
-                            executablePath = step.ExecutablePath,
-                            argv = step.Arguments,
-                            cwd = step.WorkingDirectory,
-                            waitForExit = step.WaitForExit,
-                        }).ToArray(),
-                    },
-                unsupportedReason = mtoolDiscovery.UnsupportedReason,
-                notice = LogSanitizer.Sanitize(mtoolDiscovery.Notice, _state.DataDirectory),
-            },
-        };
-    }
-
-    private static readonly string[] ImageExtensions = [".png", ".jpg", ".jpeg", ".webp", ".gif"];
-    private const long MaxAssetBytes = 1 * 1024 * 1024;
-
-    /// <summary>资料字段设置（T14，fields.set）：Revision 即游戏卡片 Revision；title 变更镜像到 games 列表。</summary>
-    private Envelope<object> FieldsSet(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        if (!TryGetStringParameter(request, "gameId", out var gameId)
-            || !TryGetStringParameter(request, "field", out var field)
-            || !TryGetIntParameter(request, "expectedRevision", out var expectedRevision)
-            || expectedRevision is null)
-        {
-            return InvalidArgument(request, "fields.set 需要 gameId、field、expectedRevision 参数");
-        }
-
-        if (field is not ("title" or "summary"))
-        {
-            return InvalidArgument(request, $"不支持的字段：{field}（当前支持 title、summary）");
-        }
-
-        string? value = null;
-        if (request.Parameters is { ValueKind: JsonValueKind.Object } fsParameters
-            && fsParameters.TryGetProperty("value", out var valueElement)
-            && valueElement.ValueKind == JsonValueKind.String)
-        {
-            value = valueElement.GetString();
-        }
-
-        var newRevision = store.SetGameField(gameId, field, value, "user", expectedRevision.Value, DateTime.UtcNow);
-        if (newRevision is null)
-        {
-            var card = store.TryGetGame(gameId);
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = card is null ? ErrorCodes.NotFound : ErrorCodes.RevisionConflict,
-                    Message = card is null ? $"游戏不存在：{gameId}" : $"Revision 不一致：期望 {expectedRevision}，当前 {card.Revision}",
-                    Retryable = false,
-                },
-            };
-        }
-
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new { gameId, field, value, source = "user", revision = newRevision },
-        };
-    }
-
-    /// <summary>封面导入（T14，assets.import）：用户图片复制入应用自有目录，不反写游戏目录。</summary>
-    private Envelope<object> AssetsImport(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        if (!TryGetStringParameter(request, "gameId", out var gameId)
-            || !TryGetStringParameter(request, "sourcePath", out var sourcePath))
-        {
-            return InvalidArgument(request, "assets.import 需要 gameId、sourcePath 参数");
-        }
-
-        if (store.TryGetGame(gameId) is null)
-        {
-            return NotFound(request, $"游戏不存在：{gameId}");
-        }
-
-        var extension = Path.GetExtension(sourcePath).ToLowerInvariant();
-        if (!ImageExtensions.Contains(extension))
-        {
-            return InvalidArgument(request, $"不支持的图片格式：{extension}（支持 {string.Join("/", ImageExtensions)}）");
-        }
-
-        if (!File.Exists(sourcePath))
-        {
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ErrorCodes.NotFound,
-                    Message = $"源图片不存在：{sourcePath}",
-                    Retryable = false,
-                },
-            };
-        }
-
-        if (new FileInfo(sourcePath).Length > MaxAssetBytes)
-        {
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ErrorCodes.ResourceTooLarge,
-                    Message = $"图片超过 1 MiB 上限：{sourcePath}",
-                    Retryable = false,
-                },
-            };
-        }
-
-        var assetDirectory = Path.Combine(_state.DataDirectory, "assets", gameId);
-        Directory.CreateDirectory(assetDirectory);
-        var importedPath = Path.Combine(assetDirectory, $"{Guid.NewGuid():N}{extension}");
-        File.Copy(sourcePath, importedPath, overwrite: false);
-
-        var asset = store.ImportAsset(gameId, importedPath, DateTime.UtcNow);
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = AssetDto(asset),
-        };
-    }
-
-    private Envelope<object> AssetsList(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        if (!TryGetStringParameter(request, "gameId", out var listGameId))
-        {
-            return InvalidArgument(request, "缺少 gameId 参数");
-        }
-
-        var assets = store.ListAssets(listGameId);
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new { total = assets.Count, items = assets.Select(AssetDto).ToArray() },
-        };
-    }
-
-    /// <summary>资产读取（契约 5.x）：受限预览 ≤1 MiB，base64 返回。</summary>
-    private Envelope<object> AssetsGet(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        if (!TryGetStringParameter(request, "assetId", out var assetId))
-        {
-            return InvalidArgument(request, "缺少 assetId 参数");
-        }
-
-        var asset = store.TryGetAsset(assetId);
-        if (asset is null)
-        {
-            return NotFound(request, $"资产不存在：{assetId}");
-        }
-
-        if (!File.Exists(asset.FilePath))
-        {
-            return NotFound(request, $"资产文件缺失：{asset.FilePath}");
-        }
-
-        var bytes = File.ReadAllBytes(asset.FilePath);
-        if (bytes.Length > MaxAssetBytes)
-        {
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ErrorCodes.ResourceTooLarge,
-                    Message = "资产超过 1 MiB 预览上限",
-                    Retryable = false,
-                },
-            };
-        }
-
-        var mimeType = asset.FilePath switch
-        {
-            var p when p.EndsWith(".png", StringComparison.OrdinalIgnoreCase) => "image/png",
-            var p when p.EndsWith(".gif", StringComparison.OrdinalIgnoreCase) => "image/gif",
-            var p when p.EndsWith(".webp", StringComparison.OrdinalIgnoreCase) => "image/webp",
-            _ => "image/jpeg",
-        };
-
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new
-            {
-                assetId = asset.AssetId,
-                gameId = asset.GameId,
-                kind = asset.Kind,
-                isCurrent = asset.IsCurrent,
-                mimeType,
-                sizeBytes = bytes.LongLength,
-                dataBase64 = Convert.ToBase64String(bytes),
-            },
-        };
-    }
-
-    /// <summary>
-    /// 用户主动清空（fields.clear）：字段层 value=null（≠继承自动值）；title 镜像为空串。
-    /// </summary>
-    private Envelope<object> FieldsClear(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        if (!TryGetStringParameter(request, "gameId", out var gameId)
-            || !TryGetStringParameter(request, "field", out var field)
-            || !TryGetIntParameter(request, "expectedRevision", out var expectedRevision)
-            || expectedRevision is null
-            || field is not ("title" or "summary"))
-        {
-            return InvalidArgument(request, "fields.clear 需要 gameId、field（title/summary）、expectedRevision 参数");
-        }
-
-        var newRevision = store.SetGameField(gameId, field, null, "user", expectedRevision.Value, DateTime.UtcNow);
-        return FieldRevisionResult(request, gameId, field, newRevision, "user");
-    }
-
-    /// <summary>恢复自动值（fields.reset）：删除用户层；title 回退自动层值（首次覆盖前自动层已登记）。</summary>
-    private Envelope<object> FieldsReset(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        if (!TryGetStringParameter(request, "gameId", out var gameId)
-            || !TryGetStringParameter(request, "field", out var field)
-            || !TryGetIntParameter(request, "expectedRevision", out var expectedRevision)
-            || expectedRevision is null
-            || field is not ("title" or "summary"))
-        {
-            return InvalidArgument(request, "fields.reset 需要 gameId、field（title/summary）、expectedRevision 参数");
-        }
-
-        var card = store.TryGetGame(gameId);
-        if (card is null)
-        {
-            return NotFound(request, $"游戏不存在：{gameId}");
-        }
-
-        var fallback = field == "title"
-            ? Path.GetFileName(card.RootPath.TrimEnd(Path.DirectorySeparatorChar)) ?? ""
-            : "";
-        var newRevision = store.ResetGameField(gameId, field, fallback, expectedRevision.Value, DateTime.UtcNow);
-        return FieldRevisionResult(request, gameId, field, newRevision, "auto");
-    }
-
-    private static Envelope<object> FieldRevisionResult(IpcRequest request, string gameId, string field, int? newRevision, string source)
-    {
-        if (newRevision is null)
-        {
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ErrorCodes.RevisionConflict,
-                    Message = "Revision 不一致（游戏卡片可能已被其他入口修改）",
-                    Retryable = false,
-                },
-            };
-        }
-
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new { gameId, field, source, revision = newRevision },
-        };
-    }
-
-    /// <summary>选择候选封面（assets.choose）：校验游戏 Revision；封面切换不递增卡片 Revision。</summary>
-    private Envelope<object> AssetsChoose(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        if (!TryGetStringParameter(request, "gameId", out var gameId)
-            || !TryGetStringParameter(request, "assetId", out var assetId)
-            || !TryGetIntParameter(request, "expectedRevision", out var expectedRevision)
-            || expectedRevision is null)
-        {
-            return InvalidArgument(request, "assets.choose 需要 gameId、assetId、expectedRevision 参数");
-        }
-
-        var card = store.TryGetGame(gameId);
-        if (card is null)
-        {
-            return NotFound(request, $"游戏不存在：{gameId}");
-        }
-
-        if (card.Revision != expectedRevision.Value)
-        {
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ErrorCodes.RevisionConflict,
-                    Message = $"Revision 不一致：期望 {expectedRevision}，当前 {card.Revision}",
-                    Retryable = false,
-                },
-            };
-        }
-
-        var asset = store.TryGetAsset(assetId);
-        if (asset is null || !string.Equals(asset.GameId, gameId, StringComparison.Ordinal))
-        {
-            return NotFound(request, $"资产不存在或不属于该游戏：{assetId}");
-        }
-
-        store.ChooseAsset(gameId, assetId);
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new { gameId, assetId, isCurrent = true },
-        };
-    }
-
-    /// <summary>裁切封面（assets.crop）：真实像素裁切，产出新资产并设为当前封面。</summary>
-    private Envelope<object> AssetsCrop(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        if (!TryGetStringParameter(request, "assetId", out var assetId)
-            || !TryGetIntParameter(request, "x", out var x) || x is null
-            || !TryGetIntParameter(request, "y", out var y) || y is null
-            || !TryGetIntParameter(request, "width", out var width) || width is null
-            || !TryGetIntParameter(request, "height", out var height) || height is null)
-        {
-            return InvalidArgument(request, "assets.crop 需要 assetId、x、y、width、height 参数");
-        }
-
-        var asset = store.TryGetAsset(assetId);
-        if (asset is null)
-        {
-            return NotFound(request, $"资产不存在：{assetId}");
-        }
-
-        if (!File.Exists(asset.FilePath))
-        {
-            return NotFound(request, $"资产文件缺失：{asset.FilePath}");
-        }
-
-        try
-        {
-            var destDirectory = Path.Combine(_state.DataDirectory, "assets", asset.GameId);
-            var croppedPath = ImageCropper.Crop(
-                asset.FilePath, destDirectory, x.Value, y.Value, width.Value, height.Value);
-            var newAsset = store.ImportAsset(asset.GameId, croppedPath, DateTime.UtcNow);
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = true,
-                Status = OperationStatus.Completed,
-                Data = new
-                {
-                    sourceAssetId = asset.AssetId,
-                    newAssetId = newAsset.AssetId,
-                    isCurrent = true,
-                    x = x.Value,
-                    y = y.Value,
-                    width = width.Value,
-                    height = height.Value,
-                },
-            };
-        }
-        catch (Exception ex) when (ex is ArgumentOutOfRangeException
-            or InvalidOperationException or IOException or System.Runtime.InteropServices.ExternalException)
-        {
-            return InvalidArgument(request, $"裁切失败：{ex.Message}");
-        }
-    }
-
-    /// <summary>重置封面（assets.reset）：全部封面置为非当前，游戏回到无封面展示。</summary>
-    private Envelope<object> AssetsReset(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        if (!TryGetStringParameter(request, "gameId", out var gameId))
-        {
-            return InvalidArgument(request, "缺少 gameId 参数");
-        }
-
-        var previous = store.ResetCover(gameId);
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new { gameId, previousAssetId = previous, isCurrent = false },
-        };
-    }
-
-    /// <summary>移除资产（assets.remove）：仅限应用自有且非当前引用的资源。</summary>
-    private Envelope<object> AssetsRemove(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        if (!TryGetStringParameter(request, "assetId", out var assetId))
-        {
-            return InvalidArgument(request, "缺少 assetId 参数");
-        }
-
-        var removedPath = store.RemoveAsset(assetId);
-        if (removedPath is null)
-        {
-            var asset = store.TryGetAsset(assetId);
-            return asset is null
-                ? NotFound(request, $"资产不存在：{assetId}")
-                : InvalidArgument(request, "当前封面不可移除；先 choose 其他封面或 reset");
-        }
-
-        try
-        {
-            File.Delete(removedPath);
-        }
-        catch (IOException)
-        {
-            // 行已删；文件残留不阻塞（仅应用自有副本）。
-        }
-
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new { assetId, removed = true },
-        };
-    }
-
-    /// <summary>
-    /// 元数据建议预览（metadata.preview）：仅本地证据——自动标题（根目录名）与
-    /// 引擎/入口描述；无在线元数据源，如实标注。
-    /// </summary>
-    private Envelope<object> MetadataPreview(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        if (!TryGetStringParameter(request, "gameId", out var gameId))
-        {
-            return InvalidArgument(request, "缺少 gameId 参数");
-        }
-
-        var game = store.TryGetGame(gameId);
-        if (game is null)
-        {
-            return NotFound(request, $"游戏不存在：{gameId}");
-        }
-
-        var autoTitle = Path.GetFileName(game.RootPath.TrimEnd(Path.DirectorySeparatorChar)) ?? game.Title;
-        var autoSummary = $"自动识别：引擎 {game.Engine ?? "未识别"}，入口 {game.EntryPath ?? "未确定"}。";
-
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new
-            {
-                gameId,
-                note = "仅本地证据建议；无在线元数据源，建议一律 source=auto，refresh 只更新 AutoValue 不覆盖用户层",
-                suggestions = new object[]
-                {
-                    new { field = "title", value = autoTitle, source = "auto", evidence = "安装根目录名（目录名仅 contextual）" },
-                    new { field = "summary", value = autoSummary, source = "auto", evidence = "本地检测证据（引擎/入口）" },
-                },
-            },
-        };
-    }
-
-    /// <summary>元数据刷新（metadata.refresh）：作业式更新 AutoValue，不覆盖用户层。</summary>
-    private Envelope<object> MetadataRefresh(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        if (!TryGetStringParameter(request, "gameId", out var gameId))
-        {
-            return InvalidArgument(request, "缺少 gameId 参数");
-        }
-
-        var game = store.TryGetGame(gameId);
-        if (game is null)
-        {
-            return NotFound(request, $"游戏不存在：{gameId}");
-        }
-
-        var autoTitle = Path.GetFileName(game.RootPath.TrimEnd(Path.DirectorySeparatorChar)) ?? "";
-        var autoSummary = $"自动识别：引擎 {game.Engine ?? "未识别"}，入口 {game.EntryPath ?? "未确定"}。";
-
-        var jobId = _state.Jobs.Create("metadata-refresh", context =>
-        {
-            store.WriteAutoField(gameId, "title", autoTitle, DateTime.UtcNow);
-            store.WriteAutoField(gameId, "summary", autoSummary, DateTime.UtcNow);
-            context.ReportProgress(new { gameId, updatedFields = new[] { "title", "summary" } });
-            return Task.FromResult(JobOutcome.Succeeded());
-        });
-
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Accepted,
-            JobId = jobId,
-            Data = new { jobId, gameId, state = "running" },
-        };
-    }
-
-    /// <summary>事件增量读取（T16，events.read）：游标不跨重启；过期返回 CursorExpired。</summary>
-    private Envelope<object> EventsRead(IpcRequest request)
-    {
-        long? cursor = null;
-        int limit = 100;
-        if (request.Parameters is { ValueKind: JsonValueKind.Object } erParameters)
-        {
-            if (erParameters.TryGetProperty("cursor", out var cursorElement)
-                && cursorElement.ValueKind == JsonValueKind.Number
-                && cursorElement.TryGetInt64(out var parsedCursor))
-            {
-                cursor = parsedCursor;
-            }
-
-            if (erParameters.TryGetProperty("limit", out var limitElement)
-                && limitElement.ValueKind == JsonValueKind.Number
-                && limitElement.TryGetInt32(out var parsedLimit))
-            {
-                limit = Math.Clamp(parsedLimit, 1, 4096);
-            }
-        }
-
-        var events = _state.Events.ReadAfter(cursor, limit);
-        if (events is null)
-        {
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ErrorCodes.CursorExpired,
-                    Message = "事件游标已过期（宿主重启或事件已被淘汰）；请不带 cursor 重新全量读取",
-                    Retryable = false,
-                },
-            };
-        }
-
-        var nextCursor = events.Count > 0 ? events[events.Count - 1].Sequence : cursor ?? 0;
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new
-            {
-                nextCursor,
-                items = events.Select(ev => new
-                {
-                    sequence = ev.Sequence,
-                    timestampUtc = ev.TimestampUtc.ToString("O"),
-                    type = ev.Type,
-                    entityKey = ev.EntityKey,
-                    payload = JsonSerializer.Deserialize<JsonElement>(ev.PayloadJson, ContractJson.Options).Clone(),
-                }).ToArray(),
-            },
-        };
-    }
-
-    /// <summary>开始一次工具验证（T08）：绑定当前指纹与隔离样本，状态 Unknown。</summary>
-    private Envelope<object> VerificationStart(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        if (!TryGetStringParameter(request, "toolId", out var toolId)
-            || !TryGetStringParameter(request, "fingerprint", out var fingerprint)
-            || !TryGetStringParameter(request, "engine", out var engine)
-            || !TryGetStringParameter(request, "samplePath", out var samplePath))
-        {
-            return InvalidArgument(request, "verification.start 需要 toolId、fingerprint、engine、samplePath 参数");
-        }
-
-        var record = new GameLibrary.Domain.Tools.ToolVerificationRecord
-        {
-            RecordId = $"verif-{Guid.NewGuid():N}",
-            ToolId = toolId,
-            ToolFingerprint = fingerprint,
-            Engine = engine,
-            SamplePath = samplePath,
-            Status = GameLibrary.Domain.Tools.ToolVerificationStatus.Unknown,
-            CreatedUtc = DateTime.UtcNow,
-            UpdatedUtc = DateTime.UtcNow,
-        };
-        store.InsertVerification(record);
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = VerificationDto(record),
-        };
-    }
-
-    /// <summary>提交验证观察（双结论分开累积；翻译生效必须先有游戏启动证据）。</summary>
-    private Envelope<object> VerificationReport(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        if (!TryGetStringParameter(request, "recordId", out var recordId))
-        {
-            return InvalidArgument(request, "缺少 recordId 参数");
-        }
-
-        var record = store.TryGetVerification(recordId);
-        if (record is null)
-        {
-            return NotFound(request, $"验证记录不存在：{recordId}");
-        }
-
-        TryGetBoolParameter(request, "gameStarted", out var gameStarted);
-        TryGetBoolParameter(request, "translationConfirmed", out var translationConfirmed);
-
-        // 指纹校验：工具更新/换目录后旧记录失效，需重新验证。
-        if (TryGetStringParameter(request, "fingerprint", out var fingerprint)
-            && !string.Equals(fingerprint, record.ToolFingerprint, StringComparison.Ordinal))
-        {
-            record = record with
-            {
-                Status = GameLibrary.Domain.Tools.ToolVerificationStatus.Unknown,
-                Note = "工具指纹变化，历史验证失效",
-                UpdatedUtc = DateTime.UtcNow,
-            };
-            store.UpdateVerification(record);
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ErrorCodes.ToolChanged,
-                    Message = "工具指纹与验证记录不一致；记录已失效，请重新验证",
-                    Retryable = false,
-                },
-            };
-        }
-
-        var newStatus = GameLibrary.Domain.Tools.ToolVerificationRules.ApplyObservation(
-            record.Status, gameStartedConfirmed: gameStarted == true, translationConfirmed: translationConfirmed == true);
-        record = record with
-        {
-            Status = newStatus,
-            GameStartedConfirmed = record.GameStartedConfirmed || gameStarted == true,
-            TranslationConfirmed = record.TranslationConfirmed || translationConfirmed == true,
-            UpdatedUtc = DateTime.UtcNow,
-        };
-        store.UpdateVerification(record);
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = VerificationDto(record),
-        };
-    }
-
-    /// <summary>使验证记录失效（工具更新/用户撤销）。</summary>
-    private Envelope<object> VerificationInvalidate(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        if (!TryGetStringParameter(request, "recordId", out var recordId))
-        {
-            return InvalidArgument(request, "缺少 recordId 参数");
-        }
-
-        var record = store.TryGetVerification(recordId);
-        if (record is null)
-        {
-            return NotFound(request, $"验证记录不存在：{recordId}");
-        }
-
-        record = record with
-        {
-            Status = GameLibrary.Domain.Tools.ToolVerificationStatus.Unknown,
-            Note = "验证已失效（invalidate）",
-            UpdatedUtc = DateTime.UtcNow,
-        };
-        store.UpdateVerification(record);
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = VerificationDto(record),
-        };
-    }
-
-    private Envelope<object> VerificationGet(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        if (!TryGetStringParameter(request, "recordId", out var recordId))
-        {
-            return InvalidArgument(request, "缺少 recordId 参数");
-        }
-
-        var record = store.TryGetVerification(recordId);
-        if (record is null)
-        {
-            return NotFound(request, $"验证记录不存在：{recordId}");
-        }
-
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = VerificationDto(record),
-        };
-    }
-
-    private Envelope<object> VerificationList(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        string? toolId = null;
-        if (request.Parameters is { ValueKind: JsonValueKind.Object } vlParameters
-            && vlParameters.TryGetProperty("toolId", out var toolElement)
-            && toolElement.ValueKind == JsonValueKind.String)
-        {
-            toolId = toolElement.GetString();
-        }
-
-        var records = store.ListVerifications(toolId);
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new { total = records.Count, items = records.Select(VerificationDto).ToArray() },
-        };
-    }
-
-    private static object VerificationDto(GameLibrary.Domain.Tools.ToolVerificationRecord record) => new
-    {
-        recordId = record.RecordId,
-        toolId = record.ToolId,
-        toolFingerprint = record.ToolFingerprint,
-        engine = record.Engine,
-        samplePath = record.SamplePath,
-        status = record.Status,
-        gameStartedConfirmed = record.GameStartedConfirmed,
-        translationConfirmed = record.TranslationConfirmed,
-        note = record.Note,
-        createdUtc = record.CreatedUtc.ToString("O"),
-        updatedUtc = record.UpdatedUtc.ToString("O"),
-    };
-
-    private static object AssetDto(GameAsset asset) => new
-    {
-        assetId = asset.AssetId,
-        gameId = asset.GameId,
-        kind = asset.Kind,
-        isCurrent = asset.IsCurrent,
-        importedUtc = asset.ImportedUtc.ToString("O"),
-    };
-
-    private object GameDto(SqliteLibraryStore store, GameCard game)
-    {
-        var (title, titleSource) = store.EffectiveField(game.GameId, "title", game.Title);
-        var (summary, summarySource) = store.EffectiveField(game.GameId, "summary", "");
-        var coverAssetId = store.ListAssets(game.GameId).FirstOrDefault(a => a.IsCurrent)?.AssetId;
-        return new
-        {
-            gameId = game.GameId,
-            favorite = game.Favorite,
-            title = title ?? "",
-            titleSource,
-            summary,
-            summarySource,
-            coverAssetId,
-            rootPath = game.RootPath,
-            kind = game.Kind,
-            engine = game.Engine,
-            entryPath = game.EntryPath,
-            membership = game.Membership,
-            availability = game.Availability,
-            missingSinceUtc = game.MissingSinceUtc?.ToString("O"),
-            revision = game.Revision,
-            acceptedUtc = game.AcceptedUtc.ToString("O"),
-        };
-    }
-
-    private Envelope<object> IgnoresList(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        var rules = store.ListIgnoreRules();
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new { total = rules.Count, items = rules.Select(IgnoreDto).ToArray() },
-        };
-    }
-
-    private Envelope<object> IgnoresCreate(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        if (!TryGetStringParameter(request, "scope", out var scope)
-            || scope is not ("ExactPath" or "Subtree" or "ConfirmedIdentity"))
-        {
-            return InvalidArgument(request, "缺少 scope 参数（ExactPath/Subtree/ConfirmedIdentity）");
-        }
-
-        TryGetStringParameter(request, "path", out var path);
-        TryGetStringParameter(request, "gameId", out var gameId);
-        TryGetStringParameter(request, "reason", out var reason);
-        if (scope != "ConfirmedIdentity" && path.Length == 0)
-        {
-            return InvalidArgument(request, $"{scope} 需要 path 参数（规范化绝对路径）");
-        }
-
-        if (scope == "ConfirmedIdentity" && gameId.Length == 0)
-        {
-            return InvalidArgument(request, "ConfirmedIdentity 需要用户确认的 gameId");
-        }
-
-        if (path.Length > 0 && !_state.Roots.Contains(path))
-        {
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ErrorCodes.PermissionDenied,
-                    Message = $"路径不在已注册库根内：{path}",
-                    Retryable = false,
-                },
-            };
-        }
-
-        var rule = new IgnoreRule
-        {
-            IgnoreId = $"ignore-{Guid.NewGuid():N}",
-            Scope = scope,
-            Path = path.Length > 0 ? path : null,
-            GameId = gameId.Length > 0 ? gameId : null,
-            Reason = reason.Length > 0 ? reason : null,
-            CreatedUtc = DateTime.UtcNow,
-        };
-        store.InsertIgnoreRule(rule);
-
-        // 抑制立即生效：撤销前匹配的待审核候选转入 ignored（幂等补登记，不覆盖已有终态）。
-        var suppressed = 0;
-        foreach (var candidate in store.ListCandidates())
-        {
-            if (candidate.ReviewState is "observed" or "stabilizing" or "pendingReview"
-                && store.IsSuppressedByIgnoreRule(candidate.PhysicalPath, candidate.GameId))
-            {
-                var transitioned = store.TransitionCandidate(
-                    candidate.CandidateId, candidate.ReviewState, "ignored", candidate.Revision, null, DateTime.UtcNow);
-                if (transitioned is not null)
-                {
-                    suppressed++;
-                }
-            }
-        }
-
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new { ignoreId = rule.IgnoreId, scope, suppressedCandidates = suppressed },
-        };
-    }
-
-    /// <summary>撤销忽略（恢复候选提示的唯一途径）：匹配的 ignored 候选回到 Observed（状态机 Ignored→Observed）。</summary>
-    private Envelope<object> IgnoresRemove(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        if (!TryGetStringParameter(request, "ignoreId", out var ignoreId))
-        {
-            return InvalidArgument(request, "缺少 ignoreId 参数");
-        }
-
-        var rule = store.ListIgnoreRules()
-            .FirstOrDefault(r => string.Equals(r.IgnoreId, ignoreId, StringComparison.Ordinal));
-        if (rule is null)
-        {
-            return NotFound(request, $"忽略规则不存在：{ignoreId}");
-        }
-
-        TryGetIntParameter(request, "expectedRevision", out var expectedRevision);
-        if (expectedRevision is not null && expectedRevision.Value != rule.Revision)
-        {
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ErrorCodes.RevisionConflict,
-                    Message = $"忽略规则 Revision 不一致：期望 {expectedRevision}，当前 {rule.Revision}",
-                    Retryable = false,
-                },
-            };
-        }
-
-        var coveredPaths = store.RemoveIgnoreRule(ignoreId);
-        var restored = 0;
-        foreach (var candidate in store.ListCandidates())
-        {
-            if (candidate.ReviewState != "ignored")
-            {
-                continue;
-            }
-
-            var candidatePath = candidate.PhysicalPath.TrimEnd(Path.DirectorySeparatorChar);
-            var covered = coveredPaths.Any(p =>
-                string.Equals(p.TrimEnd(Path.DirectorySeparatorChar), candidatePath, StringComparison.OrdinalIgnoreCase));
-            if (!covered && rule.Scope == "Subtree" && rule.Path is not null)
-            {
-                var rulePath = rule.Path.TrimEnd(Path.DirectorySeparatorChar);
-                covered = candidatePath.StartsWith(rulePath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
-            }
-
-            if (covered
-                && !store.IsSuppressedByIgnoreRule(candidate.PhysicalPath, candidate.GameId))
-            {
-                var transitioned = store.TransitionCandidate(
-                    candidate.CandidateId, "ignored", "observed", candidate.Revision, null, DateTime.UtcNow);
-                if (transitioned is not null)
-                {
-                    restored++;
-                }
-            }
-        }
-
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new { ignoreId, removed = true, restoredCandidates = restored },
-        };
-    }
-
-    private static object IgnoreDto(IgnoreRule rule) => new
-    {
-        ignoreId = rule.IgnoreId,
-        scope = rule.Scope,
-        path = rule.Path,
-        gameId = rule.GameId,
-        reason = rule.Reason,
-        revision = rule.Revision,
-        createdUtc = rule.CreatedUtc.ToString("O"),
-    };
-
-    private Envelope<object> ProfilesCreate(IpcRequest request)
-    {
-        if (!TryGetStringParameter(request, "gameId", out var gameId)
-            || !TryGetStringParameter(request, "executablePath", out var executablePath)
-            || !TryGetStringParameter(request, "cwd", out var cwd))
-        {
-            return InvalidArgument(request, "profiles.create 需要 gameId、executablePath、cwd 参数");
-        }
-
-        if (!TryGetStringListParameter(request, "argv", out var argv))
-        {
-            return InvalidArgument(request, "profiles.create 需要 argv 字符串数组");
-        }
-
-        if (!File.Exists(executablePath))
-        {
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ErrorCodes.ToolMissing,
-                    Message = $"启动目标不存在：{executablePath}",
-                    Retryable = false,
-                },
-            };
-        }
-
-        if (RejectPathOutsideRoots(request, executablePath) is { } createOutsideRoot)
-        {
-            return createOutsideRoot;
-        }
-
-        if (!Directory.Exists(cwd))
-        {
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ErrorCodes.InvalidPath,
-                    Message = $"工作目录不存在：{cwd}",
-                    Retryable = false,
-                },
-            };
-        }
-
-        // T13：可选工具绑定与默认标记（isDefault 首个即默认，替代项走 profiles.set_default）。
-        TryGetStringParameter(request, "toolId", out var toolId);
-        TryGetBoolParameter(request, "isDefault", out var defaultFlag);
-        var profile = _state.Launches.AddProfile(gameId, executablePath, argv, cwd, toolId.Length > 0 ? toolId : null, defaultFlag == true);
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = ProfileDto(profile),
-        };
-    }
-
-    private Envelope<object> ProfilesList(IpcRequest request)
-    {
-        string? gameId = null;
-        if (request.Parameters is { ValueKind: JsonValueKind.Object } profileListParameters
-            && profileListParameters.TryGetProperty("gameId", out var gameElement)
-            && gameElement.ValueKind == JsonValueKind.String)
-        {
-            gameId = gameElement.GetString();
-        }
-
-        var profiles = _state.Launches.ListProfiles(gameId);
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new
-            {
-                total = profiles.Count,
-                items = profiles.Select(ProfileDto).ToArray(),
-            },
-        };
-    }
-
-    private Envelope<object> ProfilesGet(IpcRequest request)
-    {
-        if (!TryGetStringParameter(request, "profileId", out var profileId))
-        {
-            return InvalidArgument(request, "缺少 profileId 参数");
-        }
-
-        var profile = _state.Launches.GetProfile(profileId);
-        if (profile is null)
-        {
-            return NotFound(request, $"Profile 不存在：{profileId}");
-        }
-
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = ProfileDto(profile),
-        };
-    }
-
-    private Envelope<object> ProfilesUpdate(IpcRequest request)
-    {
-        if (!TryGetStringParameter(request, "profileId", out var profileId)
-            || !TryGetStringParameter(request, "executablePath", out var executablePath)
-            || !TryGetStringParameter(request, "cwd", out var cwd)
-            || !TryGetStringListParameter(request, "argv", out var argv))
-        {
-            return InvalidArgument(request, "profiles.update 需要 profileId、executablePath、argv、cwd 参数");
-        }
-
-        TryGetIntParameter(request, "expectedRevision", out var expectedRevision);
-        var current = _state.Launches.GetProfile(profileId);
-        if (current is null)
-        {
-            return NotFound(request, $"Profile 不存在：{profileId}");
-        }
-
-        if (expectedRevision is not null && expectedRevision.Value != current.Revision)
-        {
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ErrorCodes.RevisionConflict,
-                    Message = $"Profile Revision 不一致：期望 {expectedRevision}，当前 {current.Revision}",
-                    Retryable = false,
-                },
-            };
-        }
-
-        if (!File.Exists(executablePath))
-        {
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ErrorCodes.ToolMissing,
-                    Message = $"启动目标不存在：{executablePath}",
-                    Retryable = false,
-                },
-            };
-        }
-
-        if (RejectPathOutsideRoots(request, executablePath) is { } updateOutsideRoot)
-        {
-            return updateOutsideRoot;
-        }
-
-        var updated = _state.Launches.UpdateProfile(profileId, executablePath, argv, cwd);
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = ProfileDto(updated),
-        };
-    }
-
-    private Envelope<object> LaunchPlanHandler(IpcRequest request)
-    {
-        if (!TryGetStringParameter(request, "gameId", out var gameId)
-            || !TryGetStringParameter(request, "profileId", out var profileId))
-        {
-            return InvalidArgument(request, "launch.plan 需要 gameId、profileId 参数");
-        }
-
-        try
-        {
-            var plan = _state.Launches.CreatePlan(gameId, profileId);
-            var block = TranslationRouteBlock(request, gameId, plan.ProfileId);
-            if (block is not null)
-            {
-                // 预览无副作用：计划照常返回，但明确 needsUserAction 与后续步骤，不让 agent 误以为可直接执行。
-                return new Envelope<object>
-                {
-                    RequestId = request.RequestId,
-                    Ok = false,
-                    Status = OperationStatus.NeedsUserAction,
-                    Data = plan.ToDto(),
-                    NextActions =
-                    [
-                        new NextAction
-                        {
-                            OperationId = "tools.discover",
-                            Reason = "游戏翻译策略为 Required；目标 Profile 未绑定翻译工具，直启会被拒绝",
-                        },
-                        new NextAction
-                        {
-                            OperationId = "translation.set",
-                            Reason = "如需原文直启，请显式将策略覆盖为 NotRequired（用户主动选择，不静默回退）",
-                        },
-                    ],
-                };
-            }
-
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = true,
-                Status = OperationStatus.Completed,
-                Data = plan.ToDto(),
-            };
-        }
-        catch (GameLibrary.Host.Launching.LaunchException ex)
-        {
-            return LaunchError(request, ex);
-        }
-    }
-
-    /// <summary>
-    /// T13 Required 不回退（LA-07）：游戏翻译策略有效值为 Required 且目标 Profile 无工具绑定时，
-    /// 返回阻断信封；null 表示翻译路由可直启（策略非 Required，或 Profile 已绑定工具）。
-    /// </summary>
-    private Envelope<object>? TranslationRouteBlock(IpcRequest request, string gameId, string resolvedProfileId)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return null;
-        }
-
-        var game = store.TryGetGame(gameId);
-        var profile = _state.Launches.GetProfile(resolvedProfileId);
-        if (game is null || profile is null)
-        {
-            return null;
-        }
-
-        var inherited = game.TranslationInherited
-            ? TranslationRequirement.Required
-            : TranslationRequirement.Auto;
-        var userOverride = game.TranslationOverride is null
-            ? TranslationRequirement.Auto
-            : Enum.Parse<TranslationRequirement>(game.TranslationOverride, ignoreCase: false);
-        if ((userOverride != TranslationRequirement.Auto ? userOverride : inherited) != TranslationRequirement.Required)
-        {
-            return null;
-        }
-
-        if (profile.ToolId is not null)
-        {
-            return null;
-        }
-
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = false,
-            Status = OperationStatus.Failed,
-            Error = new RequestError
-            {
-                Code = ErrorCodes.TranslationRouteUnavailable,
-                Message = $"游戏翻译策略为 Required，而 Profile {resolvedProfileId} 是普通直启（无工具绑定）；不静默回退原文直启",
-                Retryable = false,
-            },
-            NextActions =
-            [
-                new NextAction
-                {
-                    OperationId = "tools.discover",
-                    Reason = "发现并绑定翻译工具（MTool/RenpyThief/播放器/steam）后创建翻译 Profile",
-                },
-                new NextAction
-                {
-                    OperationId = "translation.set",
-                    Reason = "用户主动选择原文直启时，显式将策略覆盖为 NotRequired",
-                },
-            ],
-        };
-    }
-
-    private Envelope<object> LaunchExecute(IpcRequest request)
-    {
-        if (!TryGetStringParameter(request, "idempotencyKey", out var idempotencyKey))
-        {
-            return InvalidArgument(request, "launch.execute 需要 idempotencyKey 参数");
-        }
-
-        TryGetStringParameter(request, "planId", out var planId);
-        TryGetStringParameter(request, "profileId", out var profileId);
-        TryGetIntParameter(request, "expectedRevision", out var expectedRevision);
-
-        // T13 Required 不回退：执行前解析目标 Profile（显式 profileId 或计划内的），
-        // 游戏 Required 且该 Profile 无工具绑定 → 拒绝执行（LA-07），不产生尝试。
-        var resolvedProfileId = profileId.Length > 0
-            ? profileId
-            : planId.Length > 0
-                ? _state.Launches.GetPlanProfileId(planId)
-                : null;
-        if (resolvedProfileId is not null)
-        {
-            var resolvedGameId = profileId.Length > 0
-                ? _state.Launches.GetProfile(resolvedProfileId)?.GameId
-                : _state.Launches.GetPlanGameId(planId);
-            if (resolvedGameId is not null)
-            {
-                var block = TranslationRouteBlock(request, resolvedGameId, resolvedProfileId);
-                if (block is not null)
-                {
-                    return block;
-                }
-            }
-        }
-
-        try
-        {
-            var attempt = _state.Launches.Execute(
-                idempotencyKey,
-                planId.Length > 0 ? planId : null,
-                profileId.Length > 0 ? profileId : null,
-                profileId.Length > 0 ? profileId : null,
-                expectedRevision);
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = true,
-                Status = OperationStatus.Completed,
-                Data = attempt.ToDto(),
-            };
-        }
-        catch (GameLibrary.Host.Launching.LaunchException ex)
-        {
-            return LaunchError(request, ex);
-        }
-    }
-
-    private Envelope<object> LaunchStatus(IpcRequest request)
-    {
-        if (!TryGetStringParameter(request, "attemptId", out var attemptId))
-        {
-            return InvalidArgument(request, "缺少 attemptId 参数");
-        }
-
-        var attempt = _state.Launches.GetAttempt(attemptId);
-        if (attempt is null)
-        {
-            return NotFound(request, $"启动尝试不存在：{attemptId}");
-        }
-
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = attempt.ToDto(),
-        };
-    }
-
-    private Envelope<object> LaunchHistory(IpcRequest request)
-    {
-        string? gameId = null;
-        if (request.Parameters is { ValueKind: JsonValueKind.Object } historyParameters
-            && historyParameters.TryGetProperty("gameId", out var historyGameElement)
-            && historyGameElement.ValueKind == JsonValueKind.String)
-        {
-            gameId = historyGameElement.GetString();
-        }
-
-        var attempts = _state.Launches.History(gameId);
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new
-            {
-                total = attempts.Count,
-                items = attempts.Select(a => a.ToDto()).ToArray(),
-            },
-        };
-    }
-
-    private static object ProfileDto(GameLibrary.Host.Launching.LaunchProfile profile) => new
-    {
-        profileId = profile.ProfileId,
-        gameId = profile.GameId,
-        executablePath = profile.ExecutablePath,
-        argv = profile.Arguments,
-        cwd = profile.WorkingDirectory,
-        toolId = profile.ToolId,
-        isDefault = profile.IsDefault,
-        revision = profile.Revision,
-    };
-
-    private static Envelope<object> LaunchError(IpcRequest request, GameLibrary.Host.Launching.LaunchException ex) =>
-        new()
-        {
-            RequestId = request.RequestId,
-            Ok = false,
-            Status = OperationStatus.Failed,
-            Error = new RequestError
-            {
-                Code = ex.Code,
-                Message = ex.Message,
-                Retryable = false,
-            },
-        };
-
-    /// <summary>
-    /// 显式建库（library.init）。自举豁免前置收据：建库成功后在新库中登记收据，
-    /// 同键重放返回原结果；DB 已存在但收据缺失（建库后、收据前中断）返回 AlreadyInitialized。
-    /// </summary>
     private Envelope<object> LibraryInit(IpcRequest request)
     {
         if (_state.Library.Store is not null)
@@ -4734,12 +1919,16 @@ public sealed class OperationDispatcher
             };
         }
 
+        // v1 审查修复：库会话整体切换——Library 状态与事件流同步重绑新 Store，
+        // 连接代数递增使旧连接（绑定 null Store 的引导期连接）失效、客户端重连。
         _state.Library = new HostLibraryState
         {
             Status = init.Status,
             Store = init.Store,
             Detail = init.Detail,
         };
+        _state.Events.BindStore(init.Store);
+        Interlocked.Increment(ref _state.ConnectionGeneration);
 
         var result = new Envelope<object>
         {
@@ -4941,8 +2130,10 @@ public sealed class OperationDispatcher
                 execution = info.Execution,
                 available = info.IsAvailable,
                 note = info.Note,
-                inputSchemaFile = (string?)null,
-                outputSchemaFile = (string?)null,
+                // v1 审查修复：返回程序化生成的真实 JSON Schema（draft 2020-12 子集），
+                // 不再把 inputSchemaFile/outputSchemaFile 置 null 冒充机器可发现契约。
+                inputSchema = Contracts.OperationSchemas.BuildInputSchema(info.OperationId),
+                outputSchema = Contracts.OperationSchemas.BuildOutputSchema(),
             },
         };
     }

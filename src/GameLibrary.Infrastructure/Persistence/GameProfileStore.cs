@@ -40,10 +40,15 @@ public static class GameProfileStore
 {
     public static GameFieldValue? TryGetField(SqliteConnection connection, string gameId, string fieldKey)
     {
+        // 分层主键 (game_id, field_key, source)：同一字段可同时存在 auto/user 两行；
+        // 读取按生效序（user 优先，value 非 null 优先）。
         using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT value, source, updated_utc
             FROM game_fields WHERE game_id = $game AND field_key = $key
+            ORDER BY CASE source WHEN 'user' THEN 0 ELSE 1 END,
+                     CASE WHEN value IS NULL THEN 1 ELSE 0 END
+            LIMIT 1
             """;
         command.Parameters.AddWithValue("$game", gameId);
         command.Parameters.AddWithValue("$key", fieldKey);
@@ -69,9 +74,8 @@ public static class GameProfileStore
         command.CommandText = """
             INSERT INTO game_fields (game_id, field_key, value, source, revision, updated_utc)
             VALUES ($game, $key, $value, $source, 1, $updated)
-            ON CONFLICT(game_id, field_key) DO UPDATE SET
+            ON CONFLICT(game_id, field_key, source) DO UPDATE SET
                 value = excluded.value,
-                source = excluded.source,
                 revision = revision + 1,
                 updated_utc = excluded.updated_utc
             """;
@@ -238,14 +242,15 @@ public static class GameProfileStore
 
     public static void WriteAutoField(SqliteConnection connection, string gameId, string fieldKey, string value, DateTime utcNow)
     {
+        // 元数据刷新只更新 auto 层；user 覆盖行不受影响（分层主键下天然隔离）。
         using var command = connection.CreateCommand();
         command.CommandText = """
             INSERT INTO game_fields (game_id, field_key, value, source, revision, updated_utc)
             VALUES ($game, $key, $value, 'auto', 1, $updated)
-            ON CONFLICT(game_id, field_key) DO UPDATE SET
+            ON CONFLICT(game_id, field_key, source) DO UPDATE SET
                 value = excluded.value,
+                revision = revision + 1,
                 updated_utc = excluded.updated_utc
-            WHERE game_fields.source = 'auto'
             """;
         command.Parameters.AddWithValue("$game", gameId);
         command.Parameters.AddWithValue("$key", fieldKey);
@@ -259,7 +264,10 @@ public static class GameProfileStore
     {
         using var exists = connection.CreateCommand();
         exists.Transaction = transaction;
-        exists.CommandText = "SELECT COUNT(1) FROM game_fields WHERE game_id = $game AND field_key = $key";
+        exists.CommandText = """
+            SELECT COUNT(1) FROM game_fields
+            WHERE game_id = $game AND field_key = $key AND source = 'auto'
+            """;
         exists.Parameters.AddWithValue("$game", gameId);
         exists.Parameters.AddWithValue("$key", fieldKey);
         if (Convert.ToInt64(exists.ExecuteScalar()) > 0)
@@ -286,9 +294,8 @@ public static class GameProfileStore
         command.CommandText = """
             INSERT INTO game_fields (game_id, field_key, value, source, revision, updated_utc)
             VALUES ($game, $key, $value, $source, 1, $updated)
-            ON CONFLICT(game_id, field_key) DO UPDATE SET
+            ON CONFLICT(game_id, field_key, source) DO UPDATE SET
                 value = excluded.value,
-                source = excluded.source,
                 revision = revision + 1,
                 updated_utc = excluded.updated_utc
             """;

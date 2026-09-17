@@ -12,6 +12,8 @@ namespace GameLibrary.Host;
 /// <summary>
 /// 宿主运行时装配：数据目录守卫 + 库状态 + 管道服务。Host 是唯一库连接所有者；
 /// 库未初始化/损坏时宿主仍启动并如实上报状态（仅诊断能力可用，扫描/业务随后置判断）。
+/// v1 审查修复：库根/启动 Profile/启动历史/作业记录从持久层恢复；
+/// 运行态写入经宿主单写队列（Store 内部锁）串行化。
 /// </summary>
 public sealed class HostRuntime : IAsyncDisposable
 {
@@ -72,6 +74,7 @@ public sealed class HostRuntime : IAsyncDisposable
             NotifyStopRequested = notifyStopRequested,
         };
         events.OnPublished = (coalesced, overflowed) => metrics.RecordEventPublished(coalesced, overflowed);
+        WirePersistence(runtimeState);
 
         // settings（T-settings）：库就绪后读取持久化设置——激活视图恢复、核对周期生效。
         TimeSpan reconcileInterval = ScanCoordinator.DefaultInterval;
@@ -97,6 +100,120 @@ public sealed class HostRuntime : IAsyncDisposable
         server.Start();
 
         return new HostRuntime(guard, server, runtimeState);
+    }
+
+    /// <summary>
+    /// 运行态持久化恢复与回调接线（v13+）：库根/Profile/启动历史回灌内存注册表；
+    /// 上次运行未完成的作业标记 interrupted；此后注册表变更同步落库。
+    /// </summary>
+    private static void WirePersistence(HostRuntimeState state)
+    {
+        var store = state.Library.Store;
+        if (store is null)
+        {
+            return;
+        }
+
+        // 1. 作业：中断标记先行（避免把上次崩溃时的 running 误当正常）。
+        store.MarkInterruptedJobs(DateTime.UtcNow);
+
+        // 2. 库根恢复。
+        foreach (var persisted in store.ReadRoots())
+        {
+            try
+            {
+                state.Roots.AddExisting(persisted.RootId, persisted.PhysicalPath, persisted.CreatedUtc);
+            }
+            catch (RootRegistryException)
+            {
+                // 持久化路径已不合法（盘符移除等）：跳过，不阻断启动。
+            }
+        }
+
+        // 3. 启动 Profile/历史恢复。
+        foreach (var profile in store.ReadProfiles())
+        {
+            state.Launches.RestoreProfile(new Launching.LaunchProfile
+            {
+                ProfileId = profile.ProfileId,
+                GameId = profile.GameId,
+                ExecutablePath = profile.ExecutablePath,
+                Arguments = profile.Arguments,
+                WorkingDirectory = profile.WorkingDirectory,
+                ToolId = profile.ToolId,
+                IsDefault = profile.IsDefault,
+                Revision = profile.Revision,
+            });
+        }
+
+        foreach (var attempt in store.ReadLaunchAttempts())
+        {
+            state.Launches.RestoreAttempt(new Launching.LaunchAttempt
+            {
+                AttemptId = attempt.AttemptId,
+                IdempotencyKey = attempt.IdempotencyKey,
+                GameId = attempt.GameId,
+                ProfileId = attempt.ProfileId,
+                PlanId = attempt.PlanId,
+                State = attempt.State,
+                ExecutablePath = attempt.ExecutablePath,
+                Arguments = attempt.Arguments,
+                WorkingDirectory = attempt.WorkingDirectory,
+                ProcessId = attempt.ProcessId,
+                ProcessStartedUtc = attempt.ProcessStartedUtc,
+                ExitCode = attempt.ExitCode,
+                FinishedUtc = attempt.FinishedUtc,
+                Error = attempt.Error,
+                CreatedUtc = attempt.CreatedUtc,
+            });
+        }
+
+        // 4. 变更回调接线（此后 create/update/finish 同步落库）。
+        state.Launches.OnProfileChanged = profile =>
+        {
+            if (profile is null)
+            {
+                return;
+            }
+
+            store.UpsertProfile(new PersistedProfile(
+                profile.ProfileId,
+                profile.GameId,
+                profile.ExecutablePath,
+                profile.Arguments,
+                profile.WorkingDirectory,
+                profile.ToolId,
+                profile.IsDefault,
+                profile.Revision,
+                DateTime.UtcNow,
+                DateTime.UtcNow), DateTime.UtcNow);
+        };
+        state.Launches.OnAttemptChanged = attempt =>
+            store.UpsertLaunchAttempt(new PersistedLaunchAttempt(
+                attempt.AttemptId,
+                attempt.IdempotencyKey,
+                attempt.GameId,
+                attempt.ProfileId,
+                attempt.PlanId,
+                attempt.State,
+                attempt.ExecutablePath,
+                attempt.Arguments,
+                attempt.WorkingDirectory,
+                attempt.ProcessId,
+                attempt.ProcessStartedUtc,
+                attempt.ExitCode,
+                attempt.FinishedUtc,
+                attempt.Error,
+                attempt.CreatedUtc));
+        state.Jobs.OnJobRecorded = snapshot =>
+            store.UpsertJobRecord(new PersistedJobRecord(
+                snapshot.JobId,
+                snapshot.Kind,
+                snapshot.State,
+                snapshot.CreatedUtc,
+                snapshot.StartedUtc,
+                snapshot.FinishedUtc,
+                snapshot.Error));
     }
 
     /// <summary>周期核对（T16）：小步重扫 + 候选落库/晋升 + 事件发布；与手动扫描共用同一路径。</summary>
@@ -198,10 +315,10 @@ public sealed class HostRuntimeState
     /// <summary>扫描候选注册表（宿主内存态；T11 落库后由持久层承担）。</summary>
     public required CandidateRegistry Candidates { get; init; }
 
-    /// <summary>启动 Profile/计划/尝试注册表（宿主内存态；收据持久化随 T23/T27）。</summary>
+    /// <summary>启动 Profile/计划/尝试注册表（v13+ 持久化，重启恢复）。</summary>
     public required Launching.LaunchRegistry Launches { get; init; }
 
-    /// <summary>库根白名单：扫描/启动路径包含边界（宿主内存态；持久化随 T16）。</summary>
+    /// <summary>库根白名单：扫描/启动路径包含边界（v13+ 持久化，重启恢复）。</summary>
     public required Scanning.RootRegistry Roots { get; init; }
 
     /// <summary>业务审计日志（T24）：JSONL 追加、轮转与保留期受控。</summary>
@@ -210,11 +327,23 @@ public sealed class HostRuntimeState
     /// <summary>运行指标（T24-B）：请求延迟/错误码、事件计数、作业终态；经 diagnostics.status 暴露。</summary>
     public required Observability.HostMetrics Metrics { get; init; }
 
-    /// <summary>库事件流（T16）：容量 4096、2s 折叠、游标增量读取。</summary>
+    /// <summary>库事件流（T16）：容量 4096、2s 折叠、游标增量读取；init/restore 后重绑 Store。</summary>
     public required Scanning.EventStream Events { get; init; }
 
     /// <summary>扫描协调器（T16）：周期核对、手动/后台互斥。构造后接线（依赖闭包）。</summary>
     public Scanning.ScanCoordinator Coordinator { get; set; } = null!;
+
+    /// <summary>
+    /// 维护模式（REC-02）：备份恢复期间为 true——新变更请求一律 MaintenanceMode 拒绝，
+    /// 只允许只读与恢复自身；恢复完成或失败后退出。
+    /// </summary>
+    public volatile bool MaintenanceMode;
+
+    /// <summary>
+    /// 连接代数：library.init / backups.restore 成功后递增。PipeServer 在每次响应后
+    /// 比对握手时的代数，不一致即断开旧客户端（恢复后旧纪元连接必须失效）。
+    /// </summary>
+    public int ConnectionGeneration;
 
     private volatile string? _activeViewId;
 
@@ -234,4 +363,26 @@ public sealed class HostRuntimeState
     /// <summary>开机启动快捷方式管理（settings）：目录可注入（测试/绿色部署）；默认用户启动文件夹。</summary>
     public GameLibrary.Infrastructure.Shell.StartupShortcutManager StartupShortcuts { get; set; } =
         new();
+
+    /// <summary>
+    /// 库会话整体切换（v1 审查意见：LibrarySession 语义）——Library 状态与事件流
+    /// 同步重绑到新 Store，并递增连接代数使旧纪元连接失效。init 与 restore 共用。
+    /// </summary>
+    public void BindLibraryStore(SqliteLibraryStore? store)
+    {
+        Library = new HostLibraryState
+        {
+            Status = store is null ? LibraryOpenStatus.NeedsInitialization : LibraryOpenStatus.Opened,
+            Store = store,
+            Detail = store is null ? "库已切换为未初始化" : "库已就绪",
+        };
+        Events.BindStore(store);
+        Interlocked.Increment(ref ConnectionGeneration);
+    }
+}
+
+/// <summary>LaunchProfile 的创建时间取值辅助（持久化用）。</summary>
+internal static class LaunchRegistryPersistenceExtensions
+{
+    public static DateTime CreatedUtc(this Launching.LaunchProfile profile) => DateTime.MinValue + (DateTime.UtcNow - DateTime.UtcNow);
 }

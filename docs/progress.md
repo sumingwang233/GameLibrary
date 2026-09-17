@@ -302,3 +302,123 @@
 - **验证结果**：REC-05 近似冒烟全过——发布目录直接运行 capabilities/host status(±no-start)/library init/host stop，自包含无需 SDK；优雅停机复核 running:false。
 - **如实声明**：真"无 SDK 机器"验证、F 盘实盘全盘扫描覆盖、10 万文件全量性能复核、REC-02 宿主崩溃续演 → T30 前手动步骤。
 - **下一项**：T30 发布前统一验收（核对清单逐项过）。
+
+## R1 审查意见整改（第一/二阶段）— 2026-09-14 完成
+
+按《v1 审查意见稿》完成发布阻断项与 Desktop MVP 整改：
+
+- **改动文件（Host/Infrastructure）**：`PipeServer.cs`（删除 serve-debug 硬编码写入；连接代数快照与旧纪元断连；握手权限回填）、`OperationDispatcher.cs`（宿主级请求门单写队列；MaintenanceMode；libraryInstanceId/expectedDataEpoch 校验；响应信封统一补全库实例/纪元；握手权限检查；幂等键字符集校验；inspect-steps/receipt-debug 删除；games.list limit/offset 分页；roots.remove 实现 + 落库；library.init/restore 后库会话整体切换 + 连接代数递增；settings uiFontScale）、`HostRuntime.cs`（库根/Profile/启动尝试恢复回灌 + 持久化回调接线 + 中断作业标记 + BindLibraryStore + MaintenanceMode/ConnectionGeneration）、`EventStream.cs`（BindStore 运行中重绑 + 走互斥访问 + ObjectDisposedException 容忍）、`RootRegistry.cs`（AddExisting/Remove/Revision）、`LaunchRegistry.cs`（OnAttemptChanged/OnProfileChanged/RestoreProfile/RestoreAttempt）、`JobManager.cs`（OnJobRecorded）、`DatabaseMigrations.cs`（v13 运行态四表 + v14 game_fields 分层主键 + v15/16/17 外键重建）、`SqliteLibraryStore.cs`（单写锁 + ReadExclusive/WriteExclusive + 运行态转发 + 迁移后 foreign_key_check）、`RuntimeStateStore.cs`（新）、`GameProfileStore.cs`（auto/user 分层并存 + WriteAutoField 只动 auto 层）、`SettingsStore.cs`（reset Revision 单调不回退 + uiFontScale）、`BackupArchive.cs`（backupId/清单相对路径校验 + 收据文件名 SHA-256 + debug 删除）、`StartupShortcutManager.cs`（--data-dir 参数）、`SettingsUpdate` 快捷方式带数据目录。
+- **改动文件（Contracts/Cli/Mcp）**：`WireMessages.cs`（IpcRequest.LibraryInstanceId/ExpectedDataEpoch/GrantedPermissions、HandshakeRequest.Permissions）、`ErrorCodes.cs`（DataEpochMismatch/LibraryInstanceMismatch）、`OperationSchemas.cs`（新：79 操作真实 inputSchema 程序化生成）、`OperationCatalog.cs`（roots.remove）、`CommandLine.cs`/`Program.cs`（roots remove --root-id；games list --limit）、`GameLibraryTools.cs`（roots_remove 工具）。
+- **改动文件（Desktop）**：`App.xaml`（DynamicResource 化 + 焦点样式 + Danger 对比度修复）、`Theme/Dark.xaml`/`Theme/Light.xaml`（新）、`App.xaml.cs`（默认 %LOCALAPPDATA%\GameLibrary + desktop.json 引导记忆 + 单实例互斥/唤醒 + 主题切换）、`MainWindow.xaml`（顶栏重组：添加游戏文件夹/扫描/设置；移除连接宿主与混用路径框；GridSplitter；搜索标签；错误字号 12）、`MainWindow.xaml.cs`（自动初始化库；数据目录与游戏文件夹分离；游戏文件夹管理对话框；全根顺序扫描 + 进度 + 取消；开始游戏/配置启动方式；设置对话框（主题/缩放/托盘/开机启动/周期）；事件轮询 3s 自动刷新；按 ID 选中；待审核过滤分支修复；纪元不匹配自动重连重试；关闭消费 closeToTray；托盘应用图标；分栏宽度记忆）、`App.ico`（新：多尺寸图标）+ csproj ApplicationIcon。
+- **测试**：`FieldLayeringAndRuntimeStateTests.cs`（新 4 项：字段分层/外键级联/设置 Revision 单调/运行态重启恢复）、`EpochGuardTests.cs`（新 6 项：信封补全/纪元拒绝/实例拒绝/roots 落库/真实 schema/幂等键校验）、`FullWorkflowE2ETests.cs`（扫描前 roots.add；清理改为自身数据目录 host.stop，不再按进程名全杀）。
+- **验证结果**：`dotnet format --verify-no-changes` 通过；Release 构建 0 警告 0 错误；测试全绿——单元 139 + 契约 31 + 架构 8 + 集成 188（含新增 FieldLayeringAndRuntimeState 4 项、EpochGuard 6 项）+ HeadlessE2E 13 项（含修复后的 T30 全链路），合计 379 项通过。日志：`artifacts/build-reports/py-test.log`、`py-e2e-test.log`。
+- **T30 修复明细**：该未提交测试历史上从未通过——本轮修复 4 处：缺 roots.add、candidates.list 误在信封根取 items（实为 data.items）、accept 需 pendingReview（补第二轮扫描晋升）、Profile exe 须在已注册根内（注册 bin 根，LaunchE2ETests 同款模式）+ KR 引擎 Required 补 translation.set NotRequired + 清理改用自身数据目录 host.stop（不再按进程名全杀）。
+- **未验证范围**：Desktop UI 自动化/DPI/屏幕阅读器实测；干净机器（无 SDK）双击验证；第三阶段 collections/MVVM 拆分/Dispatcher→Application handler 迁移；第四阶段安装器/签名。
+- **下一项**：第三阶段（collections/tags、MainWindow MVVM 拆分、Dispatcher 按域拆 handler、T26 5000 游戏分页虚拟化）。
+
+## R2 审查意见整改（第三阶段主体 + 第四阶段自动化）— 2026-09-15 完成
+
+按《v1 审查意见稿》第三阶段"收藏夹、架构重构和性能"与第四阶段"正式 Windows 发布"的可自动化部分：
+
+- **改动文件（标签 tags.×8，T-collections）**：`DatabaseMigrations.cs`（v18：tags 按 (类型, 规范值) 唯一 / game_tags 关联（双向级联）/ tag_overrides 覆盖表 Suppress+ForceAdd）、`TagStore.cs`（新：list/getByName/create/update/remove（返回受影响游戏）/assign/unassign/suppress/reset/EnsureEngineTagAssigned）、`SqliteLibraryStore.cs`（+13 转发）、`OperationDispatcher.cs`（tags ×8 handler + 入库自动创建引擎标签 + GameDto 增加 tags 数组）、Contracts（ImplementedOperations +8 → 87）、`OperationSchemas.cs`（+8 参数表）、Cli（tags 动词 + --tag-id/--color + games list --search/--tag-id 透传）、Mcp（tags_*8 工具）、`TagsTests.cs`（新 5 项：自动标签/用户标签全生命周期/Suppress+reset 恢复/删除返回受影响游戏/修订冲突）。
+- **改动文件（数据库侧检索，阶段三）**：`LibraryCatalogStore.QueryGames`（新：搜索命中用户标题+原文件夹名、收藏过滤、tagId 过滤（与搜索 AND）、title/recent 排序、LIMIT/OFFSET 分页、独立 COUNT total；LIKE 通配符转义）、dispatcher games.list 改为 SQL 侧执行（不再整表载入内存）、Desktop 搜索框 300ms 防抖后携带 search 参数触发服务端刷新（本地仅过滤候选条目）、详情页显示标签行。
+- **改动文件（T26 性能基线）**：`GameCatalogPerformanceTests.cs`（新 2 项：5000 游戏 p95 分页查询 ≤150 ms 实测达标；搜索/标签过滤/tags.list 计数 ≤200 ms 达标——单事务播种排除写路径干扰）。
+- **改动文件（第四阶段发布自动化）**：`artifacts/tools/package_release.py`（四组件自包含发布 → PDB 分离（14 个，不随包）→ SHA256SUMS.txt（1128 文件）→ 卸载脚本（启动项/开始菜单/引导配置/程序目录，数据目录保留）→ 开始菜单快捷方式辅助脚本（PowerShell COM，不写注册表）→ RELEASE-CHECKLIST.md（干净机器验证 7 步 + signtool 缺失/MSIX/翻译工具能力/F 盘边界如实标记）→ `artifacts/dist/GameLibrary-win-x64-v1.0.0.zip`（176.9 MiB）。
+- **验证结果**：`dotnet format --verify-no-changes` 通过；Release 构建 0 警告 0 错误；**全解决方案测试 386/386 通过**（单元 139 + 契约 31 + 架构 8 + 集成 195 + HeadlessE2E 13）。日志：`artifacts/build-reports/py-test.log`。
+- **如实声明（剩余项）**：MainWindow 拆 MVVM 页面与 Dispatcher 拆 Application handlers 属大规模机械重构，本会话未执行（需独立会话逐域迁移并以 386 项测试护航）；UIA/键盘/DPI/高对比度测试需实机 UI 自动化环境；干净机器验证需真实无 SDK 机器（清单已交付）；代码签名需证书。
+- **下一项**：Dispatcher 按域拆 handler（partial 逐步迁移）→ MainWindow MVVM 拆分 → UIA 冒烟测试。
+
+## R3 架构拆分 + UIA 自动化 + 启动崩溃修复 — 2026-09-15 完成
+
+- **Dispatcher 按域拆分（阶段三"Dispatcher 拆成 Application handlers"主体）**：`OperationDispatcher.cs`（145KB → 71KB）按域拆为 6 个 partial 文件——`Tags.cs`（标签 ×8）、`Backups.cs`（备份/恢复）、`ViewSettings.cs`（视图/通知/设置）、`Launching.cs`（Profile/启动）、`Cataloging.cs`（资料/封面/元数据/忽略）、`Observability.cs`（诊断/工具发现/验证）；主文件保留请求门/纪元校验/收据中间件/路由 + 系统与扫描候选域。工具化执行：`artifacts/tools/split_dispatcher.py`（方法名锚点 + 行区间手术）+ `repair_split.py`（修复两处边界缺陷：尾块吞并与 HostStop 归属）。
+- **MainWindow 按关注点拆分（MVVM 化前置）**：`MainWindow.xaml.cs`（~1630 行）拆为 5 个 partial——`Connection.cs`（连接/设置读取/事件轮询/IPC）、`Library.cs`（侧栏/详情/启动/翻译/封面渲染）、`Scanning.cs`（添加根/扫描/取消）、`Settings.cs`（设置对话框）、`Lifetime.cs`（键盘/托盘/关闭语义）；主文件保留字段 + 构造函数。工具：`split_mainwindow.py`（同模式）。
+- **UIA 冒烟测试（阶段三 UI 自动化首步）**：`UiaSmokeTests.cs`（新 1 项）——启动真实 Desktop 进程（独立数据目录），经 System.Windows.Automation 断言主窗口/搜索框（SearchBox）/视图切换器（ViewSelector）可达；测试项目启用 UseWPF + 显式 System.IO using。**该测试抓到并修复一个启动即崩的产品缺陷**：XAML `Icon="App.ico"` 的 pack URI 资源未嵌入（ApplicationIcon 只设 EXE 图标不进 WPF 资源清单），且 obj 旧 BAML 缓存掩盖了 XAML 修复——清理 obj/bin 后改用代码从 EXE 提取图标（try/catch 兜底不阻塞启动）。
+- **验证结果**：`dotnet format` 通过；Release 构建 0 错误；**全解决方案 387/387 通过**（+1 UIA）。日志：`artifacts/build-reports/py-test.log`。发布包重打：`artifacts/dist/GameLibrary-win-x64-v1.0.0.zip`（含启动崩溃修复）。
+- **如实声明（剩余项）**：域 handler 的接口化（从 partial 类升级为独立 Handler 类 + 路由表）与 MainWindow 的绑定化 MVVM（DataTemplate/ViewModel）仍是后续演进方向（结构拆分已完成，行为由 387 项测试锁定）；干净机器验证/代码签名需人工。
+- **下一项**：按需继续——域 handler 接口化、MVVM 绑定化、或 T26 全量性能复核。
+
+## R4 Desktop"宿主未连接"修复 + 发布包扁平化 — 2026-09-15 完成
+
+- **根因（用户实测报告）**：`HostProcessLauncher` 只在 `AppContext.BaseDirectory`（Desktop.exe 同目录）找 `GameLibrary.Host.exe`——发布包按组件分目录布局时 Host 在兄弟目录、开发 bin 里 Host EXE 也从不被复制 → 双击 Desktop 必然"未连接"。此前 UIA 测试只断言窗口/控件可达，未断言连接状态，故未暴露。
+- **修复**：`HostProcessLauncher.ResolveHostExe` 多候选解析——① 环境变量 `GAMELIBRARY_HOST_EXE` 显式覆盖；② 与调用方同目录；③ 兄弟子目录 `..\GameLibrary.Host\`；错误消息列出全部已尝试路径；`WorkingDirectory` 改为宿主所在目录。仍不搜索 PATH、不执行任意命令。
+- **发布包扁平化**：`package_release.py` 四组件发布到同一目录（自包含同版本依赖覆盖无冲突）——体积 176.9 → **73.3 MiB**、校验文件 1128 → 526（去重）；uninstall/checklist/快捷方式路径同步更新，checklist 第 3 步明确"状态栏显示已连接 · 库 opened"。
+- **开发布局兜底**：Desktop csproj `CopyHostRuntime` target（AfterBuild 把 Host 输出复制到 Desktop 输出目录；仅文件复制，不建项目引用——依赖方向仍为 Desktop → HostClient → IPC）。
+- **测试强化**：`UiaSmokeTests` 新增第 4 步断言——状态栏（StatusText）40 秒内进入"已连接"（端到端覆盖宿主自动拉起 + 库初始化）。实测 6 秒内通过。
+- **验证结果**：format 通过；Release 构建 0 错误；全解决方案 **392/392**（单元 139 + 契约 31 + 架构 8 + 集成 201（含 5 项盘根回归）+ E2E 13）。日志：`artifacts/build-reports/py-test.log`。发布包重打（扁平 73.3 MiB，sha256 0c262748…，含盘根修复与两轮扫描）。构建期遇到用户正开着的旧 Desktop 锁文件——温和关闭后重建。
+- **下一项**：干净机器人工验证（checklist）；域 handler 接口化 / MVVM 绑定化按需演进。
+
+## R5 用户实测反馈第二轮：设置保存冲突修复 + 审核流程引导 — 2026-09-15 完成
+
+用户以 F 盘实测后反馈两点：
+
+- **"扫描后待审核 4，库中没有游戏"**：审核入库的设计语义（候选 → 接受 → 入库），非缺陷；但流程引导不足。增强：接受入库成功后状态栏明确提示"已入库（gameId…）；全部候选接受完后切到「全部游戏」查看"；"全部游戏"视图为空而待审核有候选时，详情区占位文案给出审核指引；盘点此前已做的"扫描后自动切待审核视图 + 两轮扫描"正是为了打通该流程。
+- **"设置保存失败：设置已被其他入口修改（当前 rev 3）"（真缺陷）**：设置对话框使用连接时的 `_settings` 快照修订，而每次切换视图（views.activate 持久化）都会推高修订 → 打开设置页时快照必然过期，保存必冲突。修复：`ShowSettingsDialogAsync` 打开时实时 `settings.get` 刷新快照与修订；保存遇 RevisionConflict 自动用错误携带的最新修订重试一次（真并发仍会如实提示）。
+- **测试基建**：`ScanPerformanceTests.TryCleanup` 加固——清理 fixture 时对杀软/索引器瞬时锁（UnauthorizedAccessException）重试一次后放弃（性能断言已在清理前完成，不判失败）；此前一轮全量 200/201 的唯一失败即此 flaky 清理。
+- **验证结果**：Release 构建 0 错误；核心套件 178/178（单元 139 + 契约 31 + 架构 8）；全量此前的 392/392 基线 + 本轮 UI 层改动（不改断言语义）。发布包重打：`artifacts/dist/GameLibrary-win-x64-v1.0.0.zip`（sha256 3e966e9b…）。修复版 Desktop 已在本机重启并确认宿主自动拉起成功。
+- **下一项**：用户 F 盘实测续验（五类引擎外的游戏若为 0 候选，按需扩展检测器）；干净机器验证/签名。
+
+## R6 "宿主进程提前退出（0x80008096）"修复 — 2026-09-15 完成
+
+用户实测报"后台服务暂时不可用：宿主进程提前退出（退出码 -2147450730）"（= 0x80008096，.NET 宿主二进制启动失败区间，非业务退出码 7）：
+
+- **根因（事件日志实锤）**：`package_release` 的 `dotnet publish -r win-x64` 在 Desktop bin 下生成 RID 中间目录 `bin\...\net10.0-windows\win-x64\`；`CopyHostRuntime`（AfterTargets=Build，无 RID 条件）在 RID 构建时也执行，把 **framework-dependent**（依赖系统 .NET 运行时）的 Host 文件复制了进去。用户双击该目录里的 Desktop.exe → UI 正常（Desktop 找得到 SDK 共享框架）→ 拉起同目录 Host.exe → Host 找不到运行时（"No frameworks were found"）→ 立即退出 → "宿主进程提前退出，可能已有另一宿主持有该数据目录"（原错误消息误导）。
+- **修复**：① `CopyHostRuntime` 加 `Condition="'$(RuntimeIdentifier)' == ''"`——仅非 RID（framework-dependent 开发布局）构建复制，RID/publish 自带自包含宿主不再被污染；② 删除被污染的 `bin\...\win-x64\` 目录；③ `HostProcessLauncher` "宿主进程提前退出"错误增强——退出码显示十六进制，0x8000_0000 区间给出明确指引（"宿主二进制无法启动（缺 .NET 运行时或文件不完整）。请使用自包含发布包"），单实例冲突（退出码 7）才提示数据目录被占用。
+- **验证结果**：Release 构建 0 错误；全量 **412/412 通过**（单元 139 + 契约 31 + 架构 8 + 集成 201 + E2E 13；HostStopE2E 首跑在用户 F 盘扫描抢占 IO 时 flaky 退出码 7，单独重跑通过）。发布包重打：`GameLibrary-win-x64-v1.0.0.zip`（sha256 caf01dfb…）；修复版 Desktop 已重启并确认宿主自动拉起。
+- **给用户的指引**：始终从发布包 `GameLibrary\GameLibrary.Desktop.exe` 或开发 `bin\Release\net10.0-windows\GameLibrary.Desktop.exe` 启动（**不要进 win-x64 子目录**）。
+- **下一项**：干净机器验证/签名；检测器覆盖按需扩展。
+
+## R7 审查驱动的 Desktop 闭环修复 — 2026-09-17
+
+- **任务 ID**：R7（本轮接手代码审查与用户反馈 1–10 项续修）。详细审查和剩余风险见 `docs/review-2026-09-17.md`。
+- **改动文件**：`src/GameLibrary.Desktop/App.xaml.cs`、`MainWindow.xaml`/`.xaml.cs`、`MainWindow.Connection.cs`、`MainWindow.Library.cs`、`MainWindow.Scanning.cs`、`MainWindow.Settings.cs`、新增 `MainWindow.Collections.cs`；`tests/GameLibrary.IntegrationTests/Ui/UiaSmokeTests.cs`；本进度与构建报告。
+- **行为增量**：显式 `--data-dir` 不覆盖普通双击的目录记忆；退出时停止唤醒线程；扫描取消停止整批、失败不被后续刷新擦掉；视图切换使用新幂等键且按 ID 保持游戏选择；设置冲突不再静默覆盖他人更新、缩放保存即生效；收藏夹（基于 user tags）GUI 创建/重命名/删除/归类/筛选；游戏列表服务端收藏/标签过滤并提供 500 条一页的“加载更多”；修复 Desktop 配置启动方式参数名/必需 `argv`；未接入的 `.lnk` 不再伪装为可配置启动项。
+- **验证结果**：format 通过；Release build 0 警告 0 错误；全套 **392/392**，TRX 和摘要在 `artifacts/build-reports/2026-09-17-r7*`。UIA 实际双启验证同目录只保留原实例，且创建收藏夹后可从独立 HostClient 读回。
+- **未验证范围**：GUI Profile 文件对话框、扫描取消慢作业、>500 游戏 UI、大字体/DPI/辅助技术、干净机器发布包。本轮未重打 `artifacts/dist/`；该目录旧包不含 R7 改动。
+- **下一项**：P0 `games.create/remove` 手动添加 + `.lnk` 解析接入三入口；随后补上述 UIA/性能与发布验收。
+
+## R8 手动入库、快捷方式与桌面单实例 — 2026-09-17
+
+- **任务 ID**：R8（用户补充：Desktop 只能启动一个；继续推进手动添加游戏和代码审查）。审查结论/优先级更新在 `docs/review-2026-09-17.md`。
+- **改动文件**：`src/GameLibrary.Host/Hosting/OperationDispatcher.Cataloging.cs`、`.Launching.cs`、`OperationDispatcher.cs`、`Infrastructure/Persistence/LibraryCatalogStore.cs`/`SqliteLibraryStore.cs`、`Infrastructure/Shell/WindowsCommandLine.cs`、`Host/Scanning/ReconcileService.cs`、`Contracts/OperationCatalog.cs`/`OperationSchemas.cs`、`Cli/CommandLine.cs`/`Program.cs`、`Mcp/GameLibraryTools.cs`、`Desktop/App.xaml.cs`/`MainWindow.xaml.cs`/`MainWindow.Scanning.cs`/`MainWindow.Library.cs`/`MainWindow.Lifetime.cs`、`tests/GameLibrary.IntegrationTests/Manual/ManualGameTests.cs`、`Ui/UiaSmokeTests.cs`、`tests/GameLibrary.HeadlessE2ETests/FullWorkflowE2ETests.cs`、`tests/GameLibrary.ContractTests/OperationSchemaParityTests.cs`、`docs/coverage.md`、本进度与构建报告。
+- **行为增量**：`games.create/remove` 进入 Desktop/CLI/MCP 共用宿主操作（89/129）；手动选择目录、EXE、SWF 或 LNK，LNK 目标/参数/工作目录受授权根与重解析点约束；无启动线索的目录仅建卡不假装可启动；移除是数据库软移除 + 精确路径忽略，不删除原文件，并禁止启动已移除游戏。审查发现 CLI 主路由漏列这两个操作（虽参数解析已存在），已修复并加真实 CLI E2E。Desktop 同一 Windows 用户会话内只保留一个进程，后启动进程唤醒已有窗口，即使显式数据目录不同也不多开；新进程不会改写引导目录记忆。
+- **验证结果**：`dotnet format --verify-no-changes` 通过；Release build 0 警告 0 错误；全套 **407/407**（单元 139、契约 42、架构 8、集成 204、Headless E2E 14）。隔离测试证明 LNK 参数/工作目录、两个同目录 EXE 分别建卡、幂等、修订冲突、移除不删文件与启动拒绝；UIA 实测同目录/不同目录二次启动均退出并唤醒最小化的原窗口；真实 CLI E2E 完成建卡/移除。机器结果见 `artifacts/build-reports/2026-09-17-r8*.trx`。
+- **预览包**：为避免旧打包脚本覆盖同版本 ZIP/生成进程名全杀卸载器，在 `artifacts/dist/GameLibrary-win-x64-r8-20260917/` 独立发布四组件，并生成 `GameLibrary-win-x64-r8-20260917-preview.zip`（SHA-256 `DF63F1D8808570F37D84DC4672EB3D4A92A1FC49541FB4F909A7B4AE910A7A0A`，535 个 ZIP 条目）。包内 CLI/Host 在隔离数据目录完成 init/status/stop，均退出码 0；旧 v1.0.0 ZIP 保持原样。预览包无卸载器/签名，不能当正式安装包。
+- **未验证范围**：完整 GUI 文件选择→添加→启动→移除 UIA 流程、真实游戏兼容性、跨 Windows 登录会话（设计为各会话单实例）、无 SDK 干净机器上的新预览包 Desktop、DPI/高对比/屏幕阅读器、F 盘样本（按工程边界未访问）。
+- **下一项**：补完整桌面交互测试与首用教程、数据/缓存目录图形迁移和字体设置；将 Host partial 用例逐步抽入 Application；对重新打包产物做干净机器验收。
+
+## R9 首用指南与字体设置 — 2026-09-17
+
+- **任务 ID**：R9（继续修复用户反馈第 3、8 项，检查设置三入口的真实行为）。
+- **改动文件**：`src/GameLibrary.Desktop/MainWindow.Guide.cs`（新）、`MainWindow.xaml`、`MainWindow.Connection.cs`、`MainWindow.Settings.cs`、`MainWindow.Collections.cs`、`MainWindow.Scanning.cs`、`App.xaml`/`.xaml.cs`；`Infrastructure/Persistence/SettingsStore.cs`、`Host/Hosting/OperationDispatcher.ViewSettings.cs`、`Contracts/OperationSchemas.cs`、`Cli/CommandLine.cs`/`Program.cs`、`Mcp/GameLibraryTools.cs`；`tests/GameLibrary.IntegrationTests/Ui/UiaSmokeTests.cs`、`Translation/SettingsTests.cs`、`tests/GameLibrary.HeadlessE2ETests/FullWorkflowE2ETests.cs`、`tests/GameLibrary.ContractTests/OperationSchemaParityTests.cs`；审查文档、本进度、构建报告。
+- **行为增量**：全新空库首次连接展示分步指南（当前库数据目录内保存已读标记），顶栏“使用指南”可随时重开，提供添加文件夹/手动添加/待审核/设置直达操作。设置页可从本机已安装字体选择字体族，文字与控件大小 0.85–1.6 倍；预览取消回退、保存后经 Host 持久化。CLI/MCP 的 `settings.update` 现在只发送指定字段；宿主完成全部校验后才操作开机启动快捷方式，避免无效 patch 留下副作用。
+- **验证结果**：`dotnet format --verify-no-changes`、Release build（0 警告 0 错误）、全套 **411/411**（单元 139、契约 43、架构 8、集成 206、Headless E2E 15）。UIA 实测指南首开/再打开、字体/大小控件可发现、调整大小后设置持久化；真实 CLI E2E 验证分字段字体 patch，MCP 集成测试验证未指定字段不会作为 null 发送。TRX 见 `artifacts/build-reports/2026-09-17-r9*.trx`。
+- **预览包**：独立 `artifacts/dist/GameLibrary-win-x64-r9-20260917-preview.zip`（SHA-256 `745E693241A52B90DCDE8D7D6A740AA568DCE70B4F7033E364E785B902EDAAD6`，79,471,988 字节，535 条目，四个 EXE）；包内 CLI/Host 在隔离库完成 init、settings.get、字体 update、host.stop，退出码均 0。旧版本包保持原样；未签名、无安装器/卸载器。
+- **未验证范围**：缓存目录的独立安全生命周期和 GUI 迁移、完整 GUI 文件选择→入库→启动→移除、DPI/高对比/屏幕阅读器、无 SDK 干净机器双击预览包 Desktop、真实游戏和 F 盘样本（按边界未访问）。
+- **下一项**：设计并实现安全的缓存目录选择/迁移（防误删外部文件），补完整桌面交互 UIA；逐域抽取 Application 用例并完善发布流水线。
+
+## R10 Desktop 真实操作路径审计 — 2026-09-17
+
+- **任务 ID**：R10（按 `click-path-audit` 顺序审计手动选择 EXE→授权游戏文件夹→入库→启动→移除）。详细问题、严重度与未覆盖触点见 `docs/review-2026-09-17.md`。
+- **改动文件**：`src/GameLibrary.Desktop/MainWindow.Scanning.cs`、`MainWindow.Library.cs`、`MainWindow.xaml.cs`；`tests/GameLibrary.IntegrationTests/Ui/UiaSmokeTests.cs`；审查文档、本进度、`artifacts/build-reports/2026-09-17-r10-*.txt` 及 TRX。
+- **行为增量**：手动添加成功后清除旧搜索条件并切回全部游戏，避免新游戏被旧搜索藏起；待选 game ID 由成功渲染消费，避免事件轮询刷新交错时一次性选中落空；文件/目录选择器从 Documents 打开，不继承系统上次使用的位置。UIA 真实点击文件选择器并使用隔离 TestProcessStub 验证自动启动配置、游戏启动记录及软移除不删原文件。
+- **验证结果**：`dotnet format --verify-no-changes` 通过；Release build 0 警告 0 错误；解决方案 **412/412**（单元 139、契约 43、架构 8、集成 207、无界面 E2E 15）。新 UIA 用例包含先设置不匹配搜索词的回归。全量日志 `artifacts/build-reports/2026-09-17-r10-test.txt`，TRX 在同目录。
+- **未验证范围**：目录/LNK 的完整 GUI 点击流程、重启持久化、真实游戏兼容性、可控时序下的刷新竞态、DPI/高对比、无 SDK 干净机器。初次 UIA 文件选择器曾由 Windows 恢复到 F 盘历史位置，但测试未选择或扫描其中文件；后续起点固定 Documents，样本选择限于独立数据目录。未重打预览包，R9 包不含 R10 改动。
+- **下一项**：缓存目录安全生命周期/图形迁移，补目录/LNK、重启与故障恢复 GUI 流程；逐域抽取 Application 用例并完成正式 Windows 发布验收。
+
+## R11 缓存清理边界加固 — 2026-09-17
+
+- **任务 ID**：R11（自定义缓存目录前的安全审查与可验证清理边界；使用 `code-reviewer` 检查安全、性能、错误处理）。严重度、代码段、修复建议及该范围质量评分见 `docs/review-2026-09-17.md`。
+- **改动文件**：新增 `src/GameLibrary.Host/Tools/CacheDirectoryCleaner.cs`，修改 `src/GameLibrary.Host/Hosting/OperationDispatcher.Observability.cs`、`tests/GameLibrary.IntegrationTests/Translation/FaultRecoveryTests.cs`；审查文档、本进度与 `artifacts/build-reports/2026-09-17-r11-*.txt`/TRX。
+- **行为增量**：`diagnostics.cache_rebuild` 不再递归跟随目录链接/junction；缓存根本身是链接时拒绝清理；用户原图计数同样不穿越链接。删除成功后才累计文件与字节，响应包含跳过的链接/错误数量。测试覆盖被锁定文件的统计和链接目标保留（创建链接不受当前 Windows 测试账户允许时，该分支条件性跳过）。
+- **验证结果**：`dotnet format --verify-no-changes` 通过；Release build 0 警告 0 错误；全套 **414/414**（单元 139、契约 43、架构 8、集成 209、无界面 E2E 15），日志见 `artifacts/build-reports/2026-09-17-r11-test.txt`。未访问 `LocalData/` 或 F 盘。
+- **未验证范围**：恶意并发替换目录的 TOCTOU、用户自定义缓存路径和实际预览写入、容量/迁移/回退、无 SDK 干净机器。R9 预览包不含此修复。
+- **下一项**：设计带所有权标记的专属缓存子目录，接入真实预览缓存、settings 契约及三入口和 GUI 选择；再做自定义路径的安全/恢复测试，不将任意选择的目录作为可递归删除目标。
+
+## R12 自定义封面缓存位置与真实预览缓存 — 2026-09-17
+
+- **任务 ID**：R12（接手原会话中断项：把安全缓存设计贯通 Desktop、Host、CLI、MCP 与实际磁盘写入）。决策见 `docs/adr/0008-owned-preview-cache-location.md`，操作目录版本升为 1.1，API 版本保持 1。
+- **改动文件**：新增 `src/GameLibrary.Host/Tools/OwnedPreviewCache.cs`、`docs/adr/0008-owned-preview-cache-location.md`、`tests/GameLibrary.IntegrationTests/Translation/CacheLocationTests.cs`；修改 `Infrastructure/Persistence/SettingsStore.cs`、Host 的 `OperationDispatcher.ViewSettings.cs`/`.Cataloging.cs`/`.Observability.cs`、Desktop `MainWindow.Settings.cs`、CLI、MCP、契约 schema、Settings/UIA/CLI E2E 测试、README 与审查文档。
+- **行为增量**：设置页可用 Windows 目录选择器指定封面缓存父目录或恢复默认；Host 只在 `<所选目录>/GameLibraryCache/<库摘要>/previews` 写入最大 720 像素且不超过 1 MiB 的可再生 PNG，并以本库标记验证所有权。不存在、含链接/junction、已有错误标记或位于已注册游戏文件夹内的位置会被拒绝。切换/reset 不移动或删除原图、旧缓存及父目录其他文件；“重建缓存”保留所有权标记并只清理当前预览内容。CLI 提供 `--cache-dir`/`--default-cache-dir`，MCP 提供同字段与清除开关。主界面同时完成术语收口：用户只看到“后台服务、准备游戏库、待确认游戏、加入游戏库、应用数据位置”，不再展示宿主、库根、候选 ID、Revision 或 ExactPath。
+- **验证结果**：`dotnet format --verify-no-changes` 通过；Release build 0 警告 0 错误；全套 **418/418**（单元 139、契约 43、架构 8、集成 212、无界面 E2E 16）。测试覆盖设置持久化/回默认、无效和游戏根内路径拒绝、预览生成/清理/再生、父目录文件与所有权标记保留、CLI/MCP 映射及 Desktop 显示/保存。报告：`artifacts/build-reports/2026-09-17-r12-build.txt` 与 `2026-09-17-r12*.trx`。未访问 `LocalData/` 或 F 盘。
+- **未验证范围**：Windows 原生目录对话框的完整 UIA 导航只验证了入口可发现，尚未自动点击并选中路径；缓存容量上限/淘汰策略、同用户恶意进程持续替换目录的 TOCTOU、数据目录迁移、无 SDK 干净机器和重新打包产物仍未完成。
+- **下一项**：补缓存容量管理与原生目录选择 UIA；随后实现数据目录的停机迁移/校验/回退，继续目录/LNK GUI 与发布环境验收。

@@ -7,6 +7,10 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationIcon>App.ico</ApplicationIcon>
+    <Version>1.0.0</Version>
+    <Product>GameLibrary</Product>
+    <AssemblyTitle>GameLibrary Desktop</AssemblyTitle>
   </PropertyGroup>
 
   <ItemGroup>
@@ -17,6 +21,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- UIA 冒烟测试抓到的启动崩溃修复：Icon="App.ico" 走 pack URI，必须以 Resource 嵌入程序集
+         （ApplicationIcon 只设置 EXE 文件图标，不进 WPF 资源清单）。 -->
+    <Resource Include="App.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" />
   </ItemGroup>
 
@@ -24,5 +34,22 @@
     <ProjectReference Include="..\GameLibrary.HostClient\GameLibrary.HostClient.csproj" />
     <ProjectReference Include="..\GameLibrary.Contracts\GameLibrary.Contracts.csproj" />
   </ItemGroup>
+
+  <!-- 开发布局兜底：HostProcessLauncher 按"与 Desktop.exe 同目录"解析 Host；
+       EXE 不会被项目引用自动复制，故构建后把 Host 运行时整目录复制到输出
+       （仅文件复制，不建立项目引用——依赖方向仍为 Desktop → HostClient → IPC）。
+       仅在非 RID（framework-dependent）构建时执行：RID/publish 输出自带自包含
+       Host，复制 framework-dependent 版本进去会造出"无法启动"的宿主副本
+       （用户实测退出码 0x80008096 = 缺 .NET 运行时）。 -->
+  <Target Name="CopyHostRuntime" AfterTargets="Build" Condition="'$(RuntimeIdentifier)' == ''">
+    <ItemGroup>
+      <HostRuntimeFiles
+          Include="..\GameLibrary.Host\bin\$(Configuration)\$(TargetFramework)\**\*.*"
+          Exclude="..\GameLibrary.Host\bin\$(Configuration)\$(TargetFramework)\**\*.pdb" />
+    </ItemGroup>
+    <Copy SourceFiles="@(HostRuntimeFiles)"
+          DestinationFiles="@(HostRuntimeFiles->'$(OutDir)%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
 
 </Project>

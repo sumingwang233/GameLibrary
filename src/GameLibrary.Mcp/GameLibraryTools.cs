@@ -226,6 +226,81 @@ public static class GameLibraryTools
     public static Task<CallToolResult> RootsList() =>
         InvokeOperationAsync("roots.list", new { });
 
+    [McpServerTool(Name = "roots_remove")]
+    [Description("移除库根（仅解除扫描/启动边界，不触碰游戏数据与记录）。参数：rootId、expectedRevision、idempotencyKey。")]
+    public static Task<CallToolResult> RootsRemove(
+        [Description("库根 ID")] string rootId,
+        [Description("期望库根修订")] int expectedRevision,
+        [Description("幂等键")] string? idempotencyKey = null) =>
+        InvokeOperationAsync("roots.remove", new { idempotencyKey, rootId, expectedRevision });
+
+    [McpServerTool(Name = "tags_list")]
+    [Description("列出全部标签（含游戏计数；kind=engine 为自动标签，user 为用户标签）。")]
+    public static Task<CallToolResult> TagsList() =>
+        InvokeOperationAsync("tags.list", new { });
+
+    [McpServerTool(Name = "tags_create")]
+    [Description("创建用户标签。参数：name、color（可选 #RRGGBB）、idempotencyKey。")]
+    public static Task<CallToolResult> TagsCreate(
+        [Description("标签名（1–100 字符）")] string name,
+        [Description("颜色 #RRGGBB（可选）")] string? color = null,
+        [Description("幂等键")] string? idempotencyKey = null) =>
+        InvokeOperationAsync("tags.create", new { idempotencyKey, name, color });
+
+    [McpServerTool(Name = "tags_update")]
+    [Description("更新用户标签（自动标签不可编辑）。参数：tagId、name/color（可选）、expectedRevision、idempotencyKey。")]
+    public static Task<CallToolResult> TagsUpdate(
+        [Description("标签 ID")] string tagId,
+        [Description("期望修订")] int expectedRevision,
+        [Description("新名称（可选）")] string? name = null,
+        [Description("新颜色 #RRGGBB（可选）")] string? color = null,
+        [Description("幂等键")] string? idempotencyKey = null) =>
+        InvokeOperationAsync("tags.update", new { idempotencyKey, tagId, name, color, expectedRevision });
+
+    [McpServerTool(Name = "tags_remove")]
+    [Description("删除标签并返回受影响游戏列表；删除自动标签会逐游戏登记 Suppress（重扫不恢复）。参数：tagId、expectedRevision、idempotencyKey。")]
+    public static Task<CallToolResult> TagsRemove(
+        [Description("标签 ID")] string tagId,
+        [Description("期望修订")] int expectedRevision,
+        [Description("幂等键")] string? idempotencyKey = null) =>
+        InvokeOperationAsync("tags.remove", new { idempotencyKey, tagId, expectedRevision });
+
+    [McpServerTool(Name = "tags_assign")]
+    [Description("把标签挂到游戏（幂等；同时清除该标签的 Suppress）。参数：gameId、tagId、expectedRevision（游戏修订）、idempotencyKey。")]
+    public static Task<CallToolResult> TagsAssign(
+        [Description("游戏 ID")] string gameId,
+        [Description("标签 ID")] string tagId,
+        [Description("期望游戏修订")] int expectedRevision,
+        [Description("幂等键")] string? idempotencyKey = null) =>
+        InvokeOperationAsync("tags.assign", new { idempotencyKey, gameId, tagId, expectedRevision });
+
+    [McpServerTool(Name = "tags_unassign")]
+    [Description("解除游戏标签；自动标签解除后登记 Suppress（重扫不恢复）。参数：gameId、tagId、expectedRevision（游戏修订）、idempotencyKey。")]
+    public static Task<CallToolResult> TagsUnassign(
+        [Description("游戏 ID")] string gameId,
+        [Description("标签 ID")] string tagId,
+        [Description("期望游戏修订")] int expectedRevision,
+        [Description("幂等键")] string? idempotencyKey = null) =>
+        InvokeOperationAsync("tags.unassign", new { idempotencyKey, gameId, tagId, expectedRevision });
+
+    [McpServerTool(Name = "tags_suppress")]
+    [Description("抑制 (游戏, 标签)：阻止扫描恢复用户删除的自动标签。参数：gameId、tagId、expectedRevision（游戏修订）、idempotencyKey。")]
+    public static Task<CallToolResult> TagsSuppress(
+        [Description("游戏 ID")] string gameId,
+        [Description("标签 ID")] string tagId,
+        [Description("期望游戏修订")] int expectedRevision,
+        [Description("幂等键")] string? idempotencyKey = null) =>
+        InvokeOperationAsync("tags.suppress", new { idempotencyKey, gameId, tagId, expectedRevision });
+
+    [McpServerTool(Name = "tags_reset")]
+    [Description("清除 (游戏, 自动标签) 的 Suppress 并按当前引擎恢复。参数：gameId、tagId、expectedRevision（游戏修订）、idempotencyKey。")]
+    public static Task<CallToolResult> TagsReset(
+        [Description("游戏 ID")] string gameId,
+        [Description("标签 ID")] string tagId,
+        [Description("期望游戏修订")] int expectedRevision,
+        [Description("幂等键")] string? idempotencyKey = null) =>
+        InvokeOperationAsync("tags.reset", new { idempotencyKey, gameId, tagId, expectedRevision });
+
     [McpServerTool(Name = "library_init")]
     [Description("在数据目录显式建库；重复执行返回错误。参数：idempotencyKey（建议提供，用于收据重放）。")]
     public static Task<CallToolResult> LibraryInit([Description("幂等键")] string? idempotencyKey = null) =>
@@ -410,7 +485,7 @@ public static class GameLibraryTools
         });
 
     [McpServerTool(Name = "settings_get")]
-    [Description("读取应用设置快照：激活视图、开机启动、核对周期、主题、托盘行为与 Revision。")]
+    [Description("读取应用设置快照：激活视图、开机启动、核对周期、主题、字体、界面缩放、缓存位置、托盘行为与 Revision。")]
     public static Task<CallToolResult> SettingsGet() =>
         InvokeOperationAsync("settings.get", new { });
 
@@ -418,22 +493,35 @@ public static class GameLibraryTools
     [Description("更新受限设置字段；未知字段拒绝。autostart 通过用户启动文件夹快捷方式实现（不写注册表）。参数：expectedRevision 与任意字段组合、idempotencyKey。")]
     public static Task<CallToolResult> SettingsUpdate(
         [Description("期望的设置 Revision")] int expectedRevision,
-        [Description("激活视图 ID（或 null 清除）")] string? activeViewId = null,
+        [Description("激活视图 ID；清除请用 clearActiveView")] string? activeViewId = null,
         [Description("开机启动")] bool? autostartEnabled = null,
         [Description("周期核对间隔（分钟，1-10080）")] int? scanIntervalMinutes = null,
         [Description("主题 dark/light/system")] string? theme = null,
         [Description("关闭窗口缩到托盘")] bool? closeToTray = null,
-        [Description("幂等键")] string? idempotencyKey = null) =>
-        InvokeOperationAsync("settings.update", new
+        [Description("界面缩放，0.85-1.6")] double? uiFontScale = null,
+        [Description("已安装字体的名称")] string? uiFontFamily = null,
+        [Description("缓存存放位置的父目录")] string? cacheParentDirectory = null,
+        [Description("恢复默认缓存位置")] bool clearCacheParentDirectory = false,
+        [Description("清除激活视图")] bool clearActiveView = false,
+        [Description("幂等键")] string? idempotencyKey = null)
+    {
+        var patch = new Dictionary<string, object?>
         {
-            idempotencyKey = idempotencyKey ?? $"setupd-{Guid.NewGuid():N}",
-            expectedRevision,
-            activeViewId,
-            autostartEnabled,
-            scanIntervalMinutes,
-            theme,
-            closeToTray,
-        });
+            ["idempotencyKey"] = idempotencyKey ?? $"setupd-{Guid.NewGuid():N}",
+            ["expectedRevision"] = expectedRevision,
+        };
+        if (clearActiveView) patch["activeViewId"] = null;
+        else if (activeViewId is not null) patch["activeViewId"] = activeViewId;
+        if (autostartEnabled is not null) patch["autostartEnabled"] = autostartEnabled;
+        if (scanIntervalMinutes is not null) patch["scanIntervalMinutes"] = scanIntervalMinutes;
+        if (theme is not null) patch["theme"] = theme;
+        if (closeToTray is not null) patch["closeToTray"] = closeToTray;
+        if (uiFontScale is not null) patch["uiFontScale"] = uiFontScale;
+        if (uiFontFamily is not null) patch["uiFontFamily"] = uiFontFamily;
+        if (clearCacheParentDirectory) patch["cacheParentDirectory"] = null;
+        else if (cacheParentDirectory is not null) patch["cacheParentDirectory"] = cacheParentDirectory;
+        return InvokeOperationAsync("settings.update", patch);
+    }
 
     [McpServerTool(Name = "settings_reset")]
     [Description("恢复默认设置；开机启动一并关闭。参数：idempotencyKey。")]
@@ -609,6 +697,32 @@ public static class GameLibraryTools
     [Description("查询单个游戏卡片。参数：gameId。")]
     public static Task<CallToolResult> GamesGet([Description("游戏 ID")] string gameId) =>
         InvokeOperationAsync("games.get", new { gameId });
+
+    [McpServerTool(Name = "games_create")]
+    [Description("手动把未识别的游戏目录或独立 EXE/SWF/LNK 加入库；来源必须位于已注册游戏文件夹内。响应提供可验证的启动建议，需用 profiles.create 保存。")]
+    public static Task<CallToolResult> GamesCreate(
+        [Description("游戏目录或独立 EXE/SWF/LNK 的绝对路径")] string sourcePath,
+        [Description("卡片标题；省略时取路径名称")] string? title = null,
+        [Description("幂等键；相同键重试不会重复建卡")] string? idempotencyKey = null) =>
+        InvokeOperationAsync("games.create", new
+        {
+            idempotencyKey = idempotencyKey ?? $"gamecreate-{Guid.NewGuid():N}",
+            sourcePath,
+            title,
+        });
+
+    [McpServerTool(Name = "games_remove")]
+    [Description("从库中移除游戏并登记忽略，绝不删除游戏文件；参数：gameId、expectedRevision、idempotencyKey。")]
+    public static Task<CallToolResult> GamesRemove(
+        [Description("游戏 ID")] string gameId,
+        [Description("期望 Revision")] int expectedRevision,
+        [Description("幂等键")] string? idempotencyKey = null) =>
+        InvokeOperationAsync("games.remove", new
+        {
+            idempotencyKey = idempotencyKey ?? $"gameremove-{Guid.NewGuid():N}",
+            gameId,
+            expectedRevision,
+        });
 
     [McpServerTool(Name = "ignores_list")]
     [Description("列出忽略规则。")]

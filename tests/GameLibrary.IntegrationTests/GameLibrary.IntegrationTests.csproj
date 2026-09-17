@@ -3,7 +3,14 @@
   <PropertyGroup>
     <TargetFramework>net10.0-windows</TargetFramework>
     <IsPackable>false</IsPackable>
+    <!-- UIA 冒烟测试：System.Windows.Automation 需要 WPF 框架引用（UIAutomationClient）。 -->
+    <UseWPF>true</UseWPF>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- UseWPF 引入 WindowsDesktop SDK 后隐式 using 集变化，显式补回。 -->
+    <Using Include="System.IO" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />

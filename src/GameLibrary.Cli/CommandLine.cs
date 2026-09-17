@@ -124,6 +124,18 @@ public sealed record CommandLine
     /// <summary>settings update 的 --theme 参数（dark/light/system）。</summary>
     public string? Theme { get; private init; }
 
+    /// <summary>settings update 的 --font-family 参数。</summary>
+    public string? UiFontFamily { get; private init; }
+
+    /// <summary>settings update 的 --font-scale 参数。</summary>
+    public double? UiFontScale { get; private init; }
+
+    /// <summary>settings update 的 --cache-dir 参数（缓存存放位置的父目录）。</summary>
+    public string? CacheParentDirectory { get; private init; }
+
+    /// <summary>settings update 的 --default-cache-dir 标记。</summary>
+    public bool ResetCacheParentDirectory { get; private init; }
+
     /// <summary>settings update 的 --close-to-tray/--no-close-to-tray 标记。</summary>
     public bool? CloseToTray { get; private init; }
 
@@ -141,6 +153,15 @@ public sealed record CommandLine
 
     /// <summary>views 的 --favorite-only 标记。</summary>
     public bool FavoriteOnly { get; private init; }
+
+    /// <summary>roots remove 的 --root-id 参数。</summary>
+    public string? RootId { get; private init; }
+
+    /// <summary>tags.×8 的 --tag-id 参数。</summary>
+    public string? TagId { get; private init; }
+
+    /// <summary>tags create/update 的 --color 参数（#RRGGBB）。</summary>
+    public string? Color { get; private init; }
 
     public bool NoStart { get; private init; }
 
@@ -197,7 +218,14 @@ public sealed record CommandLine
         bool? autostart = null;
         int? interval = null;
         string? theme = null;
+        string? uiFontFamily = null;
+        double? uiFontScale = null;
+        string? cacheParentDirectory = null;
+        var resetCacheParentDirectory = false;
         bool? closeToTray = null;
+        string? rootId = null;
+        string? tagId = null;
+        string? color = null;
         var argList = new List<string>();
         var noStart = false;
         var timeout = 30;
@@ -214,6 +242,15 @@ public sealed record CommandLine
                     break;
                 case "--root" or "--path" when i + 1 < args.Length:
                     rootArg = args[++i];
+                    break;
+                case "--root-id" when i + 1 < args.Length:
+                    rootId = args[++i];
+                    break;
+                case "--tag-id" when i + 1 < args.Length:
+                    tagId = args[++i];
+                    break;
+                case "--color" when i + 1 < args.Length:
+                    color = args[++i];
                     break;
                 case "--job-id" when i + 1 < args.Length:
                     jobId = args[++i];
@@ -330,6 +367,21 @@ public sealed record CommandLine
                 case "--theme" when i + 1 < args.Length:
                     theme = args[++i];
                     break;
+                case "--font-family" when i + 1 < args.Length:
+                    uiFontFamily = args[++i];
+                    break;
+                case "--font-scale" when i + 1 < args.Length
+                    && double.TryParse(args[i + 1], System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out var parsedScale):
+                    uiFontScale = parsedScale;
+                    i++;
+                    break;
+                case "--cache-dir" when i + 1 < args.Length:
+                    cacheParentDirectory = args[++i];
+                    break;
+                case "--default-cache-dir":
+                    resetCacheParentDirectory = true;
+                    break;
                 case "--close-to-tray":
                     closeToTray = true;
                     break;
@@ -363,6 +415,11 @@ public sealed record CommandLine
             }
         }
 
+        if (cacheParentDirectory is not null && resetCacheParentDirectory)
+        {
+            return Invalid("--cache-dir 与 --default-cache-dir 不能同时使用");
+        }
+
         var operationId = noun switch
         {
             "capabilities" when verb == "get" => "capabilities.get",
@@ -370,9 +427,9 @@ public sealed record CommandLine
             "host" when verb is "status" or "start" or "stop" => $"host.{verb}",
             "library" when verb == "init" => "library.init",
             "scan" when verb is "start" or "status" or "cancel" or "coverage" or "inspect" => $"scan.{verb}",
-            "roots" when verb is "add" or "list" => $"roots.{verb}",
+            "roots" when verb is "add" or "list" or "remove" => $"roots.{verb}",
             "candidates" when verb is "list" or "get" or "accept" or "defer" or "ignore" => $"candidates.{verb}",
-            "games" when verb is "list" or "get" or "update" or "relink" => $"games.{verb}",
+            "games" when verb is "list" or "get" or "create" or "update" or "remove" or "relink" => $"games.{verb}",
             "translation" when verb is "get" or "set" => $"translation.{verb}",
             "diagnostics" when verb is "status" or "logs" or "cache-rebuild" =>
                 verb == "cache-rebuild" ? "diagnostics.cache_rebuild" : $"diagnostics.{verb}",
@@ -385,6 +442,8 @@ public sealed record CommandLine
             "assets" when verb is "import" or "list" or "get" or "choose" or "crop" or "reset" or "remove" => $"assets.{verb}",
             "metadata" when verb is "preview" or "refresh" => $"metadata.{verb}",
             "ignores" when verb is "list" or "create" or "remove" => $"ignores.{verb}",
+            "tags" when verb is "list" or "create" or "update" or "remove" or "assign" or "unassign" or "suppress" or "reset"
+                => $"tags.{verb}",
             "profiles" when verb is "create" or "list" or "get" or "update" or "set-default" or "remove" or "validate"
                 => verb == "set-default" ? "profiles.set_default" : $"profiles.{verb}",
             "views" when verb is "list" or "get" or "create" or "update" or "remove" or "activate" => $"views.{verb}",
@@ -439,12 +498,19 @@ public sealed record CommandLine
             Search = search,
             Sort = sort,
             FavoriteOnly = favoriteOnly,
+            RootId = rootId,
+            TagId = tagId,
+            Color = color,
             NewPath = newPath,
             NotificationId = notificationId,
             BackupId = backupId,
             Autostart = autostart,
             Interval = interval,
             Theme = theme,
+            UiFontFamily = uiFontFamily,
+            UiFontScale = uiFontScale,
+            CacheParentDirectory = cacheParentDirectory,
+            ResetCacheParentDirectory = resetCacheParentDirectory,
             CloseToTray = closeToTray,
             NoStart = noStart,
             TimeoutSeconds = timeout,

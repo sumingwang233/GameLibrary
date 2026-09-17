@@ -178,6 +178,68 @@ public sealed class FaultRecoveryTests : IClassFixture<PipeServerFixture>
         Assert.False(File.Exists(Path.Combine(cacheDir, "corrupt-thumb.bin")));
     }
 
+    [Fact]
+    public async Task Rec03_CacheRebuild_DoesNotCountLockedFileAsRemoved()
+    {
+        var cacheDir = Path.Combine(_fixture.State.DataDirectory, "cache", $"locked-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(cacheDir);
+        var ordinary = Path.Combine(cacheDir, "ordinary.bin");
+        var locked = Path.Combine(cacheDir, "locked.bin");
+        await File.WriteAllBytesAsync(ordinary, [1, 2, 3]);
+        await File.WriteAllBytesAsync(locked, [4, 5, 6, 7]);
+
+        using (var lockHandle = new FileStream(locked, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            var rebuild = await InvokeAsync("diagnostics.cache_rebuild", new
+            {
+                idempotencyKey = $"cache-locked-{Guid.NewGuid():N}",
+            });
+            Assert.True(rebuild.Ok, rebuild.Error?.Message);
+            Assert.Equal(1, rebuild.Data.GetProperty("removedFiles").GetInt64());
+            Assert.Equal(3, rebuild.Data.GetProperty("removedBytes").GetInt64());
+            Assert.True(rebuild.Data.GetProperty("skippedErrors").GetInt64() >= 1);
+            Assert.True(File.Exists(locked));
+            Assert.False(File.Exists(ordinary));
+        }
+    }
+
+    [Fact]
+    public async Task Rec03_CacheRebuild_DoesNotFollowLinkedDirectory()
+    {
+        var dataDir = _fixture.State.DataDirectory;
+        var outside = Path.Combine(dataDir, $"outside-cache-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(outside);
+        var original = Path.Combine(outside, "user-file.bin");
+        await File.WriteAllBytesAsync(original, [1, 2, 3, 4]);
+        var cacheDir = Path.Combine(dataDir, "cache");
+        Directory.CreateDirectory(cacheDir);
+        var link = Path.Combine(cacheDir, $"linked-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateSymbolicLink(link, outside);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
+        {
+            // 此 Windows 测试宿主未授权创建 symlink；其他缓存安全断言仍继续运行。
+            return;
+        }
+
+        try
+        {
+            var rebuild = await InvokeAsync("diagnostics.cache_rebuild", new
+            {
+                idempotencyKey = $"cache-link-{Guid.NewGuid():N}",
+            });
+            Assert.True(rebuild.Ok, rebuild.Error?.Message);
+            Assert.True(rebuild.Data.GetProperty("skippedLinks").GetInt64() >= 1);
+            Assert.True(File.Exists(original), "缓存清理不得沿链接删除库外用户文件");
+        }
+        finally
+        {
+            Directory.Delete(link);
+        }
+    }
+
     // ---------- REC-04 ----------
 
     [Fact]

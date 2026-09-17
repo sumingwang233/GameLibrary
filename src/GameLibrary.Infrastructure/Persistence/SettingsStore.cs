@@ -14,11 +14,22 @@ public sealed record AppSettingsSnapshot(
     bool AutostartEnabled,
     int ScanIntervalMinutes,
     string Theme,
-    bool CloseToTray)
+    bool CloseToTray,
+    double UiFontScale,
+    string UiFontFamily,
+    string? CacheParentDirectory)
 {
     public const int DefaultScanIntervalMinutes = 15;
 
     public const string DefaultTheme = "dark";
+
+    public const double DefaultUiFontScale = 1.0;
+
+    public const double MinUiFontScale = 0.85;
+
+    public const double MaxUiFontScale = 1.6;
+
+    public const string DefaultUiFontFamily = "Segoe UI";
 
     public static AppSettingsSnapshot Defaults(int revision) => new(
         revision,
@@ -26,7 +37,10 @@ public sealed record AppSettingsSnapshot(
         AutostartEnabled: false,
         DefaultScanIntervalMinutes,
         DefaultTheme,
-        CloseToTray: true);
+        CloseToTray: true,
+        DefaultUiFontScale,
+        DefaultUiFontFamily,
+        CacheParentDirectory: null);
 }
 
 public static class SettingsStore
@@ -57,7 +71,11 @@ public static class SettingsStore
             ReadBool(values, "autostartEnabled", defaultValue: false),
             ReadInt(values, "scanIntervalMinutes", AppSettingsSnapshot.DefaultScanIntervalMinutes),
             ReadString(values, "theme") ?? AppSettingsSnapshot.DefaultTheme,
-            ReadBool(values, "closeToTray", defaultValue: true));
+            ReadBool(values, "closeToTray", defaultValue: true),
+            ReadDouble(values, "uiFontScale", AppSettingsSnapshot.DefaultUiFontScale,
+                AppSettingsSnapshot.MinUiFontScale, AppSettingsSnapshot.MaxUiFontScale),
+            ReadString(values, "uiFontFamily") ?? AppSettingsSnapshot.DefaultUiFontFamily,
+            ReadString(values, "cacheParentDirectory"));
     }
 
     /// <summary>单键写入（事务内递增 Revision）。调用方负责字段校验。</summary>
@@ -111,10 +129,23 @@ public static class SettingsStore
         return newRevision;
     }
 
-    /// <summary>恢复默认：清空全部键（Revision 归零重新累积）。</summary>
+    /// <summary>
+    /// 恢复默认：清空全部设置键；Revision 保持单调（读取旧值后 +1，不归零回退——
+    /// 归零会让早已缓存的旧 Revision 重新通过乐观校验，破坏单调整承诺）。
+    /// </summary>
     public static int ResetAll(SqliteConnection connection, DateTime utcNow)
     {
         using var transaction = (SqliteTransaction)connection.BeginTransaction();
+        long previousRevision;
+        using (var readRevision = connection.CreateCommand())
+        {
+            readRevision.Transaction = transaction;
+            readRevision.CommandText = "SELECT value FROM app_settings WHERE key = $key";
+            readRevision.Parameters.AddWithValue("$key", RevisionKey);
+            var result = readRevision.ExecuteScalar();
+            previousRevision = result is string text && long.TryParse(text, out var parsed) ? parsed : 0;
+        }
+
         using (var clear = connection.CreateCommand())
         {
             clear.Transaction = transaction;
@@ -122,17 +153,19 @@ public static class SettingsStore
             clear.ExecuteNonQuery();
         }
 
+        var newRevision = previousRevision + 1;
         using (var seed = connection.CreateCommand())
         {
             seed.Transaction = transaction;
-            seed.CommandText = "INSERT INTO app_settings (key, value, updated_utc) VALUES ($key, '1', $now)";
+            seed.CommandText = "INSERT INTO app_settings (key, value, updated_utc) VALUES ($key, $value, $now)";
             seed.Parameters.AddWithValue("$key", RevisionKey);
+            seed.Parameters.AddWithValue("$value", newRevision.ToString(CultureInfo.InvariantCulture));
             seed.Parameters.AddWithValue("$now", utcNow.ToString("O", CultureInfo.InvariantCulture));
             seed.ExecuteNonQuery();
         }
 
         transaction.Commit();
-        return 1;
+        return (int)newRevision;
     }
 
     private static string? ReadString(Dictionary<string, string> values, string key) =>
@@ -143,4 +176,11 @@ public static class SettingsStore
 
     private static int ReadInt(Dictionary<string, string> values, string key, int defaultValue) =>
         values.TryGetValue(key, out var value) && int.TryParse(value, out var parsed) && parsed > 0 ? parsed : defaultValue;
+
+    private static double ReadDouble(Dictionary<string, string> values, string key, double defaultValue, double min, double max) =>
+        values.TryGetValue(key, out var value)
+        && double.TryParse(value, System.Globalization.CultureInfo.InvariantCulture, out var parsed)
+        && parsed >= min && parsed <= max
+            ? parsed
+            : defaultValue;
 }

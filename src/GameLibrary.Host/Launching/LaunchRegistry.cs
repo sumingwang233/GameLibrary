@@ -131,6 +131,36 @@ public sealed class LaunchRegistry
     private readonly ConcurrentDictionary<string, string> _receiptByKey = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, string> _activeByGame = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// 尝试状态变更回调（v1 审查修复：启动历史持久化）——Profile 变更/尝试状态
+    /// 每次迁移后触发，Host 接线到运行态持久层。
+    /// </summary>
+    public Action<LaunchAttempt>? OnAttemptChanged { get; set; }
+
+    /// <summary>Profile 变更回调（create/update/set_default/remove 后触发，供持久化）。</summary>
+    public Action<LaunchProfile?>? OnProfileChanged { get; set; }
+
+    private void NotifyAttempt(LaunchAttempt attempt) => OnAttemptChanged?.Invoke(attempt);
+
+    /// <summary>启动恢复：把持久层 Profile 注册回内存（不触发回调）。</summary>
+    public void RestoreProfile(LaunchProfile profile) => _profiles[profile.ProfileId] = profile;
+
+    /// <summary>启动恢复：把持久层尝试注册回内存；非终态尝试在重启后直接记为 exited（进程已不属于本生命周期）。</summary>
+    public void RestoreAttempt(LaunchAttempt attempt)
+    {
+        if (!attempt.IsTerminal)
+        {
+            attempt = attempt with
+            {
+                State = "exited",
+                FinishedUtc = attempt.FinishedUtc ?? DateTime.UtcNow,
+                Error = attempt.Error ?? "宿主进程重启时启动尚未完成",
+            };
+        }
+
+        _attempts[attempt.AttemptId] = attempt;
+    }
+
     public LaunchProfile AddProfile(
         string gameId,
         string executablePath,
@@ -156,6 +186,7 @@ public sealed class LaunchRegistry
             ClearOtherDefaults(gameId, profile.ProfileId);
         }
 
+        OnProfileChanged?.Invoke(profile);
         return profile;
     }
 
@@ -192,6 +223,7 @@ public sealed class LaunchRegistry
             Revision = current.Revision + 1,
         };
         _profiles[profileId] = updated;
+        OnProfileChanged?.Invoke(updated);
         return updated;
     }
 
@@ -212,6 +244,7 @@ public sealed class LaunchRegistry
             var updated = profile with { IsDefault = true, Revision = profile.Revision + 1 };
             _profiles[profileId] = updated;
             ClearOtherDefaults(gameId, profileId);
+            OnProfileChanged?.Invoke(updated);
             return updated;
         }
 
@@ -237,6 +270,7 @@ public sealed class LaunchRegistry
         }
 
         _profiles.TryRemove(profileId, out _);
+        OnProfileChanged?.Invoke(null);
         return profile;
     }
 
@@ -252,6 +286,7 @@ public sealed class LaunchRegistry
             }
 
             _profiles[other.ProfileId] = other with { IsDefault = false, Revision = other.Revision + 1 };
+            OnProfileChanged?.Invoke(_profiles[other.ProfileId]);
         }
     }
 
@@ -367,6 +402,7 @@ public sealed class LaunchRegistry
         _activeByGame[plan.GameId] = attempt.AttemptId;
         attempt = attempt with { State = "executing" };
         _attempts[attempt.AttemptId] = attempt;
+        NotifyAttempt(attempt);
 
         try
         {
@@ -391,6 +427,7 @@ public sealed class LaunchRegistry
             };
             _attempts[attempt.AttemptId] = attempt;
             _processes[attempt.AttemptId] = process;
+            NotifyAttempt(attempt);
             return attempt;
         }
         catch (Exception ex) when (ex is not LaunchException)
@@ -403,6 +440,7 @@ public sealed class LaunchRegistry
             };
             _attempts[attempt.AttemptId] = attempt;
             _activeByGame.TryRemove(plan.GameId, out _);
+            NotifyAttempt(attempt);
             throw new LaunchException(ErrorCodes.ProcessStartFailed, $"进程启动失败：{ex.Message}");
         }
     }
@@ -455,6 +493,7 @@ public sealed class LaunchRegistry
         _attempts[attempt.AttemptId] = observed;
         _processes.TryRemove(attempt.AttemptId, out _);
         _activeByGame.TryRemove(observed.GameId, out _);
+        NotifyAttempt(observed);
         return observed;
     }
 

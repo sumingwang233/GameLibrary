@@ -6,7 +6,9 @@ namespace GameLibrary.Infrastructure.Persistence;
 /// <summary>
 /// 唯一宿主持有的 SQLite 库存储（ADR-0004）：每连接启用外键/WAL/busy_timeout；
 /// 打开即校验 schema 版本；损坏进入 RecoveryRequired，绝不静默重建空库。
-/// 本类不是线程安全的队列化写入器；调用方（Host）负责单写入队列。
+/// v1 审查修复：宿主级单写队列——本类内部以对象锁串行化全部连接访问，
+/// 允许多客户端并发请求与后台作业共用同一连接而不出现嵌套事务/竞态；
+/// 事件持久化等直连组件必须经 <see cref="ReadExclusive{T}"/>/<see cref="WriteExclusive"/>。
 /// </summary>
 public sealed class SqliteLibraryStore : IAsyncDisposable
 {
@@ -19,6 +21,9 @@ public sealed class SqliteLibraryStore : IAsyncDisposable
     private readonly SqliteConnection _connection;
     private readonly SqliteLibraryStoreOptions _options;
 
+    /// <summary>单写锁：同一连接上的全部读写（含事务）经此串行（C# monitor 同线程可重入）。</summary>
+    private readonly object _sync = new();
+
     private SqliteLibraryStore(SqliteConnection connection, SqliteLibraryStoreOptions options, LibraryDatabaseInfo info)
     {
         _connection = connection;
@@ -30,8 +35,29 @@ public sealed class SqliteLibraryStore : IAsyncDisposable
 
     public string DatabasePath => _connection.DataSource;
 
-    /// <summary>宿主内部组件（事件持久化等）共享的连接；仅限 Host/Infrastructure 组合内部使用，外部不得直接执行 SQL。</summary>
+    /// <summary>
+    /// 共享连接。仅限 Host/Infrastructure 组合内部一次性初始化使用；
+    /// 业务与事件持久化必须走本类的转发方法或互斥访问原语，禁止在锁外直接执行 SQL。
+    /// </summary>
     public SqliteConnection DatabaseConnection => _connection;
+
+    /// <summary>锁外读取快照（info/epoch 等不可变值）。</summary>
+    public T ReadExclusive<T>(Func<SqliteConnection, LibraryDatabaseInfo, T> func)
+    {
+        lock (_sync)
+        {
+            return func(_connection, Info);
+        }
+    }
+
+    /// <summary>锁外执行写入（事件持久化等直连组件唯一入口）。</summary>
+    public void WriteExclusive(Action<SqliteConnection, LibraryDatabaseInfo> action)
+    {
+        lock (_sync)
+        {
+            action(_connection, Info);
+        }
+    }
 
     /// <summary>
     /// 维护切换（backups.restore / REC-02）：关闭当前连接 → 用暂存库文件替换当前 library.db
@@ -66,153 +92,605 @@ public sealed class SqliteLibraryStore : IAsyncDisposable
     }
 
     /// <summary>幂等收据查询（契约 7.1）；收据属于当前库实例。</summary>
-    public RequestReceipt? TryGetReceipt(string actor, string operationId, string idempotencyKey) =>
-        RequestReceiptStore.TryGet(_connection, Info.LibraryInstanceId, actor, operationId, idempotencyKey);
+    public RequestReceipt? TryGetReceipt(string actor, string operationId, string idempotencyKey)
+    {
+        lock (_sync)
+        {
+            return RequestReceiptStore.TryGet(_connection, Info.LibraryInstanceId, actor, operationId, idempotencyKey);
+        }
+    }
 
-    public void InsertPreparedReceipt(RequestReceipt receipt) =>
-        RequestReceiptStore.InsertPrepared(_connection, receipt);
+    public void InsertPreparedReceipt(RequestReceipt receipt)
+    {
+        lock (_sync)
+        {
+            RequestReceiptStore.InsertPrepared(_connection, receipt);
+        }
+    }
 
-    public void UpdateReceiptAttempt(RequestReceipt receipt, string attemptJson) =>
-        RequestReceiptStore.UpdateAttempt(_connection, receipt, attemptJson);
+    public void UpdateReceiptAttempt(RequestReceipt receipt, string attemptJson)
+    {
+        lock (_sync)
+        {
+            RequestReceiptStore.UpdateAttempt(_connection, receipt, attemptJson);
+        }
+    }
 
-    public void CompleteReceipt(RequestReceipt receipt, string resultJson) =>
-        RequestReceiptStore.Complete(_connection, receipt, resultJson);
+    public void CompleteReceipt(RequestReceipt receipt, string resultJson)
+    {
+        lock (_sync)
+        {
+            RequestReceiptStore.Complete(_connection, receipt, resultJson);
+        }
+    }
 
     // T11 目录存储转发：候选/游戏/忽略规则操作绑定当前库连接。
 
-    public bool UpsertCandidate(PersistedCandidate candidate) =>
-        LibraryCatalogStore.UpsertCandidate(_connection, candidate);
+    public bool UpsertCandidate(PersistedCandidate candidate)
+    {
+        lock (_sync)
+        {
+            return LibraryCatalogStore.UpsertCandidate(_connection, candidate);
+        }
+    }
 
-    public void PromoteRescannedCandidate(string physicalPath, DateTime utcNow) =>
-        LibraryCatalogStore.PromoteRescannedCandidate(_connection, physicalPath, utcNow);
+    public void PromoteRescannedCandidate(string physicalPath, DateTime utcNow)
+    {
+        lock (_sync)
+        {
+            LibraryCatalogStore.PromoteRescannedCandidate(_connection, physicalPath, utcNow);
+        }
+    }
 
-    public PersistedCandidate? TryGetCandidate(string candidateId) =>
-        LibraryCatalogStore.TryGetCandidate(_connection, candidateId);
+    public PersistedCandidate? TryGetCandidate(string candidateId)
+    {
+        lock (_sync)
+        {
+            return LibraryCatalogStore.TryGetCandidate(_connection, candidateId);
+        }
+    }
 
-    public IReadOnlyList<PersistedCandidate> ListCandidates() =>
-        LibraryCatalogStore.ListCandidates(_connection);
+    public IReadOnlyList<PersistedCandidate> ListCandidates()
+    {
+        lock (_sync)
+        {
+            return LibraryCatalogStore.ListCandidates(_connection);
+        }
+    }
 
     public PersistedCandidate? TransitionCandidate(
-        string candidateId, string fromState, string toState, int expectedRevision, string? gameId, DateTime utcNow) =>
-        LibraryCatalogStore.TransitionCandidate(_connection, candidateId, fromState, toState, expectedRevision, gameId, utcNow);
+        string candidateId, string fromState, string toState, int expectedRevision, string? gameId, DateTime utcNow)
+    {
+        lock (_sync)
+        {
+            return LibraryCatalogStore.TransitionCandidate(_connection, candidateId, fromState, toState, expectedRevision, gameId, utcNow);
+        }
+    }
 
-    public void InsertGame(GameCard game) => LibraryCatalogStore.InsertGame(_connection, game);
+    public void InsertGame(GameCard game)
+    {
+        lock (_sync)
+        {
+            LibraryCatalogStore.InsertGame(_connection, game);
+        }
+    }
 
-    public GameCard? TryGetGame(string gameId) => LibraryCatalogStore.TryGetGame(_connection, gameId);
+    public int? RemoveGame(string gameId, int expectedRevision, IgnoreRule ignore, DateTime utcNow)
+    {
+        lock (_sync)
+        {
+            return LibraryCatalogStore.RemoveGame(_connection, gameId, expectedRevision, ignore, utcNow);
+        }
+    }
 
-    public IReadOnlyList<GameCard> ListGames() => LibraryCatalogStore.ListGames(_connection);
+    public GameCard? TryGetGame(string gameId)
+    {
+        lock (_sync)
+        {
+            return LibraryCatalogStore.TryGetGame(_connection, gameId);
+        }
+    }
 
-    public GameCard? TryGetGameByRootPath(string rootPath) =>
-        LibraryCatalogStore.TryGetGameByRootPath(_connection, rootPath);
+    public IReadOnlyList<GameCard> ListGames()
+    {
+        lock (_sync)
+        {
+            return LibraryCatalogStore.ListGames(_connection);
+        }
+    }
 
-    public void InsertIgnoreRule(IgnoreRule rule) => LibraryCatalogStore.InsertIgnoreRule(_connection, rule);
+    /// <summary>数据库侧检索（阶段三）：搜索/收藏/标签过滤 + 排序 + 分页；limit &lt;= 0 全量。</summary>
+    public (int Total, IReadOnlyList<GameCard> Items) QueryGames(
+        string? search, bool favoriteOnly, string? tagId, string? sort, int limit, int offset)
+    {
+        lock (_sync)
+        {
+            return LibraryCatalogStore.QueryGames(_connection, search, favoriteOnly, tagId, sort, limit, offset);
+        }
+    }
+
+    // T-collections 标签转发（v18）。
+
+    public IReadOnlyList<PersistedTag> ListTags()
+    {
+        lock (_sync)
+        {
+            return TagStore.ListTags(_connection);
+        }
+    }
+
+    public PersistedTag? TryGetTag(string tagId)
+    {
+        lock (_sync)
+        {
+            return TagStore.TryGetTag(_connection, tagId);
+        }
+    }
+
+    public PersistedTag? TryGetTagByName(string kind, string name)
+    {
+        lock (_sync)
+        {
+            return TagStore.TryGetTagByName(_connection, kind, name);
+        }
+    }
+
+    public void CreateTag(PersistedTag tag)
+    {
+        lock (_sync)
+        {
+            TagStore.CreateTag(_connection, tag);
+        }
+    }
+
+    public int? UpdateTag(string tagId, string? name, string? color, int expectedRevision, DateTime utcNow)
+    {
+        lock (_sync)
+        {
+            return TagStore.UpdateTag(_connection, tagId, name, color, expectedRevision, utcNow);
+        }
+    }
+
+    public IReadOnlyList<string> RemoveTag(string tagId)
+    {
+        lock (_sync)
+        {
+            return TagStore.RemoveTag(_connection, tagId);
+        }
+    }
+
+    public bool AssignTag(string gameId, string tagId, DateTime utcNow)
+    {
+        lock (_sync)
+        {
+            return TagStore.AssignTag(_connection, gameId, tagId, utcNow);
+        }
+    }
+
+    public string? UnassignTag(string gameId, string tagId)
+    {
+        lock (_sync)
+        {
+            return TagStore.UnassignTag(_connection, gameId, tagId);
+        }
+    }
+
+    public void SetTagOverride(string gameId, string tagKind, string tagName, string action, DateTime utcNow)
+    {
+        lock (_sync)
+        {
+            TagStore.SetOverride(_connection, gameId, tagKind, tagName, action, utcNow);
+        }
+    }
+
+    public bool ClearTagOverride(string gameId, string tagKind, string tagName, DateTime utcNow)
+    {
+        lock (_sync)
+        {
+            return TagStore.ClearOverride(_connection, gameId, tagKind, tagName, utcNow);
+        }
+    }
+
+    public IReadOnlyList<(string Kind, string Name)> ListGameTags(string gameId)
+    {
+        lock (_sync)
+        {
+            return TagStore.ListGameTags(_connection, gameId);
+        }
+    }
+
+    public bool EnsureEngineTagAssigned(string gameId, string engine, DateTime utcNow)
+    {
+        lock (_sync)
+        {
+            return TagStore.EnsureEngineTagAssigned(_connection, gameId, engine, utcNow);
+        }
+    }
+
+    public GameCard? TryGetGameByRootPath(string rootPath)
+    {
+        lock (_sync)
+        {
+            return LibraryCatalogStore.TryGetGameByRootPath(_connection, rootPath);
+        }
+    }
+
+    public void InsertIgnoreRule(IgnoreRule rule)
+    {
+        lock (_sync)
+        {
+            LibraryCatalogStore.InsertIgnoreRule(_connection, rule);
+        }
+    }
 
     // T13 收藏与翻译策略转发。
 
-    public int? SetFavorite(string gameId, bool favorite, int expectedRevision, DateTime utcNow) =>
-        LibraryCatalogStore.SetFavorite(_connection, gameId, favorite, expectedRevision, utcNow);
+    public int? SetFavorite(string gameId, bool favorite, int expectedRevision, DateTime utcNow)
+    {
+        lock (_sync)
+        {
+            return LibraryCatalogStore.SetFavorite(_connection, gameId, favorite, expectedRevision, utcNow);
+        }
+    }
 
-    public int? SetTranslationOverride(string gameId, string? overrideValue, int expectedRevision, DateTime utcNow) =>
-        LibraryCatalogStore.SetTranslationOverride(_connection, gameId, overrideValue, expectedRevision, utcNow);
+    public int? SetTranslationOverride(string gameId, string? overrideValue, int expectedRevision, DateTime utcNow)
+    {
+        lock (_sync)
+        {
+            return LibraryCatalogStore.SetTranslationOverride(_connection, gameId, overrideValue, expectedRevision, utcNow);
+        }
+    }
 
     // T17 可用性核对与重关联转发。
 
-    public bool UpdateAvailability(string gameId, string availability, DateTime? missingSinceUtc, DateTime utcNow) =>
-        LibraryCatalogStore.UpdateAvailability(_connection, gameId, availability, missingSinceUtc, utcNow);
+    public bool UpdateAvailability(string gameId, string availability, DateTime? missingSinceUtc, DateTime utcNow)
+    {
+        lock (_sync)
+        {
+            return LibraryCatalogStore.UpdateAvailability(_connection, gameId, availability, missingSinceUtc, utcNow);
+        }
+    }
 
-    public int? RelinkGame(string gameId, string newRootPath, int expectedRevision, DateTime utcNow) =>
-        LibraryCatalogStore.RelinkGame(_connection, gameId, newRootPath, expectedRevision, utcNow);
+    public int? RelinkGame(string gameId, string newRootPath, int expectedRevision, DateTime utcNow)
+    {
+        lock (_sync)
+        {
+            return LibraryCatalogStore.RelinkGame(_connection, gameId, newRootPath, expectedRevision, utcNow);
+        }
+    }
 
     // T18 通知批转发。
 
-    public (NotificationBatch Batch, bool Created)? EnsureCandidateBatch(DateTime utcNow) =>
-        NotificationStore.EnsureCandidateBatch(_connection, utcNow);
+    public (NotificationBatch Batch, bool Created)? EnsureCandidateBatch(DateTime utcNow)
+    {
+        lock (_sync)
+        {
+            return NotificationStore.EnsureCandidateBatch(_connection, utcNow);
+        }
+    }
 
-    public IReadOnlyList<NotificationBatch> ListNotifications(string? state) =>
-        NotificationStore.ListBatches(_connection, state);
+    public IReadOnlyList<NotificationBatch> ListNotifications(string? state)
+    {
+        lock (_sync)
+        {
+            return NotificationStore.ListBatches(_connection, state);
+        }
+    }
 
-    public NotificationBatch? TryGetNotification(string notificationId) =>
-        NotificationStore.TryGetBatch(_connection, notificationId);
+    public NotificationBatch? TryGetNotification(string notificationId)
+    {
+        lock (_sync)
+        {
+            return NotificationStore.TryGetBatch(_connection, notificationId);
+        }
+    }
 
-    public NotificationBatch? TransitionNotification(string notificationId, string toState, DateTime utcNow) =>
-        NotificationStore.TransitionBatch(_connection, notificationId, toState, utcNow);
+    public NotificationBatch? TransitionNotification(string notificationId, string toState, DateTime utcNow)
+    {
+        lock (_sync)
+        {
+            return NotificationStore.TransitionBatch(_connection, notificationId, toState, utcNow);
+        }
+    }
 
     // settings 转发。
 
-    public AppSettingsSnapshot ReadSettings() => SettingsStore.Read(_connection);
+    public AppSettingsSnapshot ReadSettings()
+    {
+        lock (_sync)
+        {
+            return SettingsStore.Read(_connection);
+        }
+    }
 
-    public int WriteSettingsKeys(IEnumerable<(string Key, string? Value)> keys, DateTime utcNow) =>
-        SettingsStore.WriteKeys(_connection, keys, utcNow);
+    public int WriteSettingsKeys(IEnumerable<(string Key, string? Value)> keys, DateTime utcNow)
+    {
+        lock (_sync)
+        {
+            return SettingsStore.WriteKeys(_connection, keys, utcNow);
+        }
+    }
 
-    public int ResetSettings(DateTime utcNow) => SettingsStore.ResetAll(_connection, utcNow);
+    public int ResetSettings(DateTime utcNow)
+    {
+        lock (_sync)
+        {
+            return SettingsStore.ResetAll(_connection, utcNow);
+        }
+    }
 
     // T15-C 自定义视图转发。
 
-    public void InsertView(LibraryView view) => LibraryViewStore.InsertView(_connection, view);
+    public void InsertView(LibraryView view)
+    {
+        lock (_sync)
+        {
+            LibraryViewStore.InsertView(_connection, view);
+        }
+    }
 
-    public LibraryView? TryGetView(string viewId) => LibraryViewStore.TryGetView(_connection, viewId);
+    public LibraryView? TryGetView(string viewId)
+    {
+        lock (_sync)
+        {
+            return LibraryViewStore.TryGetView(_connection, viewId);
+        }
+    }
 
-    public IReadOnlyList<LibraryView> ListViews() => LibraryViewStore.ListViews(_connection);
+    public IReadOnlyList<LibraryView> ListViews()
+    {
+        lock (_sync)
+        {
+            return LibraryViewStore.ListViews(_connection);
+        }
+    }
 
     public int? UpdateView(
-        string viewId, string? name, string? search, bool? favoriteOnly, string? sort, int expectedRevision, DateTime utcNow) =>
-        LibraryViewStore.UpdateView(_connection, viewId, name, search, favoriteOnly, sort, expectedRevision, utcNow);
+        string viewId, string? name, string? search, bool? favoriteOnly, string? sort, int expectedRevision, DateTime utcNow)
+    {
+        lock (_sync)
+        {
+            return LibraryViewStore.UpdateView(_connection, viewId, name, search, favoriteOnly, sort, expectedRevision, utcNow);
+        }
+    }
 
-    public bool DeleteView(string viewId) => LibraryViewStore.DeleteView(_connection, viewId);
+    public bool DeleteView(string viewId)
+    {
+        lock (_sync)
+        {
+            return LibraryViewStore.DeleteView(_connection, viewId);
+        }
+    }
 
-    public IReadOnlyList<IgnoreRule> ListIgnoreRules() => LibraryCatalogStore.ListIgnoreRules(_connection);
+    public IReadOnlyList<IgnoreRule> ListIgnoreRules()
+    {
+        lock (_sync)
+        {
+            return LibraryCatalogStore.ListIgnoreRules(_connection);
+        }
+    }
 
-    public IReadOnlyList<string> RemoveIgnoreRule(string ignoreId) =>
-        LibraryCatalogStore.RemoveIgnoreRule(_connection, ignoreId);
+    public IReadOnlyList<string> RemoveIgnoreRule(string ignoreId)
+    {
+        lock (_sync)
+        {
+            return LibraryCatalogStore.RemoveIgnoreRule(_connection, ignoreId);
+        }
+    }
 
-    public bool IsSuppressedByIgnoreRule(string physicalPath, string? boundGameId) =>
-        LibraryCatalogStore.IsSuppressedByIgnoreRule(_connection, physicalPath, boundGameId);
+    public bool IsSuppressedByIgnoreRule(string physicalPath, string? boundGameId)
+    {
+        lock (_sync)
+        {
+            return LibraryCatalogStore.IsSuppressedByIgnoreRule(_connection, physicalPath, boundGameId);
+        }
+    }
 
     // T14 资料与封面转发。
 
-    public int? SetGameField(string gameId, string fieldKey, string? value, string source, int expectedRevision, DateTime utcNow) =>
-        GameProfileStore.SetGameField(_connection, gameId, fieldKey, value, source, expectedRevision, utcNow);
+    public int? SetGameField(string gameId, string fieldKey, string? value, string source, int expectedRevision, DateTime utcNow)
+    {
+        lock (_sync)
+        {
+            return GameProfileStore.SetGameField(_connection, gameId, fieldKey, value, source, expectedRevision, utcNow);
+        }
+    }
 
-    public int? ResetGameField(string gameId, string fieldKey, string autoValue, int expectedRevision, DateTime utcNow) =>
-        GameProfileStore.ResetGameField(_connection, gameId, fieldKey, autoValue, expectedRevision, utcNow);
+    public int? ResetGameField(string gameId, string fieldKey, string autoValue, int expectedRevision, DateTime utcNow)
+    {
+        lock (_sync)
+        {
+            return GameProfileStore.ResetGameField(_connection, gameId, fieldKey, autoValue, expectedRevision, utcNow);
+        }
+    }
 
-    public (string? Value, string Source) EffectiveField(string gameId, string fieldKey, string fallback) =>
-        GameProfileStore.EffectiveField(_connection, gameId, fieldKey, fallback);
+    public (string? Value, string Source) EffectiveField(string gameId, string fieldKey, string fallback)
+    {
+        lock (_sync)
+        {
+            return GameProfileStore.EffectiveField(_connection, gameId, fieldKey, fallback);
+        }
+    }
 
-    public GameAsset ImportAsset(string gameId, string importedFilePath, DateTime utcNow) =>
-        GameProfileStore.ImportAsset(_connection, gameId, importedFilePath, utcNow);
+    public GameAsset ImportAsset(string gameId, string importedFilePath, DateTime utcNow)
+    {
+        lock (_sync)
+        {
+            return GameProfileStore.ImportAsset(_connection, gameId, importedFilePath, utcNow);
+        }
+    }
 
-    public IReadOnlyList<GameAsset> ListAssets(string gameId) =>
-        GameProfileStore.ListAssets(_connection, gameId);
+    public IReadOnlyList<GameAsset> ListAssets(string gameId)
+    {
+        lock (_sync)
+        {
+            return GameProfileStore.ListAssets(_connection, gameId);
+        }
+    }
 
-    public GameAsset? TryGetAsset(string assetId) =>
-        GameProfileStore.TryGetAsset(_connection, assetId);
+    public GameAsset? TryGetAsset(string assetId)
+    {
+        lock (_sync)
+        {
+            return GameProfileStore.TryGetAsset(_connection, assetId);
+        }
+    }
 
-    public void ChooseAsset(string gameId, string assetId) =>
-        GameProfileStore.ChooseAsset(_connection, gameId, assetId);
+    public void ChooseAsset(string gameId, string assetId)
+    {
+        lock (_sync)
+        {
+            GameProfileStore.ChooseAsset(_connection, gameId, assetId);
+        }
+    }
 
-    public string? ResetCover(string gameId) =>
-        GameProfileStore.ResetCover(_connection, gameId);
+    public string? ResetCover(string gameId)
+    {
+        lock (_sync)
+        {
+            return GameProfileStore.ResetCover(_connection, gameId);
+        }
+    }
 
-    public string? RemoveAsset(string assetId) =>
-        GameProfileStore.RemoveAsset(_connection, assetId);
+    public string? RemoveAsset(string assetId)
+    {
+        lock (_sync)
+        {
+            return GameProfileStore.RemoveAsset(_connection, assetId);
+        }
+    }
 
-    public void WriteAutoField(string gameId, string fieldKey, string value, DateTime utcNow) =>
-        GameProfileStore.WriteAutoField(_connection, gameId, fieldKey, value, utcNow);
+    public void WriteAutoField(string gameId, string fieldKey, string value, DateTime utcNow)
+    {
+        lock (_sync)
+        {
+            GameProfileStore.WriteAutoField(_connection, gameId, fieldKey, value, utcNow);
+        }
+    }
+
+    // 运行态持久化转发（v13+：库根/Profile/启动历史/作业记录）。
+
+    public IReadOnlyList<PersistedRoot> ReadRoots()
+    {
+        lock (_sync)
+        {
+            return RuntimeStateStore.ReadRoots(_connection);
+        }
+    }
+
+    public void UpsertRoot(PersistedRoot root, DateTime utcNow)
+    {
+        lock (_sync)
+        {
+            RuntimeStateStore.UpsertRoot(_connection, root, utcNow);
+        }
+    }
+
+    public void DeleteRoot(string rootId)
+    {
+        lock (_sync)
+        {
+            RuntimeStateStore.DeleteRoot(_connection, rootId);
+        }
+    }
+
+    public IReadOnlyList<PersistedProfile> ReadProfiles()
+    {
+        lock (_sync)
+        {
+            return RuntimeStateStore.ReadProfiles(_connection);
+        }
+    }
+
+    public void UpsertProfile(PersistedProfile profile, DateTime utcNow)
+    {
+        lock (_sync)
+        {
+            RuntimeStateStore.UpsertProfile(_connection, profile, utcNow);
+        }
+    }
+
+    public void DeleteProfile(string profileId)
+    {
+        lock (_sync)
+        {
+            RuntimeStateStore.DeleteProfile(_connection, profileId);
+        }
+    }
+
+    public IReadOnlyList<PersistedLaunchAttempt> ReadLaunchAttempts()
+    {
+        lock (_sync)
+        {
+            return RuntimeStateStore.ReadAttempts(_connection);
+        }
+    }
+
+    public void UpsertLaunchAttempt(PersistedLaunchAttempt attempt)
+    {
+        lock (_sync)
+        {
+            RuntimeStateStore.UpsertAttempt(_connection, attempt);
+        }
+    }
+
+    public IReadOnlyList<PersistedJobRecord> ReadJobRecords()
+    {
+        lock (_sync)
+        {
+            return RuntimeStateStore.ReadJobs(_connection);
+        }
+    }
+
+    public void UpsertJobRecord(PersistedJobRecord job)
+    {
+        lock (_sync)
+        {
+            RuntimeStateStore.UpsertJob(_connection, job);
+        }
+    }
+
+    public int MarkInterruptedJobs(DateTime utcNow)
+    {
+        lock (_sync)
+        {
+            return RuntimeStateStore.MarkInterruptedJobs(_connection, utcNow);
+        }
+    }
 
     // T08 验证记录转发。
 
-    public void InsertVerification(GameLibrary.Domain.Tools.ToolVerificationRecord record) =>
-        VerificationStore.Insert(_connection, record);
+    public void InsertVerification(GameLibrary.Domain.Tools.ToolVerificationRecord record)
+    {
+        lock (_sync)
+        {
+            VerificationStore.Insert(_connection, record);
+        }
+    }
 
-    public GameLibrary.Domain.Tools.ToolVerificationRecord? TryGetVerification(string recordId) =>
-        VerificationStore.TryGet(_connection, recordId);
+    public GameLibrary.Domain.Tools.ToolVerificationRecord? TryGetVerification(string recordId)
+    {
+        lock (_sync)
+        {
+            return VerificationStore.TryGet(_connection, recordId);
+        }
+    }
 
-    public IReadOnlyList<GameLibrary.Domain.Tools.ToolVerificationRecord> ListVerifications(string? toolId) =>
-        VerificationStore.List(_connection, toolId);
+    public IReadOnlyList<GameLibrary.Domain.Tools.ToolVerificationRecord> ListVerifications(string? toolId)
+    {
+        lock (_sync)
+        {
+            return VerificationStore.List(_connection, toolId);
+        }
+    }
 
-    public void UpdateVerification(GameLibrary.Domain.Tools.ToolVerificationRecord record) =>
-        VerificationStore.Update(_connection, record);
+    public void UpdateVerification(GameLibrary.Domain.Tools.ToolVerificationRecord record)
+    {
+        lock (_sync)
+        {
+            VerificationStore.Update(_connection, record);
+        }
+    }
 
     /// <summary>一致性备份到新文件（SQLite 备份 API，WAL 下同样一致）。目标已存在则拒绝。</summary>
     public async Task CreateBackupAsync(string targetPath, CancellationToken ct)
@@ -230,7 +708,10 @@ public sealed class SqliteLibraryStore : IAsyncDisposable
 
         await using var target = new SqliteConnection($"Data Source={targetPath}{ConnectionSuffix}");
         await target.OpenAsync(ct);
-        _connection.BackupDatabase(target);
+        lock (_sync)
+        {
+            _connection.BackupDatabase(target);
+        }
     }
 
     /// <summary>更换数据纪元（备份恢复后调用）；旧 Revision/游标/计划随之失效。</summary>
@@ -238,15 +719,19 @@ public sealed class SqliteLibraryStore : IAsyncDisposable
     {
         var epoch = Guid.NewGuid().ToString("N");
         var now = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
-        await ExecuteAsync(
-            _connection,
-            null,
-            "UPDATE schema_info SET data_epoch = $e, updated_utc = $u WHERE id = 1",
-            ct,
-            ("$e", epoch),
-            ("$u", now));
+        // lock 体内不能 await：纪元更新是单条本地命令，同步执行（与读路径同代价）。
+        lock (_sync)
+        {
+            using var command = _connection.CreateCommand();
+            command.CommandText = "UPDATE schema_info SET data_epoch = $e, updated_utc = $u WHERE id = 1";
+            command.Parameters.AddWithValue("$e", epoch);
+            command.Parameters.AddWithValue("$u", now);
+            command.ExecuteNonQuery();
 
-        Info = Info with { DataEpoch = epoch };
+            Info = Info with { DataEpoch = epoch };
+        }
+
+        await Task.CompletedTask;
         return epoch;
     }
 
@@ -389,6 +874,7 @@ public sealed class SqliteLibraryStore : IAsyncDisposable
     /// <summary>
     /// 升级旧库：迁移前先用 SQLite 备份 API 生成一致快照；每条迁移单事务执行
     /// （DDL 在 SQLite 中可回滚）；失败即中止，库停留在最后成功的版本，不半升级。
+    /// 迁移完成后执行 PRAGMA foreign_key_check 一致性核查，有孤立引用即视为失败。
     /// </summary>
     private static async Task<LibraryOpenResult> UpgradeAsync(
         SqliteConnection connection,
@@ -427,6 +913,14 @@ public sealed class SqliteLibraryStore : IAsyncDisposable
                 await transaction.CommitAsync(ct);
             }
 
+            // 一致性核查（v1 审查意见：外键开关必须真实有约束兜底）。
+            var violations = await ReadForeignKeyViolationsAsync(connection, ct);
+            if (violations.Count > 0)
+            {
+                throw new InvalidOperationException(
+                    $"外键一致性核查失败：{string.Join("; ", violations.Take(5))}");
+            }
+
             var info = await ReadInfoAsync(connection, ct);
             return LibraryOpenResult.Opened(new SqliteLibraryStore(connection, options, info));
         }
@@ -437,6 +931,21 @@ public sealed class SqliteLibraryStore : IAsyncDisposable
                 LibraryOpenStatus.MigrationFailed,
                 $"迁移失败，库保留在版本 {current.SchemaVersion}；迁移前快照：{snapshotPath}；原因：{ex.Message}");
         }
+    }
+
+    /// <summary>读取 PRAGMA foreign_key_check 违规行（表名 + rowid），最多返回前 20 条。</summary>
+    private static async Task<IReadOnlyList<string>> ReadForeignKeyViolationsAsync(SqliteConnection connection, CancellationToken ct)
+    {
+        var problems = new List<string>();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "PRAGMA foreign_key_check";
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct) && problems.Count < 20)
+        {
+            problems.Add($"{reader.GetString(0)} row {reader.GetValue(1)}");
+        }
+
+        return problems;
     }
 
     /// <summary>迁移集必须是从 1 开始的连续整数版本，缺失中间版本属于程序缺陷。</summary>

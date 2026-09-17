@@ -1,0 +1,19 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- 浅色主题色板（settings.theme = light / system）。 -->
+    <SolidColorBrush x:Key="BgTop" Color="#d7dde3" />
+    <SolidColorBrush x:Key="BgMain" Color="#eef1f4" />
+    <SolidColorBrush x:Key="BgPanel" Color="#ffffff" />
+    <SolidColorBrush x:Key="BgRow" Color="#ffffff" />
+    <SolidColorBrush x:Key="BgRowHover" Color="#dbe6ee" />
+    <SolidColorBrush x:Key="BgRowSelected" Color="#bcd8ea" />
+    <SolidColorBrush x:Key="Sep" Color="#c3ccd4" />
+    <SolidColorBrush x:Key="Accent" Color="#1a7ab8" />
+    <SolidColorBrush x:Key="AccentDim" Color="#417a9b" />
+    <SolidColorBrush x:Key="TextPrimary" Color="#16202d" />
+    <SolidColorBrush x:Key="TextBody" Color="#2a3642" />
+    <SolidColorBrush x:Key="TextMuted" Color="#5c6a77" />
+    <SolidColorBrush x:Key="Green" Color="#5c8a1e" />
+    <SolidColorBrush x:Key="GreenHover" Color="#6da226" />
+    <SolidColorBrush x:Key="Danger" Color="#b3352c" />
+</ResourceDictionary>

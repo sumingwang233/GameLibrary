@@ -12,6 +12,33 @@ public static class HostProcessLauncher
 {
     public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(10);
 
+    /// <summary>宿主可执行文件的环境变量覆盖（开发/部署特殊布局用；不搜索 PATH）。</summary>
+    public const string HostExeEnvVar = "GAMELIBRARY_HOST_EXE";
+
+    /// <summary>
+    /// 解析宿主可执行文件位置（契约 2.1"固定宿主二进制"的部署布局适配）：
+    /// 1) 环境变量 GAMELIBRARY_HOST_EXE 显式覆盖；
+    /// 2) 与调用方同目录（扁平绿色布局 / 开发单目录）；
+    /// 3) 兄弟子目录 ..\GameLibrary.Host\（按组件分目录的发布布局）。
+    /// 仍不搜索 PATH、不执行任意命令。
+    /// </summary>
+    private static string? ResolveHostExe()
+    {
+        var overrideValue = Environment.GetEnvironmentVariable(HostExeEnvVar);
+        if (!string.IsNullOrWhiteSpace(overrideValue) && File.Exists(overrideValue))
+        {
+            return Path.GetFullPath(overrideValue);
+        }
+
+        var baseDir = AppContext.BaseDirectory;
+        string?[] candidates =
+        [
+            Path.Combine(baseDir, "GameLibrary.Host.exe"),
+            Path.GetFullPath(Path.Combine(baseDir, "..", "GameLibrary.Host", "GameLibrary.Host.exe")),
+        ];
+        return candidates.FirstOrDefault(File.Exists);
+    }
+
     public static async Task<HostConnection> EnsureStartedAsync(
         string dataDirectory,
         string? clientName,
@@ -33,12 +60,19 @@ public static class HostProcessLauncher
             // 宿主未运行，继续拉起。
         }
 
-        var hostExe = Path.Combine(AppContext.BaseDirectory, "GameLibrary.Host.exe");
-        if (!File.Exists(hostExe))
+        var hostExe = ResolveHostExe();
+        if (hostExe is null)
         {
+            var baseDir = AppContext.BaseDirectory;
+            var overrideValue = Environment.GetEnvironmentVariable(HostExeEnvVar);
             throw new HostClientException(
                 HostClientErrorCodes.HostUnavailable,
-                $"找不到宿主可执行文件：{hostExe}");
+                "找不到宿主可执行文件（GameLibrary.Host.exe）。已尝试：\n"
+                + $"  1) {Path.Combine(baseDir, "GameLibrary.Host.exe")}\n"
+                + $"  2) {Path.Combine(baseDir, "..", "GameLibrary.Host", "GameLibrary.Host.exe")}\n"
+                + (overrideValue is null
+                    ? "  3) 环境变量 GAMELIBRARY_HOST_EXE 未设置"
+                    : $"  3) 环境变量 GAMELIBRARY_HOST_EXE = {overrideValue}（文件不存在）"));
         }
 
         // 用 ShellExecute 启动：该路径不做句柄继承，宿主不会拿到调用方（及其父进程）的
@@ -50,7 +84,7 @@ public static class HostProcessLauncher
             ArgumentList = { "--data-dir", resolved.CanonicalPath!, "--detach-stdio" },
             UseShellExecute = true,
             WindowStyle = ProcessWindowStyle.Hidden,
-            WorkingDirectory = AppContext.BaseDirectory,
+            WorkingDirectory = Path.GetDirectoryName(hostExe),
         }) ?? throw new HostClientException(HostClientErrorCodes.HostUnavailable, "宿主进程启动失败");
 
         var deadline = DateTime.UtcNow + (timeout ?? DefaultTimeout);
@@ -65,9 +99,16 @@ public static class HostProcessLauncher
             {
                 if (process.HasExited)
                 {
+                    // 0x8000808x/9x 区间 = .NET 宿主二进制启动失败（缺运行时/配置损坏），
+                    // 与业务退出码 7（单实例互斥）区分开，给出对应的处理建议。
+                    var code = process.ExitCode;
+                    var hint = (code & 0xFFFF0000) == unchecked((int)0x80000000)
+                        ? "宿主二进制无法启动（缺 .NET 运行时或文件不完整）。请使用自包含发布包"
+                            + "（artifacts/dist/GameLibrary-win-x64-*.zip），或运行与其同目录的自包含 Host。"
+                        : "可能已有另一宿主持有该数据目录";
                     throw new HostClientException(
                         HostClientErrorCodes.HostUnavailable,
-                        $"宿主进程提前退出（退出码 {process.ExitCode}），可能已有另一宿主持有该数据目录");
+                        $"宿主进程提前退出（退出码 {code} / 0x{code & 0xFFFFFFFFL:X8}）。{hint}");
                 }
 
                 await Task.Delay(200, ct);

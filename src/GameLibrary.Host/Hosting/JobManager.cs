@@ -78,6 +78,20 @@ public sealed class JobManager
     /// <summary>作业终态指标回调（T24-B）：进入 succeeded/failed/cancelled 时调用，参数为终态字符串。</summary>
     public Action<string>? OnJobFinished { get; set; }
 
+    /// <summary>
+    /// 作业记录回调（v1 审查修复：作业落库）——创建（running）与进入终态时各触发一次，
+    /// Host 接线到运行态持久层；跨重启的作业历史与中断标记由此获得。
+    /// </summary>
+    public Action<JobSnapshot>? OnJobRecorded { get; set; }
+
+    private void Record(JobEntry entry)
+    {
+        lock (entry)
+        {
+            OnJobRecorded?.Invoke(Snapshot(entry));
+        }
+    }
+
     public string Create(string kind, Func<JobContext, Task<JobOutcome>> executor)
     {
         var entry = new JobEntry { Id = $"job-{Guid.NewGuid():N}", Kind = kind };
@@ -85,6 +99,7 @@ public sealed class JobManager
         entry.Context = new JobContext { JobId = entry.Id, Token = entry.Cts.Token };
         entry.State = "running";
         entry.StartedUtc = DateTime.UtcNow;
+        Record(entry);
 
         _ = RunAsync(entry, executor);
         return entry.Id;
@@ -158,6 +173,7 @@ public sealed class JobManager
         finally
         {
             entry.FinishedUtc = DateTime.UtcNow;
+            Record(entry);
             OnJobFinished?.Invoke(entry.State);
         }
     }

@@ -125,15 +125,36 @@ public sealed class ScanPerformanceTests
 
     private static void TryCleanup(string path)
     {
-        try
+        // 杀软/索引器瞬时锁住刚生成的 .dat 时 Directory.Delete 抛
+        // UnauthorizedAccessException——重试一次后仍失败则放弃（产物在 gitignored
+        // artifacts/test-runs，不判测试失败；性能断言已在 finally 之前完成）。
+        for (var attempt = 0; attempt < 2; attempt++)
         {
-            if (Directory.Exists(path))
+            try
             {
-                Directory.Delete(path, recursive: true);
+                if (Directory.Exists(path))
+                {
+                    Directory.Delete(path, recursive: true);
+                }
+
+                return;
+            }
+            catch (IOException) when (attempt == 0)
+            {
+                await2();
+            }
+            catch (UnauthorizedAccessException) when (attempt == 0)
+            {
+                await2();
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
             }
         }
-        catch (IOException)
-        {
-        }
+
+        static void await2() => Thread.Sleep(300);
     }
 }

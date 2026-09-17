@@ -43,8 +43,16 @@ public static class ReconcileService
                 continue;
             }
 
-            var rootOnline = DriveRootExists(game.RootPath);
-            var present = rootOnline && Directory.Exists(game.RootPath);
+            var rootOnline = DriveRootExists(game.RootPath)
+                && (game.Kind != "manualShortcut"
+                    || game.EntryPath is not null && DriveRootExists(game.EntryPath));
+            var present = rootOnline && (game.Kind switch
+            {
+                "manualFile" => File.Exists(game.RootPath),
+                "manualShortcut" => File.Exists(game.RootPath)
+                    && game.EntryPath is not null && File.Exists(game.EntryPath),
+                _ => Directory.Exists(game.RootPath),
+            });
 
             var current = ParseAvailability(game.Availability);
             var evaluation = GameAvailabilityTracker.RecordFullCheck(

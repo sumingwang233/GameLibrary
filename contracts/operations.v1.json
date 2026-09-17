@@ -1,7 +1,7 @@
 {
-  "catalogVersion": "1",
+  "catalogVersion": "1.1",
   "apiVersion": "1",
-  "updated": "2026-09-13",
+  "updated": "2026-09-17",
   "note": "本文件是操作注册表；是否已实现由 Contracts 代码中的 OperationCatalog.ImplementedOperations 声明（实现即事实）。tools/list 不得把未实现操作当可用工具。命名规则见 contracts/README.md。",
   "permissions": [
     "none", "library.read", "library.write", "scan.manage", "launch.execute",

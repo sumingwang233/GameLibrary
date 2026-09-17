@@ -6,65 +6,87 @@
         Height="720"
         MinWidth="960"
         MinHeight="600"
-        Background="{StaticResource BgMain}"
-        WindowStartupLocation="CenterScreen">
-    <Window.Resources>
-        <SolidColorBrush x:Key="Sep" Color="#2a475e" />
-    </Window.Resources>
+        Background="{DynamicResource BgMain}"
+        WindowStartupLocation="CenterScreen"
+        AutomationProperties.Name="GameLibrary 主窗口">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="48" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="26" />
+            <RowDefinition Height="28" />
         </Grid.RowDefinitions>
 
-        <!-- 顶栏：Logo + 工具栏（Steam 全局导航风格） -->
-        <Border Grid.Row="0" Background="{StaticResource BgTop}" Padding="12,0">
+        <!-- 顶栏：Logo + 主操作（添加游戏文件夹 / 扫描 / 设置）。
+             审查修复：移除"连接宿主"与身份混用的路径输入框；
+             "注册库根"改为面向用户的"添加游戏文件夹"。 -->
+        <Border Grid.Row="0" Background="{DynamicResource BgTop}" Padding="12,0">
             <DockPanel LastChildFill="True">
                 <TextBlock DockPanel.Dock="Left"
                            Text="GAMELIBRARY"
                            FontSize="16" FontWeight="Bold"
-                           Foreground="{StaticResource TextPrimary}"
+                           Foreground="{DynamicResource TextPrimary}"
                            VerticalAlignment="Center" Margin="0,0,18,0" />
-                <Button Name="RefreshButton" Content="刷新" Style="{StaticResource SteamButton}"
-                        Click="OnRefreshClick" DockPanel.Dock="Right" Margin="6,0,0,0" VerticalAlignment="Center" />
-                <Button Name="ConnectButton" Content="连接宿主" Style="{StaticResource SteamButton}"
-                        Click="OnConnectClick" DockPanel.Dock="Right" Margin="6,0,0,0" VerticalAlignment="Center" />
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
-                    <Button Name="InitLibraryButton" Content="初始化库" Style="{StaticResource SteamButton}"
-                            Click="OnInitLibraryClick" Margin="4,0,0,0" />
-                    <Button Name="AddRootButton" Content="注册库根" Style="{StaticResource SteamButton}"
-                            Click="OnAddRootClick" Margin="4,0,0,0" />
-                    <Button Name="ScanButton" Content="扫描" Style="{StaticResource SteamBlueButton}"
-                            Click="OnScanClick" Margin="4,0,0,0" />
-                </StackPanel>
-                <TextBox Name="RootBox" VerticalAlignment="Center" MinWidth="320" Margin="0,0,12,0"
-                         ToolTip="数据目录 / 待扫描库根路径" />
+                <Button Name="SettingsButton" Content="设置" Style="{DynamicResource SteamButton}"
+                        Click="OnSettingsClick" DockPanel.Dock="Right" Margin="6,0,0,0" VerticalAlignment="Center" />
+                <Button Name="HelpButton" Content="使用指南" Style="{DynamicResource SteamButton}"
+                        Click="OnHelpClick" DockPanel.Dock="Right" Margin="6,0,0,0" VerticalAlignment="Center"
+                        AutomationProperties.Name="使用指南" />
+                <Button Name="RootsButton" Content="游戏文件夹" Style="{DynamicResource SteamButton}"
+                        Click="OnRootsClick" DockPanel.Dock="Right" Margin="6,0,0,0" VerticalAlignment="Center" />
+                <Button Name="ScanButton" Content="扫描" Style="{DynamicResource SteamBlueButton}"
+                        Click="OnScanClick" DockPanel.Dock="Right" Margin="6,0,0,0" VerticalAlignment="Center" />
+                <Button Name="ManualAddButton" Content="手动添加游戏" Style="{DynamicResource SteamButton}"
+                        Click="OnManualAddClick" DockPanel.Dock="Right" Margin="6,0,0,0" VerticalAlignment="Center"
+                        AutomationProperties.Name="手动添加游戏" />
+                <Button Name="AddGameFolderButton" Content="添加游戏文件夹" Style="{DynamicResource SteamButton}"
+                        Click="OnAddGameFolderClick" DockPanel.Dock="Right" Margin="6,0,0,0" VerticalAlignment="Center" />
+                <TextBlock DockPanel.Dock="Right"
+                           Text="提示：添加游戏文件夹后点扫描；关闭窗口默认缩到托盘。"
+                           FontSize="11" Foreground="{DynamicResource TextMuted}"
+                           VerticalAlignment="Center" Margin="6,0,12,0" />
+                <TextBlock Name="DataDirHint" VerticalAlignment="Center"
+                           FontSize="11" Foreground="{DynamicResource TextMuted}"
+                           TextTrimming="CharacterEllipsis" ToolTip="应用数据存放位置，与游戏文件夹无关" />
             </DockPanel>
         </Border>
 
-        <!-- 主区：左侧列表 + 右侧详情 -->
+        <!-- 主区：左侧列表 + 可拖动分隔条 + 右侧详情（审查意见 #5：左右比例可调并持久化） -->
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="290" />
-                <ColumnDefinition Width="*" />
+                <ColumnDefinition x:Name="LeftColumn" Width="290" MinWidth="220" />
+                <ColumnDefinition Width="6" />
+                <ColumnDefinition Width="*" MinWidth="420" />
             </Grid.ColumnDefinitions>
 
             <!-- 左：视图切换 + 搜索 + 游戏列表（Steam 侧边栏，虚拟化） -->
-            <Border Grid.Column="0" Background="{StaticResource BgPanel}" BorderBrush="{StaticResource Sep}" BorderThickness="0,0,1,0">
+            <Border Grid.Column="0" Background="{DynamicResource BgPanel}" BorderBrush="{DynamicResource Sep}" BorderThickness="0,0,1,0">
                 <DockPanel>
                     <ComboBox Name="ViewSelector" DockPanel.Dock="Top" Margin="8,10,8,4"
-                              Background="{StaticResource BgPanel}" Foreground="{StaticResource TextBody}"
+                              Background="{DynamicResource BgPanel}" Foreground="{DynamicResource TextBody}"
+                              AutomationProperties.Name="视图切换"
                               SelectionChanged="OnViewSelectorChanged" />
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="8,0,8,4">
+                        <Button Content="新建收藏夹" Style="{DynamicResource SteamButton}"
+                                Click="OnCreateCollectionClick" AutomationProperties.Name="新建收藏夹" />
+                        <Button Content="管理" Style="{DynamicResource SteamButton}" Margin="6,0,0,0"
+                                Click="OnManageCollectionsClick" AutomationProperties.Name="管理收藏夹" />
+                    </StackPanel>
+                    <Label DockPanel.Dock="Top" Content="搜索游戏 (_F)" Target="{Binding ElementName=SearchBox}"
+                           FontSize="11" Foreground="{DynamicResource TextMuted}" Margin="10,4,0,0" />
                     <TextBox Name="SearchBox" DockPanel.Dock="Top" Margin="8,0,8,6"
+                             AutomationProperties.Name="搜索游戏"
                              ToolTip="搜索游戏标题（Ctrl+F 聚焦，300ms 防抖）" />
                     <TextBlock DockPanel.Dock="Top" Text="库" FontSize="13" FontWeight="SemiBold"
-                               Foreground="{StaticResource TextMuted}" Margin="12,4,0,6" />
+                               Foreground="{DynamicResource TextMuted}" Margin="12,4,0,6" />
+                    <Button Name="LoadMoreButton" DockPanel.Dock="Bottom" Visibility="Collapsed"
+                            Style="{DynamicResource SteamButton}" Margin="8,4,8,8"
+                            Click="OnLoadMoreClick" AutomationProperties.Name="加载更多游戏" />
                     <ListBox Name="LibraryList"
                              Background="Transparent"
                              BorderThickness="0"
-                             ItemContainerStyle="{StaticResource SidebarItem}"
+                             ItemContainerStyle="{DynamicResource SidebarItem}"
                              SelectionMode="Single"
+                             AutomationProperties.Name="游戏列表"
                              SelectionChanged="OnLibrarySelectionChanged"
                              VirtualizingPanel.IsVirtualizing="True"
                              VirtualizingPanel.VirtualizationMode="Recycling"
@@ -72,19 +94,29 @@
                 </DockPanel>
             </Border>
 
+            <!-- 分隔条：拖动调整左右比例 -->
+            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"
+                          Background="Transparent" ResizeBehavior="PreviousAndNext"
+                          ShowsPreview="False" />
+
             <!-- 右：详情面板 -->
-            <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto">
+            <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
                 <StackPanel Name="DetailPanel" Margin="24,18" />
             </ScrollViewer>
         </Grid>
 
-        <!-- 状态栏 -->
-        <Border Grid.Row="2" Background="{StaticResource BgTop}" Padding="12,0">
+        <!-- 状态栏：状态 + 扫描进度/取消 + 错误（字号 12，审查意见：11px 过小） -->
+        <Border Grid.Row="2" Background="{DynamicResource BgTop}" Padding="12,0">
             <DockPanel>
-                <TextBlock Name="ErrorText" DockPanel.Dock="Right" Foreground="{StaticResource Danger}"
-                           FontSize="11" VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
-                <TextBlock Name="StatusText" Text="未连接" Foreground="{StaticResource TextMuted}"
-                           FontSize="11" VerticalAlignment="Center" />
+                <TextBlock Name="ErrorText" DockPanel.Dock="Right" Foreground="{DynamicResource Danger}"
+                           FontSize="12" VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                <Button Name="CancelScanButton" Content="取消扫描" Style="{DynamicResource SteamButton}"
+                        Click="OnCancelScanClick" DockPanel.Dock="Right" Margin="8,0,0,0"
+                        Padding="6,1" FontSize="11" Visibility="Collapsed" />
+                <TextBlock Name="ScanProgressText" DockPanel.Dock="Right" Foreground="{DynamicResource TextMuted}"
+                           FontSize="12" VerticalAlignment="Center" Margin="0,0,10,0" Visibility="Collapsed" />
+                <TextBlock Name="StatusText" Text="正在启动…" Foreground="{DynamicResource TextMuted}"
+                           FontSize="12" VerticalAlignment="Center" />
             </DockPanel>
         </Border>
     </Grid>

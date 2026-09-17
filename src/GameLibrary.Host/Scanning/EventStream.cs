@@ -34,7 +34,8 @@ public sealed class EventStream
 
     private readonly Slot[] _ring = new Slot[Capacity];
     private readonly ConcurrentDictionary<string, int> _indexByEntity = new(StringComparer.Ordinal);
-    private readonly SqliteLibraryStore? _store;
+    private readonly object _storeLock = new();
+    private SqliteLibraryStore? _store;
     private long _sequence;
     private int _head; // 下一写入位
 
@@ -59,13 +60,29 @@ public sealed class EventStream
 
     public EventStream(SqliteLibraryStore? store = null)
     {
-        _store = store;
-        if (store is not null)
+        BindStore(store);
+    }
+
+    /// <summary>
+    /// 运行中重绑库存储（v1 审查意见修复）：library.init / backups.restore 换库后，
+    /// 事件流整体切换到新 Store——序号从新库恢复、内存环清空（旧 epoch 事件不再可见），
+    /// 避免继续写入已关闭的旧连接。
+    /// </summary>
+    public void BindStore(SqliteLibraryStore? store)
+    {
+        lock (_storeLock)
         {
-            // 跨重启单调：序号从持久层恢复。
-            _sequence = EventRecordStore.LatestSequence(
-                store.DatabaseConnection,
-                store.Info.DataEpoch);
+            _store = store;
+            _sequence = store is null
+                ? 0
+                : EventRecordStore.LatestSequence(store.DatabaseConnection, store.Info.DataEpoch);
+        }
+
+        lock (_ring)
+        {
+            Array.Clear(_ring);
+            _indexByEntity.Clear();
+            _head = 0;
         }
     }
 
@@ -115,26 +132,31 @@ public sealed class EventStream
 
     private void Persist(Slot slot)
     {
-        if (_store is null)
+        // 快照当前绑定：Publish 持有 _ring 锁时不得再嵌套取 _storeLock 持久化后反向读，
+        // 这里只做最后一次读取；重绑发生在 Persist 之前或之后都只影响该条事件的落库目标。
+        var store = _store;
+        if (store is null)
         {
             return;
         }
 
         try
         {
-            EventRecordStore.AppendWithPrune(
-                _store.DatabaseConnection,
-                new PersistedEvent(
-                    slot.Sequence,
-                    _store.Info.DataEpoch,
-                    slot.Type,
-                    slot.EntityKey,
-                    slot.PayloadJson,
-                    slot.TimestampUtc));
+            store.WriteExclusive((connection, info) =>
+                EventRecordStore.AppendWithPrune(
+                    connection,
+                    new PersistedEvent(
+                        slot.Sequence,
+                        info.DataEpoch,
+                        slot.Type,
+                        slot.EntityKey,
+                        slot.PayloadJson,
+                        slot.TimestampUtc)));
         }
-        catch (Exception ex) when (ex is Microsoft.Data.Sqlite.SqliteException or IOException)
+        catch (Exception ex) when (ex is Microsoft.Data.Sqlite.SqliteException or IOException or ObjectDisposedException)
         {
-            // 事件落库失败不阻塞业务路径：内存环仍可读，持久化缺口由下次扫描补齐。
+            // 事件落库失败不阻塞业务路径：内存环仍可读；连接被恢复流程关闭时本条事件
+            // 由重绑后的新 Store 承接，持久化缺口由下次扫描补齐。
         }
     }
 
@@ -144,13 +166,11 @@ public sealed class EventStream
     /// </summary>
     public IReadOnlyList<LibraryEvent>? ReadAfter(long? afterSequence, int limit)
     {
-        if (_store is not null)
+        var store = _store;
+        if (store is not null)
         {
-            var persisted = EventRecordStore.ReadAfter(
-                _store.DatabaseConnection,
-                _store.Info.DataEpoch,
-                afterSequence,
-                limit);
+            var persisted = store.ReadExclusive((connection, info) =>
+                EventRecordStore.ReadAfter(connection, info.DataEpoch, afterSequence, limit));
             return persisted is null ? null : persisted.Select(ToEvent).ToArray();
         }
 

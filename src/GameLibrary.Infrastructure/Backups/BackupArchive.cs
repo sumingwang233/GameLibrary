@@ -47,8 +47,78 @@ public static class BackupArchive
     public const string DatabaseFileName = "library.db";
     public const string AssetsFolderName = "assets";
 
-    public static string BackupDirectory(string backupsRoot, string backupId) =>
-        Path.Combine(backupsRoot, backupId);
+    /// <summary>
+    /// 备份 ID 约束（v1 审查意见）：1–128 字符，仅字母/数字/点/下划线/连字符，
+    /// 不得为 "。" 或包含 ".."；调用方可控的 backupId 不允许再拼接出穿越路径。
+    /// </summary>
+    public static bool IsValidBackupId(string? backupId)
+    {
+        if (string.IsNullOrEmpty(backupId) || backupId.Length > 128 || backupId == ".")
+        {
+            return false;
+        }
+
+        if (backupId.Contains("..", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        foreach (var ch in backupId)
+        {
+            if (!(char.IsAsciiLetterOrDigit(ch) || ch is '.' or '_' or '-'))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// 备份目录解析：backupId 先过字符集/长度校验，再规范化拼接并验证
+    /// 仍在 backups 根内（拒绝绝对路径、..、设备路径与越界）。
+    /// </summary>
+    public static string BackupDirectory(string backupsRoot, string backupId)
+    {
+        if (!IsValidBackupId(backupId))
+        {
+            throw new ArgumentException($"backupId 非法（仅允许 1–128 位字母/数字/._-，禁止 ..）：{backupId}");
+        }
+
+        var root = Path.GetFullPath(backupsRoot);
+        var candidate = Path.GetFullPath(Path.Combine(root, backupId));
+        if (!candidate.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(candidate, root, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException($"backupId 越出备份根目录：{backupId}");
+        }
+
+        return candidate;
+    }
+
+    /// <summary>
+    /// 清单相对路径解析：拒绝绝对路径、..、盘符/设备路径与空串；
+    /// 规范化后必须仍位于备份目录内（防清单伪造穿越读取）。
+    /// </summary>
+    public static string ResolveManifestPath(string backupDirectory, string relativePath)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath)
+            || Path.IsPathRooted(relativePath)
+            || relativePath.Split('/', '\\').Contains(".."))
+        {
+            throw new ArgumentException($"清单相对路径非法：{relativePath}");
+        }
+
+        var root = Path.GetFullPath(backupDirectory);
+        var candidate = Path.GetFullPath(Path.Combine(root, relativePath.Replace('/', Path.DirectorySeparatorChar)));
+        if (!candidate.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(candidate, root, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException($"清单相对路径越出备份目录：{relativePath}");
+        }
+
+        return candidate;
+    }
 
     public static string ComputeSha256(string filePath)
     {
@@ -90,7 +160,17 @@ public static class BackupArchive
         var problems = new List<string>();
         foreach (var file in manifest.Files)
         {
-            var fullPath = Path.Combine(backupDirectory, file.RelativePath);
+            string fullPath;
+            try
+            {
+                fullPath = ResolveManifestPath(backupDirectory, file.RelativePath);
+            }
+            catch (ArgumentException)
+            {
+                problems.Add($"路径非法：{file.RelativePath}");
+                continue;
+            }
+
             if (!File.Exists(fullPath))
             {
                 problems.Add($"缺失：{file.RelativePath}");
@@ -176,25 +256,33 @@ public sealed class ControlAreaStore
 
     public string MaintenanceLogPath => Path.Combine(ControlDirectory, "maintenance.log");
 
+    /// <summary>
+    /// 控制收据文件名：使用幂等键的 SHA-256 前缀，而不是直接把键放进文件名
+    /// （键含路径分隔符或超长字符时不再产生穿越/非法文件名，v1 审查意见）。
+    /// </summary>
+    private static string ReceiptFileName(string idempotencyKey)
+    {
+        var digest = Convert.ToHexStringLower(
+            System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(idempotencyKey)));
+        return $"restore-{digest[..32]}.json";
+    }
+
     /// <summary>恢复类控制收据：同键存在即返回（重试不再覆盖）；不同摘要 → 错误。</summary>
     public (string? ExistingResultJson, string? Conflict) BeginRestoreReceipt(string idempotencyKey, string requestDigest)
     {
-        var path = Path.Combine(ReceiptsDirectory, $"restore-{idempotencyKey}.json");
-        System.IO.File.AppendAllText("D:/Official/GameLibrary/artifacts/receipt-debug.log", $"{DateTime.UtcNow:O} begin key={idempotencyKey} exists={File.Exists(path)}\n");
+        var path = Path.Combine(ReceiptsDirectory, ReceiptFileName(idempotencyKey));
         if (File.Exists(path))
         {
             try
             {
                 using var document = JsonDocument.Parse(File.ReadAllText(path));
                 var digest = document.RootElement.GetProperty("requestDigest").GetString();
-                System.IO.File.AppendAllText("D:/Official/GameLibrary/artifacts/receipt-debug.log", $"{DateTime.UtcNow:O} stored digest match={string.Equals(digest, requestDigest, StringComparison.Ordinal)} status={document.RootElement.GetProperty("status").GetString()}\n");
                 if (!string.Equals(digest, requestDigest, StringComparison.Ordinal))
                 {
                     return (null, "幂等键已被不同恢复请求使用");
                 }
 
                 var resultJson = document.RootElement.TryGetProperty("resultJson", out var rj) ? rj.GetString() : null;
-                System.IO.File.AppendAllText("D:/Official/GameLibrary/artifacts/receipt-debug.log", $"{DateTime.UtcNow:O} existing result null={resultJson is null}\n");
                 return (resultJson, null);
             }
             catch (JsonException)
@@ -207,13 +295,12 @@ public sealed class ControlAreaStore
             path,
             JsonSerializer.Serialize(new { requestDigest, status = "prepared", createdUtc = DateTime.UtcNow.ToString("O") }),
             System.Text.Encoding.UTF8);
-        System.IO.File.AppendAllText("D:/Official/GameLibrary/artifacts/receipt-debug.log", $"{DateTime.UtcNow:O} prepared written\n");
         return (null, null);
     }
 
     public void CompleteRestoreReceipt(string idempotencyKey, string requestDigest, string resultJson)
     {
-        var path = Path.Combine(ReceiptsDirectory, $"restore-{idempotencyKey}.json");
+        var path = Path.Combine(ReceiptsDirectory, ReceiptFileName(idempotencyKey));
         File.WriteAllText(
             path,
             JsonSerializer.Serialize(new { requestDigest, status = "completed", resultJson, updatedUtc = DateTime.UtcNow.ToString("O") }),
@@ -223,7 +310,7 @@ public sealed class ControlAreaStore
     /// <summary>读取已完成恢复的收据结果；不存在返回 null。</summary>
     public string? TryReadRestoreResult(string idempotencyKey)
     {
-        var path = Path.Combine(ReceiptsDirectory, $"restore-{idempotencyKey}.json");
+        var path = Path.Combine(ReceiptsDirectory, ReceiptFileName(idempotencyKey));
         if (!File.Exists(path))
         {
             return null;

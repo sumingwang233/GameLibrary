@@ -266,6 +266,48 @@ public static class LibraryCatalogStore
         command.ExecuteNonQuery();
     }
 
+    /// <summary>仅将游戏从可见库移除，并原子登记 ExactPath 忽略；绝不触碰游戏文件。</summary>
+    public static int? RemoveGame(
+        SqliteConnection connection, string gameId, int expectedRevision, IgnoreRule ignore, DateTime utcNow)
+    {
+        using var transaction = (SqliteTransaction)connection.BeginTransaction();
+        using (var update = connection.CreateCommand())
+        {
+            update.Transaction = transaction;
+            update.CommandText = """
+                UPDATE games
+                SET membership = 'removed', revision = revision + 1, updated_utc = $now
+                WHERE game_id = $id AND membership = 'active' AND revision = $revision
+                """;
+            update.Parameters.AddWithValue("$id", gameId);
+            update.Parameters.AddWithValue("$revision", expectedRevision);
+            update.Parameters.AddWithValue("$now", utcNow.ToString("O", CultureInfo.InvariantCulture));
+            if (update.ExecuteNonQuery() != 1)
+            {
+                transaction.Rollback();
+                return null;
+            }
+        }
+
+        using (var insert = connection.CreateCommand())
+        {
+            insert.Transaction = transaction;
+            insert.CommandText = """
+                INSERT INTO ignore_rules (ignore_id, scope, path, game_id, reason, revision, created_utc)
+                VALUES ($id, 'ExactPath', $path, $game, $reason, 1, $created)
+                """;
+            insert.Parameters.AddWithValue("$id", ignore.IgnoreId);
+            insert.Parameters.AddWithValue("$path", ignore.Path!);
+            insert.Parameters.AddWithValue("$game", ignore.GameId!);
+            insert.Parameters.AddWithValue("$reason", ignore.Reason!);
+            insert.Parameters.AddWithValue("$created", utcNow.ToString("O", CultureInfo.InvariantCulture));
+            insert.ExecuteNonQuery();
+        }
+
+        transaction.Commit();
+        return expectedRevision + 1;
+    }
+
     public static GameCard? TryGetGame(SqliteConnection connection, string gameId)
     {
         using var command = connection.CreateCommand();
@@ -293,6 +335,87 @@ public static class LibraryCatalogStore
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// 数据库侧检索（阶段三：列表分页/检索下沉到 SQL）：搜索命中用户标题或原文件夹名、
+    /// 收藏过滤、标签过滤（与搜索 AND 组合）、title/recent 排序、LIMIT/OFFSET 分页。
+    /// total 为过滤后的总数（分页前）。limit &lt;= 0 表示不分页（兼容旧全量语义）。
+    /// </summary>
+    public static (int Total, IReadOnlyList<GameCard> Items) QueryGames(
+        SqliteConnection connection,
+        string? search,
+        bool favoriteOnly,
+        string? tagId,
+        string? sort,
+        int limit,
+        int offset)
+    {
+        var where = new List<string> { "membership = 'active'" };
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            // LIKE 通配符转义；中文按字节子串匹配（策划案：预归一化内存搜索的数据库侧等价）。
+            var escaped = search.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
+            where.Add("(title LIKE $like ESCAPE '\\' OR root_path LIKE $like ESCAPE '\\')");
+        }
+
+        if (favoriteOnly)
+        {
+            where.Add("favorite = 1");
+        }
+
+        if (!string.IsNullOrWhiteSpace(tagId))
+        {
+            where.Add("EXISTS (SELECT 1 FROM game_tags gt WHERE gt.game_id = games.game_id AND gt.tag_id = $tagId)");
+        }
+
+        var orderBy = sort == "recent" ? "updated_utc DESC, game_id" : "title COLLATE NOCASE, game_id";
+
+        int total;
+        using (var countCommand = connection.CreateCommand())
+        {
+            countCommand.CommandText = $"SELECT COUNT(*) FROM games WHERE {string.Join(" AND ", where)}";
+            BindQueryParameters(countCommand, search, tagId);
+            total = Convert.ToInt32(countCommand.ExecuteScalar() ?? 0L);
+        }
+
+        var items = new List<GameCard>();
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = $"""
+                SELECT game_id, title, root_path, kind, engine, entry_path, membership, favorite, revision, accepted_utc, updated_utc, translation_inherited, translation_override, availability, missing_since_utc
+                FROM games WHERE {string.Join(" AND ", where)}
+                ORDER BY {orderBy}
+                """ + (limit > 0 ? " LIMIT $limit OFFSET $offset" : "");
+            BindQueryParameters(command, search, tagId);
+            if (limit > 0)
+            {
+                command.Parameters.AddWithValue("$limit", limit);
+                command.Parameters.AddWithValue("$offset", Math.Max(0, offset));
+            }
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                items.Add(ReadGame(reader));
+            }
+        }
+
+        return (total, items);
+    }
+
+    private static void BindQueryParameters(SqliteCommand command, string? search, string? tagId)
+    {
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var escaped = search.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
+            command.Parameters.AddWithValue("$like", $"%{escaped}%");
+        }
+
+        if (!string.IsNullOrWhiteSpace(tagId))
+        {
+            command.Parameters.AddWithValue("$tagId", tagId);
+        }
     }
 
     public static GameCard? TryGetGameByRootPath(SqliteConnection connection, string rootPath)

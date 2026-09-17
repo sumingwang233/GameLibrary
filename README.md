@@ -1,6 +1,6 @@
 # GameLibrary
 
-面向用户与 AI agent 的 Windows 本地游戏库。当前交付阶段是工程策划，尚未实现程序或注册 MCP 服务。
+面向用户与 AI agent 的 Windows 本地游戏库。当前状态：程序已实现并按《v1 审查意见稿》完成第一/二阶段修复与第三阶段主体——Host 单写队列、库会话切换、库根/Profile/启动历史持久化、标签（tags.×8，含自动引擎标签与 Suppress 语义）、数据库侧检索与分页（5000 游戏性能基线达标）；Desktop 支持首次双击即用、添加游戏文件夹、扫描、审核、手动添加与启动游戏、首用指南、字体/主题及安全的封面缓存位置设置。三入口（Desktop/CLI/MCP）同库同契约，89/129 操作已实现并经覆盖门禁锁定；发布包与校验清单见 `artifacts/dist/`。
 
 工程目录：`D:\Official\GameLibrary`。本机日常数据规划为 `D:\Official\GameLibrary\LocalData`，开发测试使用独立目录。项目、命名空间与发布组件统一使用 GameLibrary，不使用 Local 前缀。
 
