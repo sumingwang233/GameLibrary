@@ -32,6 +32,16 @@ public sealed record ScannedEntry(
     ScanRuleOutcome RuleOutcome,
     string? WinningRuleId);
 
+/// <summary>
+/// A directory enumeration already performed by the walker. Consumers reuse these lists for
+/// detection instead of enumerating the same directory again.
+/// </summary>
+public sealed record ScannedDirectory(
+    string PhysicalPath,
+    int Depth,
+    IReadOnlyList<string> Directories,
+    IReadOnlyList<string> Files);
+
 /// <summary>分支问题：路径、分类、可重试性（补充规格 2.2）。</summary>
 public sealed record ScanBranchIssue(string Path, string Classification, bool Retryable, string? Detail);
 
@@ -109,7 +119,7 @@ public sealed class DirectoryWalker
         Action<ScannedEntry> sink,
         PauseSignal? pause,
         CancellationToken ct,
-        Action<string>? onDirectory = null) =>
+        Action<ScannedDirectory>? onDirectory = null) =>
         WalkCore(stackRoots: null, sink, pause, ct, onDirectory);
 
     /// <summary>从上次 partial 的游标续扫；游标与根不匹配时抛 <see cref="InvalidOperationException"/>。</summary>
@@ -118,7 +128,7 @@ public sealed class DirectoryWalker
         Action<ScannedEntry> sink,
         PauseSignal? pause,
         CancellationToken ct,
-        Action<string>? onDirectory = null)
+        Action<ScannedDirectory>? onDirectory = null)
     {
         var state = JsonSerializer.Deserialize<WalkResumeState>(resumeTokenJson)
             ?? throw new InvalidOperationException("续扫游标损坏");
@@ -135,7 +145,7 @@ public sealed class DirectoryWalker
         Action<ScannedEntry> sink,
         PauseSignal? pause,
         CancellationToken ct,
-        Action<string>? onDirectory)
+        Action<ScannedDirectory>? onDirectory)
     {
         long scannedDirectories = 0;
         long observedFiles = 0;
@@ -208,7 +218,7 @@ public sealed class DirectoryWalker
                 }
 
                 scannedDirectories++;
-                onDirectory?.Invoke(dirPath);
+                onDirectory?.Invoke(new ScannedDirectory(dirPath, depth, subDirs, files));
 
                 foreach (var file in files)
                 {

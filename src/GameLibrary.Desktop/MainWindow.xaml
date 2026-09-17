@@ -76,6 +76,38 @@
                     <TextBox Name="SearchBox" DockPanel.Dock="Top" Margin="8,0,8,6"
                              AutomationProperties.Name="搜索游戏"
                              ToolTip="搜索游戏标题（Ctrl+F 聚焦，300ms 防抖）" />
+                    <Border Name="CandidateBatchBar" DockPanel.Dock="Top" Visibility="Collapsed"
+                            BorderBrush="{DynamicResource Sep}" BorderThickness="0,1,0,1"
+                            Padding="8,7" Margin="0,2,0,4"
+                            AutomationProperties.Name="待确认游戏批量操作">
+                        <StackPanel>
+                            <DockPanel Margin="0,0,0,6">
+                                <CheckBox Name="SelectAllCandidatesCheckBox" Content="全选当前结果"
+                                          Checked="OnSelectAllCandidatesChanged"
+                                          Unchecked="OnSelectAllCandidatesChanged"
+                                          MinHeight="24" VerticalAlignment="Center"
+                                          AutomationProperties.Name="全选当前待确认游戏" />
+                                <TextBlock Name="CandidateBatchSelectionText" Text="已选择 0 项"
+                                           DockPanel.Dock="Right" FontSize="11"
+                                           Foreground="{DynamicResource TextMuted}"
+                                           VerticalAlignment="Center" />
+                            </DockPanel>
+                            <UniformGrid Columns="3">
+                                <Button Name="BatchAcceptButton" Content="加入"
+                                        Style="{DynamicResource SteamGreenButton}" Padding="6,4"
+                                        Margin="0,0,4,0" Click="OnBatchAcceptClick"
+                                        AutomationProperties.Name="批量加入游戏库" />
+                                <Button Name="BatchDeferButton" Content="暂不处理"
+                                        Style="{DynamicResource SteamButton}" Padding="6,4"
+                                        Margin="2,0" Click="OnBatchDeferClick"
+                                        AutomationProperties.Name="批量暂不处理" />
+                                <Button Name="BatchIgnoreButton" Content="忽略"
+                                        Style="{DynamicResource SteamButton}" Padding="6,4"
+                                        Margin="4,0,0,0" Click="OnBatchIgnoreClick"
+                                        AutomationProperties.Name="批量忽略扫描结果" />
+                            </UniformGrid>
+                        </StackPanel>
+                    </Border>
                     <TextBlock DockPanel.Dock="Top" Text="库" FontSize="13" FontWeight="SemiBold"
                                Foreground="{DynamicResource TextMuted}" Margin="12,4,0,6" />
                     <Button Name="LoadMoreButton" DockPanel.Dock="Bottom" Visibility="Collapsed"
@@ -114,7 +146,8 @@
                         Click="OnCancelScanClick" DockPanel.Dock="Right" Margin="8,0,0,0"
                         Padding="6,1" FontSize="11" Visibility="Collapsed" />
                 <TextBlock Name="ScanProgressText" DockPanel.Dock="Right" Foreground="{DynamicResource TextMuted}"
-                           FontSize="12" VerticalAlignment="Center" Margin="0,0,10,0" Visibility="Collapsed" />
+                           FontSize="12" VerticalAlignment="Center" Margin="0,0,10,0" Visibility="Collapsed"
+                           MaxWidth="620" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
                 <TextBlock Name="StatusText" Text="正在启动…" Foreground="{DynamicResource TextMuted}"
                            FontSize="12" VerticalAlignment="Center" />
             </DockPanel>

@@ -228,13 +228,12 @@ public partial class MainWindow : Window
             throw new InvalidOperationException("后台服务尚未就绪");
         }
 
-        var json = JsonSerializer.Serialize(parameters ?? new { });
-        var document = JsonDocument.Parse(json);
+        var preparedParameters = DesktopRequestParameters.Prepare(operationId, parameters);
         var request = new IpcRequest
         {
             RequestId = $"desktop-{Guid.NewGuid():N}",
             OperationId = operationId,
-            Parameters = document.RootElement.Clone(),
+            Parameters = preparedParameters,
         };
 
         // 携带库实例/纪元（审查修复：变更请求可被恢复语义拒绝）。
@@ -257,7 +256,7 @@ public partial class MainWindow : Window
             {
                 RequestId = $"desktop-{Guid.NewGuid():N}",
                 OperationId = operationId,
-                Parameters = document.RootElement.Clone(),
+                Parameters = preparedParameters,
                 LibraryInstanceId = _connection.Handshake.LibraryInstanceId,
                 ExpectedDataEpoch = _connection.Handshake.DataEpoch,
             };

@@ -92,16 +92,26 @@ public sealed class JobManager
         }
     }
 
-    public string Create(string kind, Func<JobContext, Task<JobOutcome>> executor)
+    public string Create(
+        string kind,
+        Func<JobContext, Task<JobOutcome>> executor,
+        object? initialProgress = null)
     {
         var entry = new JobEntry { Id = $"job-{Guid.NewGuid():N}", Kind = kind };
         _jobs[entry.Id] = entry;
         entry.Context = new JobContext { JobId = entry.Id, Token = entry.Cts.Token };
+        if (initialProgress is not null)
+        {
+            entry.Context.ReportProgress(initialProgress);
+        }
+
         entry.State = "running";
         entry.StartedUtc = DateTime.UtcNow;
         Record(entry);
 
-        _ = RunAsync(entry, executor);
+        // Executors may perform synchronous filesystem work before returning a Task. Always
+        // cross a thread-pool boundary so accepting a job never blocks the IPC request thread.
+        _ = Task.Run(() => RunAsync(entry, executor));
         return entry.Id;
     }
 

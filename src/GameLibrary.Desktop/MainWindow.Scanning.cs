@@ -351,6 +351,8 @@ public partial class MainWindow : Window
         CancelScanButton.Visibility = Visibility.Visible;
         ScanProgressText.Visibility = Visibility.Visible;
         var scanFailed = false;
+        var scanPartial = false;
+        var candidatesFound = 0L;
         try
         {
             for (var i = 0; i < roots.Count; i++)
@@ -361,54 +363,66 @@ public partial class MainWindow : Window
                 }
 
                 var root = roots[i];
-                // 审查编排语义：首轮候选为 observed（不可审核），复扫把既有候选晋升
-                // pendingReview（可 accept）——每根自动扫两轮，用户点一次即见结果。
-                for (var round = 1; round <= 2; round++)
+                ScanProgressText.Text = $"准备扫描（根 {i + 1}/{roots.Count}）";
+                var start = await InvokeAsync("scan.start", new { root });
+                if (!start.Ok)
                 {
-                    if (_scanCancellationRequested || scanFailed)
-                    {
-                        break;
-                    }
-
-                    ScanProgressText.Text = $"扫描（第 {round} 轮 / 根 {i + 1}/{roots.Count}）{root}";
-                    var start = await InvokeAsync("scan.start", new { root });
-                    if (!start.Ok)
-                    {
-                        ShowError($"扫描启动失败（{root}）：{start.Error?.Code} {start.Error?.Message}");
-                        scanFailed = true;
-                        break;
-                    }
-
-                    var jobId = start.JobId ?? throw new InvalidOperationException("后台未返回扫描任务编号");
-                    _currentScanJobId = jobId;
-                    while (true)
-                    {
-                        await Task.Delay(500);
-                        var status = await InvokeAsync("jobs.get", new { jobId });
-                        if (!status.Ok)
-                        {
-                            throw new InvalidOperationException($"查询扫描进度失败：{status.Error?.Message}");
-                        }
-
-                        var stateName = status.Data.GetProperty("state").GetString();
-                        if (stateName is "succeeded" or "failed" or "cancelled")
-                        {
-                            if (stateName == "failed")
-                            {
-                                ShowError($"扫描失败（{root}，第 {round} 轮）；请检查游戏文件夹后重试。");
-                                scanFailed = true;
-                            }
-                            else if (stateName == "cancelled")
-                            {
-                                _scanCancellationRequested = true;
-                            }
-
-                            break;
-                        }
-                    }
-
-                    _currentScanJobId = null;
+                    ShowError($"扫描启动失败（{root}）：{start.Error?.Code} {start.Error?.Message}");
+                    scanFailed = true;
+                    break;
                 }
+
+                var jobId = start.JobId ?? throw new InvalidOperationException("后台未返回扫描任务编号");
+                _currentScanJobId = jobId;
+                while (true)
+                {
+                    var progress = await InvokeAsync("scan.coverage", new { jobId });
+                    if (!progress.Ok)
+                    {
+                        throw new InvalidOperationException($"查询扫描进度失败：{progress.Error?.Message}");
+                    }
+
+                    var stateName = progress.Data.GetProperty("state").GetString();
+                    var coverage = progress.Data.GetProperty("coverage");
+                    if (coverage.ValueKind == JsonValueKind.Object)
+                    {
+                        ScanProgressText.Text = DesktopScanProgress.Format(coverage, i + 1, roots.Count);
+                    }
+
+                    if (stateName is "succeeded" or "failed" or "cancelled")
+                    {
+                        if (coverage.ValueKind == JsonValueKind.Object)
+                        {
+                            if (coverage.TryGetProperty("candidatesFound", out var found)
+                                && found.ValueKind == JsonValueKind.Number)
+                            {
+                                candidatesFound += found.GetInt64();
+                            }
+
+                            if (coverage.TryGetProperty("completion", out var completion)
+                                && completion.GetString() == "partial")
+                            {
+                                scanPartial = true;
+                            }
+                        }
+
+                        if (stateName == "failed")
+                        {
+                            ShowError($"扫描失败（{root}）；请检查游戏文件夹后重试。");
+                            scanFailed = true;
+                        }
+                        else if (stateName == "cancelled")
+                        {
+                            _scanCancellationRequested = true;
+                        }
+
+                        break;
+                    }
+
+                    await Task.Delay(350);
+                }
+
+                _currentScanJobId = null;
             }
 
             if (_scanCancellationRequested)
@@ -427,9 +441,10 @@ public partial class MainWindow : Window
                     throw new InvalidOperationException($"读取待确认项目失败：{candidates.Error?.Message}");
                 }
 
-                var total = candidates.Data.GetProperty("total").GetInt32();
+                var pending = candidates.Data.GetProperty("items").EnumerateArray()
+                    .Count(item => item.GetProperty("reviewState").GetString() == "pendingReview");
                 ScanProgressText.Text = "扫描完成";
-                if (total > 0)
+                if (pending > 0)
                 {
                     // 有新候选时自动切到待审核视图（用户核心诉求是审核入库）。
                     foreach (var item in ViewSelector.Items.OfType<ComboBoxItem>()
@@ -439,11 +454,17 @@ public partial class MainWindow : Window
                         break;
                     }
 
-                    SetStatus($"扫描完成：发现 {total} 个项目需要确认，已切到「待确认游戏」");
+                    SetStatus(scanPartial
+                        ? $"扫描完成但部分分支无法访问：本次识别 {candidatesFound} 个候选，当前有 {pending} 个待确认"
+                        : $"扫描完成：本次识别 {candidatesFound} 个候选，当前有 {pending} 个待确认，已切到「待确认游戏」");
                 }
                 else
                 {
-                    SetStatus("扫描完成：未发现可识别的游戏（当前检测器覆盖 Kirikiri/Ren'Py/RPGMaker MV-MZ/Flash/Unity 五类引擎）");
+                    SetStatus(scanPartial
+                        ? $"扫描完成但部分分支无法访问：本次识别 {candidatesFound} 个候选"
+                        : candidatesFound > 0
+                            ? $"扫描完成：本次识别 {candidatesFound} 个候选，暂无待确认项目"
+                            : "扫描完成：未发现可审核的游戏");
                 }
             }
         }

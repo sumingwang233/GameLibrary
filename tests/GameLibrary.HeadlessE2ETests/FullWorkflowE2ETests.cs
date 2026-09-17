@@ -121,15 +121,11 @@ public sealed class FullWorkflowE2ETests
             var addRoot = await RunCliAsync("roots", "add", "--root", scanRoot, "--data-dir", dataDir);
             Assert.Equal(0, addRoot.ExitCode);
 
-            // 3. 扫描两轮（等作业完成；复扫把候选从 observed 晋升到 pendingReview，与候选编排一致）。
-            string jobId = "";
-            for (var round = 0; round < 2; round++)
-            {
-                var scan = await RunCliAsync("scan", "start", "--root", scanRoot, "--data-dir", dataDir);
-                Assert.Equal(0, scan.ExitCode);
-                jobId = JsonDocument.Parse(scan.StdOut).RootElement.GetProperty("jobId").GetString()!;
-                await WaitForJobAsync(dataDir, jobId, "succeeded");
-            }
+            // 3. 用户主动扫描一轮即进入 pendingReview。
+            var scan = await RunCliAsync("scan", "start", "--root", scanRoot, "--data-dir", dataDir);
+            Assert.Equal(0, scan.ExitCode);
+            var jobId = JsonDocument.Parse(scan.StdOut).RootElement.GetProperty("jobId").GetString()!;
+            await WaitForJobAsync(dataDir, jobId, "succeeded");
 
             // 3. 候选审核：accept 第一个候选。
             var candidates = await RunCliAsync("candidates", "list", "--data-dir", dataDir);

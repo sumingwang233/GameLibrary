@@ -8,8 +8,9 @@ namespace GameLibrary.Host.Scanning;
 
 /// <summary>
 /// T05-B 扫描候选（宿主内存态；入库/审核状态机与持久化随 T11 进入）。
-/// 一个有 ≥Medium 引擎证据的目录产生一个候选；Kind 依 5.3 编排：确认根内的独立证据为
-/// NestedCandidate，≥2 个直属 GameRoot 的父目录补充 Container，双 high 记 EngineConflict 不取先注册。
+/// 已知引擎证据产生 GameRoot；未知引擎的直属 EXE/LNK 产生保守待审核候选；根级独立
+/// EXE/SWF 产生 FileGame。确认根内的独立引擎证据为 NestedCandidate，≥2 个直属
+/// GameRoot 的父目录补充 Container，双 high 记 EngineConflict 不取先注册。
 /// </summary>
 public sealed record ScanCandidate
 {
@@ -43,7 +44,7 @@ public sealed record ScanCandidate
 
     public required FolderClassification Classification { get; init; }
 
-    /// <summary>扫描新发现的候选一律从 Observed 开始；accept/defer/ignore 随 T11。</summary>
+    /// <summary>内存观察态；持久层按扫描触发类型决定 observed 或 pendingReview。</summary>
     public CandidateReviewState ReviewState => CandidateReviewState.Observed;
 
     public required DateTime ObservedUtc { get; init; }
@@ -154,6 +155,8 @@ public sealed class ScanCandidateCollector
     /// <summary>本次作业发现的全部候选（落库与查询用）。</summary>
     public IReadOnlyList<ScanCandidate> Candidates => _candidates;
 
+    public int CandidateCount => _candidates.Count;
+
     public ScanCandidateCollector(GamePath root, string jobId, CandidateRegistry registry)
     {
         _root = root;
@@ -161,37 +164,72 @@ public sealed class ScanCandidateCollector
         _registry = registry;
     }
 
-    /// <summary>对枚举到的目录做只读识别；≥Medium 证据产生候选。</summary>
-    public void InspectDirectory(string directoryPhysicalPath, CancellationToken ct)
+    /// <summary>复用 Walker 已完成的直属枚举做只读识别，避免每个检测器重新枚举目录。</summary>
+    public void InspectDirectory(ScannedDirectory directory, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        var validation = GamePath.TryCreate(directoryPhysicalPath);
+        var validation = GamePath.TryCreate(directory.PhysicalPath);
         if (!validation.IsValid)
         {
             return;
         }
 
-        var report = Detectors.DetectAll(new FileSystemDirectorySnapshot(validation.Path!));
+        var snapshot = new FileSystemDirectorySnapshot(validation.Path!, directory.Directories, directory.Files);
+        var report = Detectors.DetectAll(snapshot);
         var confirmed = report.Results
             .Where(r => r.Confidence >= DetectionConfidence.Medium && r.LikelyRootRelativePaths.Count > 0)
             .ToArray();
-        if (confirmed.Length == 0)
+        if (confirmed.Length > 0)
+        {
+            if (confirmed.Length == 1
+                && confirmed[0].Engine == EngineId.Flash
+                && confirmed[0].EntryCandidates.Count > 0)
+            {
+                foreach (var entry in confirmed[0].EntryCandidates)
+                {
+                    AddCandidate(BuildFileCandidate(validation.Path!, entry, confirmed, confirmed[0].Evidence));
+                }
+
+                return;
+            }
+
+            var kind = IsInsideConfirmedRoot(directory.PhysicalPath)
+                ? CandidateKind.NestedCandidate
+                : CandidateKind.GameRoot;
+            var candidate = BuildCandidate(validation.Path!, kind, confirmed, report.Conflict is not null);
+            AddCandidate(candidate);
+            if (kind == CandidateKind.GameRoot)
+            {
+                var parent = Path.GetDirectoryName(directory.PhysicalPath) ?? "";
+                _gameRootChildren[parent] = _gameRootChildren.GetValueOrDefault(parent) + 1;
+            }
+
+            return;
+        }
+
+        var generic = GenericGameCandidateDetector.Inspect(snapshot);
+        if (!generic.IsCandidate || IsInsidePlayableRoot(directory.PhysicalPath))
         {
             return;
         }
 
-        var kind = IsInsideConfirmedRoot(directoryPhysicalPath)
-            ? CandidateKind.NestedCandidate
-            : CandidateKind.GameRoot;
-        var candidate = BuildCandidate(validation.Path!, kind, confirmed, report.Conflict is not null);
-        _byPath[candidate.PhysicalPath] = candidate;
-        _registry.Add(candidate);
-        _candidates.Add(candidate);
-        if (kind == CandidateKind.GameRoot)
+        if (directory.Depth == 0)
         {
-            var parent = Path.GetDirectoryName(directoryPhysicalPath) ?? "";
-            _gameRootChildren[parent] = _gameRootChildren.GetValueOrDefault(parent) + 1;
+            foreach (var entry in generic.EntryCandidates)
+            {
+                AddCandidate(BuildFileCandidate(validation.Path!, entry, [], generic.Evidence));
+            }
+
+            return;
         }
+
+        AddCandidate(BuildCandidate(
+            validation.Path!,
+            CandidateKind.Unknown,
+            engines: [],
+            engineConflict: false,
+            evidenceOverride: generic.Evidence,
+            entriesOverride: generic.EntryCandidates));
     }
 
     /// <summary>遍历结束后归并容器：≥2 个直属 GameRoot 且自身无引擎证据的父目录。</summary>
@@ -216,9 +254,7 @@ public sealed class ScanCandidateCollector
                 engines: [],
                 engineConflict: false,
                 directGameRootChildren: count);
-            _byPath[candidate.PhysicalPath] = candidate;
-            _registry.Add(candidate);
-            _candidates.Add(candidate);
+            AddCandidate(candidate);
         }
     }
 
@@ -227,14 +263,16 @@ public sealed class ScanCandidateCollector
         CandidateKind kind,
         IReadOnlyList<DetectionResult> engines,
         bool engineConflict,
-        int? directGameRootChildren = null)
+        int? directGameRootChildren = null,
+        IReadOnlyList<DetectionEvidence>? evidenceOverride = null,
+        IReadOnlyList<EntryCandidate>? entriesOverride = null)
     {
-        var evidence = engines.SelectMany(r => r.Evidence).ToArray();
-        var entries = engines
-            .SelectMany(r => r.EntryCandidates)
-            .OrderByDescending(e => e.Score)
-            .ThenBy(e => e.RelativePath, StringComparer.Ordinal)
-            .ToArray();
+        var evidence = evidenceOverride ?? engines.SelectMany(r => r.Evidence).ToArray();
+        var entries = entriesOverride ?? engines
+                .SelectMany(r => r.EntryCandidates)
+                .OrderByDescending(e => e.Score)
+                .ThenBy(e => e.RelativePath, StringComparer.Ordinal)
+                .ToArray();
         var ancestorSegments = AncestorSegments(directory);
 
         return new ScanCandidate
@@ -258,11 +296,60 @@ public sealed class ScanCandidateCollector
         };
     }
 
+    private ScanCandidate BuildFileCandidate(
+        GamePath directory,
+        EntryCandidate entry,
+        IReadOnlyList<DetectionResult> engines,
+        IReadOnlyList<DetectionEvidence> evidence)
+    {
+        var physicalPath = Path.Combine(
+            directory.PhysicalPath,
+            entry.RelativePath.Replace('/', Path.DirectorySeparatorChar));
+        var filePath = GamePath.Create(physicalPath);
+        var entryEvidence = evidence
+            .Where(item => string.Equals(item.RelativePath, entry.RelativePath, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        return new ScanCandidate
+        {
+            CandidateId = $"cand-{Guid.NewGuid():N}",
+            JobId = _jobId,
+            ScanRoot = _root.PhysicalPath,
+            PhysicalPath = filePath.PhysicalPath,
+            RelativePath = RelativeToRoot(filePath.PhysicalPath),
+            Kind = CandidateKind.FileGame,
+            Engines = engines
+                .Select(result => new CandidateEngine(result.Engine, result.DetectorVersion, result.Confidence))
+                .OrderBy(result => result.Engine)
+                .ToArray(),
+            EngineConflict = false,
+            Evidence = entryEvidence,
+            EntryCandidates = [entry],
+            Classification = Classification.Classify(AncestorSegments(directory)),
+            ObservedUtc = DateTime.UtcNow,
+        };
+    }
+
+    private void AddCandidate(ScanCandidate candidate)
+    {
+        _byPath[candidate.PhysicalPath] = candidate;
+        _registry.Add(candidate);
+        _candidates.Add(candidate);
+    }
+
     private bool IsInsideConfirmedRoot(string directoryPhysicalPath) =>
         _byPath.Values.Any(c =>
             c.Kind == CandidateKind.GameRoot
             && directoryPhysicalPath.Length > c.PhysicalPath.Length
             && directoryPhysicalPath.StartsWith(c.PhysicalPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+
+    private bool IsInsidePlayableRoot(string directoryPhysicalPath) =>
+        _byPath.Values.Any(candidate =>
+            (candidate.Kind is CandidateKind.GameRoot or CandidateKind.Unknown)
+            && directoryPhysicalPath.Length > candidate.PhysicalPath.Length
+            && directoryPhysicalPath.StartsWith(
+                candidate.PhysicalPath + Path.DirectorySeparatorChar,
+                StringComparison.OrdinalIgnoreCase));
 
     private string RelativeToRoot(string physicalPath)
     {

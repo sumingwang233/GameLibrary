@@ -48,7 +48,7 @@ public static class ReconcileService
                     || game.EntryPath is not null && DriveRootExists(game.EntryPath));
             var present = rootOnline && (game.Kind switch
             {
-                "manualFile" => File.Exists(game.RootPath),
+                "manualFile" or "fileGame" => File.Exists(game.RootPath),
                 "manualShortcut" => File.Exists(game.RootPath)
                     && game.EntryPath is not null && File.Exists(game.EntryPath),
                 _ => Directory.Exists(game.RootPath),

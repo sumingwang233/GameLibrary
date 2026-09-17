@@ -43,6 +43,10 @@ public partial class MainWindow : Window
                 candidate));
         }
 
+        _selectedCandidateIds.IntersectWith(pending
+            .Select(candidate => candidate.GetProperty("candidateId").GetString())
+            .OfType<string>());
+
         _allEntries = entries;
         RenderSidebar();
     }
@@ -144,26 +148,17 @@ public partial class MainWindow : Window
         }
 
         var list = visible.ToList();
+        UpdateCandidateBatchUi(activeView, list);
         LibraryList.Items.Clear();
         foreach (var entry in list)
         {
-            var panel = new StackPanel();
-            panel.Children.Add(new TextBlock
-            {
-                Text = (entry.Favorite ? "★ " : "") + entry.Title,
-                FontSize = 13,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-            });
-            panel.Children.Add(new TextBlock
-            {
-                Text = entry.Kind == "candidate" ? "等待确认" : entry.Subtitle,
-                FontSize = 11,
-                Foreground = entry.Kind == "candidate"
-                    ? TryFindResource<SolidColorBrush>("Green")
-                    : TryFindResource<SolidColorBrush>("TextMuted"),
-            });
             // 审查意见：条目直接携带 Entry（按 ID 关联），不再按标题反查。
-            var container = new ListBoxItem { Style = (Style)TryFindResource("SidebarItem"), Tag = entry, Content = panel };
+            var container = new ListBoxItem
+            {
+                Style = (Style)TryFindResource("SidebarItem"),
+                Tag = entry,
+                Content = CreateSidebarEntryContent(entry, activeView == "pending"),
+            };
             LibraryList.Items.Add(container);
         }
 
@@ -952,13 +947,7 @@ public partial class MainWindow : Window
 
     private async Task ReviewAsync(string candidateId, int revision, string operationId)
     {
-        var action = operationId switch
-        {
-            "candidates.accept" => "加入游戏库",
-            "candidates.defer" => "稍后处理",
-            "candidates.ignore" => "不再提示",
-            _ => "处理扫描结果",
-        };
+        var action = CandidateReviewActionLabel(operationId);
         try
         {
             var envelope = await InvokeAsync(operationId, new

@@ -6,6 +6,37 @@ namespace GameLibrary.IntegrationTests.Scanning;
 public sealed class JobManagerTests
 {
     [Fact]
+    public async Task Create_DoesNotWaitForSynchronousExecutor()
+    {
+        var manager = new JobManager();
+        using var release = new ManualResetEventSlim(false);
+
+        var createTask = Task.Run(() => manager.Create(
+            "blocking-test",
+            _ =>
+            {
+                release.Wait(TimeSpan.FromSeconds(10));
+                return Task.FromResult(JobOutcome.Succeeded());
+            }));
+
+        try
+        {
+            var completed = await Task.WhenAny(createTask, Task.Delay(TimeSpan.FromSeconds(2)));
+            Assert.Same(createTask, completed);
+
+            var jobId = await createTask;
+            Assert.Equal("running", manager.Get(jobId)!.State);
+            release.Set();
+            await WaitForTerminalAsync(manager, jobId);
+            Assert.Equal("succeeded", manager.Get(jobId)!.State);
+        }
+        finally
+        {
+            release.Set();
+        }
+    }
+
+    [Fact]
     public async Task Create_RunsToSucceeded()
     {
         var manager = new JobManager();

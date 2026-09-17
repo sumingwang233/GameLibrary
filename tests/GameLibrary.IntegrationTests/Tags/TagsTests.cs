@@ -69,15 +69,12 @@ public sealed class TagsTests : IClassFixture<PipeServerFixture>
         throw new TimeoutException($"扫描作业 {jobId} 未在 15 秒内完成");
     }
 
-    /// <summary>入库一个游戏（双扫描 → pendingReview → accept），返回 (gameId, revision)。</summary>
+    /// <summary>入库一个游戏（手动扫描 → pendingReview → accept），返回 (gameId, revision)。</summary>
     private async Task<(string GameId, int Revision)> CreateGameAsync(string prefix)
     {
         var root = CreateGameTree(prefix);
         await InvokeAsync("roots.add", new { root });
-        for (var scan = 0; scan < 2; scan++)
-        {
-            await ScanAndWaitAsync(root);
-        }
+        await ScanAndWaitAsync(root);
 
         var list = await InvokeAsync("candidates.list", new { });
         var item = list.Data.GetProperty("items").EnumerateArray()

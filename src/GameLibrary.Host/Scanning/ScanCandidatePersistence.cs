@@ -6,7 +6,8 @@ namespace GameLibrary.Host.Scanning;
 
 /// <summary>
 /// 扫描候选落库（T16 统一编排）：手动扫描与周期核对共用——按物理路径 upsert、
-/// 抑制规则命中不落库、重扫命中既有 observed 候选晋升 pendingReview（合法双跳）、
+/// 抑制规则命中不落库；显式手动扫描直接产生 pendingReview，周期核对的新发现先 observed；
+/// 重扫命中既有 observed 候选晋升 pendingReview（合法双跳）、
 /// 事件发布（candidate.discovered / candidate.promoted）。
 /// T17：落库前计算诊断提示（BackupHint/DuplicateHint）写入 payload——只做提示，不自动归类排除。
 /// </summary>
@@ -18,7 +19,12 @@ public static class ScanCandidatePersistence
         "backup", "copy", "副本", "备份", "旧版",
     ];
 
-    public static void Persist(SqliteLibraryStore? store, EventStream? events, ScanCandidateCollector collector, string jobId)
+    public static void Persist(
+        SqliteLibraryStore? store,
+        EventStream? events,
+        ScanCandidateCollector collector,
+        string jobId,
+        bool readyForReview = false)
     {
         if (store is null)
         {
@@ -46,7 +52,7 @@ public static class ScanCandidatePersistence
                 RelativePath = candidate.RelativePath,
                 PhysicalPath = candidate.PhysicalPath,
                 PayloadJson = payloadJson,
-                ReviewState = "observed",
+                ReviewState = readyForReview ? "pendingReview" : "observed",
                 ObservedUtc = candidate.ObservedUtc,
                 UpdatedUtc = utcNow,
             });
@@ -70,6 +76,7 @@ public static class ScanCandidatePersistence
                     candidateId = candidate.CandidateId,
                     relativePath = candidate.RelativePath,
                     kind = ToCamel(candidate.Kind.ToString()),
+                    reviewState = readyForReview ? "pendingReview" : "observed",
                 }, utcNow);
             }
         }

@@ -51,6 +51,11 @@ public sealed class ScanOperationTests : IClassFixture<PipeServerFixture>
         Assert.Equal("running", start.Data.GetProperty("state").GetString());
 
         var jobId = start.JobId!;
+        var liveCoverage = await InvokeAsync("scan.coverage", new { jobId });
+        Assert.True(liveCoverage.Ok);
+        Assert.True(liveCoverage.Data.GetProperty("coverage").TryGetProperty("scannedDirectories", out _));
+        Assert.True(liveCoverage.Data.GetProperty("coverage").TryGetProperty("candidatesFound", out _));
+
         await WaitForJobAsync(jobId, "succeeded");
 
         var status = await InvokeAsync("scan.status", new { jobId });
@@ -60,8 +65,10 @@ public sealed class ScanOperationTests : IClassFixture<PipeServerFixture>
         var coverage = await InvokeAsync("scan.coverage", new { jobId });
         Assert.True(coverage.Ok);
         Assert.Equal("complete", coverage.Data.GetProperty("coverage").GetProperty("completion").GetString());
+        Assert.Equal("completed", coverage.Data.GetProperty("coverage").GetProperty("phase").GetString());
         Assert.True(coverage.Data.GetProperty("coverage").GetProperty("scannedDirectories").GetInt64() >= 2);
         Assert.True(coverage.Data.GetProperty("coverage").GetProperty("observedFileEntries").GetInt64() >= 3);
+        Assert.True(coverage.Data.GetProperty("coverage").GetProperty("candidatesFound").GetInt32() >= 2);
 
         var jobsGet = await InvokeAsync("jobs.get", new { jobId });
         Assert.True(jobsGet.Ok);
@@ -142,9 +149,10 @@ public sealed class ScanOperationTests : IClassFixture<PipeServerFixture>
         var list = await InvokeAsync("candidates.list", new { jobId });
         Assert.True(list.Ok, list.Error?.Message);
         Assert.True(list.Data.GetProperty("total").GetInt32() >= 1);
-        var item = list.Data.GetProperty("items")[0];
+        var item = list.Data.GetProperty("items").EnumerateArray()
+            .First(candidate => candidate.GetProperty("relativePath").GetString() == "GameA");
         Assert.Equal("gameRoot", item.GetProperty("kind").GetString());
-        Assert.Equal("observed", item.GetProperty("reviewState").GetString());
+        Assert.Equal("pendingReview", item.GetProperty("reviewState").GetString());
 
         var candidateId = item.GetProperty("candidateId").GetString()!;
         var detail = await InvokeAsync("candidates.get", new { candidateId });
@@ -178,7 +186,16 @@ public sealed class ScanOperationTests : IClassFixture<PipeServerFixture>
         Assert.True(inspect.Data.GetProperty("evidence").GetArrayLength() >= 1);
 
         var emptyDir = Path.Combine(root, "GameB");
-        var notRecognized = await InvokeAsync("scan.inspect", new { path = emptyDir });
+        var generic = await InvokeAsync("scan.inspect", new { path = emptyDir });
+        Assert.True(generic.Ok);
+        Assert.True(generic.Data.GetProperty("recognized").GetBoolean());
+        Assert.Equal("unknown", generic.Data.GetProperty("candidateKind").GetString());
+        Assert.Empty(generic.Data.GetProperty("engines").EnumerateArray());
+        Assert.Single(generic.Data.GetProperty("entryCandidates").EnumerateArray());
+
+        var actuallyEmptyDir = Path.Combine(root, "Empty");
+        Directory.CreateDirectory(actuallyEmptyDir);
+        var notRecognized = await InvokeAsync("scan.inspect", new { path = actuallyEmptyDir });
         Assert.True(notRecognized.Ok);
         Assert.False(notRecognized.Data.GetProperty("recognized").GetBoolean());
 

@@ -35,6 +35,10 @@
     <ProjectReference Include="..\GameLibrary.Contracts\GameLibrary.Contracts.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="GameLibrary.IntegrationTests" />
+  </ItemGroup>
+
   <!-- 开发布局兜底：HostProcessLauncher 按"与 Desktop.exe 同目录"解析 Host；
        EXE 不会被项目引用自动复制，故构建后把 Host 运行时整目录复制到输出
        （仅文件复制，不建立项目引用——依赖方向仍为 Desktop → HostClient → IPC）。

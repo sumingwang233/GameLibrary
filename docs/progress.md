@@ -422,3 +422,44 @@
 - **验证结果**：`dotnet format --verify-no-changes` 通过；Release build 0 警告 0 错误；全套 **418/418**（单元 139、契约 43、架构 8、集成 212、无界面 E2E 16）。测试覆盖设置持久化/回默认、无效和游戏根内路径拒绝、预览生成/清理/再生、父目录文件与所有权标记保留、CLI/MCP 映射及 Desktop 显示/保存。报告：`artifacts/build-reports/2026-09-17-r12-build.txt` 与 `2026-09-17-r12*.trx`。未访问 `LocalData/` 或 F 盘。
 - **未验证范围**：Windows 原生目录对话框的完整 UIA 导航只验证了入口可发现，尚未自动点击并选中路径；缓存容量上限/淘汰策略、同用户恶意进程持续替换目录的 TOCTOU、数据目录迁移、无 SDK 干净机器和重新打包产物仍未完成。
 - **下一项**：补缓存容量管理与原生目录选择 UIA；随后实现数据目录的停机迁移/校验/回退，继续目录/LNK GUI 与发布环境验收。
+
+## R13 Desktop 扫描请求幂等参数修复 — 2026-09-17
+
+- **任务 ID**：R13（用户实测从 Desktop 扫描 F 盘时报 `InvalidArgument: scan.start 需要 idempotencyKey 参数`；验证未访问 F 盘）。
+- **根因与修复**：Desktop 的统一 IPC 入口原样发送调用点参数，`OnScanClick` 的 `scan.start`、`OnCancelScanClick` 的 `scan.cancel` 及部分写操作漏传契约要求的 `idempotencyKey`。新增 `DesktopRequestParameters`，根据嵌入的 operation catalog 为所有要求幂等键且调用方未提供有效键的 Desktop 写请求自动生成键；显式键保持不变，数据纪元重连重试复用同一个已准备参数，避免重复副作用。
+- **改动文件**：新增 `src/GameLibrary.Desktop/DesktopRequestParameters.cs`、`tests/GameLibrary.IntegrationTests/Ui/DesktopRequestParameterTests.cs`；修改 `MainWindow.Connection.cs`、Desktop 项目测试可见性及本进度。
+- **验证结果**：`dotnet format --verify-no-changes` 通过；隔离输出与默认运行目录的 Release 全解决方案构建均为 0 警告、0 错误；完整基线 **424/424**（单元 139、契约 43、架构 8、集成 218、无界面 E2E 16），其中真实 Desktop UIA 2/2；补充空白/错误类型键防御后，参数与真实 Named Pipe Host 扫描定向回归 **9/9**。构建日志及 TRX 位于 `artifacts/build-reports/2026-09-17-r13-*`。
+- **未验证范围**：真实 F 盘人工扫描需用户在修复版 Desktop 中确认；自动测试未访问 F 盘或 `LocalData/`。
+- **下一项**：用户确认真实 F 盘扫描启动正常；获得远端写入确认后提交并推送 R13。
+
+## R14 扫描进度、性能与识别覆盖修复 — 2026-09-17
+
+- **任务 ID**：R14（用户实测扫描已能启动，但无实时进度、扫描期间界面卡顿，且 F 盘只识别出 6 个 Unity 游戏）。
+- **根因**：扫描执行器在返回 `Task` 前同步遍历磁盘，阻塞 IPC/UI；Desktop 为满足旧的 observed→pendingReview 语义把每个根完整扫描两遍，且五类检测器重复枚举相同目录；默认 20,000 目录/120 秒预算到达后没有自动消费续扫游标，同时仅有五类已知引擎检测器，未知引擎的普通 EXE/LNK 不会产生候选。
+- **改动文件（后台与识别）**：`JobManager.cs`（强制在线程池执行作业并提供初始进度）、`ScanJobRunner.cs`/`DirectoryWalker.cs`/`FileSystemDirectorySnapshot.cs`（实时目录、文件、候选与当前位置；Walker 枚举结果复用；分段预算自动续扫并汇总覆盖）、`ScanCandidate.cs`/新增 `GenericGameCandidateDetector.cs`（未知引擎 EXE/LNK 保守候选、根级 EXE/SWF 独立候选、常见安装器/运行库/工具排除，启动项在大量普通文件之后仍可发现）、`ScanCandidatePersistence.cs`（用户手动扫描单轮直接进入 pendingReview）、`OperationDispatcher.cs`/`HostRuntime.cs`（仅完整覆盖后做缺失对账）、`ReconcileService.cs`（fileGame 按文件检查），以及相应扫描、审核、标签和 E2E 回归测试。
+- **改动文件（Desktop）**：新增 `DesktopScanProgress.cs`；`MainWindow.Scanning.cs`/`MainWindow.xaml` 改为每 350 ms 读取 `scan.coverage`，显示已检查目录数、文件数、候选数和当前相对目录；删除每根双扫描；保持界面可交互并支持取消。R13 的 `DesktopRequestParameters.cs`/`MainWindow.Connection.cs` 幂等键修复继续保留。
+- **行为修复**：扫描请求立即返回后台任务；超过单段预算会自动续扫至无可续分支；覆盖不完整时不误把游戏标记为缺失；候选接受后保存绝对 `EntryPath`；未知引擎不伪造引擎类型，统一进入待确认流程。
+- **验证结果**：`dotnet format --verify-no-changes` 通过；Release 构建 0 警告、0 错误；全套 **435/435**（单元 139、契约 43、架构 8、集成 229、无界面 E2E 16）。报告：`artifacts/build-reports/2026-09-17-r14-format.txt`、`2026-09-17-r14-build-final.txt`、`2026-09-17-r14-final-tests.txt`；TRX 位于各测试项目的 `TestResults/2026-09-17-r14-final.trx`。
+- **边界与未验证范围**：自动测试只使用 `artifacts/test-runs/<guid>/data`，未访问 F 盘或 `LocalData/`。真实 F 盘的最终候选数量、受保护目录的部分覆盖提示和实际磁盘吞吐仍需用户在新 Desktop 中复测；泛型识别有意排除常见安装器、崩溃上报器、运行库和工具，其他非游戏 EXE 仍需在待确认列表中由用户判断。
+- **下一项**：启动 Release Desktop，由用户重新扫描 F 盘并核对实时计数与待确认列表；确认结果后再提交并推送远端。
+
+## R15 扫描结果多选与批量审核 — 2026-09-17
+
+- **任务 ID**：R15（用户要求多选扫描出来的游戏并执行批量操作）。
+- **改动文件**：新增 `src/GameLibrary.Desktop/MainWindow.CandidateBatch.cs`；修改 `MainWindow.xaml`、`MainWindow.Library.cs` 与 `tests/GameLibrary.IntegrationTests/Ui/UiaSmokeTests.cs`；本进度与构建报告。
+- **行为增量**：在“待确认游戏”视图为每个扫描候选显示可键盘和辅助技术操作的复选框；提供“全选当前结果”、已选数量，以及批量“加入”“暂不处理”“忽略”。普通游戏列表仍保持单选查看详情，不受批量模式影响。批量请求逐项复用既有 `candidates.accept/defer/ignore` 操作与 Revision/幂等保护，成功项移出选择，失败项保留并汇总首个错误；批量忽略执行前明确确认，且说明不会删除游戏文件。
+- **接口边界**：这是 Desktop 对现有三入口业务操作的组合调用，不新增仅 GUI 可用的业务接口，也不修改 operation catalog 或共享契约。
+- **可访问性修复**：复选框监听 Checked/Unchecked，而不是仅监听鼠标 Click；真实 UIA 的 TogglePattern、键盘和鼠标走同一状态路径。控件具有 AutomationName，批量按钮在未选中或执行期间禁用。
+- **验证结果**：`dotnet format --verify-no-changes` 与 `git diff --check` 通过；Release 构建 0 警告、0 错误；新增真实 Desktop UIA 完成“两项扫描候选→进入待确认视图→全选→批量加入→Host 中两项入库且待确认归零”；全套 **436/436**（单元 139、契约 43、架构 8、集成 230、无界面 E2E 16）。报告：`artifacts/build-reports/2026-09-17-r15-build.txt`、`2026-09-17-r15-batch-uia.txt`、`2026-09-17-r15-format.txt`、`2026-09-17-r15-final-tests.txt`。
+- **未验证范围**：批量“暂不处理/忽略”的窗口点击未分别做 UIA；它们与批量加入共用同一循环和结果汇总，底层 defer/ignore 状态机由现有集成测试覆盖。未访问 F 盘或 `LocalData/`，未重新打包发布 ZIP。
+- **下一项**：启动 Release Desktop，让用户在真实扫描结果中验证勾选、全选和三种批量操作；确认后再提交并推送远端。
+
+## R16 v1.0.0 正式发布与当前用户安装器 — 2026-09-17
+
+- **任务 ID**：R16（用户明确授权提交、推送，并把对应程序作为 GitHub Release 和安装程序上传）。
+- **改动文件**：`src/GameLibrary.Host/GameLibrary.Host.csproj`、`src/GameLibrary.Cli/GameLibrary.Cli.csproj`、`src/GameLibrary.Mcp/GameLibrary.Mcp.csproj`（四个发布入口统一 `1.0.0` 元数据，Desktop 原为 `1.0.0`）；`artifacts/tools/package_release.py`（正式发布流水线）；README、本进度。
+- **发布布局修复**：旧脚本把四个自包含项目依次发布到同一目录，后发布项目会删除前一个项目独有的运行时文件，且 WPF/Console 的同名运行时程序集内容可能不同；试运行实际复现 CLI 缺少 `System.Text.Encoding.Extensions.dll`。新脚本先独立发布，再按 `GameLibrary.Desktop/Host/Cli/Mcp` 组件目录封装；Desktop 通过既有兄弟目录解析启动 Host，避免运行时覆盖和静默冲突。
+- **发布资产**：生成 `GameLibrary-win-x64-v1.0.0.zip` 便携包、`GameLibrary-Setup-v1.0.0.exe` 当前用户安装器和 `GameLibrary-v1.0.0-SHA256SUMS.txt`。安装器使用 Windows IExpress 封装，安装到 `%LOCALAPPDATA%\Programs\GameLibrary`，创建开始菜单应用/卸载快捷方式；不要求管理员权限，不写注册表、不修改环境变量、不安装服务，卸载保留默认 `%LOCALAPPDATA%\GameLibrary` 数据。
+- **验证结果**：四组件 publish 成功，14 个 PDB 与正式包分离，载荷 1127 个校验条目；ZIP 结构检查 1133 项；便携 CLI 和隔离安装后的 CLI 均完成 capabilities、library.init、host.status、host.stop；安装脚本在 `artifacts/test-runs/<guid>/data` 完成安装并验证四个 EXE，卸载后程序目录移除。产品代码门禁沿用 R15 的 Release 构建 0 警告、0 错误及全套 436/436，并在最终提交前重跑。
+- **发布限制**：本机没有代码签名证书，EXE 未签名，Windows SmartScreen 可能显示未知发布者；无 .NET 干净机器双击、企业策略与真实 F 盘仍需人工验证。发布流程未访问 F 盘或 `LocalData/`。
+- **下一项**：提交并推送 `main`，创建 `v1.0.0` GitHub Release，上传 ZIP、安装器和 SHA-256 清单；发布后核对远端 Tag、资产大小与下载地址。

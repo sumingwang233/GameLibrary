@@ -4,6 +4,10 @@
 
 工程目录：`D:\Official\GameLibrary`。本机日常数据规划为 `D:\Official\GameLibrary\LocalData`，开发测试使用独立目录。项目、命名空间与发布组件统一使用 GameLibrary，不使用 Local 前缀。
 
+## 下载与安装
+
+正式版本发布在 [GitHub Releases](https://github.com/sumingwang233/GameLibrary/releases)。Windows 10/11 x64 用户可下载 `GameLibrary-Setup-v*.exe` 安装到当前用户目录，或下载 `GameLibrary-win-x64-v*.zip` 直接解压运行；两种形式都自包含 .NET 运行时。安装器不要求管理员权限，不修改系统环境变量或注册表，卸载时保留默认游戏库数据。发布资产的 SHA-256 见同版本 `GameLibrary-v*-SHA256SUMS.txt`。
+
 ## 开发阅读顺序
 
 1. [主策划案 v1.1](<D:/Official/GameLibrary/开发策划案 v1.md>)：产品范围、F 盘调研、识别/启动逻辑、工程架构。文件名保留 v1，以兼容现有笔记。

@@ -233,12 +233,18 @@ public sealed class HostRuntime : IAsyncDisposable
         var jobId = $"job-reconcile-{Guid.NewGuid():N}";
         var collector = new Scanning.ScanCandidateCollector(validation.Path, jobId, state.Candidates);
         var context = new Hosting.JobContext { JobId = jobId, Token = CancellationToken.None };
-        var outcome = Scanning.ScanJobRunner.Run(validation.Path, context, collector);
+        Infrastructure.Scanning.ScanCoverageData? completedCoverage = null;
+        var outcome = Scanning.ScanJobRunner.Run(
+            validation.Path,
+            context,
+            collector,
+            onCompleted: coverage => completedCoverage = coverage);
         if (outcome.FinalState == "succeeded")
         {
             Scanning.ScanCandidatePersistence.Persist(state.Library.Store, state.Events, collector, jobId);
             // T17：核对成功后同步库内游戏可用性（缺失/离线分级判定）。
-            if (state.Library.Store is not null)
+            if (state.Library.Store is not null
+                && completedCoverage?.Completion == Infrastructure.Scanning.ScanCompletion.Complete)
             {
                 var report = Scanning.ReconcileService.CheckGames(state.Library.Store, DateTime.UtcNow);
                 foreach (var transition in report.Transitions)

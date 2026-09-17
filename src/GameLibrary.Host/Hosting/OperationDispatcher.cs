@@ -752,12 +752,23 @@ public sealed partial class OperationDispatcher
                 try
                 {
                     var collector = new ScanCandidateCollector(rootPath, context.JobId, _state.Candidates);
-                    var outcome = ScanJobRunner.Run(rootPath, context, collector);
+                    ScanCoverageData? completedCoverage = null;
+                    var outcome = ScanJobRunner.Run(
+                        rootPath,
+                        context,
+                        collector,
+                        onCompleted: coverage => completedCoverage = coverage);
                     if (outcome.FinalState == "succeeded")
                     {
-                        ScanCandidatePersistence.Persist(_state.Library.Store, _state.Events, collector, context.JobId);
+                        ScanCandidatePersistence.Persist(
+                            _state.Library.Store,
+                            _state.Events,
+                            collector,
+                            context.JobId,
+                            readyForReview: true);
                         // T17：完整扫描成功后核对库内游戏可用性（ID-04/05）。
-                        if (_state.Library.Store is not null)
+                        if (_state.Library.Store is not null
+                            && completedCoverage?.Completion == ScanCompletion.Complete)
                         {
                             var report = ReconcileService.CheckGames(_state.Library.Store, DateTime.UtcNow);
                             foreach (var transition in report.Transitions)
@@ -775,6 +786,7 @@ public sealed partial class OperationDispatcher
                             jobId = context.JobId,
                             kind = "manual",
                             root = rootPath.PhysicalPath,
+                            completion = completedCoverage?.Completion.ToString().ToLowerInvariant(),
                         }, DateTime.UtcNow);
                     }
 
@@ -784,7 +796,8 @@ public sealed partial class OperationDispatcher
                 {
                     _state.Coordinator.ManualScanRunning = false;
                 }
-            });
+            },
+            ScanJobRunner.InitialProgress(rootPath));
 
         return new Envelope<object>
         {
@@ -1067,6 +1080,15 @@ public sealed partial class OperationDispatcher
         var confirmed = report.Results
             .Where(r => r.Confidence >= DetectionConfidence.Medium)
             .ToArray();
+        var generic = confirmed.Length == 0
+            ? GenericGameCandidateDetector.Inspect(snapshot)
+            : new GenericCandidateFinding([], []);
+        var entryCandidates = confirmed.Length > 0
+            ? confirmed.SelectMany(result => result.EntryCandidates).ToArray()
+            : generic.EntryCandidates;
+        var evidence = confirmed.Length > 0
+            ? report.Results.SelectMany(result => result.Evidence).ToArray()
+            : generic.Evidence;
 
         return new Envelope<object>
         {
@@ -1076,7 +1098,8 @@ public sealed partial class OperationDispatcher
             Data = new
             {
                 path = validation.Path.PhysicalPath,
-                recognized = confirmed.Length > 0,
+                recognized = confirmed.Length > 0 || generic.IsCandidate,
+                candidateKind = confirmed.Length > 0 ? "gameRoot" : generic.IsCandidate ? "unknown" : null,
                 engines = confirmed.Select(r => new
                 {
                     engine = r.Engine,
@@ -1091,7 +1114,13 @@ public sealed partial class OperationDispatcher
                     }).ToArray(),
                 }).ToArray(),
                 engineConflict = report.Conflict is not null,
-                evidence = report.Results.SelectMany(r => r.Evidence).Select(e => new
+                entryCandidates = entryCandidates.Select(e => new
+                {
+                    relativePath = e.RelativePath,
+                    score = e.Score,
+                    reasons = e.Reasons,
+                }).ToArray(),
+                evidence = evidence.Select(e => new
                 {
                     ruleId = e.RuleId,
                     relativePath = e.RelativePath,
@@ -1264,11 +1293,11 @@ public sealed partial class OperationDispatcher
                 store.InsertGame(new GameCard
                 {
                     GameId = gameId,
-                    Title = TitleFromPath(current.PhysicalPath, current.RelativePath),
+                    Title = TitleFromPath(current.PhysicalPath, current.RelativePath, current.Kind),
                     RootPath = current.PhysicalPath,
                     Kind = current.Kind,
                     Engine = TopEngine(current.PayloadJson),
-                    EntryPath = TopEntry(current.PayloadJson),
+                    EntryPath = TopEntry(current.PayloadJson, current.PhysicalPath, current.Kind),
                     Membership = "active",
                     TranslationInherited = RequiredByToolNeed(current.PayloadJson),
                     AcceptedUtc = utcNow,
@@ -1326,7 +1355,7 @@ public sealed partial class OperationDispatcher
             {
                 gameId = updated.GameId,
                 fromCandidate = updated.CandidateId,
-                title = TitleFromPath(updated.PhysicalPath, updated.RelativePath),
+                title = TitleFromPath(updated.PhysicalPath, updated.RelativePath, updated.Kind),
             }, DateTime.UtcNow);
         }
 
@@ -1351,9 +1380,16 @@ public sealed partial class OperationDispatcher
     private static string ToCamel(string value) =>
         value.Length == 0 ? value : char.ToLowerInvariant(value[0]) + value[1..];
 
-    private static string TitleFromPath(string physicalPath, string relativePath) =>
-        Path.GetFileName(physicalPath.TrimEnd(Path.DirectorySeparatorChar))
-        ?? (relativePath.Length > 0 ? relativePath.Split('/')[^1] : physicalPath);
+    private static string TitleFromPath(string physicalPath, string relativePath, string? kind = null)
+    {
+        if (string.Equals(kind, "fileGame", StringComparison.Ordinal))
+        {
+            return Path.GetFileNameWithoutExtension(physicalPath);
+        }
+
+        return Path.GetFileName(physicalPath.TrimEnd(Path.DirectorySeparatorChar))
+            ?? (relativePath.Length > 0 ? relativePath.Split('/')[^1] : physicalPath);
+    }
 
     private static string? TopEngine(string payloadJson)
     {
@@ -1374,15 +1410,33 @@ public sealed partial class OperationDispatcher
         }
     }
 
-    private static string? TopEntry(string payloadJson)
+    private static string? TopEntry(string payloadJson, string physicalPath, string kind)
     {
         try
         {
             using var document = JsonDocument.Parse(payloadJson);
             var entries = document.RootElement.GetProperty("entryCandidates");
-            return entries.GetArrayLength() == 0
-                ? null
-                : entries[0].GetProperty("relativePath").GetString();
+            if (entries.GetArrayLength() == 0)
+            {
+                return null;
+            }
+
+            var relativePath = entries[0].GetProperty("relativePath").GetString();
+            if (relativePath is null)
+            {
+                return null;
+            }
+
+            if (Path.IsPathRooted(relativePath))
+            {
+                return relativePath;
+            }
+
+            return string.Equals(kind, "fileGame", StringComparison.Ordinal)
+                ? physicalPath
+                : Path.GetFullPath(Path.Combine(
+                    physicalPath,
+                    relativePath.Replace('/', Path.DirectorySeparatorChar)));
         }
         catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException)
         {

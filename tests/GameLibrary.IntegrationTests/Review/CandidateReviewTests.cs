@@ -9,7 +9,7 @@ using HostConnection = GameLibrary.HostClient.HostConnection;
 namespace GameLibrary.IntegrationTests.Review;
 
 /// <summary>
-/// T11 入库/忽略（经真实管道）：重扫晋升 pendingReview → accept/defer/ignore 状态机、
+/// T11 入库/忽略（经真实管道）：手动扫描直接进入 pendingReview → accept/defer/ignore 状态机、
 /// accept 幂等返回 GameId、Revision 冲突、忽略规则抑制与撤销恢复。
 /// </summary>
 public sealed class CandidateReviewTests : IClassFixture<PipeServerFixture>
@@ -72,42 +72,27 @@ public sealed class CandidateReviewTests : IClassFixture<PipeServerFixture>
     }
 
     [Fact]
-    public async Task TwoScanFlow_PromotesToPendingReview_AcceptCreatesGame()
+    public async Task ManualScan_ProducesPendingReview_AcceptCreatesGameWithAbsoluteEntry()
     {
         var root = CreateGameTree("review-accept");
         await InvokeAsync("roots.add", new { root });
 
         await ScanAndWaitAsync(root);
 
-        // 首扫：observed；审核要求 pendingReview。
+        // 用户主动发起的完整扫描已经是稳定观察，单轮即可进入待审核。
         var list = await InvokeAsync("candidates.list", new { });
-        var observed = list.Data.GetProperty("items").EnumerateArray()
+        var pending = list.Data.GetProperty("items").EnumerateArray()
             .First(i => i.GetProperty("relativePath").GetString() == "GameA"
                 && i.GetProperty("physicalPath").GetString()!.StartsWith(root, StringComparison.Ordinal));
-        Assert.Equal("observed", observed.GetProperty("reviewState").GetString());
-        var observedId = observed.GetProperty("candidateId").GetString()!;
-        var observedRevision = observed.GetProperty("revision").GetInt32();
-
-        var early = await InvokeAsync("candidates.accept", new
-        {
-            idempotencyKey = "early-accept",
-            candidateId = observedId,
-            expectedRevision = observedRevision,
-        });
-        Assert.False(early.Ok);
-        Assert.Equal(ErrorCodes.InvalidArgument, early.Error!.Code);
-
-        // 重扫：observed → pendingReview（稳定观察晋升）。
-        await ScanAndWaitAsync(root);
-        var afterRescan = await InvokeAsync("candidates.get", new { candidateId = observedId });
-        Assert.Equal("pendingReview", afterRescan.Data.GetProperty("reviewState").GetString());
-        var pendingRevision = afterRescan.Data.GetProperty("revision").GetInt32();
+        Assert.Equal("pendingReview", pending.GetProperty("reviewState").GetString());
+        var candidateId = pending.GetProperty("candidateId").GetString()!;
+        var pendingRevision = pending.GetProperty("revision").GetInt32();
 
         // Revision 冲突。
         var stale = await InvokeAsync("candidates.accept", new
         {
             idempotencyKey = "stale-accept",
-            candidateId = observedId,
+            candidateId,
             expectedRevision = pendingRevision - 1,
         });
         Assert.False(stale.Ok);
@@ -116,8 +101,8 @@ public sealed class CandidateReviewTests : IClassFixture<PipeServerFixture>
         // 接受入库。
         var accept = await InvokeAsync("candidates.accept", new
         {
-            idempotencyKey = "accept-" + observedId,
-            candidateId = observedId,
+            idempotencyKey = "accept-" + candidateId,
+            candidateId,
             expectedRevision = pendingRevision,
         });
         Assert.True(accept.Ok, accept.Error?.Message);
@@ -127,8 +112,8 @@ public sealed class CandidateReviewTests : IClassFixture<PipeServerFixture>
         // 同键重试：收据重放返回同一 GameId。
         var replay = await InvokeAsync("candidates.accept", new
         {
-            idempotencyKey = "accept-" + observedId,
-            candidateId = observedId,
+            idempotencyKey = "accept-" + candidateId,
+            candidateId,
             expectedRevision = pendingRevision,
         });
         Assert.True(replay.Ok);
@@ -141,6 +126,7 @@ public sealed class CandidateReviewTests : IClassFixture<PipeServerFixture>
         Assert.True(game.Ok);
         Assert.Equal("GameA", game.Data.GetProperty("title").GetString());
         Assert.Equal("kirikiri", game.Data.GetProperty("engine").GetString());
+        Assert.Equal(Path.Combine(root, "GameA", "Game.exe"), game.Data.GetProperty("entryPath").GetString());
     }
 
     [Fact]
@@ -148,7 +134,6 @@ public sealed class CandidateReviewTests : IClassFixture<PipeServerFixture>
     {
         var root = CreateGameTree("review-defer");
         await InvokeAsync("roots.add", new { root });
-        await ScanAndWaitAsync(root);
         await ScanAndWaitAsync(root);
 
         var list = await InvokeAsync("candidates.list", new { });
@@ -183,7 +168,6 @@ public sealed class CandidateReviewTests : IClassFixture<PipeServerFixture>
     {
         var root = CreateGameTree("review-ignore");
         await InvokeAsync("roots.add", new { root });
-        await ScanAndWaitAsync(root);
         await ScanAndWaitAsync(root);
 
         var list = await InvokeAsync("candidates.list", new { });

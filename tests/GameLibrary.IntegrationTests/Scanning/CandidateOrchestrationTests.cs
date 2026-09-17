@@ -4,6 +4,7 @@ using GameLibrary.Domain.Paths;
 using GameLibrary.Domain.States;
 using GameLibrary.Host.Hosting;
 using GameLibrary.Host.Scanning;
+using GameLibrary.Infrastructure.Scanning;
 using Xunit;
 
 namespace GameLibrary.IntegrationTests.Scanning;
@@ -166,6 +167,162 @@ public sealed class CandidateOrchestrationTests
             var (_, registry) = RunScan(root);
 
             Assert.Empty(registry.List());
+        }
+        finally
+        {
+            TryCleanup(root);
+        }
+    }
+
+    [Fact]
+    public void UnknownEngineDirectory_WithExecutable_ProducesReviewCandidate()
+    {
+        var root = NewFixtureRoot();
+        try
+        {
+            var game = Path.Combine(root, "UnknownAdventure");
+            WriteFile(Path.Combine(game, "UnknownAdventure.exe"));
+            WriteFile(Path.Combine(game, "content.pak"));
+
+            var (_, registry) = RunScan(root);
+
+            var candidate = Assert.Single(registry.List());
+            Assert.Equal(CandidateKind.Unknown, candidate.Kind);
+            Assert.Empty(candidate.Engines);
+            Assert.Equal("UnknownAdventure.exe", Assert.Single(candidate.EntryCandidates).RelativePath);
+            Assert.Contains(candidate.Evidence, e => e.RuleId == "generic.executable");
+        }
+        finally
+        {
+            TryCleanup(root);
+        }
+    }
+
+    [Fact]
+    public void UnknownEngineDirectory_WithManyOrdinaryFiles_StillFindsExecutable()
+    {
+        var root = NewFixtureRoot();
+        try
+        {
+            var game = Path.Combine(root, "LargeUnknownGame");
+            for (var i = 0; i < 300; i++)
+            {
+                WriteFile(Path.Combine(game, $"asset-{i:D3}.dat"));
+            }
+
+            WriteFile(Path.Combine(game, "ZetaGame.exe"));
+
+            var (_, registry) = RunScan(root);
+
+            var candidate = Assert.Single(registry.List());
+            Assert.Equal(CandidateKind.Unknown, candidate.Kind);
+            Assert.Equal("ZetaGame.exe", Assert.Single(candidate.EntryCandidates).RelativePath);
+        }
+        finally
+        {
+            TryCleanup(root);
+        }
+    }
+
+    [Fact]
+    public void RootLevelExecutables_ProduceIndependentFileGameCandidates()
+    {
+        var root = NewFixtureRoot();
+        try
+        {
+            WriteFile(Path.Combine(root, "GameOne.exe"));
+            WriteFile(Path.Combine(root, "GameTwo.exe"));
+
+            var (_, registry) = RunScan(root);
+
+            var candidates = registry.List();
+            Assert.Equal(2, candidates.Count);
+            Assert.All(candidates, candidate => Assert.Equal(CandidateKind.FileGame, candidate.Kind));
+            Assert.Equal(
+                ["GameOne.exe", "GameTwo.exe"],
+                candidates.Select(candidate => candidate.RelativePath).OrderBy(path => path, StringComparer.Ordinal).ToArray());
+        }
+        finally
+        {
+            TryCleanup(root);
+        }
+    }
+
+    [Fact]
+    public void InstallerAndRuntimeExecutables_DoNotProduceCandidates()
+    {
+        var root = NewFixtureRoot();
+        try
+        {
+            WriteFile(Path.Combine(root, "Installers", "setup.exe"));
+            WriteFile(Path.Combine(root, "_CommonRedist", "DXSETUP.exe"));
+            WriteFile(Path.Combine(root, "Tool", "UnityCrashHandler64.exe"));
+
+            var (_, registry) = RunScan(root);
+
+            Assert.Empty(registry.List());
+        }
+        finally
+        {
+            TryCleanup(root);
+        }
+    }
+
+    [Fact]
+    public void KnownEngineCandidate_IsNotDuplicatedByGenericDiscovery()
+    {
+        var root = NewFixtureRoot();
+        try
+        {
+            var game = Path.Combine(root, "KnownGame");
+            WriteFile(Path.Combine(game, "KnownGame.exe"));
+            WriteFile(Path.Combine(game, "UnityPlayer.dll"));
+            WriteFile(Path.Combine(game, "KnownGame_Data", "globalgamemanagers"));
+
+            var (_, registry) = RunScan(root);
+
+            var candidate = Assert.Single(registry.List());
+            Assert.Equal(CandidateKind.GameRoot, candidate.Kind);
+            Assert.Equal(EngineId.Unity, Assert.Single(candidate.Engines).Engine);
+        }
+        finally
+        {
+            TryCleanup(root);
+        }
+    }
+
+    [Fact]
+    public void ScanJobRunner_ContinuesAcrossDirectoryBudgetUntilCoverageIsComplete()
+    {
+        var root = NewFixtureRoot();
+        try
+        {
+            for (var i = 0; i < 6; i++)
+            {
+                WriteFile(Path.Combine(root, $"Dir{i}", "note.txt"));
+            }
+
+            var path = GamePath.Create(root);
+            var context = new JobContext { JobId = "job-budget", Token = CancellationToken.None };
+            ScanCoverageData? completed = null;
+
+            var outcome = ScanJobRunner.Run(
+                path,
+                context,
+                options: new ScanWalkOptions
+                {
+                    MaxDirectories = 2,
+                    TimeBudget = TimeSpan.FromSeconds(30),
+                },
+                onCompleted: coverage => completed = coverage);
+
+            Assert.Equal("succeeded", outcome.FinalState);
+            Assert.NotNull(completed);
+            Assert.Equal(ScanCompletion.Complete, completed!.Completion);
+            Assert.Equal(7, completed.ScannedDirectories);
+            Assert.Equal(6, completed.ObservedFileEntries);
+            Assert.Equal(0, completed.UnvisitedBranches);
+            Assert.Null(completed.ResumeTokenJson);
         }
         finally
         {

@@ -186,6 +186,133 @@ public sealed class UiaSmokeTests
     }
 
     [Fact]
+    public async Task DesktopWindow_PendingCandidates_CanBeSelectedAndBatchAccepted()
+    {
+        Assert.True(File.Exists(DesktopExe), $"未找到 Desktop 可执行文件：{DesktopExe}");
+
+        var runDir = Path.Combine(@"D:\Official\GameLibrary\artifacts\test-runs", $"uia-batch-{Guid.NewGuid():N}");
+        var dataDir = Path.Combine(runDir, "data");
+        var scanRoot = Path.Combine(runDir, "games");
+        Directory.CreateDirectory(dataDir);
+        foreach (var name in new[] { "GameA", "GameB" })
+        {
+            var game = Path.Combine(scanRoot, name);
+            Directory.CreateDirectory(game);
+            File.WriteAllText(Path.Combine(game, $"{name}.exe"), "fixture");
+            File.WriteAllText(Path.Combine(game, "content.pak"), "fixture");
+        }
+
+        try
+        {
+            using var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = DesktopExe,
+                Arguments = $"--data-dir \"{dataDir}\"",
+                UseShellExecute = false,
+            }) ?? throw new InvalidOperationException("Desktop 进程启动失败");
+
+            try
+            {
+                var window = await WaitForWindowAsync(process, TimeSpan.FromSeconds(40));
+                Assert.NotNull(window);
+                var guide = await WaitForNamedWindowAsync(process.Id, "GameLibrary 使用指南", TimeSpan.FromSeconds(15));
+                Assert.NotNull(guide);
+                var guideDone = await WaitForElementAsync(guide!, TreeScope.Descendants,
+                    new PropertyCondition(AutomationElement.NameProperty, "我知道了"), TimeSpan.FromSeconds(5));
+                Assert.NotNull(guideDone);
+                ((InvokePattern)guideDone!.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+
+                var statusText = await WaitForElementAsync(window!, TreeScope.Descendants,
+                    new PropertyCondition(AutomationElement.AutomationIdProperty, "StatusText"),
+                    TimeSpan.FromSeconds(10));
+                Assert.NotNull(statusText);
+                Assert.True(await WaitUntilTrueAsync(
+                    () => Task.FromResult((statusText!.Current.Name ?? "").StartsWith("已就绪", StringComparison.Ordinal)),
+                    TimeSpan.FromSeconds(40)));
+
+                await using var client = await HostConnection.ConnectAsync(dataDir, "uia-batch", CancellationToken.None);
+                var addRoot = await InvokeHostAsync(client, "roots.add", new
+                {
+                    idempotencyKey = $"uia-batch-root-{Guid.NewGuid():N}",
+                    root = scanRoot,
+                });
+                Assert.True(addRoot.Ok, addRoot.Error?.Message);
+                var scan = await InvokeHostAsync(client, "scan.start", new
+                {
+                    idempotencyKey = $"uia-batch-scan-{Guid.NewGuid():N}",
+                    root = scanRoot,
+                });
+                Assert.True(scan.Ok, scan.Error?.Message);
+                var jobId = scan.JobId!;
+                Assert.True(await WaitUntilTrueAsync(async () =>
+                {
+                    var job = await InvokeHostAsync(client, "jobs.get", new { jobId });
+                    return job.Ok && job.Data.GetProperty("state").GetString() == "succeeded";
+                }, TimeSpan.FromSeconds(20)), "扫描作业未完成");
+                Assert.True(await WaitUntilTrueAsync(async () =>
+                {
+                    var candidates = await InvokeHostAsync(client, "candidates.list", new { });
+                    return candidates.Ok && candidates.Data.GetProperty("items").EnumerateArray()
+                        .Count(item => item.GetProperty("reviewState").GetString() == "pendingReview") == 2;
+                }, TimeSpan.FromSeconds(10)), "未生成两个待确认候选");
+
+                var viewSelector = await WaitForElementAsync(window, TreeScope.Descendants,
+                    new PropertyCondition(AutomationElement.AutomationIdProperty, "ViewSelector"),
+                    TimeSpan.FromSeconds(10));
+                Assert.NotNull(viewSelector);
+                ((ExpandCollapsePattern)viewSelector!.GetCurrentPattern(ExpandCollapsePattern.Pattern)).Expand();
+                var pendingView = await WaitForElementAsync(viewSelector, TreeScope.Descendants,
+                    new PropertyCondition(AutomationElement.NameProperty, "待确认游戏"),
+                    TimeSpan.FromSeconds(5));
+                Assert.NotNull(pendingView);
+                ((SelectionItemPattern)pendingView!.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
+
+                var selectAll = await WaitForElementAsync(window, TreeScope.Descendants,
+                    new PropertyCondition(AutomationElement.AutomationIdProperty, "SelectAllCandidatesCheckBox"),
+                    TimeSpan.FromSeconds(15));
+                Assert.NotNull(selectAll);
+                ((TogglePattern)selectAll!.GetCurrentPattern(TogglePattern.Pattern)).Toggle();
+
+                var batchAccept = await WaitForElementAsync(window, TreeScope.Descendants,
+                    new PropertyCondition(AutomationElement.AutomationIdProperty, "BatchAcceptButton"),
+                    TimeSpan.FromSeconds(10));
+                Assert.NotNull(batchAccept);
+                Assert.True(await WaitUntilTrueAsync(
+                    () => Task.FromResult(batchAccept!.Current.IsEnabled), TimeSpan.FromSeconds(5)));
+                ((InvokePattern)batchAccept!.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+
+                Assert.True(await WaitUntilTrueAsync(async () =>
+                {
+                    var games = await InvokeHostAsync(client, "games.list", new { });
+                    var candidates = await InvokeHostAsync(client, "candidates.list", new { });
+                    return games.Ok
+                        && games.Data.GetProperty("total").GetInt32() == 2
+                        && candidates.Ok
+                        && candidates.Data.GetProperty("items").EnumerateArray()
+                            .All(item => item.GetProperty("reviewState").GetString() != "pendingReview");
+                }, TimeSpan.FromSeconds(20)), "批量加入未处理全部选中候选");
+                Assert.True(await WaitUntilTrueAsync(
+                    () => Task.FromResult((statusText.Current.Name ?? "").Contains("成功 2 项", StringComparison.Ordinal)),
+                    TimeSpan.FromSeconds(10)), $"未显示批量操作汇总：{statusText.Current.Name}");
+            }
+            finally
+            {
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+                catch (InvalidOperationException)
+                {
+                }
+            }
+        }
+        finally
+        {
+            TryCleanup(runDir);
+        }
+    }
+
+    [Fact]
     public async Task DesktopWindow_ExposesSearchAndPrimaryActions_ToUiAutomation()
     {
         Assert.True(File.Exists(DesktopExe), $"未找到 Desktop 可执行文件：{DesktopExe}");
