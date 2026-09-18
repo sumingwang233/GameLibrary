@@ -463,3 +463,14 @@
 - **验证结果**：四组件 publish 成功，14 个 PDB 与正式包分离，载荷 1127 个校验条目；ZIP 结构检查 1133 项；便携 CLI 和隔离安装后的 CLI 均完成 capabilities、library.init、host.status、host.stop；安装脚本在 `artifacts/test-runs/<guid>/data` 完成安装并验证四个 EXE，卸载后程序目录移除。产品代码门禁沿用 R15 的 Release 构建 0 警告、0 错误及全套 436/436，并在最终提交前重跑。
 - **发布限制**：本机没有代码签名证书，EXE 未签名，Windows SmartScreen 可能显示未知发布者；无 .NET 干净机器双击、企业策略与真实 F 盘仍需人工验证。发布流程未访问 F 盘或 `LocalData/`。
 - **下一项**：提交并推送 `main`，创建 `v1.0.0` GitHub Release，上传 ZIP、安装器和 SHA-256 清单；发布后核对远端 Tag、资产大小与下载地址。
+
+## R17 v1.0.0 发布布局与受信代码签名准备 — 2026-09-18
+
+- **任务 ID**：R17（用户审查 Draft Release 后指出旧 ZIP 暴露内部四组件目录及 PowerShell/CMD 辅助脚本，并要求为 v1 使用受信代码签名证书）。
+- **根因**：上一轮上传在安装器完成前中断，远端 Draft 只剩旧四组件 ZIP 与哈希清单；旧 ZIP 又直接遍历整个 staging 根目录，因此把发布检查文档和便携辅助脚本一并交付。四个入口独立自包含目录属于内部部署结构，不适合作为普通用户下载界面。
+- **发布布局修复**：`artifacts/tools/package_release.py` 改为四入口单文件自包含发布。普通用户安装器和 `GameLibrary-Portable-win-x64-v1.0.0.zip` 仅含 Desktop 与同目录 Host；CLI/MCP 连同独立 Host 放入 `GameLibrary-Tools-win-x64-v1.0.0.zip`。两个 ZIP 分别严格校验为 3/4 个根级文件，拒绝任何额外目录及 `.ps1`/`.cmd`/`.bat`。旧 `GameLibrary-win-x64-v1.0.0.zip` 在三个新资产全部成功后删除。
+- **签名策略**：拒绝用自签名证书冒充公共信任；流水线新增 SHA-256 Authenticode + RFC 3161 时间戳及签后验证，并提供 `--require-signing` 失败关闭门禁。证书和密码只从外部安全配置读取，不写入仓库。用户选择 SignPath Foundation，仓库按其条件新增 MIT `LICENSE` 与 `docs/code-signing-policy.md`；正式 Release 在受信签名完成前保持 Draft。
+- **产物与冒烟**：未签名本地预览生成单个 `GameLibrary-Setup-v1.0.0.exe`（105,185,280 字节）、便携 ZIP（105,036,295 字节）、Tools ZIP（101,017,280 字节）及三资产哈希清单。Tools 单文件 CLI 完成 capabilities、library.init、host.status、host.stop；隔离安装只落 Desktop/Host/校验文件，已安装 Desktop 成功拉起同目录 Host，卸载后目标目录移除。测试数据仅位于 `artifacts/test-runs/<guid>/data`。
+- **工程门禁**：`dotnet format --verify-no-changes` 通过；Release build 0 警告、0 错误；全套 **436/436**（架构 8、契约 43、单元 139、无界面 E2E 16、集成 230）通过。日志：`artifacts/build-reports/2026-09-18-r17-format.txt`、`2026-09-18-r17-build.txt`、`2026-09-18-r17-tests.txt`。
+- **未完成范围**：SignPath Foundation 需要仓库公开、OSI 许可证、项目审核和平台侧配置；当前尚未取得证书，以上本地产物明确为未签名预览，不上传为正式 v1 资产。拿到 SignPath 项目配置后需让其签名 Desktop、Host、CLI、MCP 与安装器，重新生成 ZIP/哈希并验证 `Get-AuthenticodeSignature` 为 `Valid`。
+- **下一项**：提交并推送 R17，按用户授权将仓库公开，完成 SignPath Foundation 申请；获批后替换 Draft Release 资产并发布 `v1.0.0`。

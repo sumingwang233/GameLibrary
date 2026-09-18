@@ -104,7 +104,7 @@ public static class HostProcessLauncher
                     var code = process.ExitCode;
                     var hint = (code & 0xFFFF0000) == unchecked((int)0x80000000)
                         ? "宿主二进制无法启动（缺 .NET 运行时或文件不完整）。请使用自包含发布包"
-                            + "（artifacts/dist/GameLibrary-win-x64-*.zip），或运行与其同目录的自包含 Host。"
+                            + "（artifacts/dist/GameLibrary-Portable-win-x64-*.zip），或运行与其同目录的自包含 Host。"
                         : "可能已有另一宿主持有该数据目录";
                     throw new HostClientException(
                         HostClientErrorCodes.HostUnavailable,

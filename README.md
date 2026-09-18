@@ -6,7 +6,13 @@
 
 ## 下载与安装
 
-正式版本发布在 [GitHub Releases](https://github.com/sumingwang233/GameLibrary/releases)。Windows 10/11 x64 用户可下载 `GameLibrary-Setup-v*.exe` 安装到当前用户目录，或下载 `GameLibrary-win-x64-v*.zip` 直接解压运行；两种形式都自包含 .NET 运行时。安装器不要求管理员权限，不修改系统环境变量或注册表，卸载时保留默认游戏库数据。发布资产的 SHA-256 见同版本 `GameLibrary-v*-SHA256SUMS.txt`。
+正式版本发布在 [GitHub Releases](https://github.com/sumingwang233/GameLibrary/releases)。普通 Windows 10/11 x64 用户只需下载并运行 `GameLibrary-Setup-v*.exe`；安装器内含桌面程序和后台 Host，自包含 .NET 运行时。免安装用户可下载 `GameLibrary-Portable-win-x64-v*.zip`，其中只有两个单文件 EXE 与校验文件。CLI/MCP 放在独立的 `GameLibrary-Tools-win-x64-v*.zip`，不混入普通用户包。两个 ZIP 都不附带 PowerShell/CMD 脚本。安装器不要求管理员权限，不修改系统环境变量或注册表，卸载时保留默认游戏库数据。发布资产的 SHA-256 见同版本 `GameLibrary-v*-SHA256SUMS.txt`。
+
+## 代码签名与隐私
+
+正式 Windows 发布产物通过 SignPath.io 签名，证书由 SignPath Foundation 提供。签名流程、负责人及验证方式见[代码签名政策](docs/code-signing-policy.md)。GameLibrary 不包含遥测，不会自动向网络服务上传游戏库、扫描结果或使用数据；只有用户明确配置和启动的外部程序可以执行其自身的网络行为。
+
+本项目采用 [MIT License](LICENSE)。
 
 ## 开发阅读顺序
 
