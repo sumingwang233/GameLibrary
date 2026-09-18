@@ -9,7 +9,7 @@ English · [简体中文](README.zh-CN.md)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4?logo=windows)](https://github.com/sumingwang233/GameLibrary/releases/latest)
 [![.NET 10](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
 
-[Download](https://github.com/sumingwang233/GameLibrary/releases/latest) · [Report a bug](https://github.com/sumingwang233/GameLibrary/issues) · [Code signing policy](docs/code-signing-policy.md)
+[Download](https://github.com/sumingwang233/GameLibrary/releases/latest) · [Report a bug](https://github.com/sumingwang233/GameLibrary/issues)
 
 GameLibrary turns folders full of standalone Windows games into a searchable, reviewable library. It discovers likely games, shows the evidence in a review queue, and lets you organize and launch them without moving or deleting the original files.
 
@@ -62,7 +62,7 @@ GameLibrary supports **Windows 10/11 x64**. Release packages are self-contained 
 | [SHA-256 checksums](https://github.com/sumingwang233/GameLibrary/releases/download/v1.1.0/GameLibrary-v1.1.0-SHA256SUMS.txt) | Integrity hashes for all three release packages. |
 
 > [!IMPORTANT]
-> The v1.1.0 Windows binaries are currently unsigned while the SignPath Foundation application is under review. Windows SmartScreen may show an unknown publisher warning. Download releases from this repository and verify the SHA-256 checksum.
+> The v1.1.0 Windows binaries are unsigned. Windows SmartScreen may show an unknown publisher warning. Download releases from this repository and verify the SHA-256 checksum.
 
 ## Quick start
 

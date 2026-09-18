@@ -9,7 +9,7 @@
 [![平台：Windows](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4?logo=windows)](https://github.com/sumingwang233/GameLibrary/releases/latest)
 [![.NET 10](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
 
-[下载](https://github.com/sumingwang233/GameLibrary/releases/latest) · [报告问题](https://github.com/sumingwang233/GameLibrary/issues) · [代码签名政策](docs/code-signing-policy.md)
+[下载](https://github.com/sumingwang233/GameLibrary/releases/latest) · [报告问题](https://github.com/sumingwang233/GameLibrary/issues)
 
 GameLibrary 可以把分散在不同文件夹里的 Windows 游戏整理成一个可搜索、可审核的本地游戏库。它会找出可能的游戏和启动文件，先放入待确认列表，再由你决定是否入库，全程不会移动或删除原始游戏文件。
 
@@ -62,7 +62,7 @@ GameLibrary 支持 **Windows 10/11 x64**。发布包已包含运行环境，不�
 | [SHA-256 校验值](https://github.com/sumingwang233/GameLibrary/releases/download/v1.1.0/GameLibrary-v1.1.0-SHA256SUMS.txt) | 三个发布包的完整性校验。 |
 
 > [!IMPORTANT]
-> v1.1.0 的 Windows 程序目前尚未签名，SignPath Foundation 申请仍在审核。Windows SmartScreen 可能提示未知发布者。请从本仓库 Release 下载，并核对 SHA-256。
+> v1.1.0 的 Windows 程序未签名。Windows SmartScreen 可能提示未知发布者。请从本仓库 Release 下载，并核对 SHA-256。
 
 ## 快速开始
 
