@@ -474,5 +474,5 @@
 - **工程门禁**：`dotnet format --verify-no-changes` 通过；Release build 0 警告、0 错误；全套 **436/436**（架构 8、契约 43、单元 139、无界面 E2E 16、集成 230）通过。日志：`artifacts/build-reports/2026-09-18-r17-format.txt`、`2026-09-18-r17-build.txt`、`2026-09-18-r17-tests.txt`。
 - **未完成范围**：SignPath Foundation 需要仓库公开、OSI 许可证、项目审核和平台侧配置；当前尚未取得证书，以上本地产物明确为未签名预览，不上传为正式 v1 资产。拿到 SignPath 项目配置后需让其签名 Desktop、Host、CLI、MCP 与安装器，重新生成 ZIP/哈希并验证 `Get-AuthenticodeSignature` 为 `Valid`。
 - **远端状态**：R17 已以提交 `0a555c0` 推送到 `main`；仓库已按用户授权公开并采用 MIT。远端 `v1.0.0` 仍为 Draft，发布目标跟随 `main`，旧版 ZIP/哈希资产已全部移除，因此公开下载页没有误发未签名文件。
-- **SignPath 申请进度**：已打开 Foundation 申请表并准备项目公开资料。表单还要求申请人的真实姓名、邮箱、可核验的项目信誉材料，以及申请人亲自确认《Code of Conduct》和个人数据处理同意；这些信息不能由工程文件推断或代为同意。项目目前为新公开仓库、0 star 且没有已发布版本，若没有其他采用量或社区证据，Foundation 审核通过概率较低。
-- **下一项**：申请人提供真实联系信息、信誉证据并确认条款后提交 SignPath Foundation 申请；获批后按平台项目配置签名 Desktop、Host、CLI、MCP 与安装器，替换 Draft Release 资产并发布 `v1.0.0`。
+- **SignPath 申请进度**：申请人已亲自确认《Code of Conduct》和个人数据处理同意，并在完成人工 reCAPTCHA 后提交 Foundation 申请；页面显示 `Form submitted — Thank you, we'll be in touch soon.`。信誉栏如实说明项目为新开源、目前没有公开发布、下载统计、媒体报道或社区采用证据，没有虚构数据。项目当前为 0 star 且没有已发布版本，Foundation 仍可能因信誉条件拒绝或要求补充材料。
+- **下一项**：等待 SignPath Foundation 审核邮件；获批后按平台项目配置签名 Desktop、Host、CLI、MCP 与安装器，替换 Draft Release 资产并发布 `v1.0.0`。若审核要求先建立公开采用记录，则继续保持 Release 为 Draft，并根据其反馈决定发布预览版或改用商业受信证书。
