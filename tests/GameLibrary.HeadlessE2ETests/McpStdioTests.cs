@@ -55,6 +55,19 @@ public sealed class McpStdioTests
             Assert.Contains("host_status", toolNames);
             Assert.Contains("games_list", toolNames);
 
+            var listedTools = tools.GetProperty("result").GetProperty("tools").EnumerateArray().ToArray();
+            var gamesListSchema = listedTools.Single(tool => tool.GetProperty("name").GetString() == "games_list")
+                .GetProperty("inputSchema").GetProperty("properties");
+            Assert.True(gamesListSchema.TryGetProperty("search", out _));
+            Assert.True(gamesListSchema.TryGetProperty("limit", out _));
+            Assert.True(gamesListSchema.TryGetProperty("offset", out _));
+
+            var candidatesListSchema = listedTools.Single(tool => tool.GetProperty("name").GetString() == "candidates_list")
+                .GetProperty("inputSchema").GetProperty("properties");
+            Assert.True(candidatesListSchema.TryGetProperty("state", out _));
+            Assert.True(candidatesListSchema.TryGetProperty("limit", out _));
+            Assert.True(candidatesListSchema.TryGetProperty("offset", out _));
+
             var call = await SendRequestAsync(process, 3, "tools/call", new
             {
                 name = "host_status",

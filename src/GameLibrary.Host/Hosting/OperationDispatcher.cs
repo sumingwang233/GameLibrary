@@ -1136,19 +1136,43 @@ public sealed partial class OperationDispatcher
     private Envelope<object> CandidatesList(IpcRequest request)
     {
         string? jobId = null;
-        if (request.Parameters is { ValueKind: JsonValueKind.Object } listParameters
-            && listParameters.TryGetProperty("jobId", out var jobElement)
-            && jobElement.ValueKind == JsonValueKind.String)
+        string? state = null;
+        var limit = 0;
+        var offset = 0;
+        if (request.Parameters is { ValueKind: JsonValueKind.Object } listParameters)
         {
-            jobId = jobElement.GetString();
+            if (listParameters.TryGetProperty("jobId", out var jobElement)
+                && jobElement.ValueKind == JsonValueKind.String)
+            {
+                jobId = jobElement.GetString();
+            }
+
+            if (listParameters.TryGetProperty("state", out var stateElement)
+                && stateElement.ValueKind == JsonValueKind.String)
+            {
+                state = stateElement.GetString();
+            }
+
+            if (listParameters.TryGetProperty("limit", out var limitElement)
+                && limitElement.ValueKind == JsonValueKind.Number
+                && limitElement.TryGetInt32(out var parsedLimit))
+            {
+                limit = Math.Clamp(parsedLimit, 1, 1000);
+                if (listParameters.TryGetProperty("offset", out var offsetElement)
+                    && offsetElement.ValueKind == JsonValueKind.Number
+                    && offsetElement.TryGetInt32(out var parsedOffset))
+                {
+                    offset = Math.Max(0, parsedOffset);
+                }
+            }
         }
 
         // T11 起以库内候选为事实来源（重扫刷新、审核状态演进）；无库时退回内存注册表。
         var store = _state.Library.Store;
         if (store is not null)
         {
-            var persisted = store.ListCandidates()
-                .Where(c => jobId is null || string.Equals(c.JobId, jobId, StringComparison.Ordinal))
+            var (total, persisted) = store.QueryCandidates(jobId, state, limit, offset);
+            var items = persisted
                 .Select(c => new
                 {
                     candidateId = c.CandidateId,
@@ -1167,11 +1191,17 @@ public sealed partial class OperationDispatcher
                 RequestId = request.RequestId,
                 Ok = true,
                 Status = OperationStatus.Completed,
-                Data = new { total = persisted.Length, items = persisted },
+                Data = new { total, items },
             };
         }
 
-        var candidates = _state.Candidates.List(jobId);
+        var filteredCandidates = _state.Candidates.List(jobId)
+            .Where(candidate => state is null
+                || string.Equals(candidate.ReviewState.ToString(), state, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        var candidates = limit > 0
+            ? filteredCandidates.Skip(offset).Take(limit).ToArray()
+            : filteredCandidates;
         return new Envelope<object>
         {
             RequestId = request.RequestId,
@@ -1179,7 +1209,7 @@ public sealed partial class OperationDispatcher
             Status = OperationStatus.Completed,
             Data = new
             {
-                total = candidates.Count,
+                total = filteredCandidates.Length,
                 items = candidates.Select(c => c.ToListItem()).ToArray(),
             },
         };

@@ -190,8 +190,12 @@ public static class GameLibraryTools
     }
 
     [McpServerTool(Name = "candidates_list")]
-    [Description("列出扫描发现的候选（可选按 jobId 过滤）；accept/defer/ignore 随入库任务提供。参数：jobId（可选）。")]
-    public static async Task<CallToolResult> CandidatesList([Description("按作业 ID 过滤；省略则返回全部")] string? jobId = null)
+    [Description("列出扫描候选，可按作业或审核状态过滤并分页。参数：jobId、state、limit、offset（均可选）。")]
+    public static async Task<CallToolResult> CandidatesList(
+        [Description("按作业 ID 过滤；省略则不限作业")] string? jobId = null,
+        [Description("按审核状态过滤，例如 pendingReview/accepted/deferred/ignored")] string? state = null,
+        [Description("分页大小 1-1000；省略则返回全部匹配项")] int? limit = null,
+        [Description("分页偏移；仅与 limit 一起生效")] int? offset = null)
     {
         if (McpSession.DataDirectory is null)
         {
@@ -205,7 +209,7 @@ public static class GameLibraryTools
             {
                 RequestId = NewRequestId(),
                 OperationId = "candidates.list",
-                Parameters = jobId is null ? null : ToParameters(new { jobId }),
+                Parameters = ToParameters(new { jobId, state, limit, offset }),
             },
             CancellationToken.None);
         return ToToolResult(envelope);
@@ -689,9 +693,16 @@ public static class GameLibraryTools
         InvokeOperationAsync("candidates.ignore", new { idempotencyKey, candidateId, expectedRevision });
 
     [McpServerTool(Name = "games_list")]
-    [Description("列出已入库游戏卡片。")]
-    public static Task<CallToolResult> GamesList() =>
-        InvokeOperationAsync("games.list", new { });
+    [Description("列出已入库游戏卡片，可搜索、过滤、排序并分页。参数均可选。")]
+    public static Task<CallToolResult> GamesList(
+        [Description("搜索标题或原路径")] string? search = null,
+        [Description("true 时仅返回收藏游戏")] bool? favorite = null,
+        [Description("排序：title/title-asc、title-desc、recent/updated-desc、accepted-desc")] string? sort = null,
+        [Description("套用已保存视图")] string? viewId = null,
+        [Description("按标签 ID 过滤")] string? tagId = null,
+        [Description("分页大小 1-1000；省略则返回全部匹配项")] int? limit = null,
+        [Description("分页偏移；仅与 limit 一起生效")] int? offset = null) =>
+        InvokeOperationAsync("games.list", new { search, favorite, sort, viewId, tagId, limit, offset });
 
     [McpServerTool(Name = "games_get")]
     [Description("查询单个游戏卡片。参数：gameId。")]

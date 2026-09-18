@@ -119,6 +119,18 @@ public sealed class CandidateReviewTests : IClassFixture<PipeServerFixture>
         Assert.True(replay.Ok);
         Assert.Equal(gameId, replay.Data.GetProperty("gameId").GetString());
 
+        var acceptedCandidates = await InvokeAsync("candidates.list", new { state = "accepted" });
+        Assert.True(acceptedCandidates.Ok, acceptedCandidates.Error?.Message);
+        Assert.All(acceptedCandidates.Data.GetProperty("items").EnumerateArray(),
+            candidate => Assert.Equal("accepted", candidate.GetProperty("reviewState").GetString()));
+        Assert.Contains(acceptedCandidates.Data.GetProperty("items").EnumerateArray(),
+            candidate => candidate.GetProperty("candidateId").GetString() == candidateId);
+
+        var pendingCandidates = await InvokeAsync("candidates.list", new { state = "pendingReview" });
+        Assert.True(pendingCandidates.Ok, pendingCandidates.Error?.Message);
+        Assert.DoesNotContain(pendingCandidates.Data.GetProperty("items").EnumerateArray(),
+            candidate => candidate.GetProperty("candidateId").GetString() == candidateId);
+
         var games = await InvokeAsync("games.list", new { });
         Assert.Contains(games.Data.GetProperty("items").EnumerateArray(),
             g => g.GetProperty("gameId").GetString() == gameId);

@@ -130,7 +130,7 @@ public partial class MainWindow : Window
                 throw new InvalidOperationException($"读取游戏失败：{games.Error?.Code} {games.Error?.Message}");
             }
 
-            var candidates = await InvokeAsync("candidates.list");
+            var candidates = await InvokeAsync("candidates.list", new { state = "pendingReview" });
             if (!candidates.Ok)
             {
                 throw new InvalidOperationException($"读取待确认项目失败：{candidates.Error?.Code} {candidates.Error?.Message}");

@@ -73,6 +73,12 @@ public sealed record CommandLine
     /// <summary>diagnostics logs 的 --limit 参数。</summary>
     public int? Limit { get; private init; }
 
+    /// <summary>列表操作的 --offset 参数。</summary>
+    public int? Offset { get; private init; }
+
+    /// <summary>candidates/notifications list 的 --state 参数。</summary>
+    public string? State { get; private init; }
+
     /// <summary>fields set 的 --field 参数（title/summary）。</summary>
     public string? Field { get; private init; }
 
@@ -194,6 +200,8 @@ public sealed record CommandLine
         string? reason = null;
         string? ignoreId = null;
         int? limit = null;
+        int? offset = null;
+        string? state = null;
         string? field = null;
         string? value = null;
         string? sourcePath = null;
@@ -301,6 +309,13 @@ public sealed record CommandLine
                 case "--limit" when i + 1 < args.Length && int.TryParse(args[i + 1], out var limitValue) && limitValue > 0:
                     limit = limitValue;
                     i++;
+                    break;
+                case "--offset" when i + 1 < args.Length && int.TryParse(args[i + 1], out var offsetValue) && offsetValue >= 0:
+                    offset = offsetValue;
+                    i++;
+                    break;
+                case "--state" when i + 1 < args.Length:
+                    state = args[++i];
                     break;
                 case "--field" when i + 1 < args.Length:
                     field = args[++i];
@@ -481,6 +496,8 @@ public sealed record CommandLine
             Reason = reason,
             IgnoreId = ignoreId,
             Limit = limit,
+            Offset = offset,
+            State = state,
             Field = field,
             Value = value,
             SourcePath = sourcePath,

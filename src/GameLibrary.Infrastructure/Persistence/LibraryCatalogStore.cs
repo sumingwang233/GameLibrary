@@ -186,6 +186,76 @@ public static class LibraryCatalogStore
     }
 
     /// <summary>
+    /// 按作业/审核状态筛选候选；total 为分页前的匹配总数。
+    /// limit &lt;= 0 保持原有全量语义。
+    /// </summary>
+    public static (int Total, IReadOnlyList<PersistedCandidate> Items) QueryCandidates(
+        SqliteConnection connection,
+        string? jobId,
+        string? state,
+        int limit,
+        int offset)
+    {
+        var where = new List<string>();
+        if (!string.IsNullOrWhiteSpace(jobId))
+        {
+            where.Add("job_id = $jobId");
+        }
+
+        if (!string.IsNullOrWhiteSpace(state))
+        {
+            where.Add("review_state = $state");
+        }
+
+        var whereClause = where.Count == 0 ? string.Empty : $" WHERE {string.Join(" AND ", where)}";
+        int total;
+        using (var countCommand = connection.CreateCommand())
+        {
+            countCommand.CommandText = $"SELECT COUNT(*) FROM candidates{whereClause}";
+            BindCandidateQueryParameters(countCommand, jobId, state);
+            total = Convert.ToInt32(countCommand.ExecuteScalar() ?? 0L);
+        }
+
+        var items = new List<PersistedCandidate>();
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = $"""
+                SELECT candidate_id, job_id, kind, relative_path, physical_path, payload_json,
+                       review_state, revision, game_id, observed_utc, updated_utc
+                FROM candidates{whereClause}
+                ORDER BY observed_utc, candidate_id
+                """ + (limit > 0 ? " LIMIT $limit OFFSET $offset" : string.Empty);
+            BindCandidateQueryParameters(command, jobId, state);
+            if (limit > 0)
+            {
+                command.Parameters.AddWithValue("$limit", limit);
+                command.Parameters.AddWithValue("$offset", Math.Max(0, offset));
+            }
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                items.Add(ReadCandidate(reader));
+            }
+        }
+
+        return (total, items);
+    }
+
+    private static void BindCandidateQueryParameters(SqliteCommand command, string? jobId, string? state)
+    {
+        if (!string.IsNullOrWhiteSpace(jobId))
+        {
+            command.Parameters.AddWithValue("$jobId", jobId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(state))
+        {
+            command.Parameters.AddWithValue("$state", state);
+        }
+    }
+
+    /// <summary>
     /// 审核转移（accept/defer/ignore）：期望 Revision 一致且状态机允许才提交，
     /// 返回更新后的候选；Revision 不一致返回 null（RevisionConflict 由调用方映射）。
     /// </summary>

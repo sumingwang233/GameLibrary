@@ -381,7 +381,13 @@ internal static class Program
                 rootId = cli.RootId,
                 expectedRevision = cli.ExpectedRevision,
             },
-            "candidates.list" => cli.JobId is null ? null : new { jobId = cli.JobId },
+            "candidates.list" => new
+            {
+                jobId = cli.JobId,
+                state = cli.State,
+                limit = cli.Limit,
+                offset = cli.Offset,
+            },
             "candidates.get" => new { candidateId = cli.CandidateId },
             "candidates.accept" or "candidates.defer" or "candidates.ignore" => new
             {
@@ -392,9 +398,12 @@ internal static class Program
             "games.list" => new
             {
                 search = cli.Search,
+                favorite = cli.Favorite,
+                sort = cli.Sort,
+                viewId = cli.ViewId,
                 tagId = cli.TagId,
                 limit = cli.Limit,
-                offset = 0,
+                offset = cli.Offset,
             },
             "games.get" => new { gameId = cli.GameId },
             "games.update" => new
@@ -405,7 +414,7 @@ internal static class Program
                 expectedRevision = cli.ExpectedRevision,
             },
             "translation.get" => new { gameId = cli.GameId },
-            "notifications.list" => cli.ExpectedRevision is null ? new { } : new { state = cli.Field },
+            "notifications.list" => cli.State is null ? new { } : new { state = cli.State },
             "notifications.get" => new { notificationId = cli.NotificationId },
             "notifications.acknowledge" => new
             {

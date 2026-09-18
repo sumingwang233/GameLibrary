@@ -60,6 +60,29 @@ public sealed class ThreeEntranceCoverageTests : IClassFixture<PipeServerFixture
         Assert.True(missing.Count == 0, $"缺 CLI 映射的已实现操作：{string.Join("; ", missing)}");
     }
 
+    [Fact]
+    public void ListCommands_ParseFilteringAndPaginationArguments()
+    {
+        var games = GameLibrary.Cli.CommandLine.Parse(
+            ["games", "list", "--search", "Flash", "--favorite", "--sort", "recent", "--view-id", "favorites", "--tag-id", "tag-1", "--limit", "50", "--offset", "100"]);
+        Assert.True(games.IsValid, games.Error);
+        Assert.Equal("Flash", games.Search);
+        Assert.True(games.Favorite);
+        Assert.Equal("recent", games.Sort);
+        Assert.Equal("favorites", games.ViewId);
+        Assert.Equal("tag-1", games.TagId);
+        Assert.Equal(50, games.Limit);
+        Assert.Equal(100, games.Offset);
+
+        var candidates = GameLibrary.Cli.CommandLine.Parse(
+            ["candidates", "list", "--job-id", "job-1", "--state", "pendingReview", "--limit", "25", "--offset", "50"]);
+        Assert.True(candidates.IsValid, candidates.Error);
+        Assert.Equal("job-1", candidates.JobId);
+        Assert.Equal("pendingReview", candidates.State);
+        Assert.Equal(25, candidates.Limit);
+        Assert.Equal(50, candidates.Offset);
+    }
+
     /// <summary>
     /// 空参数探针：除 host.stop（会停掉夹具宿主）外，每个已实现操作用空参数调用，
     /// 结果不得是 UnsupportedOperation——证明 dispatcher 真有 handler（参数错误也算覆盖）。

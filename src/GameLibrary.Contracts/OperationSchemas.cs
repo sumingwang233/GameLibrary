@@ -36,7 +36,13 @@ public static class OperationSchemas
         ["scan.cancel"] = [new("jobId", "string", true, "作业 ID")],
         ["scan.coverage"] = [new("jobId", "string", true, "作业 ID")],
         ["scan.inspect"] = [new("path", "string", true, "待识别目录（须在已注册库根内）")],
-        ["candidates.list"] = [new("state", "string", false, "按审核状态过滤")],
+        ["candidates.list"] =
+        [
+            new("jobId", "string", false, "按扫描作业 ID 过滤"),
+            new("state", "string", false, "按审核状态过滤"),
+            new("limit", "integer", false, "分页大小（1–1000）"),
+            new("offset", "integer", false, "分页偏移"),
+        ],
         ["candidates.get"] = [new("candidateId", "string", true, "候选 ID")],
         ["candidates.accept"] =
         [

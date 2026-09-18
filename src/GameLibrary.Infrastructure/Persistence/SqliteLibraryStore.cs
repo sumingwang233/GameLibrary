@@ -158,6 +158,18 @@ public sealed class SqliteLibraryStore : IAsyncDisposable
         }
     }
 
+    public (int Total, IReadOnlyList<PersistedCandidate> Items) QueryCandidates(
+        string? jobId,
+        string? state,
+        int limit,
+        int offset)
+    {
+        lock (_sync)
+        {
+            return LibraryCatalogStore.QueryCandidates(_connection, jobId, state, limit, offset);
+        }
+    }
+
     public PersistedCandidate? TransitionCandidate(
         string candidateId, string fromState, string toState, int expectedRevision, string? gameId, DateTime utcNow)
     {
