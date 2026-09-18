@@ -1,7 +1,12 @@
+using System.IO;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
+using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
+using System.Windows.Media.Imaging;
 
 namespace GameLibrary.Desktop;
 
@@ -17,55 +22,330 @@ public partial class MainWindow
     private bool _updatingCandidateSelectionUi;
     private bool _updatingGameSelectionUi;
 
+    // ---------- 侧栏封面卡片 ----------
+
+    private const double CardCoverHeight = 160;
+    private const double CardInfoBarHeight = 46;
+    private static readonly TimeSpan CardHoverDuration = TimeSpan.FromMilliseconds(140);
+
+    /// <summary>封面优先卡片：封面占满卡面；悬停时卡面上浮 4px、封面放大、底部信息条滑入、
+    /// 居中显示播放键；选中态（绿色竖条/行背景加深）由 SidebarItem 模板负责。</summary>
     private FrameworkElement CreateSidebarEntryContent(Entry entry, bool showSelection)
     {
-        var text = new StackPanel { Margin = new Thickness(0, 1, 0, 1) };
-        text.Children.Add(new TextBlock
+        var isCandidate = entry.Kind == "candidate";
+        var coverAssetId = !isCandidate
+            && entry.Raw.TryGetProperty("coverAssetId", out var cai)
+            && cai.ValueKind == JsonValueKind.String
+                ? cai.GetString()
+                : null;
+
+        // 封面区：有封面异步加载（LRU 缓存，复用详情页 CoverCache）；无封面深色占位 + 标题。
+        FrameworkElement coverVisual;
+        Image? coverImage = null;
+        if (coverAssetId is not null)
+        {
+            coverImage = new Image
+            {
+                Stretch = Stretch.UniformToFill,
+                Tag = coverAssetId,
+                RenderTransformOrigin = new Point(0.5, 0.5),
+                RenderTransform = new ScaleTransform(1, 1),
+            };
+            coverVisual = coverImage;
+        }
+        else
+        {
+            coverVisual = new TextBlock
+            {
+                Text = entry.Title,
+                FontSize = 13,
+                Foreground = TryFindResource<SolidColorBrush>("TextMuted"),
+                TextWrapping = TextWrapping.Wrap,
+                TextAlignment = TextAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Padding = new Thickness(14, 0, 14, 0),
+            };
+        }
+
+        var coverClip = new Border
+        {
+            Height = CardCoverHeight,
+            ClipToBounds = true,
+            Background = new SolidColorBrush(Color.FromRgb(0x22, 0x30, 0x3c)),
+            Child = coverVisual,
+        };
+
+        // 底部信息条（默认隐藏在卡面下缘外，悬停滑入）：名称 + 最后游玩时间。
+        var infoSlide = new TranslateTransform(0, CardInfoBarHeight);
+        var infoText = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        infoText.Children.Add(new TextBlock
         {
             Text = (entry.Favorite ? "★ " : "") + entry.Title,
             FontSize = 13,
+            Foreground = TryFindResource<SolidColorBrush>("TextPrimary"),
             TextTrimming = TextTrimming.CharacterEllipsis,
         });
-        text.Children.Add(new TextBlock
+        infoText.Children.Add(new TextBlock
         {
-            Text = entry.Kind == "candidate" ? "等待确认" : entry.Subtitle,
+            Text = isCandidate ? "等待确认" : LastPlayedLine(entry.Raw),
             FontSize = 11,
             Margin = new Thickness(0, 2, 0, 0),
-            Foreground = entry.Kind == "candidate"
+            Foreground = isCandidate
                 ? TryFindResource<SolidColorBrush>("Green")
                 : TryFindResource<SolidColorBrush>("TextMuted"),
+            TextTrimming = TextTrimming.CharacterEllipsis,
         });
-
-        if (!showSelection)
+        var infoBar = new Border
         {
-            return text;
+            Height = CardInfoBarHeight,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            Background = new SolidColorBrush(Color.FromArgb(0xE0, 0x0b, 0x0e, 0x14)),
+            Padding = new Thickness(8, 4, 8, 4),
+            RenderTransform = infoSlide,
+            Child = infoText,
+        };
+
+        // 居中播放键（仅已入库游戏；候选不可启动）：悬停淡入，点击直接按默认启动方式启动。
+        Border? playOverlay = null;
+        if (!isCandidate)
+        {
+            playOverlay = new Border
+            {
+                Width = 54,
+                Height = 54,
+                CornerRadius = new CornerRadius(27),
+                Background = new SolidColorBrush(Color.FromArgb(0xb3, 0, 0, 0)),
+                BorderBrush = TryFindResource<SolidColorBrush>("Green"),
+                BorderThickness = new Thickness(2),
+                Opacity = 0,
+                // 完全透明时不得拦截点击（悬停淡入时才可点）。
+                IsHitTestVisible = false,
+                Cursor = Cursors.Hand,
+                ToolTip = $"启动 {entry.Title}",
+                Tag = entry,
+                Child = new TextBlock
+                {
+                    Text = "▶",
+                    FontSize = 20,
+                    Foreground = Brushes.White,
+                    Margin = new Thickness(3, 0, 0, 0),
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                },
+            };
+            playOverlay.MouseLeftButtonUp += OnCardPlayClick;
+            System.Windows.Automation.AutomationProperties.SetName(playOverlay, $"启动 {entry.Title}");
         }
 
-        var selected = entry.Kind == "candidate"
-            ? _selectedCandidateIds.Contains(entry.Id)
-            : _selectedGameIds.Contains(entry.Id);
-        var checkBox = new CheckBox
+        // 选中遮罩：卡片级"背景加深"，跟随宿主 ListBoxItem.IsSelected（不改动数据绑定）。
+        var selectShade = new Border
         {
-            IsChecked = selected,
-            Tag = entry,
-            MinWidth = 24,
-            MinHeight = 24,
-            Margin = new Thickness(0, 0, 8, 0),
-            VerticalAlignment = VerticalAlignment.Center,
-            ToolTip = $"选择 {entry.Title}",
+            Background = new SolidColorBrush(Color.FromArgb(0x55, 0, 0, 0)),
+            IsHitTestVisible = false,
         };
-        System.Windows.Automation.AutomationProperties.SetName(checkBox, $"选择 {entry.Title}");
-        checkBox.Checked += OnEntrySelectionChanged;
-        checkBox.Unchecked += OnEntrySelectionChanged;
+        selectShade.SetBinding(VisibilityProperty, new Binding(nameof(ListBoxItem.IsSelected))
+        {
+            RelativeSource = new RelativeSource(RelativeSourceMode.FindAncestor, typeof(ListBoxItem), 1),
+            Converter = new BooleanToVisibilityConverter(),
+        });
 
-        var row = new Grid();
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        Grid.SetColumn(checkBox, 0);
-        Grid.SetColumn(text, 1);
-        row.Children.Add(checkBox);
-        row.Children.Add(text);
-        return row;
+        var layers = new Grid();
+        layers.Children.Add(coverClip);
+        layers.Children.Add(infoBar);
+        if (playOverlay is not null)
+        {
+            layers.Children.Add(playOverlay);
+        }
+
+        layers.Children.Add(selectShade);
+
+        if (showSelection)
+        {
+            var selected = isCandidate
+                ? _selectedCandidateIds.Contains(entry.Id)
+                : _selectedGameIds.Contains(entry.Id);
+            var checkBox = new CheckBox
+            {
+                IsChecked = selected,
+                Tag = entry,
+                MinWidth = 24,
+                MinHeight = 24,
+                VerticalAlignment = VerticalAlignment.Center,
+                ToolTip = $"选择 {entry.Title}",
+            };
+            System.Windows.Automation.AutomationProperties.SetName(checkBox, $"选择 {entry.Title}");
+            checkBox.Checked += OnEntrySelectionChanged;
+            checkBox.Unchecked += OnEntrySelectionChanged;
+            layers.Children.Add(new Border
+            {
+                Background = new SolidColorBrush(Color.FromArgb(0x99, 0, 0, 0)),
+                CornerRadius = new CornerRadius(2),
+                Padding = new Thickness(3),
+                Margin = new Thickness(6, 6, 0, 0),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top,
+                Child = checkBox,
+            });
+        }
+
+        var lift = new TranslateTransform();
+        var card = new Border
+        {
+            ClipToBounds = true,
+            RenderTransform = lift,
+            Child = layers,
+        };
+        card.MouseEnter += (_, _) =>
+        {
+            AnimateDouble(lift, TranslateTransform.YProperty, -4);
+            if (coverImage?.RenderTransform is ScaleTransform scale)
+            {
+                AnimateDouble(scale, ScaleTransform.ScaleXProperty, 1.06);
+                AnimateDouble(scale, ScaleTransform.ScaleYProperty, 1.06);
+            }
+
+            AnimateDouble(infoSlide, TranslateTransform.YProperty, 0);
+            if (playOverlay is not null)
+            {
+                playOverlay.IsHitTestVisible = true;
+                AnimateDouble(playOverlay, OpacityProperty, 1);
+            }
+        };
+        card.MouseLeave += (_, _) =>
+        {
+            AnimateDouble(lift, TranslateTransform.YProperty, 0);
+            if (coverImage?.RenderTransform is ScaleTransform scale)
+            {
+                AnimateDouble(scale, ScaleTransform.ScaleXProperty, 1);
+                AnimateDouble(scale, ScaleTransform.ScaleYProperty, 1);
+            }
+
+            AnimateDouble(infoSlide, TranslateTransform.YProperty, CardInfoBarHeight);
+            if (playOverlay is not null)
+            {
+                playOverlay.IsHitTestVisible = false;
+                AnimateDouble(playOverlay, OpacityProperty, 0);
+            }
+        };
+
+        // 封面延迟到卡片真实呈现（虚拟化 realized）后才加载，避免渲染时全量请求。
+        if (coverImage is not null && coverAssetId is not null)
+        {
+            var image = coverImage;
+            card.Loaded += (_, _) => _ = LoadCardCoverAsync(coverAssetId, image);
+        }
+
+        return card;
+    }
+
+    /// <summary>游戏无"最后游玩时间"数据字段；预留 lastPlayedUtc，缺失时如实显示暂无记录。</summary>
+    private static string LastPlayedLine(JsonElement game) =>
+        game.TryGetProperty("lastPlayedUtc", out var lastPlayed) && lastPlayed.ValueKind == JsonValueKind.String
+            ? $"最后游玩：{FormatLocalTimestamp(lastPlayed.GetString())}"
+            : "最后游玩：暂无记录";
+
+    private static void AnimateDouble(IAnimatable target, DependencyProperty property, double to) =>
+        target.BeginAnimation(property, new DoubleAnimation(to, CardHoverDuration)
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+        });
+
+    /// <summary>卡片封面加载：复用详情页 LRU 缓存；不占用详情页的取消令牌（选详情不应取消列表封面）。</summary>
+    private async Task LoadCardCoverAsync(string assetId, Image image)
+    {
+        if (CoverCache.TryGetValue(assetId, out var cached))
+        {
+            image.Source = cached;
+            return;
+        }
+
+        try
+        {
+            var asset = await InvokeAsync("assets.get", new { assetId });
+            if (!asset.Ok || !ReferenceEquals(image.Tag, assetId))
+            {
+                return;
+            }
+
+            var bytes = Convert.FromBase64String(asset.Data.GetProperty("dataBase64").GetString()!);
+            var bitmap = new BitmapImage();
+            bitmap.BeginInit();
+            bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            using var stream = new MemoryStream(bytes);
+            bitmap.StreamSource = stream;
+            bitmap.EndInit();
+            bitmap.Freeze();
+
+            if (!ReferenceEquals(image.Tag, assetId))
+            {
+                return;
+            }
+
+            image.Source = bitmap;
+            CoverCache[assetId] = bitmap;
+            CoverLruOrder.AddFirst(assetId);
+            while (CoverLruOrder.Count > MaxCachedCovers && CoverLruOrder.Last is { } oldestNode)
+            {
+                CoverLruOrder.RemoveLast();
+                CoverCache.Remove(oldestNode.Value);
+            }
+        }
+        catch (Exception)
+        {
+            // 封面加载失败保留占位背景，不影响列表。
+        }
+    }
+
+    /// <summary>卡片播放键：查默认启动方式并 launch.execute（与详情页"开始游戏"同一链路）。</summary>
+    private async void OnCardPlayClick(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: Entry entry } || entry.Kind != "game")
+        {
+            return;
+        }
+
+        e.Handled = true;
+        try
+        {
+            var profiles = await InvokeAsync("profiles.list", new { gameId = entry.Id });
+            string? defaultProfileId = null;
+            if (profiles.Ok)
+            {
+                foreach (var profile in profiles.Data.GetProperty("items").EnumerateArray())
+                {
+                    if (profile.GetProperty("isDefault").GetBoolean())
+                    {
+                        defaultProfileId = profile.GetProperty("profileId").GetString();
+                        break;
+                    }
+                }
+            }
+
+            if (defaultProfileId is null)
+            {
+                ShowError("尚未配置启动方式。先在右侧详情页点「配置启动方式」。");
+                return;
+            }
+
+            var launched = await InvokeAsync("launch.execute", new
+            {
+                idempotencyKey = $"ui-play-{Guid.NewGuid():N}",
+                profileId = defaultProfileId,
+            });
+            if (!launched.Ok)
+            {
+                ShowError($"启动失败：{launched.Error?.Code} {launched.Error?.Message}");
+                return;
+            }
+
+            ShowError(null);
+            SetStatus("游戏已启动");
+        }
+        catch (Exception ex)
+        {
+            ShowError($"启动失败：{ex.Message}");
+        }
     }
 
     private void OnEntrySelectionChanged(object sender, RoutedEventArgs e)

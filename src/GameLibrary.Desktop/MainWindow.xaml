@@ -170,7 +170,8 @@
                              SelectionChanged="OnLibrarySelectionChanged"
                              VirtualizingPanel.IsVirtualizing="True"
                              VirtualizingPanel.VirtualizationMode="Recycling"
-                             ScrollViewer.CanContentScroll="True" />
+                             ScrollViewer.CanContentScroll="True"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled" />
                 </DockPanel>
             </Border>
 

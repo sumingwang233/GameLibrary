@@ -141,25 +141,28 @@
                 <Setter Property="FontSize" Value="12" />
             </Style>
 
-            <!-- 侧边栏列表项 -->
+            <!-- 侧边栏列表项：封面卡片宿主。选中 = 左侧 3px 绿色竖条 + 行背景加深；
+                 悬停反馈由卡片自身（上浮/封面放大/信息条滑入）负责，行级不再叠色。 -->
             <Style x:Key="SidebarItem" TargetType="ListBoxItem">
                 <Setter Property="Background" Value="Transparent" />
                 <Setter Property="Foreground" Value="{DynamicResource TextBody}" />
-                <Setter Property="Padding" Value="10,6" />
+                <Setter Property="Padding" Value="0" />
                 <Setter Property="Cursor" Value="Hand" />
                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="ListBoxItem">
-                            <Border x:Name="bd" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
-                                <ContentPresenter />
-                            </Border>
+                            <Grid>
+                                <Border x:Name="selectionBar" Width="3" HorizontalAlignment="Left"
+                                        Background="{DynamicResource Green}" Visibility="Collapsed" />
+                                <Border x:Name="bd" Background="{TemplateBinding Background}" Margin="3,0,0,0">
+                                    <ContentPresenter Margin="6,3,4,3" />
+                                </Border>
+                            </Grid>
                             <ControlTemplate.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource BgRowHover}" />
-                                </Trigger>
                                 <Trigger Property="IsSelected" Value="True">
                                     <Setter TargetName="bd" Property="Background" Value="{DynamicResource BgRowSelected}" />
+                                    <Setter TargetName="selectionBar" Property="Visibility" Value="Visible" />
                                     <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
                                 </Trigger>
                             </ControlTemplate.Triggers>
