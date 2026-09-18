@@ -477,7 +477,7 @@ public partial class MainWindow : Window
         DetailPanel.Children.Add(ButtonRow(
             ("设置标签", () => EditGameCollectionsAsync(gameId, revision, raw), "SteamButton")));
 
-        // 翻译策略显示与循环切换（Auto→Required→NotRequired）。
+        // 翻译策略显示与循环切换：Auto 是继承并自动路由，不是失效状态。
         var translationText = new TextBlock
         {
             Text = "翻译策略：加载中…",
@@ -499,9 +499,8 @@ public partial class MainWindow : Window
         _ = LoadTranslationAsync(gameId, translationText);
         translationButton.Click += async (_, _) =>
         {
-            var match = System.Text.RegularExpressions.Regex.Match(translationText.Text, @"策略：(\w+)");
-            var current = match.Success ? match.Groups[1].Value : "Auto";
-            await CycleTranslationAsync(gameId, current, revision);
+            var state = translationText.Tag as TranslationUiState ?? new("Auto", "Auto");
+            await CycleTranslationAsync(gameId, state, revision);
         };
 
         DetailPanel.Children.Add(ButtonRow(
@@ -715,7 +714,10 @@ public partial class MainWindow : Window
             var inherited = data.GetProperty("inherited").GetString();
             var userOverride = data.GetProperty("userOverride").GetString();
             var effective = data.GetProperty("effective").GetString();
-            var display = userOverride == "Auto" ? $"{effective}（继承 {inherited}）" : $"{effective}（用户覆盖）";
+            var display = userOverride == "Auto"
+                ? $"Auto（继承 {inherited}）"
+                : $"{userOverride}（用户覆盖）";
+            target.Tag = new TranslationUiState(userOverride ?? "Auto", effective ?? "Auto");
             target.Text = $"翻译策略：{display}";
         }
         catch (InvalidOperationException)
@@ -724,13 +726,14 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task CycleTranslationAsync(string gameId, string currentEffective, int expectedRevision)
+    private async Task CycleTranslationAsync(string gameId, TranslationUiState current, int expectedRevision)
     {
-        var next = currentEffective switch
+        var next = current.UserOverride switch
         {
+            "Auto" when current.Effective == "Required" => "NotRequired",
+            "Auto" => "Required",
             "Required" => "NotRequired",
-            "NotRequired" => "Auto",
-            _ => "Required",
+            _ => "Auto",
         };
         var envelope = await InvokeAsync("translation.set", new
         {
@@ -747,6 +750,8 @@ public partial class MainWindow : Window
 
         await RefreshAsync();
     }
+
+    private sealed record TranslationUiState(string UserOverride, string Effective);
 
     /// <summary>封面加载：LRU 缓存命中直接用；否则经 assets.get 读取（详情切换取消旧加载）。</summary>
     private async Task LoadCoverAsync(string assetId, Image coverImage)

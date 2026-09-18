@@ -391,11 +391,9 @@ public sealed partial class OperationDispatcher
         }
     }
 
-    /// <summary>
-    /// T13 Required 不回退（LA-07）：游戏翻译策略有效值为 Required 且目标 Profile 无工具绑定时，
-    /// 返回阻断信封；null 表示翻译路由可直启（策略非 Required，或 Profile 已绑定工具）。
-    /// </summary>
-    private Envelope<object>? TranslationRouteBlock(IpcRequest request, string gameId, string resolvedProfileId)
+    private GameLibrary.Host.Launching.TranslationRouteResolution? ResolveTranslationRoute(
+        string gameId,
+        string resolvedProfileId)
     {
         var store = _state.Library.Store;
         if (store is null)
@@ -410,18 +408,20 @@ public sealed partial class OperationDispatcher
             return null;
         }
 
-        var inherited = game.TranslationInherited
-            ? TranslationRequirement.Required
-            : TranslationRequirement.Auto;
-        var userOverride = game.TranslationOverride is null
-            ? TranslationRequirement.Auto
-            : Enum.Parse<TranslationRequirement>(game.TranslationOverride, ignoreCase: false);
-        if ((userOverride != TranslationRequirement.Auto ? userOverride : inherited) != TranslationRequirement.Required)
-        {
-            return null;
-        }
+        return GameLibrary.Host.Launching.TranslationLaunchRouteResolver.Resolve(game, profile);
+    }
 
-        if (profile.ToolId is not null)
+    /// <summary>
+    /// Required 不回退：没有显式工具绑定时，优先使用游戏目录中可验证的自动翻译配方；
+    /// 没有配方才阻断，不把原始 EXE 当作翻译启动。
+    /// </summary>
+    private Envelope<object>? TranslationRouteBlock(IpcRequest request, string gameId, string resolvedProfileId)
+    {
+        var resolution = ResolveTranslationRoute(gameId, resolvedProfileId);
+        if (resolution is null
+            || !resolution.IsRequired
+            || resolution.SatisfiedByProfileBinding
+            || resolution.Route is not null)
         {
             return null;
         }
@@ -434,7 +434,7 @@ public sealed partial class OperationDispatcher
             Error = new RequestError
             {
                 Code = ErrorCodes.TranslationRouteUnavailable,
-                Message = $"游戏翻译策略为 Required，而 Profile {resolvedProfileId} 是普通直启（无工具绑定）；不静默回退原文直启",
+                Message = $"游戏需要翻译，但没有可自动执行的翻译路由：{resolution.UnavailableReason}。已配置的 Profile {resolvedProfileId} 仍是原始游戏入口；不静默回退原文直启",
                 Retryable = false,
             },
             NextActions =
@@ -471,6 +471,7 @@ public sealed partial class OperationDispatcher
             : planId.Length > 0
                 ? _state.Launches.GetPlanProfileId(planId)
                 : null;
+        GameLibrary.Host.Launching.TranslationLaunchRoute? translationRoute = null;
         if (resolvedProfileId is not null)
         {
             var resolvedGameId = profileId.Length > 0
@@ -483,11 +484,14 @@ public sealed partial class OperationDispatcher
                     return inactive;
                 }
 
+                var resolution = ResolveTranslationRoute(resolvedGameId, resolvedProfileId);
                 var block = TranslationRouteBlock(request, resolvedGameId, resolvedProfileId);
                 if (block is not null)
                 {
                     return block;
                 }
+
+                translationRoute = resolution?.Route;
             }
         }
 
@@ -498,7 +502,8 @@ public sealed partial class OperationDispatcher
                 planId.Length > 0 ? planId : null,
                 profileId.Length > 0 ? profileId : null,
                 profileId.Length > 0 ? profileId : null,
-                expectedRevision);
+                expectedRevision,
+                translationRoute?.Steps);
             return new Envelope<object>
             {
                 RequestId = request.RequestId,

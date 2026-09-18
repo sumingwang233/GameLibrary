@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using GameLibrary.Contracts;
+using GameLibrary.Domain.Tools;
 
 namespace GameLibrary.Host.Launching;
 
@@ -324,7 +325,8 @@ public sealed class LaunchRegistry
         string? planId,
         string? profileId,
         string? expectedRevisionProfileId,
-        int? expectedRevision)
+        int? expectedRevision,
+        IReadOnlyList<RecipeProcessStep>? translationSteps = null)
     {
         if (_receiptByKey.TryGetValue(idempotencyKey, out var existingAttemptId))
         {
@@ -404,22 +406,57 @@ public sealed class LaunchRegistry
         _attempts[attempt.AttemptId] = attempt;
         NotifyAttempt(attempt);
 
+        var started = new List<Process>();
         try
         {
-            var startInfo = new ProcessStartInfo
+            var steps = translationSteps is { Count: > 0 }
+                ? translationSteps.OrderBy(step => step.Sequence).ToArray()
+                :
+                [
+                    new RecipeProcessStep
+                    {
+                        Sequence = 0,
+                        ExecutablePath = plan.ExecutablePath,
+                        Arguments = plan.Arguments,
+                        WorkingDirectory = plan.WorkingDirectory,
+                        WaitForExit = false,
+                    },
+                ];
+            Process? process = null;
+            foreach (var step in steps)
             {
-                FileName = plan.ExecutablePath,
-                WorkingDirectory = plan.WorkingDirectory,
-                UseShellExecute = Path.GetExtension(plan.ExecutablePath)
-                    .Equals(".swf", StringComparison.OrdinalIgnoreCase),
-            };
-            foreach (var argument in plan.Arguments)
-            {
-                startInfo.ArgumentList.Add(argument);
+                var startInfo = new ProcessStartInfo
+                {
+                    FileName = step.ExecutablePath,
+                    WorkingDirectory = step.WorkingDirectory,
+                    UseShellExecute = Path.GetExtension(step.ExecutablePath)
+                        .Equals(".swf", StringComparison.OrdinalIgnoreCase),
+                };
+                foreach (var argument in step.Arguments)
+                {
+                    startInfo.ArgumentList.Add(argument);
+                }
+
+                process = Process.Start(startInfo)
+                    ?? throw new LaunchException(ErrorCodes.ProcessStartFailed, "进程启动返回空");
+                started.Add(process);
+                if (step.WaitForExit)
+                {
+                    process.WaitForExit();
+                    if (process.ExitCode != 0)
+                    {
+                        throw new LaunchException(
+                            ErrorCodes.ProcessStartFailed,
+                            $"翻译步骤失败：{step.ExecutablePath}（退出码 {process.ExitCode}）");
+                    }
+                }
             }
 
-            var process = Process.Start(startInfo)
-                ?? throw new LaunchException(ErrorCodes.ProcessStartFailed, "进程启动返回空");
+            if (process is null)
+            {
+                throw new LaunchException(ErrorCodes.ProcessStartFailed, "没有可执行的启动步骤");
+            }
+
             attempt = attempt with
             {
                 State = "processCreated",
@@ -433,6 +470,7 @@ public sealed class LaunchRegistry
         }
         catch (Exception ex) when (ex is not LaunchException)
         {
+            StopStartedProcesses(started);
             attempt = attempt with
             {
                 State = "processStartFailed",
@@ -443,6 +481,38 @@ public sealed class LaunchRegistry
             _activeByGame.TryRemove(plan.GameId, out _);
             NotifyAttempt(attempt);
             throw new LaunchException(ErrorCodes.ProcessStartFailed, $"进程启动失败：{ex.Message}");
+        }
+        catch (LaunchException ex)
+        {
+            StopStartedProcesses(started);
+            attempt = attempt with
+            {
+                State = "processStartFailed",
+                Error = ex.Message,
+                FinishedUtc = DateTime.UtcNow,
+            };
+            _attempts[attempt.AttemptId] = attempt;
+            _activeByGame.TryRemove(plan.GameId, out _);
+            NotifyAttempt(attempt);
+            throw;
+        }
+    }
+
+    private static void StopStartedProcesses(IEnumerable<Process> processes)
+    {
+        foreach (var process in processes.Reverse())
+        {
+            try
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException)
+            {
+                // 进程可能已在步骤失败时退出。
+            }
         }
     }
 

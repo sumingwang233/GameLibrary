@@ -1,6 +1,7 @@
 using System.Text.Json;
 using GameLibrary.Contracts;
 using GameLibrary.Contracts.Ipc;
+using GameLibrary.Host.Launching;
 using GameLibrary.HostClient;
 using GameLibrary.Infrastructure.Persistence;
 using Xunit;
@@ -15,6 +16,8 @@ namespace GameLibrary.IntegrationTests.Translation;
 public sealed class TranslationConfigTests : IClassFixture<PipeServerFixture>
 {
     private readonly PipeServerFixture _fixture;
+
+    private static string StubExe => Path.Combine(AppContext.BaseDirectory, "GameLibrary.TestProcessStub.exe");
 
     public TranslationConfigTests(PipeServerFixture fixture)
     {
@@ -385,5 +388,81 @@ public sealed class TranslationConfigTests : IClassFixture<PipeServerFixture>
         });
 
         Assert.True(execute.Ok, execute.Error?.Message);
+    }
+
+    [Fact]
+    public async Task LaunchExecute_AutoRequiredGame_UsesRecipeWithOriginalGameProfile()
+    {
+        var root = Path.Combine(
+            $@"D:\Official\GameLibrary\artifacts\test-runs\{_fixture.TestId}",
+            $"auto-mtool-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        var gameExe = Path.Combine(root, "Game.exe");
+        var injector = Path.Combine(root, "inject.exe");
+        var mtool = Path.Combine(root, "MTool.exe");
+        var hook = Path.Combine(root, "SRPGHook.dll");
+        foreach (var extension in new[] { ".exe", ".dll", ".deps.json", ".runtimeconfig.json" })
+        {
+            var source = Path.ChangeExtension(StubExe, extension);
+            if (File.Exists(source))
+            {
+                File.Copy(source, Path.Combine(root, Path.GetFileName(source)));
+            }
+        }
+        CopyStub(Path.Combine(root, "Game"));
+        CopyStub(Path.Combine(root, "inject"));
+        CopyStub(Path.Combine(root, "MTool"));
+        File.WriteAllText(hook, "stub");
+        File.WriteAllText(Path.Combine(root, "与工具一同启动.bat"), $"""
+            @echo off
+            "{injector}" "{gameExe}" "{hook}"
+            start "" "{mtool}" "{root}"
+            """);
+
+        var gameId = $"game-{Guid.NewGuid():N}";
+        _fixture.State.Library.Store!.InsertGame(new GameCard
+        {
+            GameId = gameId,
+            Title = "Auto MTool 测试游戏",
+            RootPath = root,
+            Kind = "GameRoot",
+            Membership = "active",
+            TranslationInherited = true,
+            AcceptedUtc = DateTime.UtcNow,
+            UpdatedUtc = DateTime.UtcNow,
+        });
+        var profile = _fixture.State.Launches.AddProfile(gameId, gameExe, [], root, isDefault: true);
+
+        var resolution = TranslationLaunchRouteResolver.Resolve(
+            _fixture.State.Library.Store.TryGetGame(gameId)!, profile);
+        Assert.True(resolution.IsRequired);
+        Assert.NotNull(resolution.Route);
+        Assert.Equal("mtool", resolution.Route!.ToolId);
+        Assert.Equal(2, resolution.Route.Steps.Count);
+        Assert.Equal(gameExe, resolution.Route.Steps[0].Arguments[0]);
+
+        var plan = await InvokeAsync("launch.plan", new { gameId, profileId = profile.ProfileId });
+        Assert.True(plan.Ok, plan.Error?.Message);
+
+        var execute = await InvokeAsync("launch.execute", new
+        {
+            idempotencyKey = $"auto-mtool-{Guid.NewGuid():N}",
+            profileId = profile.ProfileId,
+        });
+        Assert.True(execute.Ok, execute.Error?.Message);
+        Assert.Equal("processCreated", execute.Data.GetProperty("state").GetString());
+
+        void CopyStub(string targetWithoutExtension)
+        {
+            foreach (var extension in new[] { ".exe", ".dll", ".deps.json", ".runtimeconfig.json" })
+            {
+                var source = Path.ChangeExtension(StubExe, extension);
+                if (File.Exists(source))
+                {
+                    File.Copy(source, targetWithoutExtension + extension);
+                }
+            }
+        }
     }
 }

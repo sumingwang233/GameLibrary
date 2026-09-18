@@ -435,14 +435,15 @@ public partial class MainWindow : Window
             }
             else
             {
-                var candidates = await InvokeAsync("candidates.list");
+                var candidates = await InvokeAsync(
+                    "candidates.list",
+                    new { state = "pendingReview", limit = 1, offset = 0 });
                 if (!candidates.Ok)
                 {
                     throw new InvalidOperationException($"读取待确认项目失败：{candidates.Error?.Message}");
                 }
 
-                var pending = candidates.Data.GetProperty("items").EnumerateArray()
-                    .Count(item => item.GetProperty("reviewState").GetString() == "pendingReview");
+                var pending = candidates.Data.GetProperty("total").GetInt32();
                 ScanProgressText.Text = "扫描完成";
                 if (pending > 0)
                 {

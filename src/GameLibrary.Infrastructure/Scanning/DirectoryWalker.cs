@@ -187,7 +187,7 @@ public sealed class DirectoryWalker
                 }
 
                 var (dirPath, depth) = stack.Pop();
-                var enumerateStatus = TryEnumerate(dirPath, out var subDirs, out var files);
+                var enumerateStatus = TryEnumerate(dirPath, ct, out var subDirs, out var files);
                 if (enumerateStatus != EnumerateStatus.Ok)
                 {
                     switch (enumerateStatus)
@@ -326,14 +326,32 @@ public sealed class DirectoryWalker
         return gamePath.Segments.Count - _root.Segments.Count;
     }
 
-    private static EnumerateStatus TryEnumerate(string dir, out IReadOnlyList<string> subDirs, out IReadOnlyList<string> files)
+    private static EnumerateStatus TryEnumerate(
+        string dir,
+        CancellationToken ct,
+        out IReadOnlyList<string> subDirs,
+        out IReadOnlyList<string> files)
     {
         subDirs = [];
         files = [];
         try
         {
-            subDirs = [.. Directory.EnumerateDirectories(dir)];
-            files = [.. Directory.EnumerateFiles(dir)];
+            var directories = new List<string>();
+            foreach (var child in Directory.EnumerateDirectories(dir))
+            {
+                ct.ThrowIfCancellationRequested();
+                directories.Add(child);
+            }
+
+            var entries = new List<string>();
+            foreach (var file in Directory.EnumerateFiles(dir))
+            {
+                ct.ThrowIfCancellationRequested();
+                entries.Add(file);
+            }
+
+            subDirs = directories;
+            files = entries;
             return EnumerateStatus.Ok;
         }
         catch (UnauthorizedAccessException)

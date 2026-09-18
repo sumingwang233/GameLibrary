@@ -16,7 +16,7 @@ internal static class DesktopScanProgress
         var files = Int64Value(coverage, "observedFileEntries");
         var candidates = Int64Value(coverage, "candidatesFound");
         var currentPath = StringValue(coverage, "currentPath");
-        var text = $"扫描（根 {rootIndex}/{rootCount}）已检查 {directories:N0} 个目录、{files:N0} 个文件，发现 {candidates:N0} 个候选";
+        var text = $"扫描（根 {rootIndex}/{rootCount}）已检查 {directories:N0} 个目录、{files:N0} 个文件，识别 {candidates:N0} 个候选（含已入库）";
         return string.IsNullOrWhiteSpace(currentPath)
             ? text
             : $"{text} · 当前：{currentPath}";

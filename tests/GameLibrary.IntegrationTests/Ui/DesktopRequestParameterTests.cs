@@ -26,7 +26,7 @@ public sealed class DesktopRequestParameterTests
 
         Assert.Contains("123 个目录", text, StringComparison.Ordinal);
         Assert.Contains("456 个文件", text, StringComparison.Ordinal);
-        Assert.Contains("7 个候选", text, StringComparison.Ordinal);
+        Assert.Contains("识别 7 个候选（含已入库）", text, StringComparison.Ordinal);
         Assert.Contains("Games/Example", text, StringComparison.Ordinal);
         Assert.DoesNotContain("%", text, StringComparison.Ordinal);
     }
