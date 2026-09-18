@@ -139,6 +139,7 @@ public partial class MainWindow : Window
         _eventTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
         _eventTimer.Tick += async (_, _) => await PollEventsAsync();
 
+        Loaded += (_, _) => EnsureTrayIconVisible();
         Loaded += async (_, _) => await ConnectAsync();
         Closing += SaveSplitterOnClose;
     }

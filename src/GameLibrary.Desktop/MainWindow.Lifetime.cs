@@ -80,14 +80,13 @@ public partial class MainWindow : Window
 
     protected override async void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
-        // 关闭行为消费设置（审查意见：始终进托盘、不读 closeToTray）。
+        // 关闭按钮按设置缩到托盘；托盘菜单中的显式退出仍会结束界面。
         var closeToTray = !TryGetSetting("closeToTray", out var ctt) || ctt.GetBoolean();
         if (!_exitRequested && closeToTray)
         {
             e.Cancel = true;
+            EnsureTrayIconVisible();
             Hide();
-            _trayIcon ??= CreateTrayIcon();
-            _trayIcon.Visible = true;
             return;
         }
 
@@ -103,6 +102,12 @@ public partial class MainWindow : Window
     private bool _exitRequested;
 
     private WinForms.NotifyIcon? _trayIcon;
+
+    private void EnsureTrayIconVisible()
+    {
+        _trayIcon ??= CreateTrayIcon();
+        _trayIcon.Visible = true;
+    }
 
     private WinForms.NotifyIcon CreateTrayIcon()
     {
@@ -136,10 +141,6 @@ public partial class MainWindow : Window
         Show();
         WindowState = WindowState.Normal;
         Activate();
-        if (_trayIcon is not null)
-        {
-            _trayIcon.Visible = false;
-        }
     }
 
     /// <summary>退出界面：只结束 Desktop；Host 继续扫描并供 CLI/MCP 使用（AI-09 退出语义）。</summary>
