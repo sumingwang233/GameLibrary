@@ -86,6 +86,7 @@ Section "GameLibrary" SecMain
 !endif
 
   File /oname=GameLibrary.Desktop.exe "${PAYLOAD_DIR}\GameLibrary.Desktop.exe"
+  File /oname=GameLibrary.TauriBridge.exe "${PAYLOAD_DIR}\GameLibrary.TauriBridge.exe"
   File /oname=GameLibrary.Host.exe "${PAYLOAD_DIR}\GameLibrary.Host.exe"
   File /oname=SHA256SUMS.txt "${PAYLOAD_DIR}\SHA256SUMS.txt"
 
@@ -136,6 +137,7 @@ Section "Uninstall"
   RMDir "$SMPROGRAMS\${START_MENU_FOLDER}"
 
   Delete "$INSTDIR\GameLibrary.Desktop.exe"
+  Delete "$INSTDIR\GameLibrary.TauriBridge.exe"
   Delete "$INSTDIR\GameLibrary.Host.exe"
   Delete "$INSTDIR\SHA256SUMS.txt"
   Delete "$INSTDIR\.gamelibrary-install"

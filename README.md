@@ -44,7 +44,7 @@ GameLibrary recognizes engine structures and scores plausible entry files while 
 
 ### One library, three interfaces
 
-The WPF desktop app, command-line client, and MCP server share a versioned operation catalog and connect to a single per-library Host over a local named pipe. An action performed through one interface is immediately visible to the others.
+The Tauri desktop app, command-line client, and MCP server share a versioned operation catalog and connect to a single per-library Host over a local named pipe. The React UI reaches the existing .NET Host through a thin bundled bridge, so an action performed through one interface is immediately visible to the others.
 
 ### Safe boundaries around your files
 
@@ -87,7 +87,8 @@ Application data is stored under `%LOCALAPPDATA%\GameLibrary` by default. Closin
 
 ```mermaid
 flowchart LR
-    Desktop[WPF Desktop] --> Client[HostClient]
+    Desktop[Tauri + React Desktop] --> Bridge[.NET TauriBridge]
+    Bridge --> Client[HostClient]
     CLI[CLI] --> Client
     MCP[MCP server] --> Client
     Client -->|local named pipe| Host[Single GameLibrary Host]
@@ -105,6 +106,8 @@ The Host owns writes, scanning jobs, launch coordination, and persistence. The c
 
 - Windows 10 or Windows 11
 - [.NET SDK 10.0.401](https://dotnet.microsoft.com/download/dotnet/10.0), pinned by `global.json`
+- Node.js 22 or later
+- Rust stable with the `x86_64-pc-windows-msvc` target
 - Git
 
 ### Build and test
@@ -115,19 +118,25 @@ cd GameLibrary
 dotnet restore GameLibrary.slnx
 dotnet build GameLibrary.slnx -c Release --no-restore
 dotnet test GameLibrary.slnx -c Release --no-build --no-restore
+npm --prefix src/GameLibrary.Tauri install
+npm --prefix src/GameLibrary.Tauri run typecheck
+npm --prefix src/GameLibrary.Tauri run build
 ```
 
-Run the desktop app after building the solution:
+Run the Tauri desktop app after building the solution:
 
 ```powershell
-dotnet run --project src/GameLibrary.Desktop/GameLibrary.Desktop.csproj -c Release --no-build
+cd src/GameLibrary.Tauri
+npm run tauri dev
 ```
 
 ## Repository layout
 
 | Path | Purpose |
 |---|---|
-| `src/GameLibrary.Desktop` | WPF desktop application |
+| `src/GameLibrary.Tauri` | Tauri v2 + React 19 desktop application |
+| `src/GameLibrary.TauriBridge` | Thin .NET sidecar that reuses HostClient and the operation contract |
+| `src/GameLibrary.Desktop` | Legacy WPF fallback retained during migration |
 | `src/GameLibrary.Host` | Local single-writer Host, scanning, launching, and operations |
 | `src/GameLibrary.Cli` | Native command-line client |
 | `src/GameLibrary.Mcp` | Native MCP stdio server |

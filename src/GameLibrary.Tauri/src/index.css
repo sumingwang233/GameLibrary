@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #c7d5e0;
+  background: #171a21;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { width: 100%; height: 100%; margin: 0; }
+body { overflow: hidden; background: #171a21; }
+button, input, select { font: inherit; }
+.control { height: 2.5rem; width: 100%; border: 1px solid #30475e; border-radius: 0.375rem; background: #121821; padding: 0 0.75rem; color: #c7d5e0; outline: none; }
+.control:focus { border-color: #66c0f4; box-shadow: 0 0 0 1px #66c0f4; }
+
+@theme {
+  --color-background: #171a21;
+  --color-surface: #1e2a38;
+  --color-surface-elevated: #243447;
+  --color-steam: #66c0f4;
+  --color-steam-soft: #2a475e;
+  --color-text-primary: #c7d5e0;
+  --color-text-secondary: #8f98a0;
+  --color-border: #30475e;
+  --color-success: #a4d007;
+  --color-danger: #e06c75;
+  --color-primary: #66c0f4;
+  --color-primary-foreground: #0d1822;
+  --color-input: #30475e;
+  --color-ring: #66c0f4;
+  --color-destructive: #e06c75;
+  --color-popover: #1e2a38;
+  --color-popover-foreground: #c7d5e0;
+  --color-accent: #2a475e;
+  --color-accent-foreground: #c7d5e0;
+  --radius: 0.5rem;
+}
+
+::selection { background: #66c0f4; color: #0d1822; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: #171a21; }
+::-webkit-scrollbar-thumb { background: #30475e; border-radius: 999px; }

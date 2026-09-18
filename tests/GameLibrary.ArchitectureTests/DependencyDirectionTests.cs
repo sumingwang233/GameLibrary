@@ -24,6 +24,7 @@ public sealed class DependencyDirectionTests
         { "GameLibrary.Desktop", ["GameLibrary.Domain", "GameLibrary.Application", "GameLibrary.Infrastructure", "GameLibrary.Host"] },
         { "gamelibrary", ["GameLibrary.Domain", "GameLibrary.Application", "GameLibrary.Infrastructure", "GameLibrary.Host"] },
         { "GameLibrary.Mcp", ["GameLibrary.Domain", "GameLibrary.Application", "GameLibrary.Infrastructure", "GameLibrary.Host"] },
+        { "GameLibrary.TauriBridge", ["GameLibrary.Domain", "GameLibrary.Application", "GameLibrary.Infrastructure", "GameLibrary.Host", "GameLibrary.Desktop", "gamelibrary", "GameLibrary.Mcp"] },
     };
 
     [Theory]

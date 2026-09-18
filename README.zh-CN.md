@@ -44,7 +44,7 @@ GameLibrary 会识别引擎目录结构并给可能的启动文件评分，同�
 
 ### 一份游戏库，三个操作入口
 
-WPF 桌面程序、命令行客户端和 MCP 服务共享同一个带版本的操作目录，并通过本地命名管道连接单一 Host。从任何入口完成的操作，其他入口都能立即看到。
+Tauri 桌面程序、命令行客户端和 MCP 服务共享同一个带版本的操作目录，并通过本地命名管道连接单一 Host。React 界面经由随应用打包的轻量 .NET bridge 复用现有 HostClient，因此从任何入口完成的操作，其他入口都能立即看到。
 
 ### 游戏文件有明确的安全边界
 
@@ -87,7 +87,8 @@ GameLibrary 支持 **Windows 10/11 x64**。发布包已包含运行环境，不�
 
 ```mermaid
 flowchart LR
-    Desktop[WPF 桌面程序] --> Client[HostClient]
+    Desktop[Tauri + React 桌面程序] --> Bridge[.NET TauriBridge]
+    Bridge --> Client[HostClient]
     CLI[CLI] --> Client
     MCP[MCP 服务] --> Client
     Client -->|本地命名管道| Host[单一 GameLibrary Host]
@@ -105,6 +106,8 @@ Host 统一负责写入、扫描任务、启动协调和持久化。三个客户
 
 - Windows 10 或 Windows 11
 - [.NET SDK 10.0.401](https://dotnet.microsoft.com/download/dotnet/10.0)，版本由 `global.json` 固定
+- Node.js 22 或更高版本
+- Rust stable，并安装 `x86_64-pc-windows-msvc` target
 - Git
 
 ### 构建与测试
@@ -115,19 +118,25 @@ cd GameLibrary
 dotnet restore GameLibrary.slnx
 dotnet build GameLibrary.slnx -c Release --no-restore
 dotnet test GameLibrary.slnx -c Release --no-build --no-restore
+npm --prefix src/GameLibrary.Tauri install
+npm --prefix src/GameLibrary.Tauri run typecheck
+npm --prefix src/GameLibrary.Tauri run build
 ```
 
-构建整个解决方案后运行桌面程序：
+构建整个解决方案后运行 Tauri 桌面程序：
 
 ```powershell
-dotnet run --project src/GameLibrary.Desktop/GameLibrary.Desktop.csproj -c Release --no-build
+cd src/GameLibrary.Tauri
+npm run tauri dev
 ```
 
 ## 仓库结构
 
 | 路径 | 用途 |
 |---|---|
-| `src/GameLibrary.Desktop` | WPF 桌面程序 |
+| `src/GameLibrary.Tauri` | Tauri v2 + React 19 桌面程序 |
+| `src/GameLibrary.TauriBridge` | 复用 HostClient 与现有操作契约的轻量 .NET sidecar |
+| `src/GameLibrary.Desktop` | 迁移期间保留的 WPF 回退入口 |
 | `src/GameLibrary.Host` | 本地单写 Host、扫描、启动和业务操作 |
 | `src/GameLibrary.Cli` | 原生命令行客户端 |
 | `src/GameLibrary.Mcp` | 原生 MCP stdio 服务 |

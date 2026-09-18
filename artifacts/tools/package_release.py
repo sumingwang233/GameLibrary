@@ -19,6 +19,7 @@ import zipfile
 
 
 DOTNET = os.path.expanduser(r"~\.dotnet-sdk-10.0\dotnet.exe")
+NPM = shutil.which("npm.cmd") or shutil.which("npm") or "npm.cmd"
 WORKSPACE = r"D:\Official\GameLibrary"
 DIST = os.path.join(WORKSPACE, "artifacts", "dist")
 STAGING_ROOT = os.path.join(DIST, "staging")
@@ -38,8 +39,8 @@ PORTABLE_NSIS = os.path.join(
 )
 DEFAULT_TIMESTAMP_URL = "http://timestamp.digicert.com"
 COMPONENTS = [
-    ("GameLibrary.Desktop", "GameLibrary.Desktop.exe", True, False),
     ("GameLibrary.Host", "GameLibrary.Host.exe", True, True),
+    ("GameLibrary.TauriBridge", "GameLibrary.TauriBridge.exe", True, False),
     ("GameLibrary.Cli", "gamelibrary.exe", False, True),
     ("GameLibrary.Mcp", "GameLibrary.Mcp.exe", False, True),
 ]
@@ -128,7 +129,21 @@ def publish_all(log):
         if include_in_tools:
             shutil.copy2(source, os.path.join(TOOLS_PAYLOAD, executable))
     shutil.rmtree(COMPONENT_OUTPUTS)
-    log.append("single-file payloads: user=2 executables, tools=3 executables")
+    publish_tauri_desktop(log)
+    log.append("single-file payloads: user=3 executables, tools=3 executables")
+
+
+def publish_tauri_desktop(log):
+    project = os.path.join(WORKSPACE, "src", "GameLibrary.Tauri")
+    rc, output = sh([NPM, "run", "tauri", "build", "--", "--no-bundle"], cwd=project, timeout=3600)
+    log.append(f"publish GameLibrary.Tauri: rc={rc}")
+    if rc != 0:
+        log.append(output[-8000:])
+        raise RuntimeError("publish GameLibrary.Tauri failed")
+    executable = os.path.join(project, "src-tauri", "target", "release", "gamelibrary-desktop.exe")
+    if not os.path.isfile(executable):
+        raise RuntimeError(f"Tauri executable is missing: {executable}")
+    shutil.copy2(executable, os.path.join(USER_PAYLOAD, "GameLibrary.Desktop.exe"))
 
 
 def separate_pdbs(log):
@@ -319,8 +334,8 @@ def write_checklist(version, signed, log):
 
 ## 发布资产
 
-- `GameLibrary-Setup-v{version}.exe`：普通用户推荐下载的单个 NSIS 图形化当前用户安装器，内含 Desktop 与后台 Host；默认安装到 `%LOCALAPPDATA%\\Programs\\GameLibrary`，可在安装向导中修改位置，不要求管理员权限。
-- `GameLibrary-Portable-win-x64-v{version}.zip`：免安装包，只含单文件 `GameLibrary.Desktop.exe`、`GameLibrary.Host.exe` 与校验文件，不含脚本。
+- `GameLibrary-Setup-v{version}.exe`：普通用户推荐下载的单个 NSIS 图形化当前用户安装器，内含 Tauri Desktop、.NET bridge 与后台 Host；默认安装到 `%LOCALAPPDATA%\\Programs\\GameLibrary`，可在安装向导中修改位置，不要求管理员权限。
+- `GameLibrary-Portable-win-x64-v{version}.zip`：免安装包，只含 `GameLibrary.Desktop.exe`、`GameLibrary.TauriBridge.exe`、`GameLibrary.Host.exe` 与校验文件，不含脚本。
 - `GameLibrary-Tools-win-x64-v{version}.zip`：高级用户工具包，只含单文件 Host、CLI、MCP 与校验文件，不含脚本。
 - `GameLibrary-v{version}-SHA256SUMS.txt`：以上三个发布资产的 SHA-256。
 
@@ -356,7 +371,7 @@ def make_portable_zip(version, log):
                 archive.write(full, os.path.relpath(full, USER_PAYLOAD))
     validate_zip_layout(
         path,
-        {"GameLibrary.Desktop.exe", "GameLibrary.Host.exe", "SHA256SUMS.txt"},
+        {"GameLibrary.Desktop.exe", "GameLibrary.TauriBridge.exe", "GameLibrary.Host.exe", "SHA256SUMS.txt"},
         log,
     )
     log.append(f"portable zip: {os.path.getsize(path) / 1048576:.1f} MiB")

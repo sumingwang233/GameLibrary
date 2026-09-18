@@ -7,6 +7,7 @@
     <Project Path="src/GameLibrary.Domain/GameLibrary.Domain.csproj" />
     <Project Path="src/GameLibrary.Host/GameLibrary.Host.csproj" />
     <Project Path="src/GameLibrary.HostClient/GameLibrary.HostClient.csproj" />
+    <Project Path="src/GameLibrary.TauriBridge/GameLibrary.TauriBridge.csproj" />
     <Project Path="src/GameLibrary.Infrastructure/GameLibrary.Infrastructure.csproj" />
     <Project Path="src/GameLibrary.Mcp/GameLibrary.Mcp.csproj" />
   </Folder>
