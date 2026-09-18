@@ -6,7 +6,7 @@
 
 ## 下载与安装
 
-正式版本发布在 [GitHub Releases](https://github.com/sumingwang233/GameLibrary/releases)。普通 Windows 10/11 x64 用户只需下载并运行 `GameLibrary-Setup-v*.exe`；安装器内含桌面程序和后台 Host，自包含 .NET 运行时。免安装用户可下载 `GameLibrary-Portable-win-x64-v*.zip`，其中只有两个单文件 EXE 与校验文件。CLI/MCP 放在独立的 `GameLibrary-Tools-win-x64-v*.zip`，不混入普通用户包。两个 ZIP 都不附带 PowerShell/CMD 脚本。安装器不要求管理员权限，不修改系统环境变量或注册表，卸载时保留默认游戏库数据。发布资产的 SHA-256 见同版本 `GameLibrary-v*-SHA256SUMS.txt`。
+正式版本发布在 [GitHub Releases](https://github.com/sumingwang233/GameLibrary/releases)。普通 Windows 10/11 x64 用户只需下载并运行 `GameLibrary-Setup-v*.exe`；NSIS 图形化安装向导内含桌面程序和后台 Host、自包含 .NET 运行时，可选择程序安装位置，不要求管理员权限或打开终端窗口。安装完成后，安装目录包含 `Uninstall.exe`，Windows“设置 → 应用 → 已安装的应用”和开始菜单也提供卸载入口；安装器只写当前用户的标准卸载登记，不修改系统环境变量或安装服务，卸载时保留默认游戏库数据。免安装用户可下载 `GameLibrary-Portable-win-x64-v*.zip`，其中只有两个单文件 EXE 与校验文件。CLI/MCP 放在独立的 `GameLibrary-Tools-win-x64-v*.zip`，不混入普通用户包。两个 ZIP 都不附带 PowerShell/CMD 脚本。发布资产的 SHA-256 见同版本 `GameLibrary-v*-SHA256SUMS.txt`。
 
 ## 代码签名与隐私
 

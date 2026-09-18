@@ -476,3 +476,13 @@
 - **远端状态**：R17 已以提交 `0a555c0` 推送到 `main`；仓库已按用户授权公开并采用 MIT。远端 `v1.0.0` 仍为 Draft，发布目标跟随 `main`，旧版 ZIP/哈希资产已全部移除，因此公开下载页没有误发未签名文件。
 - **SignPath 申请进度**：申请人已亲自确认《Code of Conduct》和个人数据处理同意，并在完成人工 reCAPTCHA 后提交 Foundation 申请；页面显示 `Form submitted — Thank you, we'll be in touch soon.`。信誉栏如实说明项目为新开源、目前没有公开发布、下载统计、媒体报道或社区采用证据，没有虚构数据。项目当前为 0 star 且没有已发布版本，Foundation 仍可能因信誉条件拒绝或要求补充材料。
 - **下一项**：等待 SignPath Foundation 审核邮件；获批后按平台项目配置签名 Desktop、Host、CLI、MCP 与安装器，替换 Draft Release 资产并发布 `v1.0.0`。若审核要求先建立公开采用记录，则继续保持 Release 为 Draft，并根据其反馈决定发布预览版或改用商业受信证书。
+
+## R18 v1.0.0 图形安装器与标准卸载登记 — 2026-09-18
+
+- **任务 ID**：R18（用户安装旧预览后反馈：Windows“已安装的应用”无条目、没有 EXE 卸载器、安装时弹出终端、不能选择安装位置）。
+- **根因与改动**：旧 IExpress 外壳实际调用内置 PowerShell 脚本，只复制程序和开始菜单快捷方式，没有写 Windows 标准卸载登记，安装位置也只能通过脚本参数修改。发布流水线现改用 NSIS 3.12 Modern UI；新增 `artifacts/installer/GameLibrary.nsi` 与固定版本、固定 SHA-256 的便携 NSIS 引导脚本 `artifacts/tools/bootstrap_nsis.py`，不安装系统工具或修改 PATH。安装向导提供欢迎、目录、安装和完成页，全程当前用户权限且不显示终端。
+- **安装与卸载行为**：默认安装到 `%LOCALAPPDATA%\Programs\GameLibrary`，目录页允许修改；生成安装目录内的 `Uninstall.exe`，建立开始菜单应用/卸载快捷方式，并在 `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\GameLibrary` 写入显示名称、版本、图标、安装位置及静默/交互卸载命令，因此能显示在 Windows“设置 → 应用 → 已安装的应用”。卸载仅删除已知程序文件、快捷方式和自身登记，保留 `%LOCALAPPDATA%\GameLibrary` 用户数据及安装目录中的未知文件；默认位置升级时清理旧版遗留的 `GameLibrary-Uninstall.ps1`。
+- **隔离安装验证**：在 `artifacts/test-runs/899dab0412c04a3695628e6d947c41cb/data` 编译测试身份安装器并静默安装到自定义目录，确认退出码 0、安装位置登记准确、`Uninstall.exe` 存在、2 个快捷方式、脚本文件数 0；卸载退出码 0，卸载键和已知文件全部移除，预先加入的未知文件保留。报告：`artifacts/build-reports/2026-09-18-r18-installer.txt`。
+- **发布预览**：新 `GameLibrary-Setup-v1.0.0.exe` 为 102,745,212 字节，SHA-256 `39B0242F69483E89245F593BE1B8B1145683FACD61081B85758086D2121DB5CF`；便携包仍为根级 Desktop/Host/校验文件，Tools 包仍为根级 Host/CLI/MCP/校验文件，两个 ZIP 均无 `.ps1`/`.cmd`/`.bat`。本地产物尚未取得 SignPath 受信签名，保持为预览，不上传 Draft Release。
+- **工程门禁**：`dotnet format --verify-no-changes`、Release build（0 警告、0 错误）、`git diff --check` 通过；全套 **436/436**（契约 43、架构 8、单元 139、无界面 E2E 16、集成 230）通过。初次 UIA 运行因用户已安装的旧版 Desktop 占用全局单实例而有 3 项窗口等待失败；短暂停止该旧版进程后，3/3 定向复测和最终全套均通过，随后已从原安装路径重新打开旧版 Desktop。最终日志：`artifacts/build-reports/2026-09-18-r18-format.txt`、`2026-09-18-r18-build.txt`、`2026-09-18-r18-tests-final.txt`。
+- **下一项**：用户关闭当前旧版并运行本轮 NSIS 安装器完成就地升级，人工确认图形向导、目录选择和 Windows 已安装应用中的卸载入口；SignPath Foundation 获批后重新签名并生成最终哈希，再上传并发布 `v1.0.0`。

@@ -15,7 +15,6 @@ import hashlib
 import os
 import shutil
 import subprocess
-import textwrap
 import zipfile
 
 
@@ -26,9 +25,17 @@ STAGING_ROOT = os.path.join(DIST, "staging")
 USER_PAYLOAD = os.path.join(STAGING_ROOT, "GameLibrary")
 TOOLS_PAYLOAD = os.path.join(STAGING_ROOT, "GameLibrary-Tools")
 SYMBOLS = os.path.join(STAGING_ROOT, "symbols")
-INSTALLER_SOURCE = os.path.join(STAGING_ROOT, "installer-source")
 COMPONENT_OUTPUTS = os.path.join(STAGING_ROOT, "component-publish")
-IEXPRESS = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "iexpress.exe")
+INSTALLER_SCRIPT = os.path.join(WORKSPACE, "artifacts", "installer", "GameLibrary.nsi")
+INSTALLER_ICON = os.path.join(WORKSPACE, "src", "GameLibrary.Desktop", "App.ico")
+PORTABLE_NSIS = os.path.join(
+    WORKSPACE,
+    "artifacts",
+    "toolchain",
+    "nsis-3.12",
+    "nsis-3.12",
+    "makensis.exe",
+)
 DEFAULT_TIMESTAMP_URL = "http://timestamp.digicert.com"
 COMPONENTS = [
     ("GameLibrary.Desktop", "GameLibrary.Desktop.exe", True, False),
@@ -83,7 +90,6 @@ def clean_staging(log):
     os.makedirs(USER_PAYLOAD, exist_ok=True)
     os.makedirs(TOOLS_PAYLOAD, exist_ok=True)
     os.makedirs(SYMBOLS, exist_ok=True)
-    os.makedirs(INSTALLER_SOURCE, exist_ok=True)
     os.makedirs(COMPONENT_OUTPUTS, exist_ok=True)
     log.append("staging cleaned")
 
@@ -245,148 +251,60 @@ def sign_payload(signing, log):
     return True
 
 
-def write_installer_scripts(log):
-    install_ps1 = r'''param(
-    [string]$TargetDirectory = (Join-Path $env:LOCALAPPDATA "Programs\GameLibrary"),
-    [switch]$NoShortcuts,
-    [switch]$NoLaunch,
-    [switch]$Quiet
-)
-$ErrorActionPreference = "Stop"
-$payload = Join-Path $PSScriptRoot "GameLibrary-payload.zip"
-$uninstallerSource = Join-Path $PSScriptRoot "uninstall.ps1"
-if (-not (Test-Path -LiteralPath $payload)) { throw "安装载荷不存在：$payload" }
-$target = [IO.Path]::GetFullPath($TargetDirectory)
-$parent = Split-Path -Parent $target
-New-Item -ItemType Directory -Force -Path $parent | Out-Null
-$temporary = Join-Path $parent (".GameLibrary.install-" + [Guid]::NewGuid().ToString("N"))
-$backup = Join-Path $parent (".GameLibrary.backup-" + [Guid]::NewGuid().ToString("N"))
-try {
-    Expand-Archive -LiteralPath $payload -DestinationPath $temporary -Force
-    foreach ($required in @("GameLibrary.Desktop.exe", "GameLibrary.Host.exe", "SHA256SUMS.txt")) {
-        if (-not (Test-Path -LiteralPath (Join-Path $temporary $required))) { throw "安装载荷缺少：$required" }
-    }
-    Get-CimInstance Win32_Process | Where-Object {
-        $_.ExecutablePath -and [IO.Path]::GetFullPath($_.ExecutablePath).StartsWith($target + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)
-    } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-    if (Test-Path -LiteralPath $target) { Move-Item -LiteralPath $target -Destination $backup }
-    Move-Item -LiteralPath $temporary -Destination $target
-    if (Test-Path -LiteralPath $backup) { Remove-Item -LiteralPath $backup -Recurse -Force }
-} catch {
-    if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue }
-    if ((-not (Test-Path -LiteralPath $target)) -and (Test-Path -LiteralPath $backup)) {
-        Move-Item -LiteralPath $backup -Destination $target -ErrorAction SilentlyContinue
-    }
-    throw
-}
-$uninstaller = Join-Path $parent "GameLibrary-Uninstall.ps1"
-Copy-Item -LiteralPath $uninstallerSource -Destination $uninstaller -Force
-if (-not $NoShortcuts) {
-    $group = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\GameLibrary"
-    New-Item -ItemType Directory -Force -Path $group | Out-Null
-    $shell = New-Object -ComObject WScript.Shell
-    $appShortcut = $shell.CreateShortcut((Join-Path $group "GameLibrary.lnk"))
-    $appShortcut.TargetPath = Join-Path $target "GameLibrary.Desktop.exe"
-    $appShortcut.WorkingDirectory = $target
-    $appShortcut.Save()
-    $uninstallShortcut = $shell.CreateShortcut((Join-Path $group "卸载 GameLibrary.lnk"))
-    $uninstallShortcut.TargetPath = "powershell.exe"
-    $uninstallShortcut.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $uninstaller + '"'
-    $uninstallShortcut.WorkingDirectory = $parent
-    $uninstallShortcut.Save()
-}
-if (-not $NoLaunch) {
-    Start-Process -FilePath (Join-Path $target "GameLibrary.Desktop.exe") -WorkingDirectory $target
-}
-if (-not $Quiet) {
-    Add-Type -AssemblyName PresentationFramework
-    [System.Windows.MessageBox]::Show("GameLibrary 已安装到：`n$target", "安装完成") | Out-Null
-}
-'''
-    uninstall_ps1 = r'''param([switch]$Quiet)
-$ErrorActionPreference = "Stop"
-$target = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "GameLibrary"))
-Get-CimInstance Win32_Process | Where-Object {
-    $_.ExecutablePath -and [IO.Path]::GetFullPath($_.ExecutablePath).StartsWith($target + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)
-} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-Remove-Item -LiteralPath (Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\GameLibrary") -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue
-if (-not $Quiet) {
-    Add-Type -AssemblyName PresentationFramework
-    [System.Windows.MessageBox]::Show("GameLibrary 已卸载。默认游戏库数据未删除。", "卸载完成") | Out-Null
-}
-Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
-'''
-    for name, content in (("install.ps1", install_ps1), ("uninstall.ps1", uninstall_ps1)):
-        with open(os.path.join(INSTALLER_SOURCE, name), "w", encoding="utf-8-sig", newline="") as target:
-            target.write(content)
-    log.append("installer scripts written")
+def find_makensis():
+    configured = os.environ.get("GAMELIBRARY_MAKENSIS")
+    if configured:
+        return configured
+    discovered = shutil.which("makensis")
+    if discovered:
+        return discovered
+    candidates = [
+        PORTABLE_NSIS,
+        os.path.join(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"), "NSIS", "makensis.exe"),
+        os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "NSIS", "makensis.exe"),
+    ]
+    return next((candidate for candidate in candidates if os.path.isfile(candidate)), None)
 
 
-def make_payload_zip(log):
-    path = os.path.join(INSTALLER_SOURCE, "GameLibrary-payload.zip")
-    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
-        for root, _, files in os.walk(USER_PAYLOAD):
-            for name in files:
-                full = os.path.join(root, name)
-                archive.write(full, os.path.relpath(full, USER_PAYLOAD))
-    log.append(f"installer payload: {os.path.getsize(path) / 1048576:.1f} MiB")
+def windows_file_version(version):
+    parts = version.split(".")
+    if not parts or any(not part.isdigit() for part in parts):
+        raise RuntimeError(f"release version must be numeric for Windows metadata: {version}")
+    if len(parts) > 4:
+        raise RuntimeError(f"release version has more than four components: {version}")
+    return ".".join(parts + ["0"] * (4 - len(parts)))
 
 
 def make_installer(version, log):
-    if not os.path.isfile(IEXPRESS):
-        raise RuntimeError(f"IExpress not found: {IEXPRESS}")
+    makensis = find_makensis()
+    if not makensis:
+        raise RuntimeError(
+            "NSIS makensis.exe was not found; set GAMELIBRARY_MAKENSIS or extract "
+            "NSIS 3.12 to artifacts/toolchain/nsis-3.12 (run artifacts/tools/bootstrap_nsis.py)"
+        )
+    for required in (INSTALLER_SCRIPT, INSTALLER_ICON):
+        if not os.path.isfile(required):
+            raise RuntimeError(f"installer input is missing: {required}")
     target = os.path.join(DIST, f"GameLibrary-Setup-v{version}.exe")
     if os.path.exists(target):
         os.remove(target)
-    source_dir = INSTALLER_SOURCE.rstrip("\\") + "\\"
-    sed = textwrap.dedent(f'''\
-        [Version]
-        Class=IEXPRESS
-        SEDVersion=3
-        [Options]
-        PackagePurpose=InstallApp
-        ShowInstallProgramWindow=0
-        HideExtractAnimation=1
-        UseLongFileName=1
-        InsideCompressed=0
-        CAB_FixedSize=0
-        CAB_ResvCodeSigning=0
-        RebootMode=N
-        InstallPrompt=%InstallPrompt%
-        DisplayLicense=
-        FinishMessage=
-        TargetName=%TargetName%
-        FriendlyName=%FriendlyName%
-        AppLaunched=%AppLaunched%
-        PostInstallCmd=<None>
-        AdminQuietInstCmd=
-        UserQuietInstCmd=
-        SourceFiles=SourceFiles
-        [SourceFiles]
-        SourceFiles0=%SourceDir%
-        [SourceFiles0]
-        %FILE0%=
-        %FILE1%=
-        %FILE2%=
-        [Strings]
-        InstallPrompt="安装 GameLibrary v{version} 到当前用户目录？"
-        TargetName="{target}"
-        FriendlyName="GameLibrary v{version} 安装程序"
-        AppLaunched="powershell.exe -NoProfile -ExecutionPolicy Bypass -File install.ps1"
-        SourceDir="{source_dir}"
-        FILE0="GameLibrary-payload.zip"
-        FILE1="install.ps1"
-        FILE2="uninstall.ps1"
-    ''')
-    sed_path = os.path.join(INSTALLER_SOURCE, "GameLibrary-Setup.sed")
-    with open(sed_path, "w", encoding="gbk", errors="replace", newline="\r\n") as target_file:
-        target_file.write(sed)
-    rc, output = sh([IEXPRESS, "/N", "/Q", sed_path], timeout=600)
-    log.append(f"iexpress: rc={rc}")
+    command = [
+        makensis,
+        "/V2",
+        "/INPUTCHARSET",
+        "UTF8",
+        f"/DVERSION={version}",
+        f"/DFILE_VERSION={windows_file_version(version)}",
+        f"/DPAYLOAD_DIR={USER_PAYLOAD}",
+        f"/DOUTPUT_FILE={target}",
+        f"/DINSTALLER_ICON={INSTALLER_ICON}",
+        INSTALLER_SCRIPT,
+    ]
+    rc, output = sh(command, timeout=600)
+    log.append(f"nsis: rc={rc}, compiler={makensis}")
     if rc != 0 or not os.path.isfile(target):
         log.append(output[-4000:])
-        raise RuntimeError("IExpress installer build failed")
+        raise RuntimeError("NSIS installer build failed")
     log.append(f"installer: {os.path.getsize(target) / 1048576:.1f} MiB")
     return target
 
@@ -401,19 +319,19 @@ def write_checklist(version, signed, log):
 
 ## 发布资产
 
-- `GameLibrary-Setup-v{version}.exe`：普通用户推荐下载的单个当前用户安装器，内含 Desktop 与后台 Host，安装到 `%LOCALAPPDATA%\\Programs\\GameLibrary`，不要求管理员权限。
+- `GameLibrary-Setup-v{version}.exe`：普通用户推荐下载的单个 NSIS 图形化当前用户安装器，内含 Desktop 与后台 Host；默认安装到 `%LOCALAPPDATA%\\Programs\\GameLibrary`，可在安装向导中修改位置，不要求管理员权限。
 - `GameLibrary-Portable-win-x64-v{version}.zip`：免安装包，只含单文件 `GameLibrary.Desktop.exe`、`GameLibrary.Host.exe` 与校验文件，不含脚本。
 - `GameLibrary-Tools-win-x64-v{version}.zip`：高级用户工具包，只含单文件 Host、CLI、MCP 与校验文件，不含脚本。
 - `GameLibrary-v{version}-SHA256SUMS.txt`：以上三个发布资产的 SHA-256。
 
-安装器创建开始菜单中的“GameLibrary”和“卸载 GameLibrary”快捷方式；卸载仅删除程序和快捷方式，保留默认 `%LOCALAPPDATA%\\GameLibrary` 数据。安装器不写注册表、不修改环境变量、不安装 Windows 服务。
+安装器生成安装目录内的 `Uninstall.exe`，创建开始菜单中的“GameLibrary”和“卸载 GameLibrary”快捷方式，并在当前用户 HKCU 卸载项登记，因而显示在 Windows“已安装的应用”中。卸载只删除已知程序文件、快捷方式和该卸载项，保留默认 `%LOCALAPPDATA%\\GameLibrary` 数据及安装目录中的未知文件。安装器不修改环境变量、不安装 Windows 服务。
 
 ## 已自动验证
 
 - Release build：0 警告、0 错误。
 - 测试：436/436 通过。
 - 自包含发布目录：Desktop/Host 与 CLI/MCP 单文件布局检查。
-- 安装脚本：隔离目标安装、两个用户程序 EXE 完整性、Desktop 拉起 Host、卸载后程序目录移除。
+- NSIS 安装器：隔离自定义目录安装、当前用户卸载登记、`Uninstall.exe`、快捷方式、已知文件清理及未知文件保留。
 
 ## 仍需人工验证
 
@@ -510,8 +428,6 @@ def main():
         signed = sign_payload(signing, log)
         write_payload_checksums(USER_PAYLOAD, "user", log)
         write_payload_checksums(TOOLS_PAYLOAD, "tools", log)
-        write_installer_scripts(log)
-        make_payload_zip(log)
         write_checklist(version, signed, log)
         installer = make_installer(version, log)
         if signing is not None:
