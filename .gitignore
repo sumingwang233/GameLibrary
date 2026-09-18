@@ -30,3 +30,19 @@ desktop.ini
 
 # 平台会话导出记录（用户文档，不入库）
 接手项目并上传至_GitHub_*.md
+
+# 本地策划、Agent 指令与开发过程记录（不发布到源码仓库）
+.workbuddy/
+AGENTS.md
+开发Agent任务书.md
+开发策划案*.md
+领域与可靠性补充规格.md
+MCP与CLI原生接口契约.md
+策划案修正建议.md
+v1 审查意见稿.md
+contracts/README.md
+docs/adr/
+docs/coverage.md
+docs/progress.md
+docs/review-*.md
+docs/release-notes-*.md
