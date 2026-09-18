@@ -43,7 +43,7 @@ public partial class MainWindow : Window
         });
         var fileButton = new Button
         {
-            Content = "选择游戏主程序或快捷方式（EXE / LNK）",
+            Content = "选择游戏主程序或快捷方式（EXE / SWF / LNK）",
             Style = (Style)TryFindResource("SteamBlueButton"),
             Margin = new Thickness(0, 0, 0, 8),
         };
@@ -69,7 +69,7 @@ public partial class MainWindow : Window
             var picker = new Microsoft.Win32.OpenFileDialog
             {
                 Title = "选择游戏主程序",
-                Filter = "游戏主程序或快捷方式|*.exe;*.lnk",
+                Filter = "游戏主程序或快捷方式|*.exe;*.swf;*.lnk",
                 CheckFileExists = true,
                 InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
             };
@@ -95,7 +95,7 @@ public partial class MainWindow : Window
             var roots = await InvokeAsync("roots.list");
             if (!roots.Ok)
             {
-                ShowError($"读取游戏文件夹失败：{roots.Error?.Message}");
+                ShowError($"读取游戏库失败：{roots.Error?.Message}");
                 return;
             }
 
@@ -108,7 +108,7 @@ public partial class MainWindow : Window
                     : sourcePath;
                 var answer = MessageBox.Show(this,
                     $"为了保存这个游戏，需要授权以下文件夹作为游戏库范围：\n{folderToAuthorize}\n\n授权后，后台扫描也可能检查此文件夹。是否继续？",
-                    "确认游戏文件夹范围", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                    "确认游戏库范围", MessageBoxButton.YesNo, MessageBoxImage.Question);
                 if (answer != MessageBoxResult.Yes)
                 {
                     return;
@@ -117,7 +117,7 @@ public partial class MainWindow : Window
                 var added = await InvokeAsync("roots.add", new { root = folderToAuthorize });
                 if (!added.Ok)
                 {
-                    ShowError($"授权游戏文件夹失败：{added.Error?.Message}");
+                    ShowError($"授权游戏库失败：{added.Error?.Message}");
                     return;
                 }
             }
@@ -201,12 +201,12 @@ public partial class MainWindow : Window
             && !relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal);
     }
 
-    /// <summary>添加游戏文件夹（roots.add）：图形化选择目录；与数据目录是两个不同概念/控件。</summary>
+    /// <summary>添加游戏库（roots.add）：图形化选择目录；与数据目录是两个不同概念/控件。</summary>
     private async void OnAddGameFolderClick(object sender, RoutedEventArgs e)
     {
         var dialog = new Microsoft.Win32.OpenFolderDialog
         {
-            Title = "选择游戏文件夹（扫描范围；不要选择应用数据目录）",
+            Title = "选择游戏库（扫描范围；不要选择应用数据目录）",
         };
         if (dialog.ShowDialog(this) != true)
         {
@@ -218,21 +218,21 @@ public partial class MainWindow : Window
             var envelope = await InvokeAsync("roots.add", new { root = dialog.FolderName });
             if (!envelope.Ok)
             {
-                ShowError($"添加游戏文件夹失败：{envelope.Error?.Message}");
+                ShowError($"添加游戏库失败：{envelope.Error?.Message}");
                 return;
             }
 
-            SetStatus("游戏文件夹已添加（显式授权扫描边界）");
+            SetStatus("游戏库已添加（显式授权扫描边界）");
             ShowError(null);
             await RefreshAsync();
         }
         catch (Exception ex)
         {
-            ShowError($"添加游戏文件夹失败：{ex.Message}");
+            ShowError($"添加游戏库失败：{ex.Message}");
         }
     }
 
-    /// <summary>游戏文件夹管理：列表 + 移除（roots.remove，仅解除监控边界）。</summary>
+    /// <summary>游戏库管理：列表 + 移除（roots.remove，仅解除监控边界）。</summary>
     private async void OnRootsClick(object sender, RoutedEventArgs e)
     {
         try
@@ -240,13 +240,13 @@ public partial class MainWindow : Window
             var envelope = await InvokeAsync("roots.list");
             if (!envelope.Ok)
             {
-                ShowError($"读取游戏文件夹失败：{envelope.Error?.Message}");
+                ShowError($"读取游戏库失败：{envelope.Error?.Message}");
                 return;
             }
 
             var dialog = new Window
             {
-                Title = "游戏文件夹",
+                Title = "游戏库",
                 Width = 560,
                 Height = 320,
                 Owner = this,
@@ -260,7 +260,7 @@ public partial class MainWindow : Window
             {
                 list.Children.Add(new TextBlock
                 {
-                    Text = "还没有游戏文件夹。点主窗口顶部「添加游戏文件夹」开始。",
+                    Text = "还没有游戏库。点主窗口顶部「添加游戏库」开始。",
                     Foreground = TryFindResource<SolidColorBrush>("TextMuted"),
                 });
             }
@@ -300,7 +300,7 @@ public partial class MainWindow : Window
                     }
 
                     row.Visibility = Visibility.Collapsed;
-                    SetStatus("游戏文件夹已移除（库内游戏保留）");
+                    SetStatus("游戏库已移除（库内游戏保留）");
                     await RefreshAsync();
                 };
                 list.Children.Add(row);
@@ -311,11 +311,11 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            ShowError($"打开游戏文件夹管理失败：{ex.Message}");
+            ShowError($"打开游戏库管理失败：{ex.Message}");
         }
     }
 
-    /// <summary>扫描：对全部游戏文件夹依次扫描；进度与取消（审查意见：扫描进度/取消/解释）。</summary>
+    /// <summary>扫描：对全部游戏库依次扫描；进度与取消（审查意见：扫描进度/取消/解释）。</summary>
     private async void OnScanClick(object sender, RoutedEventArgs e)
     {
         List<string> roots;
@@ -324,7 +324,7 @@ public partial class MainWindow : Window
             var envelope = await InvokeAsync("roots.list");
             if (!envelope.Ok)
             {
-                ShowError($"读取游戏文件夹失败：{envelope.Error?.Message}");
+                ShowError($"读取游戏库失败：{envelope.Error?.Message}");
                 return;
             }
 
@@ -341,7 +341,7 @@ public partial class MainWindow : Window
 
         if (roots.Count == 0)
         {
-            ShowError("还没有游戏文件夹；先点「添加游戏文件夹」。");
+            ShowError("还没有游戏库；先点「添加游戏库」。");
             return;
         }
 
@@ -408,7 +408,7 @@ public partial class MainWindow : Window
 
                         if (stateName == "failed")
                         {
-                            ShowError($"扫描失败（{root}）；请检查游戏文件夹后重试。");
+                            ShowError($"扫描失败（{root}）；请检查游戏库后重试。");
                             scanFailed = true;
                         }
                         else if (stateName == "cancelled")
@@ -427,7 +427,7 @@ public partial class MainWindow : Window
 
             if (_scanCancellationRequested)
             {
-                SetStatus("扫描已取消；其余游戏文件夹未继续扫描");
+                SetStatus("扫描已取消；其余游戏库未继续扫描");
             }
             else if (scanFailed)
             {

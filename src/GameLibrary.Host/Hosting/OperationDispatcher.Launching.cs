@@ -173,6 +173,11 @@ public sealed partial class OperationDispatcher
             };
         }
 
+        if (!IsSupportedLaunchTarget(executablePath))
+        {
+            return InvalidArgument(request, "启动目标仅支持 EXE 或 SWF 文件");
+        }
+
         if (RejectPathOutsideRoots(request, executablePath) is { } createOutsideRoot)
         {
             return createOutsideRoot;
@@ -300,6 +305,11 @@ public sealed partial class OperationDispatcher
                     Retryable = false,
                 },
             };
+        }
+
+        if (!IsSupportedLaunchTarget(executablePath))
+        {
+            return InvalidArgument(request, "启动目标仅支持 EXE 或 SWF 文件");
         }
 
         if (RejectPathOutsideRoots(request, executablePath) is { } updateOutsideRoot)
@@ -560,6 +570,11 @@ public sealed partial class OperationDispatcher
         isDefault = profile.IsDefault,
         revision = profile.Revision,
     };
+
+    private static bool IsSupportedLaunchTarget(string path) =>
+        Path.GetExtension(path) is { } extension
+        && (extension.Equals(".exe", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".swf", StringComparison.OrdinalIgnoreCase));
 
     private static Envelope<object> LaunchError(IpcRequest request, GameLibrary.Host.Launching.LaunchException ex) =>
         new()

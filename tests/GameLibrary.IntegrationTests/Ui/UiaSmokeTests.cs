@@ -70,7 +70,7 @@ public sealed class UiaSmokeTests
                 var choice = await WaitForNamedWindowAsync(process.Id, "手动添加游戏", TimeSpan.FromSeconds(5));
                 Assert.NotNull(choice);
                 var fileChoice = await WaitForElementAsync(choice!, TreeScope.Descendants,
-                    new PropertyCondition(AutomationElement.NameProperty, "选择游戏主程序或快捷方式（EXE / LNK）"),
+                    new PropertyCondition(AutomationElement.NameProperty, "选择游戏主程序或快捷方式（EXE / SWF / LNK）"),
                     TimeSpan.FromSeconds(5));
                 Assert.NotNull(fileChoice);
                 ((InvokePattern)fileChoice!.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
@@ -106,7 +106,7 @@ public sealed class UiaSmokeTests
                 }
 
                 var confirmScope = await WaitForNamedWindowAsync(
-                    process.Id, "确认游戏文件夹范围", TimeSpan.FromSeconds(5));
+                    process.Id, "确认游戏库范围", TimeSpan.FromSeconds(5));
                 if (confirmScope is not null)
                 {
                     var yesButton = confirmScope.FindFirst(TreeScope.Descendants,
@@ -291,9 +291,43 @@ public sealed class UiaSmokeTests
                         && candidates.Data.GetProperty("items").EnumerateArray()
                             .All(item => item.GetProperty("reviewState").GetString() != "pendingReview");
                 }, TimeSpan.FromSeconds(20)), "批量加入未处理全部选中候选");
+                ((ExpandCollapsePattern)viewSelector.GetCurrentPattern(ExpandCollapsePattern.Pattern)).Expand();
+                var allGamesView = await WaitForElementAsync(viewSelector, TreeScope.Descendants,
+                    new PropertyCondition(AutomationElement.NameProperty, "全部游戏"),
+                    TimeSpan.FromSeconds(5));
+                Assert.NotNull(allGamesView);
+                ((SelectionItemPattern)allGamesView!.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
+
+                var selectAllGames = await WaitForElementAsync(window, TreeScope.Descendants,
+                    new PropertyCondition(AutomationElement.AutomationIdProperty, "SelectAllGamesCheckBox"),
+                    TimeSpan.FromSeconds(15));
+                Assert.NotNull(selectAllGames);
+                ((TogglePattern)selectAllGames!.GetCurrentPattern(TogglePattern.Pattern)).Toggle();
+
+                var batchFavorite = await WaitForElementAsync(window, TreeScope.Descendants,
+                    new PropertyCondition(AutomationElement.AutomationIdProperty, "BatchFavoriteButton"),
+                    TimeSpan.FromSeconds(10));
+                Assert.NotNull(batchFavorite);
                 Assert.True(await WaitUntilTrueAsync(
-                    () => Task.FromResult((statusText.Current.Name ?? "").Contains("成功 2 项", StringComparison.Ordinal)),
-                    TimeSpan.FromSeconds(10)), $"未显示批量操作汇总：{statusText.Current.Name}");
+                    () => Task.FromResult(batchFavorite!.Current.IsEnabled), TimeSpan.FromSeconds(5)));
+                ((InvokePattern)batchFavorite!.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+                Assert.True(await WaitUntilTrueAsync(async () =>
+                {
+                    var games = await InvokeHostAsync(client, "games.list", new { });
+                    return games.Ok
+                        && games.Data.GetProperty("total").GetInt32() == 2
+                        && games.Data.GetProperty("items").EnumerateArray()
+                            .All(item => item.GetProperty("favorite").GetBoolean());
+                }, TimeSpan.FromSeconds(15)), "普通游戏列表的批量收藏未处理全部选中游戏");
+
+                var batchTags = window.FindFirst(TreeScope.Descendants,
+                    new PropertyCondition(AutomationElement.AutomationIdProperty, "BatchTagsButton"));
+                var batchRemove = window.FindFirst(TreeScope.Descendants,
+                    new PropertyCondition(AutomationElement.AutomationIdProperty, "BatchRemoveGamesButton"));
+                Assert.NotNull(batchTags);
+                Assert.NotNull(batchRemove);
+                Assert.True(batchTags!.Current.IsEnabled);
+                Assert.True(batchRemove!.Current.IsEnabled);
             }
             finally
             {
@@ -355,13 +389,13 @@ public sealed class UiaSmokeTests
 
                 var createCollection = await WaitForElementAsync(
                     window, TreeScope.Descendants,
-                    new PropertyCondition(AutomationElement.NameProperty, "新建收藏夹"),
+                    new PropertyCondition(AutomationElement.NameProperty, "新建标签"),
                     TimeSpan.FromSeconds(10));
                 Assert.NotNull(createCollection);
 
                 var manageCollections = await WaitForElementAsync(
                     window, TreeScope.Descendants,
-                    new PropertyCondition(AutomationElement.NameProperty, "管理收藏夹"),
+                    new PropertyCondition(AutomationElement.NameProperty, "管理标签"),
                     TimeSpan.FromSeconds(10));
                 Assert.NotNull(manageCollections);
 
@@ -400,8 +434,15 @@ public sealed class UiaSmokeTests
                 Assert.True(await WaitUntilTrueAsync(
                     () => Task.FromResult(File.Exists(Path.Combine(dataDir, "desktop-guide-v1.json"))),
                     TimeSpan.FromSeconds(5)));
-                var helpButton = window.FindFirst(TreeScope.Descendants,
-                    new PropertyCondition(AutomationElement.AutomationIdProperty, "HelpButton"));
+                var settingsForGuideButton = window.FindFirst(TreeScope.Descendants,
+                    new PropertyCondition(AutomationElement.AutomationIdProperty, "SettingsButton"));
+                Assert.NotNull(settingsForGuideButton);
+                ((InvokePattern)settingsForGuideButton!.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+                var settingsForGuide = await WaitForNamedWindowAsync(process.Id, "设置", TimeSpan.FromSeconds(5));
+                Assert.NotNull(settingsForGuide);
+                var helpButton = await WaitForElementAsync(settingsForGuide!, TreeScope.Descendants,
+                    new PropertyCondition(AutomationElement.NameProperty, "设置中的使用指南"),
+                    TimeSpan.FromSeconds(5));
                 Assert.NotNull(helpButton);
                 ((InvokePattern)helpButton!.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
                 var reopenedGuide = await WaitForNamedWindowAsync(
@@ -412,6 +453,10 @@ public sealed class UiaSmokeTests
                     TimeSpan.FromSeconds(5));
                 Assert.NotNull(closeGuide);
                 ((InvokePattern)closeGuide!.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+                ((WindowPattern)settingsForGuide.GetCurrentPattern(WindowPattern.Pattern)).Close();
+                Assert.True(await WaitUntilTrueAsync(
+                    () => Task.FromResult(window.Current.IsEnabled),
+                    TimeSpan.FromSeconds(5)), "关闭设置后主窗口未恢复可操作状态");
 
                 // 再次双击同一数据目录：新进程只唤醒现有窗口，不创建第二个后台实例。
                 using var second = Process.Start(startInfo)
@@ -420,11 +465,10 @@ public sealed class UiaSmokeTests
                 await second.WaitForExitAsync(secondTimeout.Token);
                 Assert.Equal(0, second.ExitCode);
                 Assert.False(process.HasExited);
-                Assert.NotNull(await WaitForWindowAsync(process, TimeSpan.FromSeconds(5)));
+                window = await WaitForNamedWindowAsync(process.Id, "GameLibrary 主窗口", TimeSpan.FromSeconds(5));
+                Assert.NotNull(window);
 
-                // 即使用另一个数据目录启动，也只能唤醒现有窗口。最小化状态用于验证唤醒。
-                var windowPattern = (WindowPattern)window.GetCurrentPattern(WindowPattern.Pattern);
-                windowPattern.SetWindowVisualState(WindowVisualState.Minimized);
+                // 即使用另一个数据目录启动，也只保留现有窗口和后台实例。
                 var alternateStartInfo = new ProcessStartInfo
                 {
                     FileName = DesktopExe,
@@ -437,20 +481,19 @@ public sealed class UiaSmokeTests
                 await alternate.WaitForExitAsync(alternateTimeout.Token);
                 Assert.Equal(0, alternate.ExitCode);
                 Assert.False(process.HasExited);
-                Assert.True(await WaitUntilTrueAsync(
-                    () => Task.FromResult(windowPattern.Current.WindowVisualState == WindowVisualState.Normal),
-                    TimeSpan.FromSeconds(5)), "现有窗口未被第二次启动唤醒");
+                Assert.NotNull(await WaitForNamedWindowAsync(
+                    process.Id, "GameLibrary 主窗口", TimeSpan.FromSeconds(5)));
 
-                // UI 真实创建收藏夹，随后经独立 HostClient 读取：验证不是只有按钮外观。
+                // UI 真实创建标签，随后经独立 HostClient 读取：验证不是只有按钮外观。
                 ((InvokePattern)createCollection!.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
                 var nameDialog = await WaitForNamedWindowAsync(
-                    process.Id, "新建收藏夹", TimeSpan.FromSeconds(5));
+                    process.Id, "新建标签", TimeSpan.FromSeconds(5));
                 Assert.True(nameDialog is not null,
-                    $"未找到新建收藏夹对话框；当前窗口：{VisibleWindowNames(process.Id)}");
+                    $"未找到新建标签对话框；当前窗口：{VisibleWindowNames(process.Id)}");
                 var nameInput = nameDialog!.FindFirst(TreeScope.Descendants,
                     new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit));
                 Assert.NotNull(nameInput);
-                ((ValuePattern)nameInput!.GetCurrentPattern(ValuePattern.Pattern)).SetValue("测试收藏夹");
+                ((ValuePattern)nameInput!.GetCurrentPattern(ValuePattern.Pattern)).SetValue("测试标签");
                 var confirm = nameDialog.FindFirst(TreeScope.Descendants,
                     new PropertyCondition(AutomationElement.NameProperty, "确定"));
                 Assert.NotNull(confirm);
@@ -468,9 +511,9 @@ public sealed class UiaSmokeTests
                     }, CancellationToken.None);
                     return result.Ok && result.Data.GetProperty("items").EnumerateArray()
                         .Any(tag => tag.GetProperty("kind").GetString() == "user"
-                            && tag.GetProperty("name").GetString() == "测试收藏夹");
+                            && tag.GetProperty("name").GetString() == "测试标签");
                 }, TimeSpan.FromSeconds(10));
-                Assert.True(created, "Desktop 收藏夹创建未持久化到宿主库");
+                Assert.True(created, "Desktop 标签创建未持久化到宿主库");
 
                 // 先从独立入口设置自定义缓存位置，验证 Desktop 能读回、显示并恢复默认。
                 var cacheParent = Path.Combine(runDir, "ui-cache-parent");

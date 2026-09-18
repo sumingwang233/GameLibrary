@@ -16,9 +16,9 @@
             <RowDefinition Height="28" />
         </Grid.RowDefinitions>
 
-        <!-- 顶栏：Logo + 主操作（添加游戏文件夹 / 扫描 / 设置）。
+        <!-- 顶栏：Logo + 主操作（添加游戏库 / 扫描 / 设置）。
              审查修复：移除"连接宿主"与身份混用的路径输入框；
-             "注册库根"改为面向用户的"添加游戏文件夹"。 -->
+             "注册库根"改为面向用户的"添加游戏库"。 -->
         <Border Grid.Row="0" Background="{DynamicResource BgTop}" Padding="12,0">
             <DockPanel LastChildFill="True">
                 <TextBlock DockPanel.Dock="Left"
@@ -28,25 +28,15 @@
                            VerticalAlignment="Center" Margin="0,0,18,0" />
                 <Button Name="SettingsButton" Content="设置" Style="{DynamicResource SteamButton}"
                         Click="OnSettingsClick" DockPanel.Dock="Right" Margin="6,0,0,0" VerticalAlignment="Center" />
-                <Button Name="HelpButton" Content="使用指南" Style="{DynamicResource SteamButton}"
-                        Click="OnHelpClick" DockPanel.Dock="Right" Margin="6,0,0,0" VerticalAlignment="Center"
-                        AutomationProperties.Name="使用指南" />
-                <Button Name="RootsButton" Content="游戏文件夹" Style="{DynamicResource SteamButton}"
+                <Button Name="RootsButton" Content="游戏库" Style="{DynamicResource SteamButton}"
                         Click="OnRootsClick" DockPanel.Dock="Right" Margin="6,0,0,0" VerticalAlignment="Center" />
                 <Button Name="ScanButton" Content="扫描" Style="{DynamicResource SteamBlueButton}"
                         Click="OnScanClick" DockPanel.Dock="Right" Margin="6,0,0,0" VerticalAlignment="Center" />
                 <Button Name="ManualAddButton" Content="手动添加游戏" Style="{DynamicResource SteamButton}"
                         Click="OnManualAddClick" DockPanel.Dock="Right" Margin="6,0,0,0" VerticalAlignment="Center"
                         AutomationProperties.Name="手动添加游戏" />
-                <Button Name="AddGameFolderButton" Content="添加游戏文件夹" Style="{DynamicResource SteamButton}"
+                <Button Name="AddGameFolderButton" Content="添加游戏库" Style="{DynamicResource SteamButton}"
                         Click="OnAddGameFolderClick" DockPanel.Dock="Right" Margin="6,0,0,0" VerticalAlignment="Center" />
-                <TextBlock DockPanel.Dock="Right"
-                           Text="提示：添加游戏文件夹后点扫描；关闭窗口默认缩到托盘。"
-                           FontSize="11" Foreground="{DynamicResource TextMuted}"
-                           VerticalAlignment="Center" Margin="6,0,12,0" />
-                <TextBlock Name="DataDirHint" VerticalAlignment="Center"
-                           FontSize="11" Foreground="{DynamicResource TextMuted}"
-                           TextTrimming="CharacterEllipsis" ToolTip="应用数据存放位置，与游戏文件夹无关" />
             </DockPanel>
         </Border>
 
@@ -66,32 +56,54 @@
                               AutomationProperties.Name="视图切换"
                               SelectionChanged="OnViewSelectorChanged" />
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="8,0,8,4">
-                        <Button Content="新建收藏夹" Style="{DynamicResource SteamButton}"
-                                Click="OnCreateCollectionClick" AutomationProperties.Name="新建收藏夹" />
-                        <Button Content="管理" Style="{DynamicResource SteamButton}" Margin="6,0,0,0"
-                                Click="OnManageCollectionsClick" AutomationProperties.Name="管理收藏夹" />
+                        <Button Content="新建标签" Style="{DynamicResource SteamButton}"
+                                Click="OnCreateCollectionClick" AutomationProperties.Name="新建标签" />
+                        <Button Content="管理标签" Style="{DynamicResource SteamButton}" Margin="6,0,0,0"
+                                Click="OnManageCollectionsClick" AutomationProperties.Name="管理标签" />
                     </StackPanel>
                     <Label DockPanel.Dock="Top" Content="搜索游戏 (_F)" Target="{Binding ElementName=SearchBox}"
                            FontSize="11" Foreground="{DynamicResource TextMuted}" Margin="10,4,0,0" />
                     <TextBox Name="SearchBox" DockPanel.Dock="Top" Margin="8,0,8,6"
                              AutomationProperties.Name="搜索游戏"
                              ToolTip="搜索游戏标题（Ctrl+F 聚焦，300ms 防抖）" />
+                    <Grid DockPanel.Dock="Top" Margin="8,0,8,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Margin="0,0,4,0">
+                            <TextBlock Text="排序" FontSize="11" Foreground="{DynamicResource TextMuted}"
+                                       Margin="2,0,0,3" />
+                            <ComboBox Name="SortSelector" SelectionChanged="OnSortSelectorChanged"
+                                      AutomationProperties.Name="游戏排序方式" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Margin="4,0,0,0">
+                            <TextBlock Text="标签" FontSize="11" Foreground="{DynamicResource TextMuted}"
+                                       Margin="2,0,0,3" />
+                            <ComboBox Name="TagFilterSelector" SelectionChanged="OnTagFilterChanged"
+                                      AutomationProperties.Name="标签筛选" />
+                        </StackPanel>
+                    </Grid>
                     <Border Name="CandidateBatchBar" DockPanel.Dock="Top" Visibility="Collapsed"
                             BorderBrush="{DynamicResource Sep}" BorderThickness="0,1,0,1"
-                            Padding="8,7" Margin="0,2,0,4"
+                            Padding="8,8" Margin="0,2,0,6"
                             AutomationProperties.Name="待确认游戏批量操作">
                         <StackPanel>
-                            <DockPanel Margin="0,0,0,6">
+                            <Grid Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
                                 <CheckBox Name="SelectAllCandidatesCheckBox" Content="全选当前结果"
                                           Checked="OnSelectAllCandidatesChanged"
                                           Unchecked="OnSelectAllCandidatesChanged"
                                           MinHeight="24" VerticalAlignment="Center"
                                           AutomationProperties.Name="全选当前待确认游戏" />
                                 <TextBlock Name="CandidateBatchSelectionText" Text="已选择 0 项"
-                                           DockPanel.Dock="Right" FontSize="11"
+                                           Grid.Column="1" FontSize="11" Margin="10,0,0,0"
                                            Foreground="{DynamicResource TextMuted}"
                                            VerticalAlignment="Center" />
-                            </DockPanel>
+                            </Grid>
                             <UniformGrid Columns="3">
                                 <Button Name="BatchAcceptButton" Content="加入"
                                         Style="{DynamicResource SteamGreenButton}" Padding="6,4"
@@ -105,6 +117,42 @@
                                         Style="{DynamicResource SteamButton}" Padding="6,4"
                                         Margin="4,0,0,0" Click="OnBatchIgnoreClick"
                                         AutomationProperties.Name="批量忽略扫描结果" />
+                            </UniformGrid>
+                        </StackPanel>
+                    </Border>
+                    <Border Name="GameBatchBar" DockPanel.Dock="Top" Visibility="Collapsed"
+                            BorderBrush="{DynamicResource Sep}" BorderThickness="0,1,0,1"
+                            Padding="8,8" Margin="0,2,0,6"
+                            AutomationProperties.Name="游戏批量操作">
+                        <StackPanel>
+                            <Grid Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <CheckBox Name="SelectAllGamesCheckBox" Content="全选当前结果"
+                                          Checked="OnSelectAllGamesChanged"
+                                          Unchecked="OnSelectAllGamesChanged"
+                                          MinHeight="24" VerticalAlignment="Center"
+                                          AutomationProperties.Name="全选当前游戏" />
+                                <TextBlock Name="GameBatchSelectionText" Grid.Column="1" Text="已选择 0 项"
+                                           FontSize="11" Margin="10,0,0,0"
+                                           Foreground="{DynamicResource TextMuted}"
+                                           VerticalAlignment="Center" />
+                            </Grid>
+                            <UniformGrid Columns="2" Rows="2">
+                                <Button Name="BatchFavoriteButton" Content="收藏"
+                                        Style="{DynamicResource SteamButton}" Padding="6,4"
+                                        Margin="0,0,3,3" Click="OnBatchFavoriteClick" />
+                                <Button Name="BatchUnfavoriteButton" Content="取消收藏"
+                                        Style="{DynamicResource SteamButton}" Padding="6,4"
+                                        Margin="3,0,0,3" Click="OnBatchUnfavoriteClick" />
+                                <Button Name="BatchTagsButton" Content="设置标签"
+                                        Style="{DynamicResource SteamButton}" Padding="6,4"
+                                        Margin="0,3,3,0" Click="OnBatchTagsClick" />
+                                <Button Name="BatchRemoveGamesButton" Content="移出游戏库"
+                                        Style="{DynamicResource SteamButton}" Padding="6,4"
+                                        Margin="3,3,0,0" Click="OnBatchRemoveGamesClick" />
                             </UniformGrid>
                         </StackPanel>
                     </Border>

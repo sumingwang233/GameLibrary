@@ -5,31 +5,47 @@ using System.Windows.Media;
 
 namespace GameLibrary.Desktop;
 
-/// <summary>用户标签在界面中作为可手工归类的收藏夹；一款游戏可加入多个收藏夹。</summary>
+/// <summary>标签管理、筛选与游戏归类；用户标签可增删改，一款游戏可拥有多个标签。</summary>
 public partial class MainWindow
 {
     private sealed record CollectionItem(string TagId, string Name, int Revision, int GameCount);
+    private sealed record TagFilterItem(string TagId, string Kind, string Name, int GameCount);
+
+    private readonly List<TagFilterItem> _allTags = [];
 
     private string SelectedViewId => ViewSelector.SelectedItem is ComboBoxItem item
         ? (string)item.Tag
         : "all";
 
+    private string SelectedTagId => TagFilterSelector.SelectedItem is ComboBoxItem item
+        ? (string)item.Tag
+        : "";
+
     private void UpdateCollectionViews(JsonElement data)
     {
         var selectedId = SelectedViewId;
+        var selectedTagId = SelectedTagId;
         _userCollections.Clear();
+        _allTags.Clear();
         foreach (var tag in data.GetProperty("items").EnumerateArray())
         {
-            if (tag.GetProperty("kind").GetString() != "user")
+            var kind = tag.GetProperty("kind").GetString() ?? "";
+            var item = new TagFilterItem(
+                tag.GetProperty("tagId").GetString() ?? "",
+                kind,
+                tag.GetProperty("name").GetString() ?? "",
+                tag.GetProperty("gameCount").GetInt32());
+            _allTags.Add(item);
+            if (kind != "user")
             {
                 continue;
             }
 
             _userCollections.Add(new CollectionItem(
-                tag.GetProperty("tagId").GetString() ?? "",
-                tag.GetProperty("name").GetString() ?? "",
+                item.TagId,
+                item.Name,
                 tag.GetProperty("revision").GetInt32(),
-                tag.GetProperty("gameCount").GetInt32()));
+                item.GameCount));
         }
 
         _updatingViewSelector = true;
@@ -39,15 +55,6 @@ public partial class MainWindow
             ViewSelector.Items.Add(new ComboBoxItem { Content = "全部游戏", Tag = "all" });
             ViewSelector.Items.Add(new ComboBoxItem { Content = "收藏", Tag = "favorites" });
             ViewSelector.Items.Add(new ComboBoxItem { Content = "待确认游戏", Tag = "pending" });
-            foreach (var collection in _userCollections.OrderBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase))
-            {
-                ViewSelector.Items.Add(new ComboBoxItem
-                {
-                    Content = $"{collection.Name} ({collection.GameCount})",
-                    Tag = $"tag:{collection.TagId}",
-                });
-            }
-
             ViewSelector.SelectedItem = ViewSelector.Items.OfType<ComboBoxItem>()
                 .FirstOrDefault(item => (string)item.Tag == selectedId)
                 ?? ViewSelector.Items[0];
@@ -56,11 +63,36 @@ public partial class MainWindow
         {
             _updatingViewSelector = false;
         }
+
+        _updatingTagFilter = true;
+        try
+        {
+            TagFilterSelector.Items.Clear();
+            TagFilterSelector.Items.Add(new ComboBoxItem { Content = "全部标签", Tag = "" });
+            foreach (var tag in _allTags.OrderBy(tag => tag.Kind).ThenBy(tag => tag.Name, StringComparer.CurrentCultureIgnoreCase))
+            {
+                TagFilterSelector.Items.Add(new ComboBoxItem
+                {
+                    Content = tag.Kind == "engine"
+                        ? $"自动：{tag.Name} ({tag.GameCount})"
+                        : $"{tag.Name} ({tag.GameCount})",
+                    Tag = tag.TagId,
+                });
+            }
+
+            TagFilterSelector.SelectedItem = TagFilterSelector.Items.OfType<ComboBoxItem>()
+                .FirstOrDefault(item => (string)item.Tag == selectedTagId)
+                ?? TagFilterSelector.Items[0];
+        }
+        finally
+        {
+            _updatingTagFilter = false;
+        }
     }
 
     private async void OnCreateCollectionClick(object sender, RoutedEventArgs e)
     {
-        var name = PromptCollectionName("新建收藏夹", "", this);
+        var name = PromptCollectionName("新建标签", "", this);
         if (name is null)
         {
             return;
@@ -75,19 +107,19 @@ public partial class MainWindow
             });
             if (!result.Ok)
             {
-                ShowError($"新建收藏夹失败：{result.Error?.Message}");
+                ShowError($"新建标签失败：{result.Error?.Message}");
                 return;
             }
 
             var tagId = result.Data.GetProperty("tagId").GetString();
             await RefreshAsync();
-            ViewSelector.SelectedItem = ViewSelector.Items.OfType<ComboBoxItem>()
-                .FirstOrDefault(item => (string)item.Tag == $"tag:{tagId}");
+            TagFilterSelector.SelectedItem = TagFilterSelector.Items.OfType<ComboBoxItem>()
+                .FirstOrDefault(item => (string)item.Tag == tagId);
             ShowError(null);
         }
         catch (Exception ex)
         {
-            ShowError($"新建收藏夹失败：{ex.Message}");
+            ShowError($"新建标签失败：{ex.Message}");
         }
     }
 
@@ -95,7 +127,7 @@ public partial class MainWindow
     {
         var dialog = new Window
         {
-            Title = "管理收藏夹",
+            Title = "管理标签",
             Width = 520,
             Height = 340,
             Owner = this,
@@ -107,8 +139,8 @@ public partial class MainWindow
         panel.Children.Add(new TextBlock
         {
             Text = _userCollections.Count == 0
-                ? "还没有收藏夹。可在左侧点击「新建收藏夹」。"
-                : "一个游戏可加入多个收藏夹；删除收藏夹不会删除游戏。",
+                ? "还没有自定义标签。可在左侧点击「新建标签」。"
+                : "自动标签由扫描生成；这里可重命名或删除自定义标签，不会删除游戏。",
             Foreground = TryFindResource<SolidColorBrush>("TextMuted"),
             Margin = new Thickness(0, 0, 0, 12),
         });
@@ -142,7 +174,7 @@ public partial class MainWindow
 
             renameButton.Click += async (_, _) =>
             {
-                var name = PromptCollectionName("重命名收藏夹", collection.Name, dialog);
+                var name = PromptCollectionName("重命名标签", collection.Name, dialog);
                 if (name is null || name == collection.Name)
                 {
                     return;
@@ -153,8 +185,8 @@ public partial class MainWindow
             deleteButton.Click += async (_, _) =>
             {
                 if (MessageBox.Show(dialog,
-                    $"删除「{collection.Name}」？游戏仍会留在库中。",
-                    "确认删除收藏夹", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+                    $"删除标签「{collection.Name}」？游戏仍会留在库中。",
+                    "确认删除标签", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
                 {
                     return;
                 }
@@ -185,7 +217,7 @@ public partial class MainWindow
             var result = await InvokeAsync(operation, patch);
             if (!result.Ok)
             {
-                ShowError($"修改收藏夹失败：{result.Error?.Message}");
+                ShowError($"修改标签失败：{result.Error?.Message}");
                 return;
             }
 
@@ -195,7 +227,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            ShowError($"修改收藏夹失败：{ex.Message}");
+            ShowError($"修改标签失败：{ex.Message}");
         }
     }
 
@@ -203,7 +235,7 @@ public partial class MainWindow
     {
         if (_userCollections.Count == 0)
         {
-            ShowError("尚无收藏夹。先点击左侧「新建收藏夹」，再将游戏加入。");
+            ShowError("尚无自定义标签。先点击左侧「新建标签」，再为游戏设置标签。");
             return;
         }
 
@@ -213,7 +245,7 @@ public partial class MainWindow
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var dialog = new Window
         {
-            Title = "加入收藏夹",
+            Title = "设置标签",
             Width = 400,
             Height = 380,
             Owner = this,
@@ -267,7 +299,7 @@ public partial class MainWindow
                     });
                     if (!result.Ok)
                     {
-                        ShowError($"保存收藏夹失败：{result.Error?.Message}");
+                        ShowError($"保存标签失败：{result.Error?.Message}");
                         return;
                     }
                 }
@@ -278,7 +310,7 @@ public partial class MainWindow
             }
             catch (Exception ex)
             {
-                ShowError($"保存收藏夹失败：{ex.Message}");
+                ShowError($"保存标签失败：{ex.Message}");
             }
             finally
             {
@@ -288,6 +320,17 @@ public partial class MainWindow
         dialog.Content = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         dialog.ShowDialog();
         await Task.CompletedTask;
+    }
+
+    private async void OnTagFilterChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_updatingTagFilter || !IsLoaded)
+        {
+            return;
+        }
+
+        _selectedGameIds.Clear();
+        await RefreshAsync();
     }
 
     private static string? PromptCollectionName(string title, string initial, Window owner)
@@ -304,7 +347,7 @@ public partial class MainWindow
             Background = System.Windows.Application.Current.TryFindResource("BgMain") as SolidColorBrush,
         };
         var panel = new StackPanel { Margin = new Thickness(16) };
-        panel.Children.Add(new TextBlock { Text = "收藏夹名称", Margin = new Thickness(0, 0, 0, 6) });
+        panel.Children.Add(new TextBlock { Text = "标签名称", Margin = new Thickness(0, 0, 0, 6) });
         var input = new TextBox { Text = initial, MaxLength = 100 };
         panel.Children.Add(input);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 14, 0, 0) };

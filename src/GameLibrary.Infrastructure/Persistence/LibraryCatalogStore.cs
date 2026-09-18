@@ -339,7 +339,7 @@ public static class LibraryCatalogStore
 
     /// <summary>
     /// 数据库侧检索（阶段三：列表分页/检索下沉到 SQL）：搜索命中用户标题或原文件夹名、
-    /// 收藏过滤、标签过滤（与搜索 AND 组合）、title/recent 排序、LIMIT/OFFSET 分页。
+    /// 收藏过滤、标签过滤（与搜索 AND 组合）、名称/修改时间/入库时间排序、LIMIT/OFFSET 分页。
     /// total 为过滤后的总数（分页前）。limit &lt;= 0 表示不分页（兼容旧全量语义）。
     /// </summary>
     public static (int Total, IReadOnlyList<GameCard> Items) QueryGames(
@@ -369,7 +369,13 @@ public static class LibraryCatalogStore
             where.Add("EXISTS (SELECT 1 FROM game_tags gt WHERE gt.game_id = games.game_id AND gt.tag_id = $tagId)");
         }
 
-        var orderBy = sort == "recent" ? "updated_utc DESC, game_id" : "title COLLATE NOCASE, game_id";
+        var orderBy = sort switch
+        {
+            "title-desc" => "title COLLATE NOCASE DESC, game_id",
+            "recent" or "updated-desc" => "updated_utc DESC, game_id",
+            "accepted-desc" => "accepted_utc DESC, game_id",
+            _ => "title COLLATE NOCASE, game_id",
+        };
 
         int total;
         using (var countCommand = connection.CreateCommand())

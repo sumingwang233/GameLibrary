@@ -486,3 +486,14 @@
 - **发布预览**：新 `GameLibrary-Setup-v1.0.0.exe` 为 102,745,212 字节，SHA-256 `39B0242F69483E89245F593BE1B8B1145683FACD61081B85758086D2121DB5CF`；便携包仍为根级 Desktop/Host/校验文件，Tools 包仍为根级 Host/CLI/MCP/校验文件，两个 ZIP 均无 `.ps1`/`.cmd`/`.bat`。本地产物尚未取得 SignPath 受信签名，保持为预览，不上传 Draft Release。
 - **工程门禁**：`dotnet format --verify-no-changes`、Release build（0 警告、0 错误）、`git diff --check` 通过；全套 **436/436**（契约 43、架构 8、单元 139、无界面 E2E 16、集成 230）通过。初次 UIA 运行因用户已安装的旧版 Desktop 占用全局单实例而有 3 项窗口等待失败；短暂停止该旧版进程后，3/3 定向复测和最终全套均通过，随后已从原安装路径重新打开旧版 Desktop。最终日志：`artifacts/build-reports/2026-09-18-r18-format.txt`、`2026-09-18-r18-build.txt`、`2026-09-18-r18-tests-final.txt`。
 - **下一项**：用户关闭当前旧版并运行本轮 NSIS 安装器完成就地升级，人工确认图形向导、目录选择和 Windows 已安装应用中的卸载入口；SignPath Foundation 获批后重新签名并生成最终哈希，再上传并发布 `v1.0.0`。
+
+## R19 v1.1.0 桌面体验修复与未签名发布 — 2026-09-18
+
+- **任务 ID**：R19（用户要求修复批量操作、标签/排序、SWF 启动、封面显示、搜索闪烁、使用指南和更新时间等体验问题，并明确授权在 SignPath 审核完成前推送并发布未签名 v1.1.0）。
+- **Desktop 改动**：待确认批量栏改用两列网格并增加间距；全部游戏、收藏和标签筛选结果均可多选并批量收藏、取消收藏、设置标签或移出库。新增名称正序/倒序、最近修改、最近入库排序和用户/自动标签筛选；自定义标签入口统一为新建、管理、重命名和删除。搜索刷新期间抑制临时空选中事件，保留仍可见的详情；切换视图、排序或筛选时只保留当前可见选择，避免误操作隐藏项目。封面改为等比例完整显示，时间统一为 `yyyy-MM-dd HH:mm:ss`。
+- **启动、帮助与更新**：启动配置和宿主 Profile 支持 EXE/SWF，SWF 通过 Windows 当前文件关联打开；手动添加选择器同步支持 SWF。顶栏移除使用指南和 Logo 右侧提示文字，指南移入设置并用简短文字解释自动、必须翻译、无需翻译。统一用户可见的“游戏库”和“标签”术语。Desktop 启动后读取 GitHub 最新稳定 Release，只有版本更高时提示打开下载页；离线/API 失败不影响本地功能，设置页可手动检查。
+- **契约与测试**：`games.list` 明确接受 `title-asc/title-desc/updated-desc/accepted-desc` 并在 SQL 层排序；游戏 DTO 增加 `updatedUtc`；Profile 契约明确为 EXE/SWF。新增排序、SWF Profile、时间格式、版本标签比较以及真实 UIA 的普通游戏全选/批量收藏和设置内指南覆盖。
+- **工程门禁**：`dotnet format --verify-no-changes` 与 `git diff --check` 通过；Release build 0 警告、0 错误；完整 **442/442**（契约 43、架构 8、单元 139、无界面 E2E 16、集成 236）通过。报告：`artifacts/build-reports/2026-09-18-r19-format-final.txt`、`2026-09-18-r19-build-final.txt`、`2026-09-18-r19-tests-final.txt`。
+- **最终发布资产**：NSIS 安装器 SHA-256 `EECAD0E87E8C442F4918A6769FFAEBBAF236F3E218D0AB4B3134B0763B8FDB47`；Portable ZIP `90CC7E3B479132EAC23A2C306F72018DE77C29304AE4DC8B865F874BC65B9B64`；Tools ZIP `3EE18C23B849B102481EAE49C3C0FC615E12368ECBCCCBE65181750FFBC4B6FE`。两个 ZIP 分别只有 3/4 个根级文件，无嵌套路径及 PS1/CMD/BAT；哈希清单逐项匹配，四个单文件 EXE 均为 1.1.0.0，便携 Desktop 已在隔离数据目录拉起。报告：`artifacts/build-reports/2026-09-18-r19-package-final.txt` 与 `2026-09-18-r19-assets-final.txt`。
+- **签名与未验证范围**：按用户决定，本次发布明确为未签名，安装器和四个入口均由 `Get-AuthenticodeSignature` 确认为 `NotSigned`，Windows SmartScreen 可能显示未知发布者。R18 已验证且本轮未修改的 NSIS 安装/卸载逻辑继续提供自定义安装位置、已安装应用登记和 `Uninstall.exe`；本轮没有再次写注册表或在干净 Windows 10/11 机器人工点击安装。未访问 F 盘或 `LocalData/`。
+- **下一项**：提交并推送 `main`，创建公开 `v1.1.0` GitHub Release 并上传安装器、Portable、Tools 与 SHA-256 清单；SignPath 获批后让后续版本进入签名流水线。

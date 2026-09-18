@@ -60,7 +60,7 @@ public static class OperationSchemas
         [
             new("search", "string", false, "搜索词（命中用户标题或原文件夹名，数据库侧执行）"),
             new("favorite", "boolean", false, "仅收藏"),
-            new("sort", "string", false, "title（默认）或 recent"),
+            new("sort", "string", false, "title/title-asc、title-desc、recent/updated-desc 或 accepted-desc"),
             new("viewId", "string", false, "套用视图筛选/排序"),
             new("tagId", "string", false, "按标签过滤（与搜索 AND 组合）"),
             new("limit", "integer", false, "分页大小（1–1000）"),
@@ -69,7 +69,7 @@ public static class OperationSchemas
         ["games.get"] = [new("gameId", "string", true, "游戏 ID")],
         ["games.create"] =
         [
-            new("sourcePath", "string", true, "已注册游戏文件夹内的目录或独立 EXE/SWF/LNK 绝对路径"),
+            new("sourcePath", "string", true, "已注册游戏库内的目录或独立 EXE/SWF/LNK 绝对路径"),
             new("title", "string", false, "卡片标题；省略时取文件或目录名"),
             new("idempotencyKey", "string", true, "幂等键"),
         ],
@@ -217,7 +217,7 @@ public static class OperationSchemas
         ["profiles.create"] =
         [
             new("gameId", "string", true, "游戏 ID"),
-            new("executablePath", "string", true, "启动 exe 绝对路径"),
+            new("executablePath", "string", true, "启动 EXE 或 SWF 的绝对路径"),
             new("argv", "array", true, "启动参数字符串数组"),
             new("cwd", "string", true, "工作目录"),
             new("isDefault", "boolean", false, "是否默认 Profile"),
@@ -228,7 +228,7 @@ public static class OperationSchemas
         ["profiles.update"] =
         [
             new("profileId", "string", true, "Profile ID"),
-            new("executablePath", "string", true, "新 exe 路径"),
+            new("executablePath", "string", true, "新的 EXE 或 SWF 路径"),
             new("argv", "array", true, "新启动参数字符串数组"),
             new("cwd", "string", true, "新工作目录"),
             new("expectedRevision", "integer", true, "期望 Profile 修订"),

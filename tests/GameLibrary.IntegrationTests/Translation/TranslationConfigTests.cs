@@ -279,6 +279,41 @@ public sealed class TranslationConfigTests : IClassFixture<PipeServerFixture>
     }
 
     [Fact]
+    public async Task ProfilesCreate_AcceptsSwfInsideRegisteredGameLibrary()
+    {
+        var gameId = InsertGame(false);
+        var gamesRoot = Path.Combine(
+            @"D:\Official\GameLibrary\artifacts\test-runs",
+            _fixture.TestId,
+            "games");
+        var gameDirectory = Path.Combine(gamesRoot, gameId);
+        Directory.CreateDirectory(gameDirectory);
+        var swfPath = Path.Combine(gameDirectory, "game.swf");
+        File.WriteAllText(swfPath, "fixture");
+
+        var root = await InvokeAsync("roots.add", new
+        {
+            idempotencyKey = $"t13root-{Guid.NewGuid():N}",
+            root = gamesRoot,
+        });
+        Assert.True(root.Ok, root.Error?.Message);
+
+        var profile = await InvokeAsync("profiles.create", new
+        {
+            idempotencyKey = $"t13profile-{Guid.NewGuid():N}",
+            gameId,
+            executablePath = swfPath,
+            cwd = gameDirectory,
+            argv = Array.Empty<string>(),
+            isDefault = true,
+        });
+
+        Assert.True(profile.Ok, profile.Error?.Message);
+        Assert.Equal(swfPath, profile.Data.GetProperty("executablePath").GetString());
+        Assert.True(profile.Data.GetProperty("isDefault").GetBoolean());
+    }
+
+    [Fact]
     public async Task LaunchPlan_RequiredGameNormalProfile_ReturnsNeedsUserActionWithPlan()
     {
         var gameId = InsertGame(toolNeedInherited: true);

@@ -145,7 +145,7 @@ public sealed class CacheLocationTests : IClassFixture<PipeServerFixture>
 
         Assert.False(update.Ok);
         Assert.Equal(ErrorCodes.InvalidArgument, update.Error!.Code);
-        Assert.Contains("游戏文件夹", update.Error.Message, StringComparison.Ordinal);
+        Assert.Contains("游戏库", update.Error.Message, StringComparison.Ordinal);
         Assert.False(Directory.Exists(Path.Combine(requested, "GameLibraryCache")));
 
         var occupiedParent = Path.Combine(DataDirectory, "cache-name-occupied");

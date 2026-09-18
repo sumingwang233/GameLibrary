@@ -29,7 +29,7 @@ public sealed partial class OperationDispatcher
         var cacheParentDirectory = _state.Library.Store?.ReadSettings().CacheParentDirectory;
         if (cacheParentDirectory is not null && _state.Roots.Contains(cacheParentDirectory))
         {
-            return InvalidArgument(request, "当前缓存位置位于已添加的游戏文件夹内，请先在设置中更换位置");
+            return InvalidArgument(request, "当前缓存位置位于已添加的游戏库内，请先在设置中更换位置");
         }
 
         var cacheDirectory = OwnedPreviewCache.GetRoot(_state.DataDirectory, cacheParentDirectory);

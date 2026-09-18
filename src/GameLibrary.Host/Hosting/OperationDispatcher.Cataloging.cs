@@ -1040,6 +1040,7 @@ public sealed partial class OperationDispatcher
             tags,
             revision = game.Revision,
             acceptedUtc = game.AcceptedUtc.ToString("O"),
+            updatedUtc = game.UpdatedUtc.ToString("O"),
         };
     }
 

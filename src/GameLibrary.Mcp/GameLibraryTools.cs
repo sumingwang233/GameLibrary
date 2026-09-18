@@ -699,7 +699,7 @@ public static class GameLibraryTools
         InvokeOperationAsync("games.get", new { gameId });
 
     [McpServerTool(Name = "games_create")]
-    [Description("手动把未识别的游戏目录或独立 EXE/SWF/LNK 加入库；来源必须位于已注册游戏文件夹内。响应提供可验证的启动建议，需用 profiles.create 保存。")]
+    [Description("手动把未识别的游戏目录或独立 EXE/SWF/LNK 加入库；来源必须位于已注册游戏库内。响应提供可验证的启动建议，需用 profiles.create 保存。")]
     public static Task<CallToolResult> GamesCreate(
         [Description("游戏目录或独立 EXE/SWF/LNK 的绝对路径")] string sourcePath,
         [Description("卡片标题；省略时取路径名称")] string? title = null,

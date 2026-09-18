@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Text.Json;
 using System.Windows;
@@ -36,7 +37,7 @@ public partial class MainWindow : Window
             entries.Add(new Entry(
                 "candidate",
                 candidate.GetProperty("candidateId").GetString() ?? "",
-                string.IsNullOrEmpty(relativePath) ? "(游戏文件夹)" : relativePath!,
+                string.IsNullOrEmpty(relativePath) ? "(游戏库)" : relativePath!,
                 "待审核",
                 candidate.GetProperty("physicalPath").GetString() ?? "",
                 false,
@@ -135,11 +136,10 @@ public partial class MainWindow : Window
         {
             visible = visible.Where(e => e.Kind == "candidate");
         }
-        else if (activeView.StartsWith("tag:", StringComparison.Ordinal))
+        else
         {
             visible = visible.Where(e => e.Kind == "game");
         }
-
         // 搜索已由服务端执行（阶段三：数据库侧检索）；此处仅对本地候选条目做即时过滤。
         if (_searchText.Length > 0)
         {
@@ -149,84 +149,104 @@ public partial class MainWindow : Window
 
         var list = visible.ToList();
         UpdateCandidateBatchUi(activeView, list);
-        LibraryList.Items.Clear();
-        foreach (var entry in list)
+        UpdateGameBatchUi(activeView, list);
+        _renderingSidebar = true;
+        try
         {
-            // 审查意见：条目直接携带 Entry（按 ID 关联），不再按标题反查。
-            var container = new ListBoxItem
+            LibraryList.Items.Clear();
+            foreach (var entry in list)
             {
-                Style = (Style)TryFindResource("SidebarItem"),
-                Tag = entry,
-                Content = CreateSidebarEntryContent(entry, activeView == "pending"),
-            };
-            LibraryList.Items.Add(container);
-        }
-
-        if (LibraryList.Items.Count == 0)
-        {
-            if (activeView == "all" && _searchText.Length == 0)
-            {
-                // 首次使用引导（审查意见 #3：空库引导代替空白）。
-                LibraryList.Items.Add(new TextBlock
+                // 条目直接携带 Entry（按 ID 关联）；复选框负责批量选择，列表单选负责右侧详情。
+                var container = new ListBoxItem
                 {
-                    Text = "游戏库是空的。先点顶部「添加游戏文件夹」，再点「扫描」；扫描结果会出现在「待确认游戏」里。",
-                    FontSize = 11,
-                    Foreground = TryFindResource<SolidColorBrush>("TextMuted"),
-                    TextWrapping = TextWrapping.Wrap,
-                    Margin = new Thickness(10, 6, 10, 6),
-                });
-            }
-            else
-            {
-                LibraryList.Items.Add(new TextBlock
-                {
-                    Text = _searchText.Length > 0
-                        ? $"没有匹配「{_searchText}」的条目。"
-                        : "此视图暂无条目。",
-                    FontSize = 11,
-                    Foreground = TryFindResource<SolidColorBrush>("TextMuted"),
-                    TextWrapping = TextWrapping.Wrap,
-                    Margin = new Thickness(10, 6, 10, 6),
-                });
+                    Style = (Style)TryFindResource("SidebarItem"),
+                    Tag = entry,
+                    Content = CreateSidebarEntryContent(entry, showSelection: true),
+                };
+                LibraryList.Items.Add(container);
             }
 
-            DetailPanel.Children.Clear();
-            return;
-        }
+            if (LibraryList.Items.Count == 0)
+            {
+                if (activeView == "all" && _searchText.Length == 0)
+                {
+                    LibraryList.Items.Add(new TextBlock
+                    {
+                        Text = "游戏库是空的。先点顶部「添加游戏库」，再点「扫描」；扫描结果会出现在「待确认游戏」里。",
+                        FontSize = 11,
+                        Foreground = TryFindResource<SolidColorBrush>("TextMuted"),
+                        TextWrapping = TextWrapping.Wrap,
+                        Margin = new Thickness(10, 6, 10, 6),
+                    });
+                }
+                else
+                {
+                    LibraryList.Items.Add(new TextBlock
+                    {
+                        Text = _searchText.Length > 0
+                            ? $"没有匹配「{_searchText}」的条目。"
+                            : "此视图暂无条目。",
+                        FontSize = 11,
+                        Foreground = TryFindResource<SolidColorBrush>("TextMuted"),
+                        TextWrapping = TextWrapping.Wrap,
+                        Margin = new Thickness(10, 6, 10, 6),
+                    });
+                }
 
-        var preferredIndex = _preferredGameId is null
-            ? -1
-            : LibraryList.Items.OfType<ListBoxItem>()
-                .Select((item, index) => (item, index))
-                .Where(pair => pair.item.Tag is Entry entry
-                    && entry.Kind == "game" && entry.Id == _preferredGameId)
-                .Select(pair => pair.index)
-                .DefaultIfEmpty(-1)
-                .First();
-        var matchingIndex = preferredIndex >= 0
-            ? preferredIndex
-            : previousEntry is null
+                LibraryList.SelectedIndex = -1;
+                DetailPanel.Children.Clear();
+                return;
+            }
+
+            var preferredIndex = _preferredGameId is null
                 ? -1
                 : LibraryList.Items.OfType<ListBoxItem>()
                     .Select((item, index) => (item, index))
                     .Where(pair => pair.item.Tag is Entry entry
-                        && entry.Kind == previousEntry.Kind && entry.Id == previousEntry.Id)
+                        && entry.Kind == "game" && entry.Id == _preferredGameId)
                     .Select(pair => pair.index)
                     .DefaultIfEmpty(-1)
                     .First();
-        if (preferredIndex >= 0)
-        {
-            _preferredGameId = null;
+            var matchingIndex = preferredIndex >= 0
+                ? preferredIndex
+                : previousEntry is null
+                    ? -1
+                    : LibraryList.Items.OfType<ListBoxItem>()
+                        .Select((item, index) => (item, index))
+                        .Where(pair => pair.item.Tag is Entry entry
+                            && entry.Kind == previousEntry.Kind && entry.Id == previousEntry.Id)
+                        .Select(pair => pair.index)
+                        .DefaultIfEmpty(-1)
+                        .First();
+            if (preferredIndex >= 0)
+            {
+                _preferredGameId = null;
+            }
+
+            LibraryList.SelectedIndex = matchingIndex >= 0 ? matchingIndex : 0;
         }
-        LibraryList.SelectedIndex = matchingIndex >= 0 ? matchingIndex : 0;
-        if (LibraryList.SelectedIndex < 0)
+        finally
         {
-            DetailPanel.Children.Clear();
+            _renderingSidebar = false;
+        }
+
+        if (LibraryList.SelectedItem is ListBoxItem selected && selected.Tag is Entry selectedEntry)
+        {
+            RenderDetail(selectedEntry);
+        }
+        else
+        {
+            RenderDetailPlaceholder();
         }
     }
 
     private void OnLibrarySelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (_renderingSidebar)
+        {
+            return;
+        }
+
         if (LibraryList.SelectedItem is ListBoxItem container && container.Tag is Entry entry)
         {
             RenderDetail(entry);
@@ -254,7 +274,7 @@ public partial class MainWindow : Window
         var candidate = entry.Raw;
         DetailPanel.Children.Add(new TextBlock
         {
-            Text = entry.Title.Length == 0 ? "(游戏文件夹)" : entry.Title,
+            Text = entry.Title.Length == 0 ? "(游戏库)" : entry.Title,
             FontSize = 26,
             FontWeight = FontWeights.Bold,
             Foreground = TryFindResource<SolidColorBrush>("TextPrimary"),
@@ -329,9 +349,9 @@ public partial class MainWindow : Window
         {
             var cover = new Image
             {
-                Height = 190,
                 Width = 340,
-                Stretch = Stretch.UniformToFill,
+                MaxHeight = 420,
+                Stretch = Stretch.Uniform,
                 HorizontalAlignment = HorizontalAlignment.Left,
                 Margin = new Thickness(0, 14, 0, 12),
             };
@@ -444,14 +464,18 @@ public partial class MainWindow : Window
         }
 
         DetailPanel.Children.Add(MetaLine("路径", raw.GetProperty("rootPath").GetString() ?? ""));
-        DetailPanel.Children.Add(MetaLine("入库时间", raw.GetProperty("acceptedUtc").GetString() ?? ""));
+        DetailPanel.Children.Add(MetaLine("入库时间", FormatLocalTimestamp(raw.GetProperty("acceptedUtc").GetString())));
+        if (raw.TryGetProperty("updatedUtc", out var updatedUtc))
+        {
+            DetailPanel.Children.Add(MetaLine("修改时间", FormatLocalTimestamp(updatedUtc.GetString())));
+        }
         var tagText = raw.TryGetProperty("tags", out var tagsElement) && tagsElement.ValueKind == JsonValueKind.Array
             ? string.Join("；", tagsElement.EnumerateArray()
                 .Select(t => (t.GetProperty("kind").GetString() == "engine" ? "[自动] " : "") + t.GetProperty("name").GetString()))
             : "";
         DetailPanel.Children.Add(MetaLine("标签", tagText.Length > 0 ? tagText : "（无）"));
         DetailPanel.Children.Add(ButtonRow(
-            ("加入收藏夹", () => EditGameCollectionsAsync(gameId, revision, raw), "SteamButton")));
+            ("设置标签", () => EditGameCollectionsAsync(gameId, revision, raw), "SteamButton")));
 
         // 翻译策略显示与循环切换（Auto→Required→NotRequired）。
         var translationText = new TextBlock
@@ -610,14 +634,14 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>配置启动方式：图形化选择游戏主程序 → profiles.create（首个自动设默认）。</summary>
+    /// <summary>配置启动方式：图形化选择 EXE 或 SWF → profiles.create（首个自动设默认）。</summary>
     private async Task ConfigureLaunchAsync(string gameId, string gameRootPath, TextBlock statusText, Button playButton)
     {
         var dialog = new Microsoft.Win32.OpenFileDialog
         {
-            Title = "选择游戏主程序（.exe）",
-            // .lnk 解析器尚未接入 Profile 启动链，不能让用户选中后得到不可启动的配置。
-            Filter = "游戏主程序|*.exe",
+            Title = "选择游戏启动文件（EXE / SWF）",
+            // LNK 在手动入库时解析为真实目标；Profile 本身只保存可验证的 EXE/SWF。
+            Filter = "游戏启动文件|*.exe;*.swf|Windows 程序|*.exe|Flash 游戏|*.swf",
             CheckFileExists = true,
         };
         if (Directory.Exists(gameRootPath))
@@ -634,8 +658,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        var exePath = dialog.FileName;
-        var cwd = Path.GetDirectoryName(exePath) ?? gameRootPath;
+        var launchPath = dialog.FileName;
+        var cwd = Path.GetDirectoryName(launchPath) ?? gameRootPath;
         try
         {
             var listEnvelope = await InvokeAsync("profiles.list", new { gameId });
@@ -656,7 +680,7 @@ public partial class MainWindow : Window
             {
                 idempotencyKey = $"ui-profile-{Guid.NewGuid():N}",
                 gameId,
-                executablePath = exePath,
+                executablePath = launchPath,
                 argv = Array.Empty<string>(),
                 cwd,
                 isDefault = !hasDefault,
@@ -855,7 +879,7 @@ public partial class MainWindow : Window
 
     private static string CandidateKindLabel(string? kind) => kind switch
     {
-        "gameRoot" => "游戏文件夹",
+        "gameRoot" => "游戏库",
         "nestedCandidate" => "文件夹内的游戏",
         "container" => "包含多个游戏的文件夹",
         _ => "扫描发现的项目",
@@ -867,8 +891,8 @@ public partial class MainWindow : Window
         {
             "manualFile" => "手动添加的游戏程序",
             "manualShortcut" => "手动添加的快捷方式",
-            "manualDirectory" => "手动添加的游戏文件夹",
-            "nestedCandidate" => "从游戏文件夹中发现",
+            "manualDirectory" => "手动添加的游戏库",
+            "nestedCandidate" => "从游戏库中发现",
             "container" => "包含多个游戏的文件夹",
             _ => "扫描发现的游戏",
         };
@@ -883,6 +907,11 @@ public partial class MainWindow : Window
         TextTrimming = TextTrimming.CharacterEllipsis,
         ToolTip = value,
     };
+
+    internal static string FormatLocalTimestamp(string? value) =>
+        DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed)
+            ? parsed.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)
+            : value ?? "";
 
     private StackPanel ButtonRow(params (string Label, Func<Task> Handler, string Style)[] buttons)
     {
@@ -945,6 +974,24 @@ public partial class MainWindow : Window
 
     }
 
+    private async void OnSortSelectorChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded || SortSelector.SelectedItem is not ComboBoxItem selected)
+        {
+            return;
+        }
+
+        var newSort = (string)selected.Tag;
+        if (newSort == _sortMode)
+        {
+            return;
+        }
+
+        _sortMode = newSort;
+        _selectedGameIds.Clear();
+        await RefreshAsync();
+    }
+
     private async Task ReviewAsync(string candidateId, int revision, string operationId)
     {
         var action = CandidateReviewActionLabel(operationId);
@@ -999,5 +1046,5 @@ public partial class MainWindow : Window
 
     // ---------- 顶栏操作 ----------
 
-    /// <summary>添加游戏文件夹（roots.add）：图形化选择目录；与数据目录是两个不同概念/控件。</summary>
+    /// <summary>添加游戏库（roots.add）：图形化选择目录；与数据目录是两个不同概念/控件。</summary>
 }

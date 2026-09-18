@@ -84,6 +84,34 @@ public sealed class DesktopRequestParameterTests
 
         Assert.False(parameters.TryGetProperty("idempotencyKey", out _));
     }
+
+    [Fact]
+    public void FormatLocalTimestamp_UsesCompactSecondPrecision()
+    {
+        const string timestamp = "2026-09-18T12:34:56+08:00";
+        var expected = DateTimeOffset.Parse(timestamp).ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+
+        Assert.Equal(expected, MainWindow.FormatLocalTimestamp(timestamp));
+    }
+
+    [Theory]
+    [InlineData("v1.1.0", 1, 1, 0)]
+    [InlineData("V2.3.4-beta.1", 2, 3, 4)]
+    public void ParseVersionTag_AcceptsGitHubReleaseTags(string tag, int major, int minor, int build)
+    {
+        var parsed = GitHubReleaseChecker.ParseVersionTag(tag);
+
+        Assert.NotNull(parsed);
+        Assert.Equal(new Version(major, minor, build), parsed);
+    }
+
+    [Fact]
+    public void IsNewer_OnlyNotifiesForLaterVersion()
+    {
+        Assert.True(GitHubReleaseChecker.IsNewer(new Version(1, 2, 0), "1.1.0"));
+        Assert.False(GitHubReleaseChecker.IsNewer(new Version(1, 1, 0), "1.1.0"));
+        Assert.False(GitHubReleaseChecker.IsNewer(new Version(1, 0, 9), "1.1.0"));
+    }
 }
 
 public sealed class DesktopScanRequestTests : IClassFixture<PipeServerFixture>

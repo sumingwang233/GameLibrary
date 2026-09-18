@@ -216,7 +216,7 @@ public partial class MainWindow : Window
         };
 
         // 应用数据位置（只读展示 + 提示）
-        panel.Children.Add(SettingLabel("应用数据位置（与游戏文件夹无关）"));
+        panel.Children.Add(SettingLabel("应用数据位置（与游戏库无关）"));
         panel.Children.Add(new TextBlock
         {
             Text = App.ResolvedDataDirectory,
@@ -224,6 +224,44 @@ public partial class MainWindow : Window
             TextTrimming = TextTrimming.CharacterEllipsis,
             Foreground = TryFindResource<SolidColorBrush>("TextBody"),
             ToolTip = App.ResolvedDataDirectory,
+        });
+
+        panel.Children.Add(new Separator { Margin = new Thickness(0, 18, 0, 10) });
+        panel.Children.Add(new TextBlock
+        {
+            Text = "帮助",
+            FontSize = 14,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = TryFindResource<SolidColorBrush>("TextPrimary"),
+            Margin = new Thickness(0, 0, 0, 8),
+        });
+        var helpButtons = new WrapPanel();
+        var guideButton = new Button
+        {
+            Content = "使用指南",
+            Style = (Style)TryFindResource("SteamButton"),
+            MinWidth = 100,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        AutomationProperties.SetName(guideButton, "设置中的使用指南");
+        guideButton.Click += (_, _) => ShowGuideDialog(firstUse: false, owner: dialog);
+        var updateButton = new Button
+        {
+            Content = "检查更新",
+            Style = (Style)TryFindResource("SteamButton"),
+            MinWidth = 100,
+        };
+        AutomationProperties.SetName(updateButton, "检查 GitHub 更新");
+        updateButton.Click += async (_, _) => await CheckForUpdatesAsync(userInitiated: true, owner: dialog);
+        helpButtons.Children.Add(guideButton);
+        helpButtons.Children.Add(updateButton);
+        panel.Children.Add(helpButtons);
+        panel.Children.Add(new TextBlock
+        {
+            Text = $"当前版本：{GitHubReleaseChecker.CurrentVersion}",
+            FontSize = 11,
+            Foreground = TryFindResource<SolidColorBrush>("TextMuted"),
+            Margin = new Thickness(0, 6, 0, 0),
         });
 
         var statusLine = new TextBlock

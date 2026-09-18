@@ -150,4 +150,48 @@ public sealed class GameCatalogPerformanceTests
             Cleanup(dataDir);
         }
     }
+
+    [Fact]
+    public async Task QueryGames_SortsByTitleUpdatedAndAcceptedTime()
+    {
+        var dataDir = FreshDataDir("game-sort");
+        try
+        {
+            var init = await SqliteLibraryStore.InitializeAsync(dataDir, new SqliteLibraryStoreOptions
+            {
+                AppVersion = "1.1.0-test",
+                ApiVersion = "1",
+            }, CancellationToken.None);
+            Assert.True(init.IsOpened, init.Detail);
+            await using var store = init.Store!;
+
+            var baseline = new DateTime(2026, 9, 18, 0, 0, 0, DateTimeKind.Utc);
+            foreach (var game in new[]
+            {
+                new GameCard { GameId = "game-a", Title = "Alpha", RootPath = @"C:\games\a", Kind = "gameRoot", Membership = "active", AcceptedUtc = baseline.AddHours(2), UpdatedUtc = baseline.AddHours(1) },
+                new GameCard { GameId = "game-b", Title = "Bravo", RootPath = @"C:\games\b", Kind = "gameRoot", Membership = "active", AcceptedUtc = baseline.AddHours(1), UpdatedUtc = baseline.AddHours(3) },
+                new GameCard { GameId = "game-c", Title = "Charlie", RootPath = @"C:\games\c", Kind = "gameRoot", Membership = "active", AcceptedUtc = baseline.AddHours(3), UpdatedUtc = baseline.AddHours(2) },
+            })
+            {
+                store.InsertGame(game);
+            }
+            Assert.NotNull(store.SetFavorite("game-a", false, 1, baseline.AddHours(1)));
+            Assert.NotNull(store.SetFavorite("game-b", false, 1, baseline.AddHours(3)));
+            Assert.NotNull(store.SetFavorite("game-c", false, 1, baseline.AddHours(2)));
+
+            Assert.Equal(
+                ["Charlie", "Bravo", "Alpha"],
+                store.QueryGames(null, false, null, "title-desc", 10, 0).Items.Select(game => game.Title));
+            Assert.Equal(
+                ["Bravo", "Charlie", "Alpha"],
+                store.QueryGames(null, false, null, "updated-desc", 10, 0).Items.Select(game => game.Title));
+            Assert.Equal(
+                ["Charlie", "Alpha", "Bravo"],
+                store.QueryGames(null, false, null, "accepted-desc", 10, 0).Items.Select(game => game.Title));
+        }
+        finally
+        {
+            Cleanup(dataDir);
+        }
+    }
 }

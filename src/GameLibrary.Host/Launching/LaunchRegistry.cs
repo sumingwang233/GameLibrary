@@ -121,7 +121,7 @@ public sealed record LaunchAttempt
 /// 宿主内启动注册表（T06 内存态；收据/数据库持久化随 T23/T27）：
 /// 全入口互斥（同游戏同时只允许一个进行中的启动，与客户端无关）、
 /// 幂等键重放返回原尝试、Profile Revision 使旧计划失效（PlanStale）。
-/// 真实启动只允许经由 Profile 校验的 exe；测试使用 TestProcessStub。
+/// 真实启动只允许经由 Profile 校验的 EXE/SWF；SWF 交给 Windows 文件关联打开。
 /// </summary>
 public sealed class LaunchRegistry
 {
@@ -410,7 +410,8 @@ public sealed class LaunchRegistry
             {
                 FileName = plan.ExecutablePath,
                 WorkingDirectory = plan.WorkingDirectory,
-                UseShellExecute = false,
+                UseShellExecute = Path.GetExtension(plan.ExecutablePath)
+                    .Equals(".swf", StringComparison.OrdinalIgnoreCase),
             };
             foreach (var argument in plan.Arguments)
             {
@@ -502,6 +503,13 @@ public sealed class LaunchRegistry
         if (!File.Exists(profile.ExecutablePath))
         {
             throw new LaunchException(ErrorCodes.ToolMissing, $"启动目标不存在：{profile.ExecutablePath}");
+        }
+
+        var extension = Path.GetExtension(profile.ExecutablePath);
+        if (!extension.Equals(".exe", StringComparison.OrdinalIgnoreCase)
+            && !extension.Equals(".swf", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new LaunchException(ErrorCodes.InvalidPath, "启动目标仅支持 EXE 或 SWF 文件");
         }
 
         if (!Directory.Exists(profile.WorkingDirectory))

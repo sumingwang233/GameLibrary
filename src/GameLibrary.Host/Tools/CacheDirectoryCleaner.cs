@@ -4,7 +4,7 @@ namespace GameLibrary.Host.Tools;
 
 /// <summary>
 /// 只清理库自有缓存树里的普通文件。目录链接、文件链接与 junction 均不跟随；
-/// 用户原图、游戏文件夹从不传入此清理器。
+/// 用户原图、游戏库目录从不传入此清理器。
 /// </summary>
 internal static class CacheDirectoryCleaner
 {

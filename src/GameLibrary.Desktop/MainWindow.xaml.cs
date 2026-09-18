@@ -16,7 +16,7 @@ namespace GameLibrary.Desktop;
 
 /// <summary>
 /// Desktop 纵切（T12/T15）：Steam 库风格视图——左侧视图切换/搜索/游戏列表、右侧详情与操作。
-/// v1 审查修复：数据目录与游戏文件夹控件分离；开始游戏/启动方式配置；库根管理；
+/// v1 审查修复：数据目录与游戏库控件分离；开始游戏/启动方式配置；库根管理；
 /// 扫描进度与取消；设置页（主题/缩放/托盘/开机启动/周期）；事件驱动刷新；
 /// 按游戏 ID 选中（不再按标题猜）；"待审核候选"视图过滤分支补齐。
 /// </summary>
@@ -72,6 +72,9 @@ public partial class MainWindow : Window
     private int _refreshVersion;
     private bool _loadingMoreGames;
     private string? _preferredGameId;
+    private bool _renderingSidebar;
+    private string _sortMode = "title-asc";
+    private bool _updatingTagFilter;
 
     public MainWindow()
     {
@@ -105,11 +108,17 @@ public partial class MainWindow : Window
             }
         }
 
-        DataDirHint.Text = $"应用数据位置：{App.ResolvedDataDirectory}";
         ViewSelector.Items.Add(new ComboBoxItem { Content = "全部游戏", Tag = "all" });
         ViewSelector.Items.Add(new ComboBoxItem { Content = "收藏", Tag = "favorites" });
         ViewSelector.Items.Add(new ComboBoxItem { Content = "待确认游戏", Tag = "pending" });
         ViewSelector.SelectedIndex = 0;
+        SortSelector.Items.Add(new ComboBoxItem { Content = "名称 A–Z", Tag = "title-asc" });
+        SortSelector.Items.Add(new ComboBoxItem { Content = "名称 Z–A", Tag = "title-desc" });
+        SortSelector.Items.Add(new ComboBoxItem { Content = "最近修改", Tag = "updated-desc" });
+        SortSelector.Items.Add(new ComboBoxItem { Content = "最近入库", Tag = "accepted-desc" });
+        SortSelector.SelectedIndex = 0;
+        TagFilterSelector.Items.Add(new ComboBoxItem { Content = "全部标签", Tag = "" });
+        TagFilterSelector.SelectedIndex = 0;
         _searchTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
         _searchTimer.Tick += async (_, _) =>
         {

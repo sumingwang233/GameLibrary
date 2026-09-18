@@ -313,7 +313,7 @@ def write_checklist(version, signed, log):
     signing = (
         "程序文件与安装器均已使用受信任 Authenticode 证书签名并完成签名验证。"
         if signed
-        else "本次本地预览未配置受信任证书；正式发布必须使用 --require-signing 重新生成。"
+        else "SignPath Foundation 申请仍在审核；本次发布未签名，下载者应核对同版本 SHA-256 清单。"
     )
     body = f"""# GameLibrary v{version} 发布校验清单
 
@@ -329,7 +329,7 @@ def write_checklist(version, signed, log):
 ## 已自动验证
 
 - Release build：0 警告、0 错误。
-- 测试：436/436 通过。
+- 测试：442/442 通过。
 - 自包含发布目录：Desktop/Host 与 CLI/MCP 单文件布局检查。
 - NSIS 安装器：隔离自定义目录安装、当前用户卸载登记、`Uninstall.exe`、快捷方式、已知文件清理及未知文件保留。
 

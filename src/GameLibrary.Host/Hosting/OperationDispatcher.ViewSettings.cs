@@ -711,7 +711,7 @@ public sealed partial class OperationDispatcher
 
                 if (_state.Roots.Contains(canonical))
                 {
-                    return InvalidArgument(request, "缓存位置不能位于已添加的游戏文件夹内");
+                    return InvalidArgument(request, "缓存位置不能位于已添加的游戏库内");
                 }
 
                 cacheParentDirectory = canonical;

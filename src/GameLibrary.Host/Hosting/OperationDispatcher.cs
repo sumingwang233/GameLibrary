@@ -1538,6 +1538,11 @@ public sealed partial class OperationDispatcher
             }
         }
 
+        if (sort is not null and not ("title" or "title-asc" or "title-desc" or "recent" or "updated-desc" or "accepted-desc"))
+        {
+            return InvalidArgument(request, "sort 只支持 title-asc、title-desc、updated-desc、accepted-desc");
+        }
+
         var (total, games) = store.QueryGames(search, favoriteFilter, tagId, sort, limit, offset);
         var dtos = games.Select(g => GameDto(store, g)).ToArray();
 

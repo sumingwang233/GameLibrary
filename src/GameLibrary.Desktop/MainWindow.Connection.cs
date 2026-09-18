@@ -46,6 +46,7 @@ public partial class MainWindow : Window
             await LoadSettingsAsync();
             await RefreshAsync();
             await MaybeShowFirstUseGuideAsync();
+            _ = CheckForUpdatesAsync(userInitiated: false, owner: this);
             _eventCursor = 0;
             _eventTimer.Start();
         }
@@ -111,7 +112,7 @@ public partial class MainWindow : Window
             var tags = await InvokeAsync("tags.list");
             if (!tags.Ok)
             {
-                throw new InvalidOperationException($"读取收藏夹失败：{tags.Error?.Message}");
+                throw new InvalidOperationException($"读取标签失败：{tags.Error?.Message}");
             }
 
             if (version != _refreshVersion)
@@ -161,7 +162,12 @@ public partial class MainWindow : Window
 
     private Dictionary<string, object> BuildGameQuery(int offset)
     {
-        var parameters = new Dictionary<string, object> { ["limit"] = 500, ["offset"] = offset };
+        var parameters = new Dictionary<string, object>
+        {
+            ["limit"] = 500,
+            ["offset"] = offset,
+            ["sort"] = _sortMode,
+        };
         if (_searchText.Length > 0)
         {
             parameters["search"] = _searchText;
@@ -171,9 +177,9 @@ public partial class MainWindow : Window
         {
             parameters["favorite"] = true;
         }
-        else if (SelectedViewId.StartsWith("tag:", StringComparison.Ordinal))
+        if (SelectedTagId.Length > 0)
         {
-            parameters["tagId"] = SelectedViewId[4..];
+            parameters["tagId"] = SelectedTagId;
         }
 
         return parameters;
