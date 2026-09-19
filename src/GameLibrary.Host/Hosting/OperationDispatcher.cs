@@ -49,10 +49,15 @@ public sealed partial class OperationDispatcher
     /// （library.init/restore 整体替换 Library），events 为 init-only 引用。</summary>
     private readonly CandidateReviewHandler _candidateReview;
 
+    /// <summary>忽略规则域（ignores.list/create/remove）：store 经委托每请求取当前值
+    /// （library.init/restore 整体替换 Library），roots 为 init-only 引用。</summary>
+    private readonly IgnoreRulesHandler _ignoreRules;
+
     public OperationDispatcher(HostRuntimeState state)
     {
         _state = state;
         _candidateReview = new CandidateReviewHandler(() => state.Library.Store, state.Events);
+        _ignoreRules = new IgnoreRulesHandler(() => state.Library.Store, state.Roots);
     }
 
     /// <summary>已接入收据的操作子集：catalog 声明 requiresIdempotencyKey 的已实现操作。
@@ -657,9 +662,9 @@ public sealed partial class OperationDispatcher
         "assets.remove" => AssetsRemove(request),
         "metadata.preview" => MetadataPreview(request),
         "metadata.refresh" => MetadataRefresh(request),
-        "ignores.list" => IgnoresList(request),
-        "ignores.create" => IgnoresCreate(request),
-        "ignores.remove" => IgnoresRemove(request),
+        "ignores.list" => _ignoreRules.List(request),
+        "ignores.create" => _ignoreRules.Create(request),
+        "ignores.remove" => _ignoreRules.Remove(request),
         "profiles.create" => ProfilesCreate(request),
         "profiles.list" => ProfilesList(request),
         "profiles.get" => ProfilesGet(request),
