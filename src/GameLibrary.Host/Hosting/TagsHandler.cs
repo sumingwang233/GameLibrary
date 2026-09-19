@@ -1,47 +1,39 @@
-using System.Collections.Concurrent;
-using System.Diagnostics;
-using System.Reflection;
-using System.Text.Json;
 using GameLibrary.Contracts;
 using GameLibrary.Contracts.Ipc;
-using GameLibrary.Domain.Classification;
-using GameLibrary.Domain.Detection;
-using GameLibrary.Domain.Detection.Detectors;
-using GameLibrary.Host.Observability;
 using GameLibrary.Host.Scanning;
-using GameLibrary.Host.Tools;
-using GameLibrary.Infrastructure.Backups;
 using GameLibrary.Infrastructure.Persistence;
-using GameLibrary.Infrastructure.Scanning;
+
 namespace GameLibrary.Host.Hosting;
 
-
-
-/// <summary>OperationDispatcher 的 Tags 域 handler（阶段三按域拆分，partial）。</summary>
-public sealed partial class OperationDispatcher
+/// <summary>
+/// 标签域处理器：tags.list/create/update/remove/assign/unassign/suppress/reset 八操作。
+/// 标签按 (类型, 规范值) 唯一——engine 标签由引擎识别在入库时自动创建，重扫只替换
+/// 同源记录；user 标签由用户维护。删除/解除 engine 标签登记 Suppress 覆盖（阻止扫描
+/// 恢复）；tags.reset 清除覆盖并按当前引擎恢复。Store 经委托每请求取当前值
+/// （library.init / backups.restore 会整体替换 Library，禁止构造时缓存 store 引用）；
+/// Events 为 init-only 引用（换库由 EventStream.BindStore 在其内部重绑，若未来宿主改为
+/// 整体替换 Events 实例，此处与 CandidateReviewHandler 须同步改为委托取值）。由
+/// DispatchCore 调用，天然继承幂等收据（tags.* 变更操作在 ReceiptOperations）与
+/// 串行门等中间件。
+/// </summary>
+internal sealed class TagsHandler
 {
-    // T-collections tags.×8（阶段三）：标签按 (类型, 规范值) 唯一——engine 标签由引擎识别
-    // 在入库时自动创建，重扫只替换同源记录；user 标签由用户维护。删除/解除 engine 标签
-    // 登记 Suppress 覆盖（阻止扫描恢复）；tags.reset 清除覆盖并按当前引擎恢复。
+    private readonly Func<SqliteLibraryStore?> _storeAccessor;
+    private readonly EventStream _events;
 
-    private static object TagDto(PersistedTag tag) => new
+    public TagsHandler(Func<SqliteLibraryStore?> storeAccessor, EventStream events)
     {
-        tagId = tag.TagId,
-        kind = tag.Kind,
-        name = tag.Name,
-        color = tag.Color,
-        gameCount = tag.GameCount,
-        revision = tag.Revision,
-        createdUtc = tag.CreatedUtc.ToString("O"),
-        updatedUtc = tag.UpdatedUtc.ToString("O"),
-    };
+        _storeAccessor = storeAccessor;
+        _events = events;
+    }
 
-    private Envelope<object> TagsList(IpcRequest request)
+    /// <summary>列出全部标签：保持 store.ListTags() 返回顺序，不新增排序。</summary>
+    public Envelope<object> TagsList(IpcRequest request)
     {
-        var store = _state.Library.Store;
+        var store = _storeAccessor();
         if (store is null)
         {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
+            return IpcRequests.InvalidArgument(request, "库未初始化（先 library.init）");
         }
 
         var tags = store.ListTags();
@@ -54,31 +46,32 @@ public sealed partial class OperationDispatcher
         };
     }
 
-    private Envelope<object> TagsCreate(IpcRequest request)
+    /// <summary>创建 user 标签：名称 1–100 字符且不含控制字符，color 须为 #RRGGBB。</summary>
+    public Envelope<object> TagsCreate(IpcRequest request)
     {
-        var store = _state.Library.Store;
+        var store = _storeAccessor();
         if (store is null)
         {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
+            return IpcRequests.InvalidArgument(request, "库未初始化（先 library.init）");
         }
 
-        if (!TryGetStringParameter(request, "name", out var name))
+        if (!IpcRequests.TryGetStringParameter(request, "name", out var name))
         {
-            return InvalidArgument(request, "缺少 name 参数");
+            return IpcRequests.InvalidArgument(request, "缺少 name 参数");
         }
 
         name = name.Trim();
         if (name.Length is < 1 or > 100 || name.Any(char.IsControl))
         {
-            return InvalidArgument(request, "标签名必须是 1–100 字符且不含控制字符");
+            return IpcRequests.InvalidArgument(request, "标签名必须是 1–100 字符且不含控制字符");
         }
 
         string? color = null;
-        if (TryGetStringParameter(request, "color", out var colorValue))
+        if (IpcRequests.TryGetStringParameter(request, "color", out var colorValue))
         {
             if (!System.Text.RegularExpressions.Regex.IsMatch(colorValue, "^#[0-9a-fA-F]{6}$"))
             {
-                return InvalidArgument(request, "color 必须是 #RRGGBB 十六进制格式");
+                return IpcRequests.InvalidArgument(request, "color 必须是 #RRGGBB 十六进制格式");
             }
 
             color = colorValue;
@@ -86,13 +79,13 @@ public sealed partial class OperationDispatcher
 
         if (store.TryGetTagByName("user", name) is not null)
         {
-            return InvalidArgument(request, $"同名用户标签已存在：{name}");
+            return IpcRequests.InvalidArgument(request, $"同名用户标签已存在：{name}");
         }
 
         var utcNow = DateTime.UtcNow;
         var tag = new PersistedTag($"tag-{Guid.NewGuid():N}", "user", name, color, 1, 0, utcNow, utcNow);
         store.CreateTag(tag);
-        _state.Events.Publish("tag.created", $"tag:{tag.TagId}", new { tagId = tag.TagId, name }, utcNow);
+        _events.Publish("tag.created", $"tag:{tag.TagId}", new { tagId = tag.TagId, name }, utcNow);
         return new Envelope<object>
         {
             RequestId = request.RequestId,
@@ -102,54 +95,55 @@ public sealed partial class OperationDispatcher
         };
     }
 
-    private Envelope<object> TagsUpdate(IpcRequest request)
+    /// <summary>更新 user 标签（engine 标签不可编辑）：expectedRevision 乐观并发校验。</summary>
+    public Envelope<object> TagsUpdate(IpcRequest request)
     {
-        var store = _state.Library.Store;
+        var store = _storeAccessor();
         if (store is null)
         {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
+            return IpcRequests.InvalidArgument(request, "库未初始化（先 library.init）");
         }
 
-        if (!TryGetStringParameter(request, "tagId", out var tagId)
-            || !TryGetIntParameter(request, "expectedRevision", out var expectedRevision)
+        if (!IpcRequests.TryGetStringParameter(request, "tagId", out var tagId)
+            || !IpcRequests.TryGetIntParameter(request, "expectedRevision", out var expectedRevision)
             || expectedRevision is null)
         {
-            return InvalidArgument(request, "缺少 tagId 或 expectedRevision 参数");
+            return IpcRequests.InvalidArgument(request, "缺少 tagId 或 expectedRevision 参数");
         }
 
         var tag = store.TryGetTag(tagId);
         if (tag is null)
         {
-            return NotFound(request, $"标签不存在：{tagId}");
+            return IpcRequests.NotFound(request, $"标签不存在：{tagId}");
         }
 
         if (tag.Kind != "user")
         {
-            return InvalidArgument(request, "自动标签不可编辑（由引擎识别维护；可删除后 Suppress）");
+            return IpcRequests.InvalidArgument(request, "自动标签不可编辑（由引擎识别维护；可删除后 Suppress）");
         }
 
         string? name = null;
-        if (TryGetStringParameter(request, "name", out var nameValue))
+        if (IpcRequests.TryGetStringParameter(request, "name", out var nameValue))
         {
             name = nameValue.Trim();
             if (name.Length is < 1 or > 100 || name.Any(char.IsControl))
             {
-                return InvalidArgument(request, "标签名必须是 1–100 字符且不含控制字符");
+                return IpcRequests.InvalidArgument(request, "标签名必须是 1–100 字符且不含控制字符");
             }
 
             var duplicate = store.TryGetTagByName("user", name);
             if (duplicate is not null && duplicate.TagId != tagId)
             {
-                return InvalidArgument(request, $"同名用户标签已存在：{name}");
+                return IpcRequests.InvalidArgument(request, $"同名用户标签已存在：{name}");
             }
         }
 
         string? color = null;
-        if (TryGetStringParameter(request, "color", out var colorValue))
+        if (IpcRequests.TryGetStringParameter(request, "color", out var colorValue))
         {
             if (!System.Text.RegularExpressions.Regex.IsMatch(colorValue, "^#[0-9a-fA-F]{6}$"))
             {
-                return InvalidArgument(request, "color 必须是 #RRGGBB 十六进制格式");
+                return IpcRequests.InvalidArgument(request, "color 必须是 #RRGGBB 十六进制格式");
             }
 
             color = colorValue;
@@ -174,7 +168,7 @@ public sealed partial class OperationDispatcher
         }
 
         var updated = store.TryGetTag(tagId)!;
-        _state.Events.Publish("tag.updated", $"tag:{tagId}", new { tagId }, DateTime.UtcNow);
+        _events.Publish("tag.updated", $"tag:{tagId}", new { tagId }, DateTime.UtcNow);
         return new Envelope<object>
         {
             RequestId = request.RequestId,
@@ -184,25 +178,29 @@ public sealed partial class OperationDispatcher
         };
     }
 
-    private Envelope<object> TagsRemove(IpcRequest request)
+    /// <summary>
+    /// 删除标签：契约 note 要求返回受影响游戏列表；engine 标签删除时逐游戏登记
+    /// Suppress（阻止扫描恢复用户删除的自动标签，策划案 TagOverride 语义）。
+    /// </summary>
+    public Envelope<object> TagsRemove(IpcRequest request)
     {
-        var store = _state.Library.Store;
+        var store = _storeAccessor();
         if (store is null)
         {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
+            return IpcRequests.InvalidArgument(request, "库未初始化（先 library.init）");
         }
 
-        if (!TryGetStringParameter(request, "tagId", out var tagId)
-            || !TryGetIntParameter(request, "expectedRevision", out var expectedRevision)
+        if (!IpcRequests.TryGetStringParameter(request, "tagId", out var tagId)
+            || !IpcRequests.TryGetIntParameter(request, "expectedRevision", out var expectedRevision)
             || expectedRevision is null)
         {
-            return InvalidArgument(request, "缺少 tagId 或 expectedRevision 参数");
+            return IpcRequests.InvalidArgument(request, "缺少 tagId 或 expectedRevision 参数");
         }
 
         var tag = store.TryGetTag(tagId);
         if (tag is null)
         {
-            return NotFound(request, $"标签不存在：{tagId}");
+            return IpcRequests.NotFound(request, $"标签不存在：{tagId}");
         }
 
         if (tag.Revision != expectedRevision.Value)
@@ -233,7 +231,7 @@ public sealed partial class OperationDispatcher
             }
         }
 
-        _state.Events.Publish("tag.removed", $"tag:{tagId}", new { tagId, affectedCount = affectedGames.Count }, DateTime.UtcNow);
+        _events.Publish("tag.removed", $"tag:{tagId}", new { tagId, affectedCount = affectedGames.Count }, DateTime.UtcNow);
         return new Envelope<object>
         {
             RequestId = request.RequestId,
@@ -246,30 +244,30 @@ public sealed partial class OperationDispatcher
     /// <summary>tags.assign/unassign/suppress/reset 公共前置：游戏与标签存在 + 游戏 Revision 乐观校验。</summary>
     private (Envelope<object>? Error, SqliteLibraryStore Store, string GameId, PersistedTag Tag) TagGamePrecondition(IpcRequest request)
     {
-        var store = _state.Library.Store;
+        var store = _storeAccessor();
         if (store is null)
         {
-            return (InvalidArgument(request, "库未初始化（先 library.init）"), null!, "", null!);
+            return (IpcRequests.InvalidArgument(request, "库未初始化（先 library.init）"), null!, "", null!);
         }
 
-        if (!TryGetStringParameter(request, "gameId", out var gameId)
-            || !TryGetStringParameter(request, "tagId", out var tagId)
-            || !TryGetIntParameter(request, "expectedRevision", out var expectedRevision)
+        if (!IpcRequests.TryGetStringParameter(request, "gameId", out var gameId)
+            || !IpcRequests.TryGetStringParameter(request, "tagId", out var tagId)
+            || !IpcRequests.TryGetIntParameter(request, "expectedRevision", out var expectedRevision)
             || expectedRevision is null)
         {
-            return (InvalidArgument(request, "缺少 gameId、tagId 或 expectedRevision 参数"), store, "", null!);
+            return (IpcRequests.InvalidArgument(request, "缺少 gameId、tagId 或 expectedRevision 参数"), store, "", null!);
         }
 
         var game = store.TryGetGame(gameId);
         if (game is null)
         {
-            return (NotFound(request, $"游戏不存在：{gameId}"), store, gameId, null!);
+            return (IpcRequests.NotFound(request, $"游戏不存在：{gameId}"), store, gameId, null!);
         }
 
         var tag = store.TryGetTag(tagId);
         if (tag is null)
         {
-            return (NotFound(request, $"标签不存在：{tagId}"), store, gameId, null!);
+            return (IpcRequests.NotFound(request, $"标签不存在：{tagId}"), store, gameId, null!);
         }
 
         if (game.Revision != expectedRevision.Value)
@@ -292,7 +290,8 @@ public sealed partial class OperationDispatcher
         return (null, store, gameId, tag);
     }
 
-    private Envelope<object> TagsAssign(IpcRequest request)
+    /// <summary>为游戏挂标签：AssignTag 幂等，已挂时 alreadyPresent=true。</summary>
+    public Envelope<object> TagsAssign(IpcRequest request)
     {
         var (error, store, gameId, tag) = TagGamePrecondition(request);
         if (error is not null)
@@ -301,7 +300,7 @@ public sealed partial class OperationDispatcher
         }
 
         var changed = store.AssignTag(gameId, tag.TagId, DateTime.UtcNow);
-        _state.Events.Publish("tag.assigned", $"game:{gameId}", new { gameId, tagId = tag.TagId }, DateTime.UtcNow);
+        _events.Publish("tag.assigned", $"game:{gameId}", new { gameId, tagId = tag.TagId }, DateTime.UtcNow);
         return new Envelope<object>
         {
             RequestId = request.RequestId,
@@ -311,7 +310,8 @@ public sealed partial class OperationDispatcher
         };
     }
 
-    private Envelope<object> TagsUnassign(IpcRequest request)
+    /// <summary>解除游戏标签：engine 标签被移除时登记 Suppress，重扫不再恢复。</summary>
+    public Envelope<object> TagsUnassign(IpcRequest request)
     {
         var (error, store, gameId, tag) = TagGamePrecondition(request);
         if (error is not null)
@@ -328,7 +328,7 @@ public sealed partial class OperationDispatcher
             suppressedAuto = true;
         }
 
-        _state.Events.Publish("tag.unassigned", $"game:{gameId}", new { gameId, tagId = tag.TagId }, DateTime.UtcNow);
+        _events.Publish("tag.unassigned", $"game:{gameId}", new { gameId, tagId = tag.TagId }, DateTime.UtcNow);
         return new Envelope<object>
         {
             RequestId = request.RequestId,
@@ -338,7 +338,8 @@ public sealed partial class OperationDispatcher
         };
     }
 
-    private Envelope<object> TagsSuppress(IpcRequest request)
+    /// <summary>手动 Suppress 标签（含 user 标签）：登记覆盖，重扫不恢复该标签。</summary>
+    public Envelope<object> TagsSuppress(IpcRequest request)
     {
         var (error, store, gameId, tag) = TagGamePrecondition(request);
         if (error is not null)
@@ -347,7 +348,7 @@ public sealed partial class OperationDispatcher
         }
 
         store.SetTagOverride(gameId, tag.Kind, tag.Name, "suppress", DateTime.UtcNow);
-        _state.Events.Publish("tag.suppressed", $"game:{gameId}", new { gameId, tagId = tag.TagId }, DateTime.UtcNow);
+        _events.Publish("tag.suppressed", $"game:{gameId}", new { gameId, tagId = tag.TagId }, DateTime.UtcNow);
         return new Envelope<object>
         {
             RequestId = request.RequestId,
@@ -357,7 +358,8 @@ public sealed partial class OperationDispatcher
         };
     }
 
-    private Envelope<object> TagsReset(IpcRequest request)
+    /// <summary>重置 engine 标签：清除 Suppress 覆盖并按当前引擎恢复挂载（user 标签无意义）。</summary>
+    public Envelope<object> TagsReset(IpcRequest request)
     {
         var (error, store, gameId, tag) = TagGamePrecondition(request);
         if (error is not null)
@@ -367,12 +369,12 @@ public sealed partial class OperationDispatcher
 
         if (tag.Kind != "engine")
         {
-            return InvalidArgument(request, "tags.reset 仅对自动标签有意义（清除 Suppress 并按当前引擎恢复）");
+            return IpcRequests.InvalidArgument(request, "tags.reset 仅对自动标签有意义（清除 Suppress 并按当前引擎恢复）");
         }
 
         var cleared = store.ClearTagOverride(gameId, tag.Kind, tag.Name, DateTime.UtcNow);
         var restored = store.EnsureEngineTagAssigned(gameId, tag.Name, DateTime.UtcNow);
-        _state.Events.Publish("tag.reset", $"game:{gameId}", new { gameId, tagId = tag.TagId }, DateTime.UtcNow);
+        _events.Publish("tag.reset", $"game:{gameId}", new { gameId, tagId = tag.TagId }, DateTime.UtcNow);
         return new Envelope<object>
         {
             RequestId = request.RequestId,
@@ -381,4 +383,16 @@ public sealed partial class OperationDispatcher
             Data = new { gameId, tagId = tag.TagId, clearedOverride = cleared, restored },
         };
     }
+
+    private static object TagDto(PersistedTag tag) => new
+    {
+        tagId = tag.TagId,
+        kind = tag.Kind,
+        name = tag.Name,
+        color = tag.Color,
+        gameCount = tag.GameCount,
+        revision = tag.Revision,
+        createdUtc = tag.CreatedUtc.ToString("O"),
+        updatedUtc = tag.UpdatedUtc.ToString("O"),
+    };
 }

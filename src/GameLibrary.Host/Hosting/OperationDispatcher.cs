@@ -38,7 +38,7 @@ public sealed class HostIdentity
 }
 
 /// <summary>
-/// 操作分发器（按域拆分为 partial：OperationDispatcher.Tags/Backups/Views.Notifications.Settings/…）。
+/// 操作分发器（按域拆分为 partial：OperationDispatcher.Backups/Views.Notifications.Settings/…）。
 /// 本文件承载：请求门/纪元校验/收据中间件/路由 + 系统（capabilities/schema/host）与扫描候选域。
 /// </summary>
 public sealed partial class OperationDispatcher
@@ -53,11 +53,16 @@ public sealed partial class OperationDispatcher
     /// （library.init/restore 整体替换 Library），roots 为 init-only 引用。</summary>
     private readonly IgnoreRulesHandler _ignoreRules;
 
+    /// <summary>标签域（tags.* 八操作）：store 经委托每请求取当前值
+    /// （library.init/restore 整体替换 Library），events 为 init-only 引用。</summary>
+    private readonly TagsHandler _tags;
+
     public OperationDispatcher(HostRuntimeState state)
     {
         _state = state;
         _candidateReview = new CandidateReviewHandler(() => state.Library.Store, state.Events);
         _ignoreRules = new IgnoreRulesHandler(() => state.Library.Store, state.Roots);
+        _tags = new TagsHandler(() => state.Library.Store, state.Events);
     }
 
     /// <summary>已接入收据的操作子集：catalog 声明 requiresIdempotencyKey 的已实现操作。
@@ -627,14 +632,14 @@ public sealed partial class OperationDispatcher
         "games.get" => GamesGet(request),
         "games.create" => GamesCreate(request),
         "games.remove" => GamesRemove(request),
-        "tags.list" => TagsList(request),
-        "tags.create" => TagsCreate(request),
-        "tags.update" => TagsUpdate(request),
-        "tags.remove" => TagsRemove(request),
-        "tags.assign" => TagsAssign(request),
-        "tags.unassign" => TagsUnassign(request),
-        "tags.suppress" => TagsSuppress(request),
-        "tags.reset" => TagsReset(request),
+        "tags.list" => _tags.TagsList(request),
+        "tags.create" => _tags.TagsCreate(request),
+        "tags.update" => _tags.TagsUpdate(request),
+        "tags.remove" => _tags.TagsRemove(request),
+        "tags.assign" => _tags.TagsAssign(request),
+        "tags.unassign" => _tags.TagsUnassign(request),
+        "tags.suppress" => _tags.TagsSuppress(request),
+        "tags.reset" => _tags.TagsReset(request),
         "events.read" => EventsRead(request),
         "diagnostics.status" => DiagnosticsStatus(request),
         "diagnostics.logs" => DiagnosticsLogs(request),
