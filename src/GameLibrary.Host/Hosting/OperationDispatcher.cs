@@ -45,9 +45,14 @@ public sealed partial class OperationDispatcher
 {
     private readonly HostRuntimeState _state;
 
+    /// <summary>候选审核域（candidates.accept/defer/ignore）：store 经委托每请求取当前值
+    /// （library.init/restore 整体替换 Library），events 为 init-only 引用。</summary>
+    private readonly CandidateReviewHandler _candidateReview;
+
     public OperationDispatcher(HostRuntimeState state)
     {
         _state = state;
+        _candidateReview = new CandidateReviewHandler(() => state.Library.Store, state.Events);
     }
 
     /// <summary>已接入收据的操作子集：catalog 声明 requiresIdempotencyKey 的已实现操作。
@@ -610,9 +615,9 @@ public sealed partial class OperationDispatcher
         "roots.remove" => RootsRemove(request),
         "candidates.list" => CandidatesList(request),
         "candidates.get" => CandidatesGet(request),
-        "candidates.accept" => CandidateReview(request, "accept"),
-        "candidates.defer" => CandidateReview(request, "defer"),
-        "candidates.ignore" => CandidateReview(request, "ignore"),
+        "candidates.accept" => _candidateReview.CandidateReview(request, "accept"),
+        "candidates.defer" => _candidateReview.CandidateReview(request, "defer"),
+        "candidates.ignore" => _candidateReview.CandidateReview(request, "ignore"),
         "games.list" => GamesList(request),
         "games.get" => GamesGet(request),
         "games.create" => GamesCreate(request),
@@ -1271,253 +1276,6 @@ public sealed partial class OperationDispatcher
         };
     }
 
-    /// <summary>
-    /// 审核（accept/defer/ignore）：仅 PendingReview 可转移（Deferred 需先重新查看）；
-    /// accept 按路径幂等返回既有 GameId；ignore 同时登记 ExactPath 忽略规则。
-    /// </summary>
-    private Envelope<object> CandidateReview(IpcRequest request, string action)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）；候选审核需要库实例");
-        }
-
-        if (!TryGetStringParameter(request, "candidateId", out var candidateId))
-        {
-            return InvalidArgument(request, "缺少 candidateId 参数");
-        }
-
-        if (!TryGetIntParameter(request, "expectedRevision", out var expectedRevision) || expectedRevision is null)
-        {
-            return InvalidArgument(request, "缺少 expectedRevision 参数（以 candidates.get 的 revision 为准）");
-        }
-
-        var current = store.TryGetCandidate(candidateId);
-        if (current is null)
-        {
-            return NotFound(request, $"候选不存在：{candidateId}");
-        }
-
-        if (action == "accept" && current.ReviewState == "accepted" && current.GameId is not null)
-        {
-            // 幂等：重试同候选返回已有 GameId，不重复建卡。
-            return CandidateReviewResult(request, current.ReviewState, current.Revision, current.GameId, null);
-        }
-
-        if (current.ReviewState != "pendingReview")
-        {
-            return InvalidArgument(request, $"候选当前状态 {current.ReviewState}；仅 pendingReview 可执行 {action}（重扫可将 observed 晋升）");
-        }
-
-        var utcNow = DateTime.UtcNow;
-        if (action == "accept")
-        {
-            // R43：建卡/复用 + 引擎标签 + 候选转移单事务提交；conflict 不落任何写。
-            var outcome = store.AcceptCandidate(
-                candidateId,
-                expectedRevision.Value,
-                new GameCard
-                {
-                    GameId = $"game-{Guid.NewGuid():N}",
-                    Title = TitleFromPath(current.PhysicalPath, current.RelativePath, current.Kind),
-                    RootPath = current.PhysicalPath,
-                    Kind = current.Kind,
-                    Engine = TopEngine(current.PayloadJson),
-                    EntryPath = TopEntry(current.PayloadJson, current.PhysicalPath, current.Kind),
-                    Membership = "active",
-                    TranslationInherited = RequiredByToolNeed(current.PayloadJson),
-                    AcceptedUtc = utcNow,
-                    UpdatedUtc = utcNow,
-                },
-                TopEngine(current.PayloadJson) ?? "",
-                utcNow);
-            if (outcome.Status == "conflict")
-            {
-                return new Envelope<object>
-                {
-                    RequestId = request.RequestId,
-                    Ok = false,
-                    Status = OperationStatus.Failed,
-                    Error = new RequestError
-                    {
-                        Code = ErrorCodes.RevisionConflict,
-                        Message = $"候选 Revision 不一致：期望 {expectedRevision}，当前 {outcome.Candidate.Revision}（状态 {outcome.Candidate.ReviewState}）",
-                        Retryable = false,
-                    },
-                };
-            }
-
-            if (outcome.Status == "accepted")
-            {
-                _state.Events.Publish("game.created", $"game:{outcome.GameId}", new
-                {
-                    gameId = outcome.GameId,
-                    fromCandidate = candidateId,
-                    title = TitleFromPath(current.PhysicalPath, current.RelativePath, current.Kind),
-                }, DateTime.UtcNow);
-            }
-
-            return CandidateReviewResult(
-                request, outcome.Candidate.ReviewState, outcome.Candidate.Revision, outcome.GameId, null);
-        }
-
-        if (action == "ignore")
-        {
-            // R48：忽略规则 + 候选转移单事务；conflict 不落任何写。
-            var outcome = store.IgnoreCandidate(
-                candidateId,
-                expectedRevision.Value,
-                new IgnoreRule
-                {
-                    IgnoreId = $"ignore-{Guid.NewGuid():N}",
-                    Scope = "ExactPath",
-                    Path = current.PhysicalPath,
-                    Reason = "candidates.ignore",
-                    CreatedUtc = utcNow,
-                },
-                utcNow);
-            if (outcome.Status == "conflict")
-            {
-                return new Envelope<object>
-                {
-                    RequestId = request.RequestId,
-                    Ok = false,
-                    Status = OperationStatus.Failed,
-                    Error = new RequestError
-                    {
-                        Code = ErrorCodes.RevisionConflict,
-                        Message = $"候选 Revision 不一致：期望 {expectedRevision}，当前 {outcome.Candidate.Revision}（状态 {outcome.Candidate.ReviewState}）",
-                        Retryable = false,
-                    },
-                };
-            }
-
-            return CandidateReviewResult(request, "ignored", outcome.Candidate.Revision, null, outcome.IgnoreId);
-        }
-
-        // defer：单步转移（accept/ignore 已在各自原子路径提前返回）。
-        var updated = store.TransitionCandidate(
-            candidateId, "pendingReview", "deferred", expectedRevision.Value, gameId: null, utcNow);
-        if (updated is null)
-        {
-            var latest = store.TryGetCandidate(candidateId);
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ErrorCodes.RevisionConflict,
-                    Message = $"候选 Revision 不一致：期望 {expectedRevision}，当前 {latest?.Revision}",
-                    Retryable = false,
-                },
-            };
-        }
-
-        return CandidateReviewResult(request, updated.ReviewState, updated.Revision, updated.GameId, null);
-    }
-
-    private static Envelope<object> CandidateReviewResult(IpcRequest request, string state, int revision, string? gameId, string? ignoreId) =>
-        new()
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new
-            {
-                reviewState = state,
-                revision,
-                gameId,
-                ignoreId,
-            },
-        };
-
-    private static string ToCamel(string value) =>
-        value.Length == 0 ? value : char.ToLowerInvariant(value[0]) + value[1..];
-
-    private static string TitleFromPath(string physicalPath, string relativePath, string? kind = null)
-    {
-        if (string.Equals(kind, "fileGame", StringComparison.Ordinal))
-        {
-            return Path.GetFileNameWithoutExtension(physicalPath);
-        }
-
-        return Path.GetFileName(physicalPath.TrimEnd(Path.DirectorySeparatorChar))
-            ?? (relativePath.Length > 0 ? relativePath.Split('/')[^1] : physicalPath);
-    }
-
-    private static string? TopEngine(string payloadJson)
-    {
-        try
-        {
-            using var document = JsonDocument.Parse(payloadJson);
-            var engines = document.RootElement.GetProperty("engines");
-            if (engines.GetArrayLength() == 0)
-            {
-                return null;
-            }
-
-            return engines[0].GetProperty("engine").GetString();
-        }
-        catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException)
-        {
-            return null;
-        }
-    }
-
-    private static string? TopEntry(string payloadJson, string physicalPath, string kind)
-    {
-        try
-        {
-            using var document = JsonDocument.Parse(payloadJson);
-            var entries = document.RootElement.GetProperty("entryCandidates");
-            if (entries.GetArrayLength() == 0)
-            {
-                return null;
-            }
-
-            var relativePath = entries[0].GetProperty("relativePath").GetString();
-            if (relativePath is null)
-            {
-                return null;
-            }
-
-            if (Path.IsPathRooted(relativePath))
-            {
-                return relativePath;
-            }
-
-            return string.Equals(kind, "fileGame", StringComparison.Ordinal)
-                ? physicalPath
-                : Path.GetFullPath(Path.Combine(
-                    physicalPath,
-                    relativePath.Replace('/', Path.DirectorySeparatorChar)));
-        }
-        catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException)
-        {
-            return null;
-        }
-    }
-
-    /// <summary>从候选 payload 读取祖先 [toolNeed] 继承标记（accept 时落库到 games.translation_inherited）。</summary>
-    private static bool RequiredByToolNeed(string payloadJson)
-    {
-        try
-        {
-            using var document = JsonDocument.Parse(payloadJson);
-            return document.RootElement
-                .GetProperty("classification")
-                .GetProperty("requiredByToolNeed")
-                .GetBoolean();
-        }
-        catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException)
-        {
-            return false;
-        }
-    }
-
     private Envelope<object> GamesList(IpcRequest request)
     {
         var store = _state.Library.Store;
@@ -2091,96 +1849,21 @@ public sealed partial class OperationDispatcher
         new FlashDetector(),
     ];
 
-    private static bool TryGetStringParameter(IpcRequest request, string name, out string value)
-    {
-        value = "";
-        if (request.Parameters is { ValueKind: JsonValueKind.Object } parameters
-            && parameters.TryGetProperty(name, out var element)
-            && element.ValueKind == JsonValueKind.String)
-        {
-            value = element.GetString() ?? "";
-            return value.Length > 0;
-        }
+    /// <summary>参数解析与错误信封统一转发 IpcRequests 单源（分部文件内调用点零改动）。</summary>
+    private static bool TryGetStringParameter(IpcRequest request, string name, out string value) =>
+        IpcRequests.TryGetStringParameter(request, name, out value);
 
-        return false;
-    }
+    private static bool TryGetStringListParameter(IpcRequest request, string name, out IReadOnlyList<string> values) =>
+        IpcRequests.TryGetStringListParameter(request, name, out values);
 
-    private static bool TryGetStringListParameter(IpcRequest request, string name, out IReadOnlyList<string> values)
-    {
-        if (request.Parameters is { ValueKind: JsonValueKind.Object } parameters
-            && parameters.TryGetProperty(name, out var element)
-            && element.ValueKind == JsonValueKind.Array)
-        {
-            var list = new List<string>();
-            foreach (var item in element.EnumerateArray())
-            {
-                if (item.ValueKind != JsonValueKind.String)
-                {
-                    values = [];
-                    return false;
-                }
+    private static bool TryGetBoolParameter(IpcRequest request, string name, out bool? value) =>
+        IpcRequests.TryGetBoolParameter(request, name, out value);
 
-                list.Add(item.GetString() ?? "");
-            }
-
-            values = list;
-            return true;
-        }
-
-        values = [];
-        return false;
-    }
-
-    private static bool TryGetBoolParameter(IpcRequest request, string name, out bool? value)
-    {
-        value = null;
-        if (request.Parameters is { ValueKind: JsonValueKind.Object } parameters
-            && parameters.TryGetProperty(name, out var element)
-            && element.ValueKind == JsonValueKind.True)
-        {
-            value = true;
-            return true;
-        }
-
-        if (request.Parameters is { ValueKind: JsonValueKind.Object } falseParameters
-            && falseParameters.TryGetProperty(name, out var falseElement)
-            && falseElement.ValueKind == JsonValueKind.False)
-        {
-            value = false;
-            return true;
-        }
-
-        return false;
-    }
-
-    private static bool TryGetIntParameter(IpcRequest request, string name, out int? value)
-    {
-        value = null;
-        if (request.Parameters is { ValueKind: JsonValueKind.Object } parameters
-            && parameters.TryGetProperty(name, out var element)
-            && element.ValueKind == JsonValueKind.Number
-            && element.TryGetInt32(out var parsed))
-        {
-            value = parsed;
-            return true;
-        }
-
-        return false;
-    }
+    private static bool TryGetIntParameter(IpcRequest request, string name, out int? value) =>
+        IpcRequests.TryGetIntParameter(request, name, out value);
 
     private static Envelope<object> NotFound(IpcRequest request, string message) =>
-        new()
-        {
-            RequestId = request.RequestId,
-            Ok = false,
-            Status = OperationStatus.Failed,
-            Error = new RequestError
-            {
-                Code = ErrorCodes.NotFound,
-                Message = message,
-                Retryable = false,
-            },
-        };
+        IpcRequests.NotFound(request, message);
 
     private static object BuildCapabilities()
     {
@@ -2257,16 +1940,5 @@ public sealed partial class OperationDispatcher
     }
 
     private static Envelope<object> InvalidArgument(IpcRequest request, string message) =>
-        new()
-        {
-            RequestId = request.RequestId,
-            Ok = false,
-            Status = OperationStatus.Failed,
-            Error = new RequestError
-            {
-                Code = ErrorCodes.InvalidArgument,
-                Message = message,
-                Retryable = false,
-            },
-        };
+        IpcRequests.InvalidArgument(request, message);
 }
