@@ -23,6 +23,10 @@ public sealed class CliProcessTests
             UseShellExecute = false,
             CreateNoWindow = true,
             WorkingDirectory = AppContext.BaseDirectory,
+            // CLI 重定向输出统一 UTF-8（见 Program.Main）；读端必须一致，
+            // 否则中文诊断在非中文系统代码页下被错误解码。
+            StandardOutputEncoding = System.Text.Encoding.UTF8,
+            StandardErrorEncoding = System.Text.Encoding.UTF8,
         };
         foreach (var arg in args)
         {

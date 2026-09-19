@@ -18,6 +18,13 @@ internal static class Program
 
     private static async Task<int> Main(string[] args)
     {
+        // 重定向输出（CI/测试/管道）统一 UTF-8：默认按 OEM 代码页编码，
+        // 中文诊断在非中文系统（如 CI 的 Windows-1252）会整体变问号。
+        if (Console.IsOutputRedirected)
+        {
+            Console.OutputEncoding = System.Text.Encoding.UTF8;
+        }
+
         var parse = CommandLine.Parse(args);
         if (!parse.IsValid)
         {
