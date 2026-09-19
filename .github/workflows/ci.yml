@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  dotnet:
+    name: .NET 门禁（format / Release 构建 / 全量测试）
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          # global.json 锁定 10.0.401 且 rollForward=disable，必须精确安装。
+          dotnet-version: "10.0.401"
+
+      - name: dotnet format
+        run: dotnet format --verify-no-changes
+
+      - name: Release 构建
+        run: dotnet build -c Release --nologo
+
+      # 测试夹具固定落盘 D:\Official\GameLibrary\artifacts\test-runs（绝对路径），
+      # windows-latest 的 D: 盘可写；运行器一次性环境，无需清理。
+      # GitHub 自动设置 CI=true：性能测试据此跳过延迟预算断言（运行器性能不稳），
+      # 计数与正确性断言全部保留。
+      - name: 全量测试
+        run: dotnet test -c Release --no-build --nologo
+
+  frontend:
+    name: 前端与 Rust（typecheck / vite build / cargo）
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: src/GameLibrary.Tauri/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/GameLibrary.Tauri/src-tauri
+
+      - name: npm ci
+        run: npm ci
+        working-directory: src/GameLibrary.Tauri
+
+      - name: typecheck
+        run: npm run typecheck
+        working-directory: src/GameLibrary.Tauri
+
+      - name: vite build
+        run: npm run build
+        working-directory: src/GameLibrary.Tauri
+
+      - name: cargo fmt
+        run: cargo fmt --check
+        working-directory: src/GameLibrary.Tauri/src-tauri
+
+      - name: cargo check
+        run: cargo check
+        working-directory: src/GameLibrary.Tauri/src-tauri
