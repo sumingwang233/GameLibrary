@@ -5,9 +5,20 @@ import tailwindcss from "@tailwindcss/vite";
 import process from "node:process";
 const host = process.env.TAURI_DEV_HOST;
 
+// Windows 下 new URL(...).pathname 形如 "/D:/a/b"，去掉前导斜杠才是可用的绝对路径。
+const srcDir = new URL("./src", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
+
 // https://vite.dev/config/
 export default defineConfig(() => ({
   plugins: [react(), tailwindcss()],
+
+  // tsconfig.json 与 components.json 都声明了 @/ 别名；Vite 侧必须同步配置，
+  // 否则 `npx shadcn add <component>` 生成的 @/lib/utils 导入能通过 tsc 却在打包时解析失败。
+  resolve: {
+    alias: {
+      "@": srcDir,
+    },
+  },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

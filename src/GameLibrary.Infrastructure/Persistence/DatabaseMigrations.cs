@@ -304,5 +304,33 @@ public static class DatabaseMigrations
                 PRIMARY KEY (game_id, tag_kind, tag_name)
             );
             """),
+        // 19：查询索引 + 历史体积治理。
+        // 索引：日常库实测 games 8081 行中仅 344 行 membership='active'，而 QueryGames 恒定附加
+        // membership='active' 过滤（LibraryCatalogStore.QueryGames），故对 active 子集建部分索引，
+        // 使 COUNT/ORDER BY/LIMIT-OFFSET 与 TryGetGameByRootPath 走索引而非全表扫。
+        // 三列组合与各 ORDER BY 分支一一对应（title COLLATE NOCASE / updated_utc DESC / accepted_utc DESC）。
+        // 另补 game_assets(game_id)（ListAssets）、candidates(review_state)（QueryCandidates 状态过滤）、
+        // game_tags(tag_id)（TagStore.ListTags 的每标签 COUNT 子查询，PK 为 (game_id,tag_id) 无法覆盖）、
+        // request_receipts(status,created_utc)（收据超期淘汰）。
+        // 治理：event_records 原上限 100000 条在真实库中刚好卡满（33.6 MB），按序号保留最近 10000 条；
+        // request_receipts 只删 completed 且仅保留最近 2000 条——prepared 是未定态意图，绝不删除。
+        // 均为纯计数裁剪，不做日期字符串比较（库内时间为 ISO-8601 往返格式，与 SQLite datetime() 输出不可直接比较）。
+        new DatabaseMigration(19, """
+            CREATE INDEX idx_games_active_updated ON games (updated_utc DESC, game_id) WHERE membership = 'active';
+            CREATE INDEX idx_games_active_title ON games (title COLLATE NOCASE, game_id) WHERE membership = 'active';
+            CREATE INDEX idx_games_active_accepted ON games (accepted_utc DESC, game_id) WHERE membership = 'active';
+            CREATE INDEX idx_games_active_root ON games (root_path) WHERE membership = 'active';
+            CREATE INDEX idx_game_assets_game ON game_assets (game_id);
+            CREATE INDEX idx_candidates_review_state ON candidates (review_state);
+            CREATE INDEX idx_game_tags_tag ON game_tags (tag_id);
+            CREATE INDEX idx_request_receipts_prune ON request_receipts (status, created_utc);
+            DELETE FROM event_records WHERE sequence IN (
+                SELECT sequence FROM event_records ORDER BY sequence DESC LIMIT -1 OFFSET 10000
+            );
+            DELETE FROM request_receipts WHERE status = 'completed' AND rowid NOT IN (
+                SELECT rowid FROM request_receipts WHERE status = 'completed'
+                ORDER BY created_utc DESC LIMIT 2000
+            );
+            """, RequiresVacuum: true),
     ];
 }

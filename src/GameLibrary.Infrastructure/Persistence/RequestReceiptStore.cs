@@ -35,6 +35,15 @@ public sealed record RequestReceipt
 
 public static class RequestReceiptStore
 {
+    /// <summary>
+    /// completed 收据保留期。prepared 是未定态意图，任何情况下都不淘汰
+    /// （崩溃后 RecoverLaunchReceipt 需要它判定 UnknownOutcome）。
+    /// </summary>
+    public static readonly TimeSpan RetentionWindow = TimeSpan.FromDays(30);
+
+    private const int PruneEvery = 256;
+    private static int _completions;
+
     private const string SelectSql = """
         SELECT request_digest, status, attempt_json, result_json, created_utc, updated_utc
         FROM request_receipts
@@ -126,5 +135,30 @@ public static class RequestReceiptStore
         command.Parameters.AddWithValue("$actor", receipt.Actor);
         command.Parameters.AddWithValue("$operation", receipt.OperationId);
         command.Parameters.AddWithValue("$key", receipt.IdempotencyKey);
+    }
+
+    /// <summary>完成收据，并每 PruneEvery 次惰性淘汰一批超期 completed 收据。</summary>
+    public static void CompleteWithPrune(SqliteConnection connection, RequestReceipt receipt, string resultJson, DateTime utcNow)
+    {
+        Complete(connection, receipt, resultJson);
+        if (Interlocked.Increment(ref _completions) % PruneEvery != 0)
+        {
+            return;
+        }
+
+        PruneExpired(connection, utcNow);
+    }
+
+    /// <summary>
+    /// 淘汰超过 RetentionWindow 的 completed 收据，返回删除行数。
+    /// created_utc 与 cutoff 均为 ISO-8601 往返格式（UTC），因此字符串比较等价于时间比较。
+    /// 走 idx_request_receipts_prune(status, created_utc)。
+    /// </summary>
+    public static int PruneExpired(SqliteConnection connection, DateTime utcNow)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM request_receipts WHERE status = 'completed' AND created_utc < $cutoff";
+        command.Parameters.AddWithValue("$cutoff", (utcNow - RetentionWindow).ToString("O", CultureInfo.InvariantCulture));
+        return command.ExecuteNonQuery();
     }
 }

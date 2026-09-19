@@ -15,4 +15,4 @@ public sealed record SqliteLibraryStoreOptions
     public int MaxSupportedSchemaVersion => Migrations.Max(m => m.Version);
 }
 
-public sealed record DatabaseMigration(int Version, string Sql);
+public sealed record DatabaseMigration(int Version, string Sql, bool RequiresVacuum = false);

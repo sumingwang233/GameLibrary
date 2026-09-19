@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "GameLibrary",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "identifier": "com.gamelibrary.desktop",
   "build": {
     "beforeDevCommand": "npm run prepare:sidecars && npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run prepare:sidecars && npm run build",
+    "beforeBuildCommand": "npm run clean:tauri-cache && npm run prepare:sidecars && npm run build",
     "frontendDist": "../dist"
   },
   "app": {

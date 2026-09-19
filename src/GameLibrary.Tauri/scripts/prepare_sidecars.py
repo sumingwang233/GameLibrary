@@ -10,7 +10,7 @@ DOTNET = os.path.expanduser(r"~\.dotnet-sdk-10.0\dotnet.exe")
 TARGET = "x86_64-pc-windows-msvc"
 
 
-def publish(project: str, executable: str) -> None:
+def publish(project: str, executable: str, properties: list[str] | None = None) -> None:
     output = os.path.join(BINARIES, project)
     shutil.rmtree(output, ignore_errors=True)
     subprocess.run(
@@ -27,6 +27,7 @@ def publish(project: str, executable: str) -> None:
             "-p:PublishSingleFile=true",
             "-p:IncludeNativeLibrariesForSelfExtract=true",
             "-p:DebugType=None",
+            *(properties or []),
             "-o",
             output,
         ],
@@ -41,4 +42,4 @@ def publish(project: str, executable: str) -> None:
 
 os.makedirs(BINARIES, exist_ok=True)
 publish("GameLibrary.TauriBridge", "GameLibrary.TauriBridge.exe")
-publish("GameLibrary.Host", "GameLibrary.Host.exe")
+publish("GameLibrary.Host", "GameLibrary.Host.exe", ["-p:GameLibraryBackgroundHost=true"])

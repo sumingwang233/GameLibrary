@@ -19,7 +19,13 @@ public static class OperationSchemas
         ["host.status"] = [],
         ["host.stop"] = [new("idempotencyKey", "string", true, "停机幂等键")],
         ["library.init"] = [new("idempotencyKey", "string", false, "建库幂等键；提供后登记收据")],
-        ["roots.add"] = [new("root", "string", true, "库根绝对路径")],
+        // roots.add / scan.cancel 在 operations.v1.json 中 requiresIdempotencyKey=true，
+        // 此前 InputSpecs 漏登记该参数，schema.get 会向 MCP 客户端少报一个必填项。
+        ["roots.add"] =
+        [
+            new("root", "string", true, "库根绝对路径"),
+            new("idempotencyKey", "string", true, "幂等键"),
+        ],
         ["roots.remove"] =
         [
             new("rootId", "string", true, "库根 ID"),
@@ -33,7 +39,11 @@ public static class OperationSchemas
             new("idempotencyKey", "string", true, "幂等键"),
         ],
         ["scan.status"] = [new("jobId", "string", true, "作业 ID")],
-        ["scan.cancel"] = [new("jobId", "string", true, "作业 ID")],
+        ["scan.cancel"] =
+        [
+            new("jobId", "string", true, "作业 ID"),
+            new("idempotencyKey", "string", true, "幂等键"),
+        ],
         ["scan.coverage"] = [new("jobId", "string", true, "作业 ID")],
         ["scan.inspect"] = [new("path", "string", true, "待识别目录（须在已注册库根内）")],
         ["candidates.list"] =
@@ -306,8 +316,10 @@ public static class OperationSchemas
         ["jobs.get"] = [new("jobId", "string", true, "作业 ID")],
         ["events.read"] =
         [
-            new("after", "integer", false, "游标（上次返回的 lastSequence）"),
-            new("limit", "integer", false, "单批上限"),
+            // 名称以实现为准：OperationDispatcher.EventsRead 读取 "cursor"，响应回传 nextCursor。
+            // 此前登记为 "after"/"lastSequence"，与实现和响应字段均不符，schema.get 会误导 MCP 客户端。
+            new("cursor", "integer", false, "游标（上次响应的 nextCursor）；缺省表示从头全量读取"),
+            new("limit", "integer", false, "单批上限（1–4096）"),
         ],
         ["notifications.list"] = [new("state", "string", false, "按状态过滤")],
         ["notifications.get"] = [new("notificationId", "string", true, "通知 ID")],

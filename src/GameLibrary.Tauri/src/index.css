@@ -1,45 +1,159 @@
 @import "tailwindcss";
 
+/*
+ * 设计令牌单一真源。@theme 会把下列变量输出到 :root（暗色为默认），
+ * html.light 以更高特异性（0,1,1 > :root 的 0,1,0）覆盖同名变量实现浅色主题。
+ *
+ * 注意：--color-background 必须保持 #171a21 —— scripts/verify_release.mjs 把
+ * body 计算背景色 rgb(23,26,33) 作为发布门禁断言。
+ */
+@theme {
+  --color-background: #171a21;
+  --color-panel: #1b2838;
+  --color-surface: #1e2a38;
+  --color-surface-elevated: #243447;
+  --color-field: #121821;
+  --color-gradient-deep: #151b25;
+
+  --color-steam: #66c0f4;
+  --color-steam-soft: #2a475e;
+  --color-primary: #66c0f4;
+  --color-primary-foreground: #0d1822;
+  --color-primary-hover: #8ed5f7;
+
+  --color-text-primary: #c7d5e0;
+  --color-text-secondary: #8f98a0;
+  --color-border: #30475e;
+  --color-input: #30475e;
+  --color-ring: #66c0f4;
+
+  --color-success: #a4d007;
+  --color-success-hover: #c4ed2d;
+  --color-success-foreground: #101a0b;
+  --color-danger: #e06c75;
+  --color-danger-soft: #522b36;
+  --color-destructive: #e06c75;
+  --color-favorite: #f5c542;
+
+  --color-popover: #1e2a38;
+  --color-popover-foreground: #c7d5e0;
+  --color-accent: #2a475e;
+  --color-accent-foreground: #c7d5e0;
+
+  --radius: 0.5rem;
+}
+
+/*
+ * 布局变量刻意放在 :root 而不是 @theme：这些名字不属于 Tailwind 的任何命名空间，
+ * 只以 var() 形式出现在 w-[var(--sidebar-width)] 这类任意值里，
+ * 放在 @theme 中可能被当作「未使用」而不输出到产物，导致宽度解析为空。
+ */
 :root {
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  color: #c7d5e0;
-  background: #171a21;
+  --sidebar-width: 232px;
+  --sheet-width: 460px;
+  --grid-min-card: 180px;
+}
+
+html.light {
+  --color-background: #f4f6f9;
+  --color-panel: #ffffff;
+  --color-surface: #eef2f7;
+  --color-surface-elevated: #ffffff;
+  --color-field: #e6ebf2;
+  --color-gradient-deep: #dfe6ee;
+
+  --color-steam: #1a73b8;
+  --color-steam-soft: #d7e6f4;
+  --color-primary: #1a73b8;
+  --color-primary-foreground: #ffffff;
+  --color-primary-hover: #155e96;
+
+  --color-text-primary: #1b2838;
+  --color-text-secondary: #5a6b7d;
+  --color-border: #cdd8e3;
+  --color-input: #cdd8e3;
+  --color-ring: #1a73b8;
+
+  --color-success: #4c8c0a;
+  --color-success-hover: #3d7008;
+  --color-success-foreground: #ffffff;
+  --color-danger: #b3323c;
+  --color-danger-soft: #f8e4e6;
+  --color-destructive: #b3323c;
+  --color-favorite: #a67c00;
+
+  --color-popover: #ffffff;
+  --color-popover-foreground: #1b2838;
+  --color-accent: #d7e6f4;
+  --color-accent-foreground: #1b2838;
+}
+
+:root {
+  font-family: var(--gl-font-family, "Segoe UI"), ui-sans-serif, system-ui,
+    -apple-system, BlinkMacSystemFont, sans-serif;
+  color: var(--color-text-primary);
+  background: var(--color-background);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
 }
 
-* { box-sizing: border-box; }
-html, body, #root { width: 100%; height: 100%; margin: 0; }
-body { overflow: hidden; background: #171a21; }
-button, input, select { font: inherit; }
-.control { height: 2.5rem; width: 100%; border: 1px solid #30475e; border-radius: 0.375rem; background: #121821; padding: 0 0.75rem; color: #c7d5e0; outline: none; }
-.control:focus { border-color: #66c0f4; box-shadow: 0 0 0 1px #66c0f4; }
-
-@theme {
-  --color-background: #171a21;
-  --color-surface: #1e2a38;
-  --color-surface-elevated: #243447;
-  --color-steam: #66c0f4;
-  --color-steam-soft: #2a475e;
-  --color-text-primary: #c7d5e0;
-  --color-text-secondary: #8f98a0;
-  --color-border: #30475e;
-  --color-success: #a4d007;
-  --color-danger: #e06c75;
-  --color-primary: #66c0f4;
-  --color-primary-foreground: #0d1822;
-  --color-input: #30475e;
-  --color-ring: #66c0f4;
-  --color-destructive: #e06c75;
-  --color-popover: #1e2a38;
-  --color-popover-foreground: #c7d5e0;
-  --color-accent: #2a475e;
-  --color-accent-foreground: #c7d5e0;
-  --radius: 0.5rem;
+/* settings.uiFontScale 由 ThemeProvider 写入 --gl-font-scale；正文一律用 rem 才能随之缩放。 */
+html {
+  font-size: calc(16px * var(--gl-font-scale, 1));
 }
 
-::selection { background: #66c0f4; color: #0d1822; }
-::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-track { background: #171a21; }
-::-webkit-scrollbar-thumb { background: #30475e; border-radius: 999px; }
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+  background: var(--color-background);
+  color: var(--color-text-primary);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+::selection {
+  background: var(--color-steam);
+  color: var(--color-primary-foreground);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-background);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 999px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -15,11 +15,13 @@ import hashlib
 import os
 import shutil
 import subprocess
+import uuid
 import zipfile
 
 
 DOTNET = os.path.expanduser(r"~\.dotnet-sdk-10.0\dotnet.exe")
 NPM = shutil.which("npm.cmd") or shutil.which("npm") or "npm.cmd"
+NODE = shutil.which("node.exe") or shutil.which("node") or "node.exe"
 WORKSPACE = r"D:\Official\GameLibrary"
 DIST = os.path.join(WORKSPACE, "artifacts", "dist")
 STAGING_ROOT = os.path.join(DIST, "staging")
@@ -98,7 +100,7 @@ def clean_staging(log):
 def publish_all(log):
     for project, executable, include_in_user, include_in_tools in COMPONENTS:
         component_output = os.path.join(COMPONENT_OUTPUTS, project)
-        rc, output = sh([
+        command = [
             DOTNET,
             "publish",
             os.path.join("src", project, f"{project}.csproj"),
@@ -115,7 +117,8 @@ def publish_all(log):
             "-p:IncludeNativeLibrariesForSelfExtract=true",
             "-p:EnableCompressionInSingleFile=true",
             "-p:DebugType=None",
-        ])
+        ]
+        rc, output = sh(command)
         log.append(f"publish {project}: rc={rc}")
         if rc != 0:
             log.append(output[-4000:])
@@ -143,7 +146,47 @@ def publish_tauri_desktop(log):
     executable = os.path.join(project, "src-tauri", "target", "release", "gamelibrary-desktop.exe")
     if not os.path.isfile(executable):
         raise RuntimeError(f"Tauri executable is missing: {executable}")
-    shutil.copy2(executable, os.path.join(USER_PAYLOAD, "GameLibrary.Desktop.exe"))
+    staged_executable = os.path.join(USER_PAYLOAD, "GameLibrary.Desktop.exe")
+    shutil.copy2(executable, staged_executable)
+    for sidecar in ("GameLibrary.TauriBridge.exe", "GameLibrary.Host.exe"):
+        source = os.path.join(project, "src-tauri", "target", "release", sidecar)
+        if not os.path.isfile(source):
+            raise RuntimeError(f"Tauri sidecar is missing: {source}")
+        shutil.copy2(source, os.path.join(USER_PAYLOAD, sidecar))
+    verify_tauri_desktop(staged_executable, log)
+
+
+def verify_tauri_desktop(executable, log):
+    test_id = uuid.uuid4().hex
+    test_root = os.path.join(WORKSPACE, "artifacts", "test-runs", test_id)
+    data_directory = os.path.join(test_root, "data")
+    screenshot = os.path.join(
+        WORKSPACE,
+        "artifacts",
+        "build-reports",
+        f"v{read_version()}-release-webview.png",
+    )
+    os.makedirs(data_directory, exist_ok=True)
+    os.makedirs(os.path.dirname(screenshot), exist_ok=True)
+    script = os.path.join(
+        WORKSPACE,
+        "src",
+        "GameLibrary.Tauri",
+        "scripts",
+        "verify_release.mjs",
+    )
+    try:
+        rc, output = sh(
+            [NODE, script, executable, data_directory, screenshot],
+            timeout=120,
+        )
+        log.append(f"Tauri release WebView smoke: rc={rc}")
+        if output.strip():
+            log.append(output.strip()[-4000:])
+        if rc != 0:
+            raise RuntimeError("Tauri release WebView smoke failed")
+    finally:
+        shutil.rmtree(test_root, ignore_errors=True)
 
 
 def separate_pdbs(log):
@@ -328,7 +371,7 @@ def write_checklist(version, signed, log):
     signing = (
         "程序文件与安装器均已使用受信任 Authenticode 证书签名并完成签名验证。"
         if signed
-        else "SignPath Foundation 申请仍在审核；本次发布未签名，下载者应核对同版本 SHA-256 清单。"
+        else "本项目未取得受信任 Authenticode 证书（SignPath Foundation 申请已被拒绝）；本次发布未签名，下载者应核对同版本 SHA-256 清单。"
     )
     body = f"""# GameLibrary v{version} 发布校验清单
 
@@ -344,7 +387,8 @@ def write_checklist(version, signed, log):
 ## 已自动验证
 
 - Release build：0 警告、0 错误。
-- 测试：442/442 通过。
+- 完整自动化测试通过（精确数量与结果见同版本构建报告）。
+- 最终 Tauri EXE 实机请求 CSS/JS，校验 MIME、Tailwind 规则、背景色、布局与无控制台子进程。
 - 自包含发布目录：Desktop/Host 与 CLI/MCP 单文件布局检查。
 - NSIS 安装器：隔离自定义目录安装、当前用户卸载登记、`Uninstall.exe`、快捷方式、已知文件清理及未知文件保留。
 

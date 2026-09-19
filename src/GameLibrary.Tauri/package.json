@@ -1,11 +1,12 @@
 {
   "name": "gamelibrary-tauri",
   "private": true,
-  "version": "1.1.5",
+  "version": "1.1.6",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "clean:tauri-cache": "py -3 scripts/clean_tauri_codegen_cache.py",
     "prepare:sidecars": "py -3 scripts/prepare_sidecars.py",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",

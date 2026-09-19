@@ -78,6 +78,7 @@ public static class HostProcessLauncher
         // 用 ShellExecute 启动：该路径不做句柄继承，宿主不会拿到调用方（及其父进程）的
         // stdout 管道写端。若用 UseShellExecute=false + 重定向，孙进程仍会通过
         // bInheritHandles 继承调用方被捕获的输出管道，导致脚本捕获 CLI 输出时挂死等 EOF。
+        // Tauri 用户载荷会把 Host 发布为 Windows GUI 子系统，因此该入口不会弹出终端。
         using var process = Process.Start(new ProcessStartInfo
         {
             FileName = hostExe,

@@ -120,7 +120,7 @@ public sealed class SqliteLibraryStore : IAsyncDisposable
     {
         lock (_sync)
         {
-            RequestReceiptStore.Complete(_connection, receipt, resultJson);
+            RequestReceiptStore.CompleteWithPrune(_connection, receipt, resultJson, DateTime.UtcNow);
         }
     }
 
@@ -931,6 +931,16 @@ public sealed class SqliteLibraryStore : IAsyncDisposable
             {
                 throw new InvalidOperationException(
                     $"外键一致性核查失败：{string.Join("; ", violations.Take(5))}");
+            }
+
+            // DELETE 只释放页供复用，不缩小文件；声明 RequiresVacuum 的迁移在此回收磁盘。
+            // VACUUM 不能在事务内执行，故放在上面逐条迁移的事务全部提交之后。
+            // 失败前的 pre-migration 快照已在方法开头生成，VACUUM 自身失败则整体判 MigrationFailed。
+            if (pending.Any(m => m.RequiresVacuum))
+            {
+                await using var vacuum = connection.CreateCommand();
+                vacuum.CommandText = "VACUUM";
+                await vacuum.ExecuteNonQueryAsync(ct);
             }
 
             var info = await ReadInfoAsync(connection, ct);

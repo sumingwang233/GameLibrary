@@ -2,17 +2,41 @@ use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
-use std::sync::Mutex;
-use tauri::{AppHandle, Manager, State};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::{AppHandle, Manager, RunEvent, State, WindowEvent};
+
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// bridge 响应等待上限。请求-响应严格一对一，一旦超时就无法保证下一条响应仍对应本次请求，
+/// 因此超时按「bridge 挂死」处理：杀掉进程，下次请求重新拉起。
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 
 struct BridgeProcess {
     child: Child,
     stdin: ChildStdin,
-    stdout: BufReader<ChildStdout>,
+    responses: Receiver<String>,
 }
 
 #[derive(Default)]
 struct BridgeState(Mutex<Option<BridgeProcess>>);
+
+/// 前端从 settings.get 读到 closeToTray 后经 set_close_to_tray 下发。
+/// Rust 不查库——业务状态一律留在 Host，这里只保存窗口行为开关。
+#[derive(Default)]
+struct UiPrefsInner {
+    close_to_tray: bool,
+}
+
+#[derive(Default)]
+struct UiPrefs(Arc<Mutex<UiPrefsInner>>);
 
 impl BridgeProcess {
     fn request(&mut self, request: &Value) -> Result<Value, String> {
@@ -20,16 +44,45 @@ impl BridgeProcess {
         writeln!(self.stdin, "{line}").map_err(|error| error.to_string())?;
         self.stdin.flush().map_err(|error| error.to_string())?;
 
-        let mut response = String::new();
-        self.stdout
-            .read_line(&mut response)
-            .map_err(|error| error.to_string())?;
+        let response = match self.responses.recv_timeout(REQUEST_TIMEOUT) {
+            Ok(response) => response,
+            Err(RecvTimeoutError::Timeout) => {
+                return Err(format!(
+                    "TauriBridge 在 {} 秒内未响应，可能后台服务无响应",
+                    REQUEST_TIMEOUT.as_secs()
+                ));
+            }
+            Err(RecvTimeoutError::Disconnected) => return Err("TauriBridge 已退出".to_string()),
+        };
+
         if response.trim().is_empty() {
             return Err("TauriBridge 返回空响应".to_string());
         }
 
         serde_json::from_str(response.trim()).map_err(|error| error.to_string())
     }
+}
+
+/// 独立线程读取 bridge stdout 并按行投递，使主调用方可以用 recv_timeout 施加超时。
+/// 子进程退出时 read_line 返回 0，线程自然结束并让 Receiver 进入 Disconnected。
+fn spawn_response_reader(stdout: ChildStdout) -> Receiver<String> {
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut reader = BufReader::new(stdout);
+        loop {
+            let mut line = String::new();
+            match reader.read_line(&mut line) {
+                Ok(0) => break,
+                Ok(_) => {
+                    if sender.send(line).is_err() {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+    receiver
 }
 
 fn bridge_candidates(app: &AppHandle) -> Vec<PathBuf> {
@@ -75,6 +128,8 @@ fn spawn_bridge(app: &AppHandle) -> Result<BridgeProcess, String> {
         .find(|candidate| candidate.is_file())
         .ok_or_else(|| "找不到 GameLibrary.TauriBridge.exe；请先构建 sidecar".to_string())?;
     let mut command = Command::new(&path);
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
     if let Some(host_path) = host_candidates()
         .into_iter()
         .find(|candidate| candidate.is_file())
@@ -93,7 +148,7 @@ fn spawn_bridge(app: &AppHandle) -> Result<BridgeProcess, String> {
     Ok(BridgeProcess {
         child,
         stdin,
-        stdout: BufReader::new(stdout),
+        responses: spawn_response_reader(stdout),
     })
 }
 
@@ -117,7 +172,16 @@ fn host_candidates() -> Vec<PathBuf> {
     candidates
 }
 
-#[tauri::command]
+fn discard_bridge(bridge: &mut Option<BridgeProcess>) {
+    if let Some(mut stale) = bridge.take() {
+        let _ = stale.child.kill();
+        let _ = stale.child.wait();
+    }
+}
+
+/// `#[tauri::command(async)]` 使该命令在独立线程执行而非主线程——否则阻塞式等待 bridge
+/// 响应会卡住整个 Tauri 事件循环（窗口拖动、其它命令全部排队）。
+#[tauri::command(async)]
 fn bridge_request(
     state: State<'_, BridgeState>,
     app: AppHandle,
@@ -134,13 +198,20 @@ fn bridge_request(
         *bridge = Some(spawn_bridge(&app)?);
     }
 
-    bridge
+    let result = bridge
         .as_mut()
         .expect("bridge initialized")
-        .request(&request)
+        .request(&request);
+
+    if result.is_err() {
+        // 超时或断连后请求-响应配对已不可信，丢弃进程避免读到错位的响应。
+        discard_bridge(&mut bridge);
+    }
+
+    result
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn bridge_status(state: State<'_, BridgeState>) -> Result<Value, String> {
     let mut bridge = state.0.lock().map_err(|_| "TauriBridge 状态锁异常")?;
     let running = bridge
@@ -167,10 +238,72 @@ fn resolve_data_directory(requested: Option<String>) -> String {
         })
 }
 
+#[tauri::command]
+fn set_close_to_tray(prefs: State<'_, UiPrefs>, enabled: bool) -> Result<(), String> {
+    let mut guard = prefs.0.lock().map_err(|_| "UI 偏好状态锁异常")?;
+    guard.close_to_tray = enabled;
+    Ok(())
+}
+
+fn show_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+fn close_to_tray_enabled(prefs: &UiPrefs) -> bool {
+    prefs
+        .0
+        .lock()
+        .map(|guard| guard.close_to_tray)
+        .unwrap_or(false)
+}
+
+fn build_tray(app: &AppHandle) -> tauri::Result<()> {
+    let show = MenuItem::with_id(app, "show", "显示 GameLibrary", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show, &quit])?;
+
+    let mut builder = TrayIconBuilder::with_id("main-tray")
+        .tooltip("GameLibrary")
+        .menu(&menu)
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "show" => show_main_window(app),
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main_window(tray.app_handle());
+            }
+        });
+
+    if let Some(icon) = app.default_window_icon() {
+        builder = builder.icon(icon.clone());
+    } else if let Ok(icon) = tauri::image::Image::from_bytes(include_bytes!("../icons/icon.ico")) {
+        builder = builder.icon(icon);
+    }
+
+    builder.build(app)?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
+        // single-instance 必须最先注册，否则第二个实例会先完成其它初始化再退出。
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            show_main_window(app);
+        }))
         .manage(BridgeState::default())
+        .manage(UiPrefs::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init());
 
@@ -178,20 +311,38 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_mcp_bridge::init());
 
     builder
+        .setup(|app| {
+            build_tray(app.handle())?;
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() != "main" {
+                    return;
+                }
+                let want_tray = window
+                    .app_handle()
+                    .try_state::<UiPrefs>()
+                    .is_some_and(|prefs| close_to_tray_enabled(&prefs));
+                if want_tray {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             bridge_request,
             bridge_status,
-            resolve_data_directory
+            resolve_data_directory,
+            set_close_to_tray
         ])
         .build(tauri::generate_context!())
         .expect("error while building GameLibrary Tauri app")
         .run(|app, event| {
-            if matches!(event, tauri::RunEvent::Exit) {
+            if matches!(event, RunEvent::Exit) {
                 if let Some(state) = app.try_state::<BridgeState>() {
                     if let Ok(mut bridge) = state.0.lock() {
-                        if let Some(mut process) = bridge.take() {
-                            let _ = process.child.kill();
-                        }
+                        discard_bridge(&mut bridge);
                     }
                 }
             }

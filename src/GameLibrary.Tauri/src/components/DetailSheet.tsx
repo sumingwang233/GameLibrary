@@ -1,86 +1,461 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
-import { ExternalLink, ImagePlus, Play, Settings2, Star, Trash2 } from "lucide-react";
-import { assetDataUrl, operation } from "../lib/api";
+import { Check, ExternalLink, ImagePlus, Play, Star, Trash2 } from "lucide-react";
+import { assetDataUrl, describeFailure, operation } from "../lib/api";
 import type { GameItem, ProfileItem, TagItem, TranslationPolicy } from "../lib/types";
-import { formatTime } from "../lib/utils";
-import { Button } from "./ui/button";
+import { cn, formatTime } from "../lib/utils";
 import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+import { ConfirmDialog } from "./ui/confirm-dialog";
+import { Input } from "./ui/input";
 import { Sheet } from "./ui/sheet";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
+import { Textarea } from "./ui/textarea";
 
-export function DetailSheet({ game, tags, onClose, onPlay, onUpdated }: { game: GameItem | null; tags: TagItem[]; onClose: () => void; onPlay: (game: GameItem) => void; onUpdated: () => Promise<void> }) {
+/**
+ * GameDto.tags 只回传 {kind,name}，不含 tagId（OperationDispatcher.Cataloging.cs 的 GameDto）。
+ * v1.1.5 按 tagId 比较，运行时恒为 undefined === string → 标签永远显示未选中、
+ * 点击只会 assign 不会 unassign。这里改为按 (kind,name) 匹配。
+ */
+function hasTag(game: GameItem, tag: TagItem) {
+  return (game.tags ?? []).some((item) => item.name === tag.name && (item.kind ?? null) === tag.kind);
+}
+
+export function DetailSheet({
+  game,
+  tags,
+  onClose,
+  onPlay,
+  onChanged,
+}: {
+  game: GameItem | null;
+  tags: TagItem[];
+  onClose: () => void;
+  onPlay: (gameId: string) => void;
+  onChanged: () => Promise<void> | void;
+}) {
   const [current, setCurrent] = useState<GameItem | null>(game);
   const [profiles, setProfiles] = useState<ProfileItem[]>([]);
   const [translation, setTranslation] = useState<TranslationPolicy | null>(null);
   const [cover, setCover] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [titleDraft, setTitleDraft] = useState("");
+  const [summaryDraft, setSummaryDraft] = useState("");
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [busy, setBusy] = useState(false);
 
-  useEffect(() => { setCurrent(game); setCover(null); setError(null); }, [game]);
+  const gameId = game?.gameId ?? null;
+
+  const load = useCallback(async () => {
+    if (!gameId) return;
+    setError(null);
+    try {
+      const [detail, profileResult, translationResult] = await Promise.all([
+        operation<GameItem>("games.get", { gameId }),
+        operation<{ items: ProfileItem[] }>("profiles.list", { gameId }),
+        operation<TranslationPolicy>("translation.get", { gameId }),
+      ]);
+      setCurrent(detail.data);
+      setTitleDraft(detail.data.title);
+      setSummaryDraft(detail.data.summary ?? "");
+      setProfiles(profileResult.data.items);
+      setTranslation(translationResult.data);
+      if (detail.data.coverAssetId) {
+        const url = await assetDataUrl(detail.data.coverAssetId).catch(() => null);
+        setCover(url);
+      } else {
+        setCover(null);
+      }
+    } catch (cause) {
+      setError(describeFailure(cause));
+    }
+  }, [gameId]);
+
   useEffect(() => {
-    if (!game) return;
-    void Promise.all([
-      operation<{ items: ProfileItem[] }>("profiles.list", { gameId: game.gameId }),
-      operation<TranslationPolicy>("translation.get", { gameId: game.gameId }),
-      operation<GameItem>("games.get", { gameId: game.gameId }),
-    ]).then(([profileResult, translationResult, gameResult]) => {
-      setProfiles(profileResult.data.items); setTranslation(translationResult.data); setCurrent(gameResult.data);
-      if (gameResult.data.coverAssetId) void assetDataUrl(gameResult.data.coverAssetId).then(setCover).catch(() => undefined);
-    }).catch(cause => setError(String(cause)));
-  }, [game]);
+    setCurrent(game);
+    setCover(null);
+    setProfiles([]);
+    setTranslation(null);
+    setTitleDraft(game?.title ?? "");
+    setSummaryDraft(game?.summary ?? "");
+    if (gameId) void load();
+  }, [game, gameId, load]);
 
   if (!current) return null;
+
+  const run = async (work: () => Promise<void>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await work();
+    } catch (cause) {
+      setError(describeFailure(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveField = (field: "title" | "summary", value: string) =>
+    run(async () => {
+      const result = await operation<GameItem>(
+        "fields.set",
+        { gameId: current.gameId, field, value, expectedRevision: current.revision },
+        `fields.set:${current.gameId}:${field}`,
+      );
+      setCurrent(result.data);
+      await onChanged();
+    });
+
+  const toggleFavorite = () =>
+    run(async () => {
+      const result = await operation<GameItem>(
+        "games.update",
+        { gameId: current.gameId, favorite: !current.favorite, expectedRevision: current.revision },
+        `games.update:${current.gameId}:${current.revision}`,
+      );
+      setCurrent(result.data);
+      await onChanged();
+    });
+
+  const toggleTag = (tag: TagItem) =>
+    run(async () => {
+      const assigned = hasTag(current, tag);
+      await operation(
+        assigned ? "tags.unassign" : "tags.assign",
+        { gameId: current.gameId, tagId: tag.tagId, expectedRevision: current.revision },
+        `tags.${assigned ? "unassign" : "assign"}:${current.gameId}:${tag.tagId}:${current.revision}`,
+      );
+      const refreshed = await operation<GameItem>("games.get", { gameId: current.gameId });
+      setCurrent(refreshed.data);
+      await onChanged();
+    });
+
+  const setPolicy = (value: string) =>
+    run(async () => {
+      if (!translation) return;
+      const result = await operation<TranslationPolicy>(
+        "translation.set",
+        { gameId: current.gameId, override: value, expectedRevision: translation.revision },
+        `translation.set:${current.gameId}:${translation.revision}`,
+      );
+      setTranslation(result.data);
+      await load();
+    });
+
+  const importCover = () =>
+    run(async () => {
+      const selected = await open({
+        multiple: false,
+        directory: false,
+        title: "选择封面图片",
+        filters: [{ name: "封面图片", extensions: ["png", "jpg", "jpeg", "webp", "gif"] }],
+      });
+      if (!selected) return;
+      const result = await operation<{ assetId: string }>(
+        "assets.import",
+        { gameId: current.gameId, sourcePath: String(selected) },
+        `assets.import:${current.gameId}:${String(selected)}`,
+      );
+      setCover(await assetDataUrl(result.data.assetId));
+      await load();
+      await onChanged();
+    });
+
+  const addProfile = () =>
+    run(async () => {
+      const selected = await open({
+        multiple: false,
+        directory: false,
+        title: "选择游戏主程序",
+        filters: [{ name: "游戏程序", extensions: ["exe", "swf"] }],
+      });
+      if (!selected) return;
+      const executablePath = String(selected);
+      await operation(
+        "profiles.create",
+        {
+          gameId: current.gameId,
+          executablePath,
+          argv: [],
+          cwd: executablePath.replace(/[\\/][^\\/]+$/, ""),
+          isDefault: profiles.length === 0,
+        },
+        `profiles.create:${current.gameId}:${executablePath}`,
+      );
+      await load();
+    });
+
+  const setDefaultProfile = (profile: ProfileItem) =>
+    run(async () => {
+      await operation(
+        "profiles.set_default",
+        { gameId: current.gameId, profileId: profile.profileId, expectedRevision: profile.revision },
+        `profiles.set_default:${profile.profileId}:${profile.revision}`,
+      );
+      await load();
+    });
+
+  const removeProfile = (profile: ProfileItem) =>
+    run(async () => {
+      await operation(
+        "profiles.remove",
+        { profileId: profile.profileId, expectedRevision: profile.revision },
+        `profiles.remove:${profile.profileId}:${profile.revision}`,
+      );
+      await load();
+    });
+
+  const removeGame = () =>
+    run(async () => {
+      await operation(
+        "games.remove",
+        { gameId: current.gameId, expectedRevision: current.revision },
+        `games.remove:${current.gameId}:${current.revision}`,
+      );
+      setConfirmRemove(false);
+      onClose();
+      await onChanged();
+    });
+
   const initials = current.title.slice(0, 2).toUpperCase();
-  const run = async (work: () => Promise<void>) => { setError(null); try { await work(); await onUpdated(); } catch (cause) { setError(cause instanceof Error ? cause.message : "操作失败"); } };
+  const defaultProfile = profiles.find((profile) => profile.isDefault) ?? profiles[0];
 
-  const configure = () => run(async () => {
-    const selected = await open({ multiple: false, directory: false, filters: [{ name: "游戏启动文件", extensions: ["exe", "swf"] }] });
-    if (!selected) return;
-    const path = String(selected);
-    const result = await operation<ProfileItem>("profiles.create", { idempotencyKey: `tauri-profile-${Date.now()}`, gameId: current.gameId, executablePath: path, argv: [], cwd: path.replace(/[\\/][^\\/]+$/, ""), isDefault: !profiles.some(profile => profile.isDefault) });
-    setProfiles(previous => [...previous, result.data]);
-  });
+  return (
+    <>
+      <Sheet
+        open
+        onClose={onClose}
+        title={current.title}
+        description={current.rootPath}
+      >
+        <div className="space-y-5">
+          <div className="relative aspect-16/9 overflow-hidden rounded-lg bg-surface-elevated">
+            {cover ? (
+              // object-contain：完整显示图片，不再像 v1.1.5 的 object-cover 那样固定裁掉一部分。
+              <img src={cover} alt="" className="absolute inset-0 h-full w-full object-contain" />
+            ) : (
+              <div
+                aria-hidden="true"
+                className="absolute inset-0 flex items-center justify-center text-7xl font-black text-white/15"
+              >
+                {initials}
+              </div>
+            )}
+          </div>
 
-  const importCover = () => run(async () => {
-    const selected = await open({ multiple: false, directory: false, filters: [{ name: "封面图片", extensions: ["png", "jpg", "jpeg", "webp", "gif"] }] });
-    if (!selected) return;
-    const result = await operation<{ assetId: string }>("assets.import", { idempotencyKey: `tauri-cover-${Date.now()}`, gameId: current.gameId, sourcePath: String(selected) });
-    setCover(await assetDataUrl(result.data.assetId));
-  });
+          {error && (
+            <p role="alert" className="rounded-md border border-danger/40 bg-danger/10 p-3 text-sm break-words text-danger">
+              {error}
+            </p>
+          )}
 
-  const setPolicy = (value: string) => run(async () => {
-    if (!translation) return;
-    const result = await operation<TranslationPolicy>("translation.set", { idempotencyKey: `tauri-translation-${Date.now()}`, gameId: current.gameId, override: value, expectedRevision: translation.revision });
-    setTranslation(result.data);
-    setCurrent(previous => previous ? { ...previous, revision: result.data.revision } : previous);
-  });
+          <div className="grid grid-cols-2 gap-2">
+            <Button className="col-span-2" size="lg" disabled={busy} onClick={() => onPlay(current.gameId)}>
+              <Play size={17} fill="currentColor" />
+              开始游戏
+            </Button>
+            <Button variant="outline" disabled={busy} onClick={() => void toggleFavorite()}>
+              <Star size={15} className={current.favorite ? "fill-favorite text-favorite" : undefined} />
+              {current.favorite ? "取消收藏" : "收藏"}
+            </Button>
+            <Button variant="outline" disabled={busy} onClick={() => void openPath(current.rootPath)}>
+              <ExternalLink size={15} />
+              打开目录
+            </Button>
+          </div>
 
-  const toggleFavorite = () => run(async () => {
-    const result = await operation<GameItem>("games.update", { idempotencyKey: `tauri-favorite-${Date.now()}`, gameId: current.gameId, favorite: !current.favorite, expectedRevision: current.revision });
-    setCurrent(result.data);
-  });
+          <Tabs defaultValue="overview">
+            <TabsList aria-label="游戏详情分区">
+              <TabsTrigger value="overview">概览</TabsTrigger>
+              <TabsTrigger value="launch">启动</TabsTrigger>
+              <TabsTrigger value="tags">标签</TabsTrigger>
+              <TabsTrigger value="cover">封面</TabsTrigger>
+            </TabsList>
 
-  const toggleTag = (tag: TagItem) => run(async () => {
-    const assigned = (current.tags ?? []).some(item => item.tagId === tag.tagId);
-    const result = await operation<{ revision?: number }>(assigned ? "tags.unassign" : "tags.assign", { idempotencyKey: `tauri-tag-${Date.now()}`, gameId: current.gameId, tagId: tag.tagId, expectedRevision: current.revision });
-    const refreshed = await operation<GameItem>("games.get", { gameId: current.gameId });
-    setCurrent({ ...refreshed.data, revision: result.data.revision ?? refreshed.data.revision });
-  });
+            <TabsContent value="overview" className="space-y-4">
+              <LabeledField label="标题">
+                <div className="flex gap-2">
+                  <Input
+                    value={titleDraft}
+                    onChange={(event) => setTitleDraft(event.currentTarget.value)}
+                    aria-label="游戏标题"
+                  />
+                  <Button
+                    variant="outline"
+                    disabled={busy || titleDraft.trim() === current.title}
+                    onClick={() => void saveField("title", titleDraft.trim())}
+                  >
+                    保存
+                  </Button>
+                </div>
+              </LabeledField>
 
-  const remove = () => run(async () => {
-    await operation("games.remove", { idempotencyKey: `tauri-remove-${Date.now()}`, gameId: current.gameId, expectedRevision: current.revision });
-    onClose();
-  });
+              <LabeledField label="简介">
+                <Textarea
+                  rows={4}
+                  value={summaryDraft}
+                  onChange={(event) => setSummaryDraft(event.currentTarget.value)}
+                  onBlur={() => {
+                    if (summaryDraft !== (current.summary ?? "")) void saveField("summary", summaryDraft);
+                  }}
+                  placeholder="写点什么，或留空使用自动生成的内容"
+                  aria-label="游戏简介"
+                />
+              </LabeledField>
 
-  return <Sheet open onClose={onClose} title="游戏详情"><div className="space-y-6">
-    <div className="relative aspect-[16/9] overflow-hidden rounded-lg bg-[#243447]">{cover ? <img src={cover} alt="" className="absolute inset-0 h-full w-full object-cover" /> : <div className="absolute inset-0 flex items-center justify-center text-7xl font-black text-white/15">{initials}</div>}<div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-transparent" /><div className="absolute inset-x-5 bottom-4"><h3 className="text-2xl font-bold text-white">{current.title}</h3><div className="mt-2 flex gap-2"><Badge>{current.engine ?? current.kind}</Badge>{current.favorite && <Badge className="border-[#f5c542]/50 text-[#f5c542]"><Star size={12} className="mr-1 fill-current" />收藏</Badge>}</div></div></div>
-    {error && <div className="rounded-md border border-danger/40 bg-danger/10 p-3 text-sm text-danger">{error}</div>}
-    <div className="grid grid-cols-2 gap-3"><Button className="col-span-2 h-11" onClick={() => onPlay(current)}><Play size={17} fill="currentColor" />开始游戏</Button><Button variant="outline" onClick={configure}><Settings2 size={15} />配置启动方式</Button><Button variant="outline" onClick={() => void openPath(current.rootPath)}><ExternalLink size={15} />打开目录</Button><Button variant="outline" onClick={importCover}><ImagePlus size={15} />导入封面</Button><Button variant="outline" onClick={toggleFavorite}><Star size={15} />{current.favorite ? "取消收藏" : "收藏"}</Button></div>
-    <div><label className="mb-2 block text-[11px] uppercase tracking-[0.14em] text-text-secondary">翻译策略</label><select value={translation?.userOverride ?? "Auto"} onChange={event => void setPolicy(event.target.value)} className="h-10 w-full rounded-md border border-border bg-[#121821] px-3 text-sm text-text-primary"><option value="Auto">Auto · 继承并自动路由</option><option value="Required">Required · 强制翻译</option><option value="NotRequired">NotRequired · 原文直启</option></select>{translation && <p className="mt-2 text-xs text-text-secondary">当前有效策略：{translation.effective}{translation.inherited !== "Auto" ? ` · 继承 ${translation.inherited}` : ""}</p>}</div>
-    <div><div className="mb-2 text-[11px] uppercase tracking-[0.14em] text-text-secondary">标签</div><div className="flex flex-wrap gap-2">{tags.map(tag => { const active = (current.tags ?? []).some(item => item.tagId === tag.tagId); return <button key={tag.tagId} className={active ? "rounded-full border border-steam bg-steam-soft px-3 py-1 text-xs text-steam" : "rounded-full border border-border px-3 py-1 text-xs text-text-secondary hover:border-steam"} onClick={() => void toggleTag(tag)}>{tag.name}</button>; })}</div></div>
-    <div className="space-y-3 text-sm"><Info label="路径" value={current.rootPath} /><Info label="入库时间" value={formatTime(current.acceptedUtc)} /><Info label="启动方式" value={profiles.find(profile => profile.isDefault)?.executablePath ?? "尚未配置"} /></div>
-    <Button variant="danger" className="w-full" onClick={remove}><Trash2 size={15} />从游戏库移除</Button>
-  </div></Sheet>;
+              <LabeledField label="翻译策略">
+                <select
+                  value={translation?.userOverride ?? "Auto"}
+                  onChange={(event) => void setPolicy(event.target.value)}
+                  aria-label="翻译策略"
+                  className="h-10 w-full rounded-md border border-input bg-field px-3 text-sm text-text-primary focus-visible:border-steam focus-visible:outline-none"
+                >
+                  <option value="Auto">Auto · 继承目录约定并自动调用翻译工具</option>
+                  <option value="Required">Required · 必须经翻译工具启动</option>
+                  <option value="NotRequired">NotRequired · 直接启动原文程序</option>
+                </select>
+                {translation && (
+                  <p className="mt-2 text-xs text-text-secondary">
+                    当前有效策略：{translation.effective}
+                    {translation.inherited ? ` · 继承自 ${translation.inherited}` : ""}
+                  </p>
+                )}
+              </LabeledField>
+
+              <dl className="space-y-2 text-sm">
+                <InfoRow label="路径" value={current.rootPath} />
+                <InfoRow label="入库时间" value={formatTime(current.acceptedUtc)} />
+                <InfoRow label="最近修改" value={formatTime(current.updatedUtc)} />
+                <InfoRow label="可用状态" value={current.availability ?? "unknown"} />
+                <InfoRow label="默认启动程序" value={defaultProfile?.executablePath ?? "尚未配置"} />
+              </dl>
+
+              <Button variant="danger" className="w-full" disabled={busy} onClick={() => setConfirmRemove(true)}>
+                <Trash2 size={15} />
+                从游戏库移除
+              </Button>
+            </TabsContent>
+
+            <TabsContent value="launch" className="space-y-3">
+              <p className="text-xs text-text-secondary">
+                配置游戏的原始主程序即可。需要翻译的游戏由程序按目录约定自动拉起翻译工具，
+                不需要你去指定「已翻译的程序」。
+              </p>
+              {profiles.length === 0 ? (
+                <p className="rounded-md border border-dashed border-border p-4 text-sm text-text-secondary">
+                  还没有配置启动方式。
+                </p>
+              ) : (
+                <ul className="space-y-2">
+                  {profiles.map((profile) => (
+                    <li
+                      key={profile.profileId}
+                      className="rounded-md border border-border bg-surface p-3 text-sm"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="min-w-0 flex-1 truncate text-text-primary">
+                          {profile.executablePath}
+                        </span>
+                        {profile.isDefault && <Badge variant="steam">默认</Badge>}
+                      </div>
+                      <div className="mt-1 truncate text-xs text-text-secondary">
+                        工作目录：{profile.cwd ?? "—"}
+                        {profile.argv && profile.argv.length > 0 ? ` · 参数：${profile.argv.join(" ")}` : ""}
+                      </div>
+                      <div className="mt-2 flex gap-2">
+                        {!profile.isDefault && (
+                          <Button size="sm" variant="outline" disabled={busy} onClick={() => void setDefaultProfile(profile)}>
+                            <Check size={13} />
+                            设为默认
+                          </Button>
+                        )}
+                        <Button size="sm" variant="ghost" disabled={busy} onClick={() => void removeProfile(profile)}>
+                          <Trash2 size={13} />
+                          删除
+                        </Button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <Button variant="outline" className="w-full" disabled={busy} onClick={() => void addProfile()}>
+                <Play size={15} />
+                添加启动方式
+              </Button>
+            </TabsContent>
+
+            <TabsContent value="tags" className="space-y-2">
+              {tags.length === 0 ? (
+                <p className="text-sm text-text-secondary">还没有标签，可先到「管理标签」新建。</p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {tags.map((tag) => {
+                    const active = hasTag(current, tag);
+                    return (
+                      <button
+                        key={tag.tagId}
+                        type="button"
+                        disabled={busy}
+                        aria-pressed={active}
+                        onClick={() => void toggleTag(tag)}
+                        className={cn(
+                          "cursor-pointer rounded-full border px-3 py-1 text-xs transition disabled:opacity-50",
+                          active
+                            ? "border-steam bg-steam-soft text-steam"
+                            : "border-border text-text-secondary hover:border-steam",
+                        )}
+                      >
+                        {tag.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="cover" className="space-y-3">
+              <p className="text-xs text-text-secondary">
+                导入的封面按原始比例完整显示，不会被裁掉。
+              </p>
+              <Button variant="outline" className="w-full" disabled={busy} onClick={() => void importCover()}>
+                <ImagePlus size={15} />
+                导入封面图片
+              </Button>
+            </TabsContent>
+          </Tabs>
+        </div>
+      </Sheet>
+
+      <ConfirmDialog
+        open={confirmRemove}
+        title={`从游戏库移除「${current.title}」`}
+        description="只会解除游戏库中的记录，不会删除磁盘上的任何文件。该目录会被加入过滤名单，避免下次扫描又把它加回来。"
+        confirmLabel="移除"
+        destructive
+        onCancel={() => setConfirmRemove(false)}
+        onConfirm={() => void removeGame()}
+      />
+    </>
+  );
 }
 
-function Info({ label, value }: { label: string; value: string }) { return <div><div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-text-secondary">{label}</div><div className="break-all rounded-md bg-[#121821] p-3 text-text-primary">{value}</div></div>; }
+function LabeledField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <span className="mb-2 block text-[11px] tracking-[0.14em] text-text-secondary uppercase">
+        {label}
+      </span>
+      {children}
+    </div>
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-[11px] tracking-[0.14em] text-text-secondary uppercase">{label}</dt>
+      <dd className="mt-1 rounded-md bg-field p-2.5 break-all text-text-primary">{value}</dd>
+    </div>
+  );
+}

@@ -14,12 +14,14 @@ public sealed record PersistedEvent(
 
 /// <summary>
 /// 事件持久化（T23-B，契约第 8 节）：序号跨重启单调（库自增）；
-/// 保留策略 = 7 天或 100,000 条先到为准，惰性裁剪；
+/// 保留策略 = 7 天或 10,000 条先到为准，惰性裁剪；
 /// 读取按当前 dataEpoch 过滤——备份恢复更换 epoch 后旧游标自然失效。
 /// </summary>
 public static class EventRecordStore
 {
-    public const int MaxEvents = 100_000;
+    // 原为 100_000：日常库实测长期卡在该上限（约 33.6 MB），对事件流增量读取毫无收益。
+    // 前端按 cursor 增量拉取，10_000 条足以覆盖离线期间的事件回放。
+    public const int MaxEvents = 10_000;
     public static readonly TimeSpan RetentionWindow = TimeSpan.FromDays(7);
     private const int PruneEvery = 256;
 
