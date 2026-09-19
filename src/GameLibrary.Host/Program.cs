@@ -27,17 +27,17 @@ internal static class Program
         }
 
         var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder([]);
-        // 显式只留 Console：默认的 Windows EventLog 提供程序需要
+        // 显式只留 Console + 文件：默认的 Windows EventLog 提供程序需要
         // System.Diagnostics.EventLog 程序集，自包含布局下可能缺失导致启动崩溃。
         builder.Logging.ClearProviders();
-        if (detachStdio)
-        {
-            // 后台模式无控制台；文件日志在可观测性任务（T24）落地。
-        }
-        else
+        // 文件日志始终开启（R45）：detached 后台模式下的唯一观测出口，
+        // 写入数据目录 logs/，尺寸滚动、失败静默降级。
+        builder.Logging.AddProvider(
+            new GameLibrary.Host.Observability.RollingFileLoggerProvider(Path.Combine(dataDir, "logs")));
+        builder.Logging.SetMinimumLevel(LogLevel.Information);
+        if (!detachStdio)
         {
             builder.Logging.AddConsole();
-            builder.Logging.SetMinimumLevel(LogLevel.Information);
         }
 
         using var host = builder.Build();
