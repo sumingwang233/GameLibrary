@@ -179,6 +179,16 @@ public sealed class SqliteLibraryStore : IAsyncDisposable
         }
     }
 
+    /// <summary>accept 原子化（R43）：建卡/复用 + 引擎标签 + 候选转移单事务提交，conflict 不落任何写。</summary>
+    public AcceptCandidateOutcome AcceptCandidate(
+        string candidateId, int expectedRevision, GameCard newGame, string engine, DateTime utcNow)
+    {
+        lock (_sync)
+        {
+            return LibraryCatalogStore.AcceptCandidate(_connection, candidateId, expectedRevision, newGame, engine, utcNow);
+        }
+    }
+
     public void InsertGame(GameCard game)
     {
         lock (_sync)

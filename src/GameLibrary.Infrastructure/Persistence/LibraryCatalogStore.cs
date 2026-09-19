@@ -113,6 +113,16 @@ public sealed record GameCardEnrichment
     public required IReadOnlyList<(string Kind, string Name)> Tags { get; init; }
 }
 
+/// <summary>accept 结果：accepted=本次转移成功；alreadyAccepted=幂等重放（不写任何表）；conflict=状态或 Revision 不符。</summary>
+public sealed record AcceptCandidateOutcome
+{
+    public required string Status { get; init; }
+
+    public required PersistedCandidate Candidate { get; init; }
+
+    public required string GameId { get; init; }
+}
+
 /// <summary>
 /// 入库/忽略目录存储（T11）：候选按物理路径 upsert；审核转移由 Domain 状态机校验后在此落库。
 /// Host 是唯一连接所有者；方法为同步 SQLite 调用，由宿主单写入语义串行化。
@@ -332,9 +342,111 @@ public static class LibraryCatalogStore
         };
     }
 
-    public static void InsertGame(SqliteConnection connection, GameCard game)
+    /// <summary>
+    /// accept 原子化（R43）：既有卡复用/建新卡 + 引擎自动标签 + 候选转移在单事务内提交。
+    /// 此前三步各自成事务，中间失败会留下孤儿游戏卡或悬挂候选；conflict 时本方法不落任何写。
+    /// </summary>
+    public static AcceptCandidateOutcome AcceptCandidate(
+        SqliteConnection connection,
+        string candidateId,
+        int expectedRevision,
+        GameCard newGame,
+        string engine,
+        DateTime utcNow)
+    {
+        using var transaction = (SqliteTransaction)connection.BeginTransaction();
+        PersistedCandidate current;
+        using (var select = connection.CreateCommand())
+        {
+            select.Transaction = transaction;
+            select.CommandText = """
+                SELECT candidate_id, job_id, kind, relative_path, physical_path, payload_json,
+                       review_state, revision, game_id, observed_utc, updated_utc
+                FROM candidates WHERE candidate_id = $id
+                """;
+            select.Parameters.AddWithValue("$id", candidateId);
+            using var reader = select.ExecuteReader();
+            if (!reader.Read())
+            {
+                transaction.Rollback();
+                throw new InvalidOperationException($"候选不存在：{candidateId}（调用方应先校验）");
+            }
+
+            current = ReadCandidate(reader);
+        }
+
+        if (current.ReviewState == "accepted" && current.GameId is not null)
+        {
+            transaction.Rollback();
+            return new AcceptCandidateOutcome
+            {
+                Status = "alreadyAccepted",
+                Candidate = current,
+                GameId = current.GameId,
+            };
+        }
+
+        if (current.ReviewState != "pendingReview" || current.Revision != expectedRevision)
+        {
+            transaction.Rollback();
+            return new AcceptCandidateOutcome
+            {
+                Status = "conflict",
+                Candidate = current,
+                GameId = current.GameId ?? "",
+            };
+        }
+
+        string gameId;
+        var existing = TryGetGameByRootPath(connection, current.PhysicalPath, transaction);
+        if (existing is not null)
+        {
+            gameId = existing.GameId;
+        }
+        else
+        {
+            gameId = newGame.GameId;
+            InsertGame(connection, newGame, transaction);
+        }
+
+        TagStore.EnsureEngineTagAssigned(connection, gameId, engine, utcNow, transaction);
+
+        using (var update = connection.CreateCommand())
+        {
+            update.Transaction = transaction;
+            update.CommandText = """
+                UPDATE candidates
+                SET review_state = 'accepted', revision = revision + 1, game_id = $game, updated_utc = $now
+                WHERE candidate_id = $id
+                """;
+            update.Parameters.AddWithValue("$game", gameId);
+            update.Parameters.AddWithValue("$now", utcNow.ToString("O", CultureInfo.InvariantCulture));
+            update.Parameters.AddWithValue("$id", candidateId);
+            update.ExecuteNonQuery();
+        }
+
+        transaction.Commit();
+        return new AcceptCandidateOutcome
+        {
+            Status = "accepted",
+            Candidate = current with
+            {
+                ReviewState = "accepted",
+                Revision = current.Revision + 1,
+                GameId = gameId,
+                UpdatedUtc = utcNow,
+            },
+            GameId = gameId,
+        };
+    }
+
+    public static void InsertGame(SqliteConnection connection, GameCard game, SqliteTransaction? transaction = null)
     {
         using var command = connection.CreateCommand();
+        if (transaction is not null)
+        {
+            command.Transaction = transaction;
+        }
         command.CommandText = """
             INSERT INTO games
                 (game_id, title, root_path, kind, engine, entry_path, membership, favorite, translation_inherited, revision, accepted_utc, updated_utc)
@@ -627,9 +739,13 @@ public static class LibraryCatalogStore
         }
     }
 
-    public static GameCard? TryGetGameByRootPath(SqliteConnection connection, string rootPath)
+    public static GameCard? TryGetGameByRootPath(SqliteConnection connection, string rootPath, SqliteTransaction? transaction = null)
     {
         using var command = connection.CreateCommand();
+        if (transaction is not null)
+        {
+            command.Transaction = transaction;
+        }
         command.CommandText = """
             SELECT game_id, title, root_path, kind, engine, entry_path, membership, favorite, revision, accepted_utc, updated_utc, translation_inherited, translation_override, availability, missing_since_utc
             FROM games WHERE root_path = $root AND membership = 'active'

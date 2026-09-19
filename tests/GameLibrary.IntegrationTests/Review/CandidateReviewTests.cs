@@ -98,6 +98,11 @@ public sealed class CandidateReviewTests : IClassFixture<PipeServerFixture>
         Assert.False(stale.Ok);
         Assert.Equal(ErrorCodes.RevisionConflict, stale.Error!.Code);
 
+        // R43 原子性：conflict 不落任何写——旧实现先建卡再冲突，会留下孤儿游戏卡。
+        var gamesAfterStale = await InvokeAsync("games.list", new { });
+        Assert.DoesNotContain(gamesAfterStale.Data.GetProperty("items").EnumerateArray(),
+            g => g.GetProperty("rootPath").GetString()!.StartsWith(root, StringComparison.Ordinal));
+
         // 接受入库。
         var accept = await InvokeAsync("candidates.accept", new
         {
@@ -119,6 +124,16 @@ public sealed class CandidateReviewTests : IClassFixture<PipeServerFixture>
         Assert.True(replay.Ok);
         Assert.Equal(gameId, replay.Data.GetProperty("gameId").GetString());
 
+        // 不同键重放已接受候选：原子路径幂等返回同一 GameId，不重复建卡。
+        var otherKeyReplay = await InvokeAsync("candidates.accept", new
+        {
+            idempotencyKey = "accept-alt-" + candidateId,
+            candidateId,
+            expectedRevision = pendingRevision,
+        });
+        Assert.True(otherKeyReplay.Ok, otherKeyReplay.Error?.Message);
+        Assert.Equal(gameId, otherKeyReplay.Data.GetProperty("gameId").GetString());
+
         var acceptedCandidates = await InvokeAsync("candidates.list", new { state = "accepted" });
         Assert.True(acceptedCandidates.Ok, acceptedCandidates.Error?.Message);
         Assert.All(acceptedCandidates.Data.GetProperty("items").EnumerateArray(),
@@ -139,6 +154,11 @@ public sealed class CandidateReviewTests : IClassFixture<PipeServerFixture>
         Assert.Equal("GameA", game.Data.GetProperty("title").GetString());
         Assert.Equal("kirikiri", game.Data.GetProperty("engine").GetString());
         Assert.Equal(Path.Combine(root, "GameA", "Game.exe"), game.Data.GetProperty("entryPath").GetString());
+
+        // 引擎自动标签随 accept 原子落库（R43：随单事务提交）。
+        Assert.Contains(game.Data.GetProperty("tags").EnumerateArray(),
+            t => t.GetProperty("kind").GetString() == "engine"
+                && t.GetProperty("name").GetString() == "kirikiri");
     }
 
     [Fact]

@@ -75,9 +75,14 @@ public static class TagStore
             DateTime.Parse(reader.GetString(6), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind));
     }
 
-    public static PersistedTag? TryGetTagByName(SqliteConnection connection, string kind, string name)
+    public static PersistedTag? TryGetTagByName(
+        SqliteConnection connection, string kind, string name, SqliteTransaction? transaction = null)
     {
         using var command = connection.CreateCommand();
+        if (transaction is not null)
+        {
+            command.Transaction = transaction;
+        }
         command.CommandText = """
             SELECT t.tag_id, t.kind, t.name, t.color, t.revision, t.created_utc, t.updated_utc,
                    (SELECT COUNT(*) FROM game_tags gt WHERE gt.tag_id = t.tag_id)
@@ -102,9 +107,13 @@ public static class TagStore
             DateTime.Parse(reader.GetString(6), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind));
     }
 
-    public static void CreateTag(SqliteConnection connection, PersistedTag tag)
+    public static void CreateTag(SqliteConnection connection, PersistedTag tag, SqliteTransaction? transaction = null)
     {
         using var command = connection.CreateCommand();
+        if (transaction is not null)
+        {
+            command.Transaction = transaction;
+        }
         command.CommandText = """
             INSERT INTO tags (tag_id, kind, name, color, revision, created_utc, updated_utc)
             VALUES ($id, $kind, $name, $color, $rev, $created, $updated)
@@ -221,9 +230,14 @@ public static class TagStore
         return command.ExecuteNonQuery() > 0;
     }
 
-    public static bool IsSuppressed(SqliteConnection connection, string gameId, string tagKind, string tagName)
+    public static bool IsSuppressed(
+        SqliteConnection connection, string gameId, string tagKind, string tagName, SqliteTransaction? transaction = null)
     {
         using var command = connection.CreateCommand();
+        if (transaction is not null)
+        {
+            command.Transaction = transaction;
+        }
         command.CommandText = "SELECT COUNT(*) FROM tag_overrides WHERE game_id = $g AND tag_kind = $k AND tag_name = $n AND action = 'suppress'";
         command.Parameters.AddWithValue("$g", gameId);
         command.Parameters.AddWithValue("$k", tagKind);
@@ -252,27 +266,32 @@ public static class TagStore
     }
 
     /// <summary>引擎标签缺失/被抑制时补齐（重扫与 reset 用）：不覆盖 Suppress 语义——被抑制则不恢复。</summary>
-    public static bool EnsureEngineTagAssigned(SqliteConnection connection, string gameId, string engine, DateTime utcNow)
+    public static bool EnsureEngineTagAssigned(
+        SqliteConnection connection, string gameId, string engine, DateTime utcNow, SqliteTransaction? transaction = null)
     {
         if (string.IsNullOrWhiteSpace(engine))
         {
             return false;
         }
 
-        if (IsSuppressed(connection, gameId, "engine", engine))
+        if (IsSuppressed(connection, gameId, "engine", engine, transaction))
         {
             return false;
         }
 
-        var tag = TryGetTagByName(connection, "engine", engine);
+        var tag = TryGetTagByName(connection, "engine", engine, transaction);
         if (tag is null)
         {
             tag = new PersistedTag(
                 $"tag-{Guid.NewGuid():N}", "engine", engine, null, 1, 0, utcNow, utcNow);
-            CreateTag(connection, tag);
+            CreateTag(connection, tag, transaction);
         }
 
         using var command = connection.CreateCommand();
+        if (transaction is not null)
+        {
+            command.Transaction = transaction;
+        }
         command.CommandText = "INSERT OR IGNORE INTO game_tags (game_id, tag_id, created_utc) VALUES ($g, $t, $u)";
         command.Parameters.AddWithValue("$g", gameId);
         command.Parameters.AddWithValue("$t", tag.TagId);

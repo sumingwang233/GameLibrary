@@ -1311,21 +1311,16 @@ public sealed partial class OperationDispatcher
         }
 
         var utcNow = DateTime.UtcNow;
-        string? gameId = null;
         string? ignoreId = null;
         if (action == "accept")
         {
-            var existingGame = store.TryGetGameByRootPath(current.PhysicalPath);
-            if (existingGame is not null)
-            {
-                gameId = existingGame.GameId;
-            }
-            else
-            {
-                gameId = $"game-{Guid.NewGuid():N}";
-                store.InsertGame(new GameCard
+            // R43：建卡/复用 + 引擎标签 + 候选转移单事务提交；conflict 不落任何写。
+            var outcome = store.AcceptCandidate(
+                candidateId,
+                expectedRevision.Value,
+                new GameCard
                 {
-                    GameId = gameId,
+                    GameId = $"game-{Guid.NewGuid():N}",
                     Title = TitleFromPath(current.PhysicalPath, current.RelativePath, current.Kind),
                     RootPath = current.PhysicalPath,
                     Kind = current.Kind,
@@ -1335,10 +1330,37 @@ public sealed partial class OperationDispatcher
                     TranslationInherited = RequiredByToolNeed(current.PayloadJson),
                     AcceptedUtc = utcNow,
                     UpdatedUtc = utcNow,
-                });
-                // 入库即登记引擎自动标签（tags.×8）：engine 标签供筛选与"需要翻译"类展示。
-                store.EnsureEngineTagAssigned(gameId, TopEngine(current.PayloadJson) ?? "", utcNow);
+                },
+                TopEngine(current.PayloadJson) ?? "",
+                utcNow);
+            if (outcome.Status == "conflict")
+            {
+                return new Envelope<object>
+                {
+                    RequestId = request.RequestId,
+                    Ok = false,
+                    Status = OperationStatus.Failed,
+                    Error = new RequestError
+                    {
+                        Code = ErrorCodes.RevisionConflict,
+                        Message = $"候选 Revision 不一致：期望 {expectedRevision}，当前 {outcome.Candidate.Revision}（状态 {outcome.Candidate.ReviewState}）",
+                        Retryable = false,
+                    },
+                };
             }
+
+            if (outcome.Status == "accepted")
+            {
+                _state.Events.Publish("game.created", $"game:{outcome.GameId}", new
+                {
+                    gameId = outcome.GameId,
+                    fromCandidate = candidateId,
+                    title = TitleFromPath(current.PhysicalPath, current.RelativePath, current.Kind),
+                }, DateTime.UtcNow);
+            }
+
+            return CandidateReviewResult(
+                request, outcome.Candidate.ReviewState, outcome.Candidate.Revision, outcome.GameId, null);
         }
 
         if (action == "ignore")
@@ -1354,16 +1376,16 @@ public sealed partial class OperationDispatcher
             });
         }
 
+        // defer/ignore 共用单步转移（accept 已在上面原子路径提前返回）。
         var updated = store.TransitionCandidate(
- candidateId, "pendingReview",
+            candidateId, "pendingReview",
             action switch
             {
-                "accept" => "accepted",
                 "defer" => "deferred",
                 _ => "ignored",
             },
             expectedRevision.Value,
-            gameId,
+            gameId: null,
             utcNow);
         if (updated is null)
         {
@@ -1380,16 +1402,6 @@ public sealed partial class OperationDispatcher
                     Retryable = false,
                 },
             };
-        }
-
-        if (action == "accept" && updated.GameId is not null)
-        {
-            _state.Events.Publish("game.created", $"game:{updated.GameId}", new
-            {
-                gameId = updated.GameId,
-                fromCandidate = updated.CandidateId,
-                title = TitleFromPath(updated.PhysicalPath, updated.RelativePath, updated.Kind),
-            }, DateTime.UtcNow);
         }
 
         return CandidateReviewResult(request, updated.ReviewState, updated.Revision, updated.GameId, ignoreId);
