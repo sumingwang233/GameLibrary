@@ -126,6 +126,9 @@ public sealed record LaunchAttempt
 /// </summary>
 public sealed class LaunchRegistry
 {
+    /// <summary>翻译注入步骤默认等待上限（120s）；测试可经 Execute 参数收紧。</summary>
+    public static readonly TimeSpan DefaultTranslationStepTimeout = TimeSpan.FromSeconds(120);
+
     private readonly ConcurrentDictionary<string, LaunchProfile> _profiles = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, LaunchPlan> _plans = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, LaunchAttempt> _attempts = new(StringComparer.Ordinal);
@@ -326,7 +329,8 @@ public sealed class LaunchRegistry
         string? profileId,
         string? expectedRevisionProfileId,
         int? expectedRevision,
-        IReadOnlyList<RecipeProcessStep>? translationSteps = null)
+        IReadOnlyList<RecipeProcessStep>? translationSteps = null,
+        TimeSpan? translationStepTimeout = null)
     {
         if (_receiptByKey.TryGetValue(idempotencyKey, out var existingAttemptId))
         {
@@ -442,7 +446,15 @@ public sealed class LaunchRegistry
                 started.Add(process);
                 if (step.WaitForExit)
                 {
-                    process.WaitForExit();
+                    // 有界等待：注入工具挂死不得持请求门锁冻结宿主（与 TauriBridge 响应超时同量级）。
+                    var timeout = translationStepTimeout ?? DefaultTranslationStepTimeout;
+                    if (!process.WaitForExit((int)timeout.TotalMilliseconds))
+                    {
+                        throw new LaunchException(
+                            ErrorCodes.ProcessStartFailed,
+                            $"翻译步骤超时（{timeout.TotalSeconds:0}s）已终止全部已启动进程：{step.ExecutablePath}");
+                    }
+
                     if (process.ExitCode != 0)
                     {
                         throw new LaunchException(
