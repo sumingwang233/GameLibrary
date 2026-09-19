@@ -752,12 +752,15 @@ public sealed partial class OperationDispatcher
                 try
                 {
                     var collector = new ScanCandidateCollector(rootPath, context.JobId, _state.Candidates);
+                    // 规则在作业启动时快照：扫描期间的 ignores 变更自下一次扫描生效。
+                    var rules = ScanIgnoreRuleSet.FromStore(_state.Library.Store);
                     ScanCoverageData? completedCoverage = null;
                     var outcome = ScanJobRunner.Run(
                         rootPath,
                         context,
                         collector,
-                        onCompleted: coverage => completedCoverage = coverage);
+                        onCompleted: coverage => completedCoverage = coverage,
+                        rules: rules);
                     if (outcome.FinalState == "succeeded")
                     {
                         ScanCandidatePersistence.Persist(

@@ -29,9 +29,10 @@ public static class ScanJobRunner
         JobContext context,
         ScanCandidateCollector? collector = null,
         ScanWalkOptions? options = null,
-        Action<ScanCoverageData>? onCompleted = null)
+        Action<ScanCoverageData>? onCompleted = null,
+        ScanRuleSet? rules = null)
     {
-        var walker = new DirectoryWalker(root, new ScanRuleSet([]), options);
+        var walker = new DirectoryWalker(root, rules ?? new ScanRuleSet([]), options);
         long scannedDirectories = 0;
         long observedFileEntries = 0;
         var currentPath = "";

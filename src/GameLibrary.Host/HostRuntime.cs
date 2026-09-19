@@ -238,7 +238,8 @@ public sealed class HostRuntime : IAsyncDisposable
             validation.Path,
             context,
             collector,
-            onCompleted: coverage => completedCoverage = coverage);
+            onCompleted: coverage => completedCoverage = coverage,
+            rules: Scanning.ScanIgnoreRuleSet.FromStore(state.Library.Store));
         if (outcome.FinalState == "succeeded")
         {
             Scanning.ScanCandidatePersistence.Persist(state.Library.Store, state.Events, collector, jobId);

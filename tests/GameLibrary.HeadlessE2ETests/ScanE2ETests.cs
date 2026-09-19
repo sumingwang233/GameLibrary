@@ -109,6 +109,96 @@ public sealed class ScanE2ETests
     }
 
     [Fact]
+    public async Task Cli_IgnoreRule_ExcludesSubtreeFromScanCoverage()
+    {
+        var runId = NewRunDir("e2e-cli-ignore");
+        var dataDir = Path.Combine(runId, "data");
+        var scanRoot = Path.Combine(runId, "tree");
+        Directory.CreateDirectory(Path.Combine(scanRoot, "GameA"));
+        File.WriteAllText(Path.Combine(scanRoot, "GameA", "Game.exe"), "x");
+        File.WriteAllText(Path.Combine(scanRoot, "GameA", "data.xp3"), "x");
+        Directory.CreateDirectory(Path.Combine(scanRoot, "GameB"));
+        File.WriteAllText(Path.Combine(scanRoot, "GameB", "Game.exe"), "x");
+        File.WriteAllText(Path.Combine(scanRoot, "GameB", "data.xp3"), "x");
+        int? hostPid = null;
+        try
+        {
+            var libInit = await RunCliAsync(
+                "library", "init", "--data-dir", dataDir, "--format", "json");
+            Assert.Equal(0, libInit.ExitCode);
+
+            var rootAdd = await RunCliAsync(
+                "roots", "add", "--root", scanRoot, "--data-dir", dataDir, "--format", "json");
+            Assert.Equal(0, rootAdd.ExitCode);
+
+            // 扫描过滤名单：GameB 整个子树不参与遍历。
+            var ignoreCreate = await RunCliAsync(
+                "ignores", "create", "--scope", "Subtree",
+                "--path", Path.Combine(scanRoot, "GameB"),
+                "--reason", "e2e", "--data-dir", dataDir, "--format", "json");
+            Assert.Equal(0, ignoreCreate.ExitCode);
+            var ignoreId = JsonDocument.Parse(ignoreCreate.StdOut)
+                .RootElement.GetProperty("data").GetProperty("ignoreId").GetString();
+
+            var start = await RunCliAsync(
+                "scan", "start", "--root", scanRoot, "--data-dir", dataDir, "--format", "json");
+            Assert.Equal(0, start.ExitCode);
+            var jobId = JsonDocument.Parse(start.StdOut)
+                .RootElement.GetProperty("jobId").GetString();
+
+            string? state = null;
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(20);
+            while (DateTime.UtcNow < deadline)
+            {
+                var status = await RunCliAsync(
+                    "jobs", "get", "--job-id", jobId!, "--data-dir", dataDir, "--format", "json");
+                Assert.Equal(0, status.ExitCode);
+                state = JsonDocument.Parse(status.StdOut)
+                    .RootElement.GetProperty("data").GetProperty("state").GetString();
+                if (state is "succeeded" or "failed")
+                {
+                    break;
+                }
+
+                await Task.Delay(100);
+            }
+
+            Assert.Equal("succeeded", state);
+
+            // 覆盖报告按规则计数：GameB 分支被排除且可解释。
+            var coverage = await RunCliAsync(
+                "scan", "coverage", "--job-id", jobId!, "--data-dir", dataDir, "--format", "json");
+            Assert.Equal(0, coverage.ExitCode);
+            var coverageData = JsonDocument.Parse(coverage.StdOut)
+                .RootElement.GetProperty("data").GetProperty("coverage");
+            Assert.Equal("complete", coverageData.GetProperty("completion").GetString());
+            Assert.Equal(1, coverageData.GetProperty("skippedDirectories").GetInt64());
+            Assert.Equal(
+                1,
+                coverageData.GetProperty("excludedByRule").GetProperty(ignoreId!).GetInt64());
+
+            // 被忽略子树不产生候选：仅 GameA。
+            var list = await RunCliAsync(
+                "candidates", "list", "--job-id", jobId!, "--data-dir", dataDir, "--format", "json");
+            Assert.Equal(0, list.ExitCode);
+            var listData = JsonDocument.Parse(list.StdOut).RootElement.GetProperty("data");
+            Assert.Equal(1, listData.GetProperty("total").GetInt32());
+            Assert.Contains(
+                "GameA",
+                listData.GetProperty("items")[0].GetProperty("relativePath").GetString());
+
+            var hostStatus = await RunCliAsync("host", "status", "--data-dir", dataDir, "--format", "json");
+            hostPid = JsonDocument.Parse(hostStatus.StdOut)
+                .RootElement.GetProperty("data").GetProperty("processId").GetInt32();
+        }
+        finally
+        {
+            KillHost(hostPid);
+            TryCleanup(runId);
+        }
+    }
+
+    [Fact]
     public async Task Mcp_ScanStart_ReturnsAcceptedJob()
     {
         var runId = NewRunDir("e2e-mcp-scan");
