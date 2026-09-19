@@ -8,7 +8,6 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationIcon>App.ico</ApplicationIcon>
-    <Version>1.1.7</Version>
     <Product>GameLibrary</Product>
     <AssemblyTitle>GameLibrary Desktop</AssemblyTitle>
   </PropertyGroup>

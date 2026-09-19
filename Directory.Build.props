@@ -12,8 +12,7 @@
     <AccelerateBuildsInVisualStudio>true</AccelerateBuildsInVisualStudio>
     <Company>GameLibrary</Company>
     <Product>GameLibrary</Product>
-    <VersionPrefix>0.1.0</VersionPrefix>
-    <VersionSuffix>dev</VersionSuffix>
+    <Version>1.1.7</Version>
     <NeutralLanguage>en-US</NeutralLanguage>
   </PropertyGroup>
 </Project>

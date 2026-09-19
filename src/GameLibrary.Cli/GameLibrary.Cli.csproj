@@ -5,7 +5,6 @@
     <TargetFramework>net10.0-windows</TargetFramework>
     <AssemblyName>gamelibrary</AssemblyName>
     <RootNamespace>GameLibrary.Cli</RootNamespace>
-    <Version>1.1.7</Version>
     <Product>GameLibrary</Product>
     <AssemblyTitle>GameLibrary CLI</AssemblyTitle>
   </PropertyGroup>

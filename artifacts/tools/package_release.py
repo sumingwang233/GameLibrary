@@ -49,21 +49,45 @@ COMPONENTS = [
 
 
 def read_version():
-    for props in [
-        os.path.join(WORKSPACE, "Directory.Build.props"),
-        os.path.join(WORKSPACE, "src", "GameLibrary.Desktop", "GameLibrary.Desktop.csproj"),
-    ]:
-        if not os.path.exists(props):
-            continue
-        with open(props, encoding="utf-8") as source:
-            text = source.read()
-        start = text.find("<Version>")
-        if start >= 0:
-            start += len("<Version>")
-            end = text.find("</Version>", start)
-            if end > start:
-                return text[start:end].strip()
-    return "1.0.0"
+    """单一真源：Directory.Build.props 的 <Version>（R38）。缺失即失败，不做静默回退。"""
+    props = os.path.join(WORKSPACE, "Directory.Build.props")
+    with open(props, encoding="utf-8") as source:
+        text = source.read()
+    start = text.find("<Version>")
+    if start >= 0:
+        start += len("<Version>")
+        end = text.find("</Version>", start)
+        if end > start:
+            return text[start:end].strip()
+    raise SystemExit(f"Directory.Build.props 缺少 <Version> 声明：{props}")
+
+
+def assert_version_sync(version):
+    """Tauri 三件套必须与单一真源一致；tauri.conf.json 不声明版本（继承 Cargo.toml）。"""
+    expectations = []
+
+    cargo = os.path.join(WORKSPACE, "src", "GameLibrary.Tauri", "src-tauri", "Cargo.toml")
+    with open(cargo, encoding="utf-8") as source:
+        for line in source:
+            if line.startswith("version ="):
+                expectations.append(("Cargo.toml", line.split("=", 1)[1].strip().strip('"')))
+                break
+
+    package_json = os.path.join(WORKSPACE, "src", "GameLibrary.Tauri", "package.json")
+    with open(package_json, encoding="utf-8") as source:
+        for line in source:
+            if '"version"' in line:
+                expectations.append(("package.json", line.split(":", 1)[1].strip().strip('",')))
+                break
+
+    tauri_conf = os.path.join(WORKSPACE, "src", "GameLibrary.Tauri", "src-tauri", "tauri.conf.json")
+    with open(tauri_conf, encoding="utf-8") as source:
+        if '"version"' in source.read():
+            raise SystemExit("tauri.conf.json 不应声明 version（已改为继承 Cargo.toml，单一真源在 Directory.Build.props）")
+
+    mismatched = [f"{name}={found}" for name, found in expectations if found != version]
+    if mismatched:
+        raise SystemExit(f"版本声明与单一真源 {version} 不一致：{'; '.join(mismatched)}")
 
 
 def sh(cmd, cwd=WORKSPACE, timeout=1200):
@@ -478,6 +502,7 @@ def main():
     args = parse_args()
     os.makedirs(DIST, exist_ok=True)
     version = read_version()
+    assert_version_sync(version)
     log = [f"version={version}"]
     try:
         signing = signing_configuration(args.require_signing, log)
