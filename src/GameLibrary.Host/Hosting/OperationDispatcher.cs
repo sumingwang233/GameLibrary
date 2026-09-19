@@ -1311,7 +1311,6 @@ public sealed partial class OperationDispatcher
         }
 
         var utcNow = DateTime.UtcNow;
-        string? ignoreId = null;
         if (action == "accept")
         {
             // R43：建卡/复用 + 引擎标签 + 候选转移单事务提交；conflict 不落任何写。
@@ -1365,28 +1364,41 @@ public sealed partial class OperationDispatcher
 
         if (action == "ignore")
         {
-            ignoreId = $"ignore-{Guid.NewGuid():N}";
-            store.InsertIgnoreRule(new IgnoreRule
+            // R48：忽略规则 + 候选转移单事务；conflict 不落任何写。
+            var outcome = store.IgnoreCandidate(
+                candidateId,
+                expectedRevision.Value,
+                new IgnoreRule
+                {
+                    IgnoreId = $"ignore-{Guid.NewGuid():N}",
+                    Scope = "ExactPath",
+                    Path = current.PhysicalPath,
+                    Reason = "candidates.ignore",
+                    CreatedUtc = utcNow,
+                },
+                utcNow);
+            if (outcome.Status == "conflict")
             {
-                IgnoreId = ignoreId,
-                Scope = "ExactPath",
-                Path = current.PhysicalPath,
-                Reason = "candidates.ignore",
-                CreatedUtc = utcNow,
-            });
+                return new Envelope<object>
+                {
+                    RequestId = request.RequestId,
+                    Ok = false,
+                    Status = OperationStatus.Failed,
+                    Error = new RequestError
+                    {
+                        Code = ErrorCodes.RevisionConflict,
+                        Message = $"候选 Revision 不一致：期望 {expectedRevision}，当前 {outcome.Candidate.Revision}（状态 {outcome.Candidate.ReviewState}）",
+                        Retryable = false,
+                    },
+                };
+            }
+
+            return CandidateReviewResult(request, "ignored", outcome.Candidate.Revision, null, outcome.IgnoreId);
         }
 
-        // defer/ignore 共用单步转移（accept 已在上面原子路径提前返回）。
+        // defer：单步转移（accept/ignore 已在各自原子路径提前返回）。
         var updated = store.TransitionCandidate(
-            candidateId, "pendingReview",
-            action switch
-            {
-                "defer" => "deferred",
-                _ => "ignored",
-            },
-            expectedRevision.Value,
-            gameId: null,
-            utcNow);
+            candidateId, "pendingReview", "deferred", expectedRevision.Value, gameId: null, utcNow);
         if (updated is null)
         {
             var latest = store.TryGetCandidate(candidateId);
@@ -1404,7 +1416,7 @@ public sealed partial class OperationDispatcher
             };
         }
 
-        return CandidateReviewResult(request, updated.ReviewState, updated.Revision, updated.GameId, ignoreId);
+        return CandidateReviewResult(request, updated.ReviewState, updated.Revision, updated.GameId, null);
     }
 
     private static Envelope<object> CandidateReviewResult(IpcRequest request, string state, int revision, string? gameId, string? ignoreId) =>

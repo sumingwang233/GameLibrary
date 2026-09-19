@@ -211,6 +211,20 @@ public sealed class CandidateReviewTests : IClassFixture<PipeServerFixture>
         var physicalPath = detail.Data.GetProperty("physicalPath").GetString()!;
         var revision = item.GetProperty("revision").GetInt32();
 
+        // R48 原子性：Revision 冲突不落任何写——旧实现会先插入忽略规则再冲突，留下孤儿规则。
+        var rulesBeforeStale = await InvokeAsync("ignores.list", new { });
+        var rulesBeforeStaleTotal = rulesBeforeStale.Data.GetProperty("total").GetInt32();
+        var staleIgnore = await InvokeAsync("candidates.ignore", new
+        {
+            idempotencyKey = "stale-ignore-" + candidateId,
+            candidateId,
+            expectedRevision = revision - 1,
+        });
+        Assert.False(staleIgnore.Ok);
+        Assert.Equal(ErrorCodes.RevisionConflict, staleIgnore.Error!.Code);
+        var rulesAfterStale = await InvokeAsync("ignores.list", new { });
+        Assert.Equal(rulesBeforeStaleTotal, rulesAfterStale.Data.GetProperty("total").GetInt32());
+
         var ignore = await InvokeAsync("candidates.ignore", new
         {
             idempotencyKey = "ignore-" + candidateId,

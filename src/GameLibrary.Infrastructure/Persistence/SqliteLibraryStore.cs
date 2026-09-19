@@ -189,6 +189,16 @@ public sealed class SqliteLibraryStore : IAsyncDisposable
         }
     }
 
+    /// <summary>ignore 原子化（R48）：忽略规则 + 候选转移单事务提交，conflict 不落任何写。</summary>
+    public IgnoreCandidateOutcome IgnoreCandidate(
+        string candidateId, int expectedRevision, IgnoreRule rule, DateTime utcNow)
+    {
+        lock (_sync)
+        {
+            return LibraryCatalogStore.IgnoreCandidate(_connection, candidateId, expectedRevision, rule, utcNow);
+        }
+    }
+
     public void InsertGame(GameCard game)
     {
         lock (_sync)

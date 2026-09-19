@@ -123,6 +123,16 @@ public sealed record AcceptCandidateOutcome
     public required string GameId { get; init; }
 }
 
+/// <summary>ignore 结果：ignored=本次成功；conflict=状态或 Revision 不符（不落任何写）。</summary>
+public sealed record IgnoreCandidateOutcome
+{
+    public required string Status { get; init; }
+
+    public required PersistedCandidate Candidate { get; init; }
+
+    public required string IgnoreId { get; init; }
+}
+
 /// <summary>
 /// 入库/忽略目录存储（T11）：候选按物理路径 upsert；审核转移由 Domain 状态机校验后在此落库。
 /// Host 是唯一连接所有者；方法为同步 SQLite 调用，由宿主单写入语义串行化。
@@ -437,6 +447,92 @@ public static class LibraryCatalogStore
                 UpdatedUtc = utcNow,
             },
             GameId = gameId,
+        };
+    }
+
+    /// <summary>
+    /// ignore 原子化（R48）：忽略规则 + 候选转移在单事务内提交。
+    /// 此前两步各自成事务，中间失败会留下没有生效对象的规则；conflict 时本方法不落任何写。
+    /// </summary>
+    public static IgnoreCandidateOutcome IgnoreCandidate(
+        SqliteConnection connection,
+        string candidateId,
+        int expectedRevision,
+        IgnoreRule rule,
+        DateTime utcNow)
+    {
+        using var transaction = (SqliteTransaction)connection.BeginTransaction();
+        PersistedCandidate current;
+        using (var select = connection.CreateCommand())
+        {
+            select.Transaction = transaction;
+            select.CommandText = """
+                SELECT candidate_id, job_id, kind, relative_path, physical_path, payload_json,
+                       review_state, revision, game_id, observed_utc, updated_utc
+                FROM candidates WHERE candidate_id = $id
+                """;
+            select.Parameters.AddWithValue("$id", candidateId);
+            using var reader = select.ExecuteReader();
+            if (!reader.Read())
+            {
+                transaction.Rollback();
+                throw new InvalidOperationException($"候选不存在：{candidateId}（调用方应先校验）");
+            }
+
+            current = ReadCandidate(reader);
+        }
+
+        if (current.ReviewState != "pendingReview" || current.Revision != expectedRevision)
+        {
+            transaction.Rollback();
+            return new IgnoreCandidateOutcome
+            {
+                Status = "conflict",
+                Candidate = current,
+                IgnoreId = "",
+            };
+        }
+
+        using (var insert = connection.CreateCommand())
+        {
+            insert.Transaction = transaction;
+            insert.CommandText = """
+                INSERT INTO ignore_rules (ignore_id, scope, path, game_id, reason, revision, created_utc)
+                VALUES ($id, $scope, $path, $game, $reason, 1, $created)
+                """;
+            insert.Parameters.AddWithValue("$id", rule.IgnoreId);
+            insert.Parameters.AddWithValue("$scope", rule.Scope);
+            insert.Parameters.AddWithValue("$path", (object?)rule.Path ?? DBNull.Value);
+            insert.Parameters.AddWithValue("$game", (object?)rule.GameId ?? DBNull.Value);
+            insert.Parameters.AddWithValue("$reason", (object?)rule.Reason ?? DBNull.Value);
+            insert.Parameters.AddWithValue("$created", rule.CreatedUtc.ToString("O", CultureInfo.InvariantCulture));
+            insert.ExecuteNonQuery();
+        }
+
+        using (var update = connection.CreateCommand())
+        {
+            update.Transaction = transaction;
+            update.CommandText = """
+                UPDATE candidates
+                SET review_state = 'ignored', revision = revision + 1, updated_utc = $now
+                WHERE candidate_id = $id
+                """;
+            update.Parameters.AddWithValue("$now", utcNow.ToString("O", CultureInfo.InvariantCulture));
+            update.Parameters.AddWithValue("$id", candidateId);
+            update.ExecuteNonQuery();
+        }
+
+        transaction.Commit();
+        return new IgnoreCandidateOutcome
+        {
+            Status = "ignored",
+            Candidate = current with
+            {
+                ReviewState = "ignored",
+                Revision = current.Revision + 1,
+                UpdatedUtc = utcNow,
+            },
+            IgnoreId = rule.IgnoreId,
         };
     }
 
