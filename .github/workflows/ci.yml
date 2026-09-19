@@ -36,6 +36,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-dotnet@v4
+        with:
+          # prepare:sidecars 需要 .NET 发布 TauriBridge/Host sidecar，
+          # cargo check 的 build.rs 校验 externalBin 存在。
+          dotnet-version: "10.0.401"
+
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -60,6 +66,10 @@ jobs:
 
       - name: vite build
         run: npm run build
+        working-directory: src/GameLibrary.Tauri
+
+      - name: prepare sidecars
+        run: npm run prepare:sidecars
         working-directory: src/GameLibrary.Tauri
 
       - name: cargo fmt

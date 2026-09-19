@@ -6,8 +6,16 @@ import subprocess
 PROJECT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 WORKSPACE = os.path.abspath(os.path.join(PROJECT, "..", ".."))
 BINARIES = os.path.join(PROJECT, "src-tauri", "binaries")
-DOTNET = os.path.expanduser(r"~\.dotnet-sdk-10.0\dotnet.exe")
 TARGET = "x86_64-pc-windows-msvc"
+
+
+def resolve_dotnet() -> str:
+    # 本机用户目录 SDK 优先；CI（setup-dotnet）走 PATH。
+    user_sdk = os.path.expanduser(r"~\.dotnet-sdk-10.0\dotnet.exe")
+    return user_sdk if os.path.exists(user_sdk) else "dotnet"
+
+
+DOTNET = resolve_dotnet()
 
 
 def publish(project: str, executable: str, properties: list[str] | None = None) -> None:

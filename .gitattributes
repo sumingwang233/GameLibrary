@@ -1,0 +1,7 @@
+# 统一文本文件 LF 检出：Windows CI runner 的 git autocrlf=true 会把 LF
+# 检出成 CRLF，导致 dotnet format 的 ENDOFLINE 门禁失败（R46）。
+* text=auto eol=lf
+
+# Windows 批处理必须 CRLF 才能可靠执行。
+*.bat text eol=crlf
+*.cmd text eol=crlf
