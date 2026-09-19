@@ -1018,18 +1018,33 @@ public sealed partial class OperationDispatcher
         var (title, titleSource) = store.EffectiveField(game.GameId, "title", game.Title);
         var (summary, summarySource) = store.EffectiveField(game.GameId, "summary", "");
         var coverAssetId = store.ListAssets(game.GameId).FirstOrDefault(a => a.IsCurrent)?.AssetId;
-        var tags = store.ListGameTags(game.GameId)
+        var tags = store.ListGameTags(game.GameId);
+        return GameDto(game, new GameCardEnrichment
+        {
+            Title = title,
+            TitleSource = titleSource,
+            Summary = summary ?? "",
+            SummarySource = summarySource,
+            CoverAssetId = coverAssetId,
+            Tags = tags,
+        });
+    }
+
+    /// <summary>DTO 组装（单游戏与 games.list 批量共用，字段形状只有一个真源）。</summary>
+    private object GameDto(GameCard game, GameCardEnrichment enrichment)
+    {
+        var tags = enrichment.Tags
             .Select(t => new { kind = t.Kind, name = t.Name })
             .ToArray();
         return new
         {
             gameId = game.GameId,
             favorite = game.Favorite,
-            title = title ?? "",
-            titleSource,
-            summary,
-            summarySource,
-            coverAssetId,
+            title = enrichment.Title ?? "",
+            titleSource = enrichment.TitleSource,
+            summary = enrichment.Summary,
+            summarySource = enrichment.SummarySource,
+            coverAssetId = enrichment.CoverAssetId,
             rootPath = game.RootPath,
             kind = game.Kind,
             engine = game.Engine,

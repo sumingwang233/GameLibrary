@@ -1577,7 +1577,9 @@ public sealed partial class OperationDispatcher
         }
 
         var (total, games) = store.QueryGames(search, favoriteFilter, tagId, sort, limit, offset);
-        var dtos = games.Select(g => GameDto(store, g)).ToArray();
+        // R41：批量充实取代逐游戏 4 次查询（各过一次存储锁）。
+        var enrichment = store.EnrichGameCards(games);
+        var dtos = games.Select(g => GameDto(g, enrichment[g.GameId])).ToArray();
 
         return new Envelope<object>
         {

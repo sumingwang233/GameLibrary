@@ -152,6 +152,34 @@ public sealed class GameCatalogPerformanceTests
     }
 
     [Fact]
+    public async Task R41_BatchEnrichment_LatencyAt5000Games()
+    {
+        var dataDir = FreshDataDir("r41-enrich");
+        try
+        {
+            var store = await SeedAsync(dataDir);
+            await using var _ = store;
+
+            var (_, games) = store.QueryGames(null, false, null, "title", 0, 0);
+            Assert.Equal(GameCount, games.Count);
+
+            // R41 前：逐游戏 4 次查询（≈20000 次）；后：500 一组 × 3 维度（30 次）。
+            var sw = Stopwatch.StartNew();
+            var enrichment = store.EnrichGameCards(games);
+            sw.Stop();
+            Assert.Equal(GameCount, enrichment.Count);
+            Assert.All(enrichment.Values, e => Assert.Equal("auto", e.TitleSource));
+            Assert.True(
+                sw.ElapsedMilliseconds <= 300,
+                $"批量充实 {sw.ElapsedMilliseconds} ms 超预算 300 ms");
+        }
+        finally
+        {
+            Cleanup(dataDir);
+        }
+    }
+
+    [Fact]
     public async Task QueryGames_SortsByTitleUpdatedAndAcceptedTime()
     {
         var dataDir = FreshDataDir("game-sort");

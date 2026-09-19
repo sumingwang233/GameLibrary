@@ -97,6 +97,22 @@ public sealed record IgnoreRule
     public required DateTime CreatedUtc { get; init; }
 }
 
+/// <summary>列表页充实数据（games.list 批量取回，等价于逐游戏 EffectiveField×2 + ListAssets + ListGameTags）。</summary>
+public sealed record GameCardEnrichment
+{
+    public required string? Title { get; init; }
+
+    public required string TitleSource { get; init; }
+
+    public required string Summary { get; init; }
+
+    public required string SummarySource { get; init; }
+
+    public required string? CoverAssetId { get; init; }
+
+    public required IReadOnlyList<(string Kind, string Name)> Tags { get; init; }
+}
+
 /// <summary>
 /// 入库/忽略目录存储（T11）：候选按物理路径 upsert；审核转移由 Domain 状态机校验后在此落库。
 /// Host 是唯一连接所有者；方法为同步 SQLite 调用，由宿主单写入语义串行化。
@@ -491,6 +507,123 @@ public static class LibraryCatalogStore
         if (!string.IsNullOrWhiteSpace(tagId))
         {
             command.Parameters.AddWithValue("$tagId", tagId);
+        }
+    }
+
+    /// <summary>
+    /// 批量充实（R41）：按 500 个 gameId 一组分三次查询取回字段/封面/标签，
+    /// 取代 games.list 每游戏 4 次独立查询（各过一次存储锁）。
+    /// 语义与单游戏路径一致：字段 user 来源优先、封面取 (imported_utc, asset_id)
+    /// 序下第一条 is_current、标签按 (kind, name NOCASE) 排序。
+    /// </summary>
+    public static IReadOnlyDictionary<string, GameCardEnrichment> EnrichGameCards(
+        SqliteConnection connection, IReadOnlyList<GameCard> games)
+    {
+        const int chunkSize = 500;
+        var titles = new Dictionary<string, (string? Value, string Source)>(StringComparer.Ordinal);
+        var summaries = new Dictionary<string, (string? Value, string Source)>(StringComparer.Ordinal);
+        var covers = new Dictionary<string, string>(StringComparer.Ordinal);
+        var tags = new Dictionary<string, List<(string Kind, string Name)>>(StringComparer.Ordinal);
+
+        for (var chunkStart = 0; chunkStart < games.Count; chunkStart += chunkSize)
+        {
+            var ids = new string[Math.Min(chunkSize, games.Count - chunkStart)];
+            for (var i = 0; i < ids.Length; i++)
+            {
+                ids[i] = games[chunkStart + i].GameId;
+            }
+
+            var idList = string.Join(", ", ids.Select((_, i) => $"$id{i}"));
+
+            using (var fields = connection.CreateCommand())
+            {
+                fields.CommandText = $"""
+                    SELECT game_id, field_key, value, source FROM game_fields
+                    WHERE field_key IN ('title', 'summary') AND game_id IN ({idList})
+                    ORDER BY game_id, field_key, CASE source WHEN 'user' THEN 0 ELSE 1 END
+                    """;
+                BindIds(fields, ids);
+                using var reader = fields.ExecuteReader();
+                while (reader.Read())
+                {
+                    var gameId = reader.GetString(0);
+                    var entry = (reader.IsDBNull(2) ? null : reader.GetString(2), reader.GetString(3));
+                    var target = reader.GetString(1) == "title" ? titles : summaries;
+                    // 同键多行时保留优先级更高（user 先出现）的第一条。
+                    if (!target.ContainsKey(gameId))
+                    {
+                        target[gameId] = entry;
+                    }
+                }
+            }
+
+            using (var assets = connection.CreateCommand())
+            {
+                assets.CommandText = $"""
+                    SELECT game_id, asset_id, is_current FROM game_assets
+                    WHERE game_id IN ({idList})
+                    ORDER BY imported_utc, asset_id
+                    """;
+                BindIds(assets, ids);
+                using var reader = assets.ExecuteReader();
+                while (reader.Read())
+                {
+                    var gameId = reader.GetString(0);
+                    if (reader.GetInt64(2) == 1 && !covers.ContainsKey(gameId))
+                    {
+                        covers[gameId] = reader.GetString(1);
+                    }
+                }
+            }
+
+            using (var gameTags = connection.CreateCommand())
+            {
+                gameTags.CommandText = $"""
+                    SELECT gt.game_id, t.kind, t.name FROM game_tags gt
+                    JOIN tags t ON t.tag_id = gt.tag_id
+                    WHERE gt.game_id IN ({idList})
+                    ORDER BY gt.game_id, t.kind, t.name COLLATE NOCASE
+                    """;
+                BindIds(gameTags, ids);
+                using var reader = gameTags.ExecuteReader();
+                while (reader.Read())
+                {
+                    var gameId = reader.GetString(0);
+                    if (!tags.TryGetValue(gameId, out var list))
+                    {
+                        list = [];
+                        tags[gameId] = list;
+                    }
+
+                    list.Add((reader.GetString(1), reader.GetString(2)));
+                }
+            }
+        }
+
+        var result = new Dictionary<string, GameCardEnrichment>(StringComparer.Ordinal);
+        foreach (var game in games)
+        {
+            var title = titles.GetValueOrDefault(game.GameId, (Value: game.Title, Source: "auto"));
+            var summary = summaries.GetValueOrDefault(game.GameId, (Value: "", Source: "auto"));
+            result[game.GameId] = new GameCardEnrichment
+            {
+                Title = title.Value,
+                TitleSource = title.Source,
+                Summary = summary.Value ?? "",
+                SummarySource = summary.Source,
+                CoverAssetId = covers.GetValueOrDefault(game.GameId),
+                Tags = tags.GetValueOrDefault(game.GameId, []),
+            };
+        }
+
+        return result;
+    }
+
+    private static void BindIds(SqliteCommand command, IReadOnlyList<string> ids)
+    {
+        for (var i = 0; i < ids.Count; i++)
+        {
+            command.Parameters.AddWithValue($"$id{i}", ids[i]);
         }
     }
 

@@ -221,6 +221,16 @@ public sealed class SqliteLibraryStore : IAsyncDisposable
         }
     }
 
+    /// <summary>列表页批量充实（R41）：单锁一次取回字段/封面/标签，取代逐游戏 4 次查询。</summary>
+    public IReadOnlyDictionary<string, GameCardEnrichment> EnrichGameCards(
+        IReadOnlyList<GameCard> games)
+    {
+        lock (_sync)
+        {
+            return LibraryCatalogStore.EnrichGameCards(_connection, games);
+        }
+    }
+
     // T-collections 标签转发（v18）。
 
     public IReadOnlyList<PersistedTag> ListTags()
