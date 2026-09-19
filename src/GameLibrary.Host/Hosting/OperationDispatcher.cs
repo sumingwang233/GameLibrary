@@ -57,12 +57,17 @@ public sealed partial class OperationDispatcher
     /// （library.init/restore 整体替换 Library），events 为 init-only 引用。</summary>
     private readonly TagsHandler _tags;
 
+    /// <summary>工具验证域（verification.* 五操作）：store 经委托每请求取当前值
+    /// （library.init/restore 整体替换 Library）；域内零事件，不注入 EventStream。</summary>
+    private readonly VerificationHandler _verification;
+
     public OperationDispatcher(HostRuntimeState state)
     {
         _state = state;
         _candidateReview = new CandidateReviewHandler(() => state.Library.Store, state.Events);
         _ignoreRules = new IgnoreRulesHandler(() => state.Library.Store, state.Roots);
         _tags = new TagsHandler(() => state.Library.Store, state.Events);
+        _verification = new VerificationHandler(() => state.Library.Store);
     }
 
     /// <summary>已接入收据的操作子集：catalog 声明 requiresIdempotencyKey 的已实现操作。
@@ -650,11 +655,11 @@ public sealed partial class OperationDispatcher
         "backups.restore_plan" => BackupsRestorePlan(request),
         "backups.restore" => BackupsRestore(request).GetAwaiter().GetResult(),
         "tools.discover" => ToolsDiscover(request),
-        "verification.start" => VerificationStart(request),
-        "verification.report" => VerificationReport(request),
-        "verification.invalidate" => VerificationInvalidate(request),
-        "verification.get" => VerificationGet(request),
-        "verification.list" => VerificationList(request),
+        "verification.start" => _verification.VerificationStart(request),
+        "verification.report" => _verification.VerificationReport(request),
+        "verification.invalidate" => _verification.VerificationInvalidate(request),
+        "verification.get" => _verification.VerificationGet(request),
+        "verification.list" => _verification.VerificationList(request),
         "fields.set" => FieldsSet(request),
         "fields.clear" => FieldsClear(request),
         "fields.reset" => FieldsReset(request),
