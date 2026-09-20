@@ -1,32 +1,58 @@
-using System.Collections.Concurrent;
-using System.Diagnostics;
-using System.Reflection;
 using System.Text.Json;
 using GameLibrary.Contracts;
 using GameLibrary.Contracts.Ipc;
-using GameLibrary.Domain.Classification;
-using GameLibrary.Domain.Detection;
-using GameLibrary.Domain.Detection.Detectors;
-using GameLibrary.Host.Observability;
 using GameLibrary.Host.Scanning;
 using GameLibrary.Host.Tools;
-using GameLibrary.Infrastructure.Backups;
 using GameLibrary.Infrastructure.Persistence;
-using GameLibrary.Infrastructure.Scanning;
+using GameLibrary.Infrastructure.Shell;
+
 namespace GameLibrary.Host.Hosting;
 
-
-
-/// <summary>OperationDispatcher 的 ViewSettings 域 handler（阶段三按域拆分，partial）。</summary>
-public sealed partial class OperationDispatcher
+/// <summary>
+/// 视图设置域处理器：views.list/get/create/update/remove/activate 六操作 +
+/// notifications.list/get/acknowledge/defer 四操作 + settings.get/update/reset 三操作。
+/// Store 经委托每请求取当前值（library.init / backups.restore 会整体替换 Library，
+/// 禁止构造时缓存 store 引用）；Events 为 init-only 引用（换库由 EventStream.BindStore
+/// 在其内部重绑）；ActiveViewId 是宿主可变内存态，经 getter/setter 委托读写；
+/// StartupShortcuts 为宿主 settable 属性，经委托每请求取值（测试可能在任意时序替换）。
+/// 由 DispatchCore 调用，天然继承幂等收据（本域变更操作在 ReceiptOperations）、
+/// 串行门、权限与维护模式等中间件。
+/// </summary>
+internal sealed class ViewSettingsHandler
 {
-    /// <summary>内置视图 + 自定义视图（T15-C）；activeViewId 为宿主内存态。</summary>
-    private Envelope<object> ViewsList(IpcRequest request)
+    private readonly Func<SqliteLibraryStore?> _storeAccessor;
+    private readonly EventStream _events;
+    private readonly Func<string?> _getActiveViewId;
+    private readonly Action<string?> _setActiveViewId;
+    private readonly RootRegistry _roots;
+    private readonly string _dataDirectory;
+    private readonly Func<StartupShortcutManager> _startupShortcuts;
+
+    public ViewSettingsHandler(
+        Func<SqliteLibraryStore?> storeAccessor,
+        EventStream events,
+        Func<string?> getActiveViewId,
+        Action<string?> setActiveViewId,
+        RootRegistry roots,
+        string dataDirectory,
+        Func<StartupShortcutManager> startupShortcuts)
     {
-        var store = _state.Library.Store;
+        _storeAccessor = storeAccessor;
+        _events = events;
+        _getActiveViewId = getActiveViewId;
+        _setActiveViewId = setActiveViewId;
+        _roots = roots;
+        _dataDirectory = dataDirectory;
+        _startupShortcuts = startupShortcuts;
+    }
+
+    /// <summary>内置视图 + 自定义视图（T15-C）；activeViewId 为宿主内存态。</summary>
+    public Envelope<object> ViewsList(IpcRequest request)
+    {
+        var store = _storeAccessor();
         if (store is null)
         {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
+            return IpcRequests.InvalidArgument(request, "库未初始化（先 library.init）");
         }
 
         var builtin = BuiltInViews.All.Select(v => new
@@ -38,7 +64,7 @@ public sealed partial class OperationDispatcher
             favoriteOnly = v.ViewId == "favorites",
             sort = "title",
             revision = (int?)null,
-            active = string.Equals(_state.ActiveViewId, v.ViewId, StringComparison.Ordinal),
+            active = string.Equals(_getActiveViewId(), v.ViewId, StringComparison.Ordinal),
         });
         var custom = store.ListViews().Select(v => new
         {
@@ -49,7 +75,7 @@ public sealed partial class OperationDispatcher
             favoriteOnly = v.FavoriteOnly,
             sort = v.Sort,
             revision = (int?)v.Revision,
-            active = string.Equals(_state.ActiveViewId, v.ViewId, StringComparison.Ordinal),
+            active = string.Equals(_getActiveViewId(), v.ViewId, StringComparison.Ordinal),
         });
 
         var items = builtin.Concat(custom).ToArray();
@@ -58,21 +84,22 @@ public sealed partial class OperationDispatcher
             RequestId = request.RequestId,
             Ok = true,
             Status = OperationStatus.Completed,
-            Data = new { total = items.Length, items, activeViewId = _state.ActiveViewId },
+            Data = new { total = items.Length, items, activeViewId = _getActiveViewId() },
         };
     }
 
-    private Envelope<object> ViewsGet(IpcRequest request)
+    /// <summary>查询单个视图：内置视图先行命中，自定义视图走库。</summary>
+    public Envelope<object> ViewsGet(IpcRequest request)
     {
-        var store = _state.Library.Store;
+        var store = _storeAccessor();
         if (store is null)
         {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
+            return IpcRequests.InvalidArgument(request, "库未初始化（先 library.init）");
         }
 
-        if (!TryGetStringParameter(request, "viewId", out var viewId))
+        if (!IpcRequests.TryGetStringParameter(request, "viewId", out var viewId))
         {
-            return InvalidArgument(request, "缺少 viewId 参数");
+            return IpcRequests.InvalidArgument(request, "缺少 viewId 参数");
         }
 
         var builtin = BuiltInViews.All.FirstOrDefault(v => v.ViewId == viewId);
@@ -99,7 +126,7 @@ public sealed partial class OperationDispatcher
         var view = store.TryGetView(viewId);
         if (view is null)
         {
-            return NotFound(request, $"视图不存在：{viewId}");
+            return IpcRequests.NotFound(request, $"视图不存在：{viewId}");
         }
 
         return new Envelope<object>
@@ -120,25 +147,26 @@ public sealed partial class OperationDispatcher
         };
     }
 
-    private Envelope<object> ViewsCreate(IpcRequest request)
+    /// <summary>创建自定义视图：name 必填，sort 仅 title/recent。</summary>
+    public Envelope<object> ViewsCreate(IpcRequest request)
     {
-        var store = _state.Library.Store;
+        var store = _storeAccessor();
         if (store is null)
         {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
+            return IpcRequests.InvalidArgument(request, "库未初始化（先 library.init）");
         }
 
-        if (!TryGetStringParameter(request, "name", out var name) || name.Length == 0)
+        if (!IpcRequests.TryGetStringParameter(request, "name", out var name) || name.Length == 0)
         {
-            return InvalidArgument(request, "缺少 name 参数");
+            return IpcRequests.InvalidArgument(request, "缺少 name 参数");
         }
 
-        TryGetStringParameter(request, "search", out var search);
-        TryGetBoolParameter(request, "favoriteOnly", out var favoriteOnly);
-        TryGetStringParameter(request, "sort", out var sort);
+        IpcRequests.TryGetStringParameter(request, "search", out var search);
+        IpcRequests.TryGetBoolParameter(request, "favoriteOnly", out var favoriteOnly);
+        IpcRequests.TryGetStringParameter(request, "sort", out var sort);
         if (sort.Length > 0 && sort is not ("title" or "recent"))
         {
-            return InvalidArgument(request, "sort 只支持 title/recent");
+            return IpcRequests.InvalidArgument(request, "sort 只支持 title/recent");
         }
 
         var now = DateTime.UtcNow;
@@ -153,7 +181,7 @@ public sealed partial class OperationDispatcher
             UpdatedUtc = now,
         };
         store.InsertView(view);
-        _state.Events.Publish("view.updated", $"view:{view.ViewId}", new { viewId = view.ViewId, name }, now);
+        _events.Publish("view.updated", $"view:{view.ViewId}", new { viewId = view.ViewId, name }, now);
         return new Envelope<object>
         {
             RequestId = request.RequestId,
@@ -163,36 +191,37 @@ public sealed partial class OperationDispatcher
         };
     }
 
-    private Envelope<object> ViewsUpdate(IpcRequest request)
+    /// <summary>更新自定义视图（内置视图不可修改）：expectedRevision 乐观并发校验。</summary>
+    public Envelope<object> ViewsUpdate(IpcRequest request)
     {
-        var store = _state.Library.Store;
+        var store = _storeAccessor();
         if (store is null)
         {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
+            return IpcRequests.InvalidArgument(request, "库未初始化（先 library.init）");
         }
 
-        if (!TryGetStringParameter(request, "viewId", out var viewId))
+        if (!IpcRequests.TryGetStringParameter(request, "viewId", out var viewId))
         {
-            return InvalidArgument(request, "缺少 viewId 参数");
+            return IpcRequests.InvalidArgument(request, "缺少 viewId 参数");
         }
 
-        if (!TryGetIntParameter(request, "expectedRevision", out var expectedRevision) || expectedRevision is null)
+        if (!IpcRequests.TryGetIntParameter(request, "expectedRevision", out var expectedRevision) || expectedRevision is null)
         {
-            return InvalidArgument(request, "缺少 expectedRevision 参数");
+            return IpcRequests.InvalidArgument(request, "缺少 expectedRevision 参数");
         }
 
         if (BuiltInViews.All.Any(v => v.ViewId == viewId))
         {
-            return InvalidArgument(request, $"内置视图 {viewId} 不可修改");
+            return IpcRequests.InvalidArgument(request, $"内置视图 {viewId} 不可修改");
         }
 
-        TryGetStringParameter(request, "name", out var name);
-        TryGetStringParameter(request, "search", out var search);
-        TryGetBoolParameter(request, "favoriteOnly", out var favoriteOnly);
-        TryGetStringParameter(request, "sort", out var sort);
+        IpcRequests.TryGetStringParameter(request, "name", out var name);
+        IpcRequests.TryGetStringParameter(request, "search", out var search);
+        IpcRequests.TryGetBoolParameter(request, "favoriteOnly", out var favoriteOnly);
+        IpcRequests.TryGetStringParameter(request, "sort", out var sort);
         if (sort.Length > 0 && sort is not ("title" or "recent"))
         {
-            return InvalidArgument(request, "sort 只支持 title/recent");
+            return IpcRequests.InvalidArgument(request, "sort 只支持 title/recent");
         }
 
         var newRevision = store.UpdateView(
@@ -221,7 +250,7 @@ public sealed partial class OperationDispatcher
             };
         }
 
-        _state.Events.Publish("view.updated", $"view:{viewId}", new { viewId, revision = newRevision }, DateTime.UtcNow);
+        _events.Publish("view.updated", $"view:{viewId}", new { viewId, revision = newRevision }, DateTime.UtcNow);
         return new Envelope<object>
         {
             RequestId = request.RequestId,
@@ -231,33 +260,37 @@ public sealed partial class OperationDispatcher
         };
     }
 
-    private Envelope<object> ViewsRemove(IpcRequest request)
+    /// <summary>
+    /// 删除自定义视图（内置视图不可删除）：期望 Revision 乐观校验；删除的是当前激活
+    /// 视图时清内存态并把 settings 表 activeViewId 置 null。
+    /// </summary>
+    public Envelope<object> ViewsRemove(IpcRequest request)
     {
-        var store = _state.Library.Store;
+        var store = _storeAccessor();
         if (store is null)
         {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
+            return IpcRequests.InvalidArgument(request, "库未初始化（先 library.init）");
         }
 
-        if (!TryGetStringParameter(request, "viewId", out var viewId))
+        if (!IpcRequests.TryGetStringParameter(request, "viewId", out var viewId))
         {
-            return InvalidArgument(request, "缺少 viewId 参数");
+            return IpcRequests.InvalidArgument(request, "缺少 viewId 参数");
         }
 
-        if (!TryGetIntParameter(request, "expectedRevision", out var expectedRevision) || expectedRevision is null)
+        if (!IpcRequests.TryGetIntParameter(request, "expectedRevision", out var expectedRevision) || expectedRevision is null)
         {
-            return InvalidArgument(request, "缺少 expectedRevision 参数");
+            return IpcRequests.InvalidArgument(request, "缺少 expectedRevision 参数");
         }
 
         if (BuiltInViews.All.Any(v => v.ViewId == viewId))
         {
-            return InvalidArgument(request, $"内置视图 {viewId} 不可删除");
+            return IpcRequests.InvalidArgument(request, $"内置视图 {viewId} 不可删除");
         }
 
         var view = store.TryGetView(viewId);
         if (view is null)
         {
-            return NotFound(request, $"视图不存在：{viewId}");
+            return IpcRequests.NotFound(request, $"视图不存在：{viewId}");
         }
 
         if (view.Revision != expectedRevision.Value)
@@ -278,13 +311,13 @@ public sealed partial class OperationDispatcher
         }
 
         store.DeleteView(viewId);
-        if (string.Equals(_state.ActiveViewId, viewId, StringComparison.Ordinal))
+        if (string.Equals(_getActiveViewId(), viewId, StringComparison.Ordinal))
         {
-            _state.ActiveViewId = null;
+            _setActiveViewId(null);
             store.WriteSettingsKeys([("activeViewId", null)], DateTime.UtcNow);
         }
 
-        _state.Events.Publish("view.updated", $"view:{viewId}", new { viewId, removed = true }, DateTime.UtcNow);
+        _events.Publish("view.updated", $"view:{viewId}", new { viewId, removed = true }, DateTime.UtcNow);
         return new Envelope<object>
         {
             RequestId = request.RequestId,
@@ -295,30 +328,30 @@ public sealed partial class OperationDispatcher
     }
 
     /// <summary>激活视图：校验存在性，记录内存态并广播 view.activated（瞬时语义，收据同键重放幂等）。</summary>
-    private Envelope<object> ViewsActivate(IpcRequest request)
+    public Envelope<object> ViewsActivate(IpcRequest request)
     {
-        var store = _state.Library.Store;
+        var store = _storeAccessor();
         if (store is null)
         {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
+            return IpcRequests.InvalidArgument(request, "库未初始化（先 library.init）");
         }
 
-        if (!TryGetStringParameter(request, "viewId", out var viewId))
+        if (!IpcRequests.TryGetStringParameter(request, "viewId", out var viewId))
         {
-            return InvalidArgument(request, "缺少 viewId 参数");
+            return IpcRequests.InvalidArgument(request, "缺少 viewId 参数");
         }
 
         var isBuiltin = BuiltInViews.All.Any(v => v.ViewId == viewId);
         var view = store.TryGetView(viewId);
         if (!isBuiltin && view is null)
         {
-            return NotFound(request, $"视图不存在：{viewId}");
+            return IpcRequests.NotFound(request, $"视图不存在：{viewId}");
         }
 
-        _state.ActiveViewId = viewId;
+        _setActiveViewId(viewId);
         // T-settings：激活视图持久化（跨重启恢复）。
         store.WriteSettingsKeys([("activeViewId", viewId)], DateTime.UtcNow);
-        _state.Events.Publish("view.activated", $"view:{viewId}", new { viewId }, DateTime.UtcNow);
+        _events.Publish("view.activated", $"view:{viewId}", new { viewId }, DateTime.UtcNow);
         return new Envelope<object>
         {
             RequestId = request.RequestId,
@@ -328,6 +361,7 @@ public sealed partial class OperationDispatcher
         };
     }
 
+    /// <summary>自定义视图 DTO（视图存在性已由调用方保证）。</summary>
     private object ViewDto(SqliteLibraryStore store, string viewId)
     {
         var view = store.TryGetView(viewId)!;
@@ -344,12 +378,12 @@ public sealed partial class OperationDispatcher
     }
 
     /// <summary>通知列表（T18）：state 过滤可选；通知是持久存储，重开不丢。</summary>
-    private Envelope<object> NotificationsList(IpcRequest request)
+    public Envelope<object> NotificationsList(IpcRequest request)
     {
-        var store = _state.Library.Store;
+        var store = _storeAccessor();
         if (store is null)
         {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
+            return IpcRequests.InvalidArgument(request, "库未初始化（先 library.init）");
         }
 
         string? state = null;
@@ -360,7 +394,7 @@ public sealed partial class OperationDispatcher
             state = stateElement.GetString();
             if (state is not ("pending" or "acknowledged" or "deferred"))
             {
-                return InvalidArgument(request, "state 只支持 pending/acknowledged/deferred");
+                return IpcRequests.InvalidArgument(request, "state 只支持 pending/acknowledged/deferred");
             }
         }
 
@@ -387,23 +421,24 @@ public sealed partial class OperationDispatcher
         };
     }
 
-    private Envelope<object> NotificationsGet(IpcRequest request)
+    /// <summary>查询单个通知：不存在即 NotFound。</summary>
+    public Envelope<object> NotificationsGet(IpcRequest request)
     {
-        var store = _state.Library.Store;
+        var store = _storeAccessor();
         if (store is null)
         {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
+            return IpcRequests.InvalidArgument(request, "库未初始化（先 library.init）");
         }
 
-        if (!TryGetStringParameter(request, "notificationId", out var notificationId))
+        if (!IpcRequests.TryGetStringParameter(request, "notificationId", out var notificationId))
         {
-            return InvalidArgument(request, "缺少 notificationId 参数");
+            return IpcRequests.InvalidArgument(request, "缺少 notificationId 参数");
         }
 
         var notification = store.TryGetNotification(notificationId);
         if (notification is null)
         {
-            return NotFound(request, $"通知不存在：{notificationId}");
+            return IpcRequests.NotFound(request, $"通知不存在：{notificationId}");
         }
 
         return new Envelope<object>
@@ -428,32 +463,32 @@ public sealed partial class OperationDispatcher
     /// 通知状态迁移（T18）：acknowledge ≠ 接受候选——只把通知标记为已读，
     /// 关联候选保持 pendingReview，需显式 candidates.accept/defer/ignore。
     /// </summary>
-    private Envelope<object> NotificationTransition(IpcRequest request, string toState)
+    public Envelope<object> NotificationTransition(IpcRequest request, string toState)
     {
-        var store = _state.Library.Store;
+        var store = _storeAccessor();
         if (store is null)
         {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
+            return IpcRequests.InvalidArgument(request, "库未初始化（先 library.init）");
         }
 
-        if (!TryGetStringParameter(request, "notificationId", out var notificationId))
+        if (!IpcRequests.TryGetStringParameter(request, "notificationId", out var notificationId))
         {
-            return InvalidArgument(request, "缺少 notificationId 参数");
+            return IpcRequests.InvalidArgument(request, "缺少 notificationId 参数");
         }
 
         var notification = store.TryGetNotification(notificationId);
         if (notification is null)
         {
-            return NotFound(request, $"通知不存在：{notificationId}");
+            return IpcRequests.NotFound(request, $"通知不存在：{notificationId}");
         }
 
         var transitioned = store.TransitionNotification(notificationId, toState, DateTime.UtcNow);
         if (transitioned is null)
         {
-            return InvalidArgument(request, $"通知当前状态 {notification.State}；仅 pending 可标记为 {toState}");
+            return IpcRequests.InvalidArgument(request, $"通知当前状态 {notification.State}；仅 pending 可标记为 {toState}");
         }
 
-        _state.Events.Publish("notification.updated", $"notification:{notificationId}", new
+        _events.Publish("notification.updated", $"notification:{notificationId}", new
         {
             notificationId,
             state = toState,
@@ -499,12 +534,12 @@ public sealed partial class OperationDispatcher
     /// activeViewId（宿主恢复/保存）、scanIntervalMinutes（宿主启动时构造核对周期）、
     /// autostartEnabled（启动文件夹快捷方式）；theme/closeToTray 供 Desktop 消费。
     /// </summary>
-    private Envelope<object> SettingsGet(IpcRequest request)
+    public Envelope<object> SettingsGet(IpcRequest request)
     {
-        var store = _state.Library.Store;
+        var store = _storeAccessor();
         if (store is null)
         {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
+            return IpcRequests.InvalidArgument(request, "库未初始化（先 library.init）");
         }
 
         return new Envelope<object>
@@ -520,22 +555,22 @@ public sealed partial class OperationDispatcher
     /// settings.update：受限字段 patch（未知字段拒绝）；期望 Revision 乐观校验。
     /// autostartEnabled 先应用启动文件夹快捷方式（不写注册表），成功后才落库。
     /// </summary>
-    private Envelope<object> SettingsUpdate(IpcRequest request)
+    public Envelope<object> SettingsUpdate(IpcRequest request)
     {
-        var store = _state.Library.Store;
+        var store = _storeAccessor();
         if (store is null)
         {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
+            return IpcRequests.InvalidArgument(request, "库未初始化（先 library.init）");
         }
 
-        if (!TryGetIntParameter(request, "expectedRevision", out var expectedRevision) || expectedRevision is null)
+        if (!IpcRequests.TryGetIntParameter(request, "expectedRevision", out var expectedRevision) || expectedRevision is null)
         {
-            return InvalidArgument(request, "缺少 expectedRevision 参数");
+            return IpcRequests.InvalidArgument(request, "缺少 expectedRevision 参数");
         }
 
         if (request.Parameters is not { ValueKind: JsonValueKind.Object } parameters)
         {
-            return InvalidArgument(request, "缺少 patch 字段");
+            return IpcRequests.InvalidArgument(request, "缺少 patch 字段");
         }
 
         var declared = new HashSet<string>(StringComparer.Ordinal)
@@ -602,7 +637,7 @@ public sealed partial class OperationDispatcher
                     || store.TryGetView(viewId!) is not null;
                 if (!known)
                 {
-                    return InvalidArgument(request, $"视图不存在：{viewId}");
+                    return IpcRequests.InvalidArgument(request, $"视图不存在：{viewId}");
                 }
 
                 activeViewId = viewId;
@@ -610,7 +645,7 @@ public sealed partial class OperationDispatcher
             }
             else
             {
-                return InvalidArgument(request, "activeViewId 必须是字符串或 null");
+                return IpcRequests.InvalidArgument(request, "activeViewId 必须是字符串或 null");
             }
         }
 
@@ -618,7 +653,7 @@ public sealed partial class OperationDispatcher
         {
             if (autostartElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
             {
-                return InvalidArgument(request, "autostartEnabled 必须是布尔值");
+                return IpcRequests.InvalidArgument(request, "autostartEnabled 必须是布尔值");
             }
 
             var desired = autostartElement.ValueKind == JsonValueKind.True;
@@ -631,7 +666,7 @@ public sealed partial class OperationDispatcher
             if (intervalElement.ValueKind != JsonValueKind.Number || !intervalElement.TryGetInt32(out var interval)
                 || interval is < 1 or > 10080)
             {
-                return InvalidArgument(request, "scanIntervalMinutes 必须是 1–10080 的整数（分钟）");
+                return IpcRequests.InvalidArgument(request, "scanIntervalMinutes 必须是 1–10080 的整数（分钟）");
             }
 
             scanIntervalMinutes = interval;
@@ -643,7 +678,7 @@ public sealed partial class OperationDispatcher
             if (themeElement.ValueKind != JsonValueKind.String
                 || themeElement.GetString() is not ("dark" or "light" or "system"))
             {
-                return InvalidArgument(request, "theme 只支持 dark/light/system");
+                return IpcRequests.InvalidArgument(request, "theme 只支持 dark/light/system");
             }
 
             theme = themeElement.GetString()!;
@@ -654,7 +689,7 @@ public sealed partial class OperationDispatcher
         {
             if (trayElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
             {
-                return InvalidArgument(request, "closeToTray 必须是布尔值");
+                return IpcRequests.InvalidArgument(request, "closeToTray 必须是布尔值");
             }
 
             closeToTray = trayElement.ValueKind == JsonValueKind.True;
@@ -666,7 +701,7 @@ public sealed partial class OperationDispatcher
             if (scaleElement.ValueKind != JsonValueKind.Number || !scaleElement.TryGetDouble(out var scale)
                 || scale is < AppSettingsSnapshot.MinUiFontScale or > AppSettingsSnapshot.MaxUiFontScale)
             {
-                return InvalidArgument(request,
+                return IpcRequests.InvalidArgument(request,
                     $"uiFontScale 必须是 {AppSettingsSnapshot.MinUiFontScale}–{AppSettingsSnapshot.MaxUiFontScale} 之间的数字");
             }
 
@@ -678,7 +713,7 @@ public sealed partial class OperationDispatcher
         {
             if (fontElement.ValueKind != JsonValueKind.String)
             {
-                return InvalidArgument(request, "uiFontFamily 必须是已安装字体的名称");
+                return IpcRequests.InvalidArgument(request, "uiFontFamily 必须是已安装字体的名称");
             }
 
             var family = fontElement.GetString()?.Trim() ?? "";
@@ -686,7 +721,7 @@ public sealed partial class OperationDispatcher
                 || family.Any(character => !char.IsLetterOrDigit(character)
                     && character is not (' ' or '-' or '_' or '.')))
             {
-                return InvalidArgument(request, "uiFontFamily 只能包含 1–100 个字体名称字符");
+                return IpcRequests.InvalidArgument(request, "uiFontFamily 只能包含 1–100 个字体名称字符");
             }
 
             uiFontFamily = family;
@@ -704,14 +739,14 @@ public sealed partial class OperationDispatcher
             {
                 var requestedDirectory = cacheElement.GetString() ?? "";
                 if (!OwnedPreviewCache.TryValidateParent(
-                        requestedDirectory, _state.DataDirectory, out var canonical, out var error))
+                        requestedDirectory, _dataDirectory, out var canonical, out var error))
                 {
-                    return InvalidArgument(request, error);
+                    return IpcRequests.InvalidArgument(request, error);
                 }
 
-                if (_state.Roots.Contains(canonical))
+                if (_roots.Contains(canonical))
                 {
-                    return InvalidArgument(request, "缓存位置不能位于已添加的游戏库内");
+                    return IpcRequests.InvalidArgument(request, "缓存位置不能位于已添加的游戏库内");
                 }
 
                 cacheParentDirectory = canonical;
@@ -719,15 +754,15 @@ public sealed partial class OperationDispatcher
             }
             else
             {
-                return InvalidArgument(request, "cacheParentDirectory 必须是绝对目录字符串或 null");
+                return IpcRequests.InvalidArgument(request, "cacheParentDirectory 必须是绝对目录字符串或 null");
             }
         }
 
         // 所有字段均验证成功后才触碰 Windows 启动文件夹，避免无效 patch 留下副作用。
         if (autostartEnabled != current.AutostartEnabled)
         {
-            var manager = _state.StartupShortcuts;
-            var result = autostartEnabled ? manager.Enable(_state.DataDirectory) : manager.Disable();
+            var manager = _startupShortcuts();
+            var result = autostartEnabled ? manager.Enable(_dataDirectory) : manager.Disable();
             if (!result.Success)
             {
                 return new Envelope<object>
@@ -748,8 +783,8 @@ public sealed partial class OperationDispatcher
         var newRevision = keys.Count > 0
             ? store.WriteSettingsKeys(keys, DateTime.UtcNow)
             : current.Revision;
-        _state.ActiveViewId = activeViewId;
-        _state.Events.Publish("settings.updated", "settings", new { revision = newRevision }, DateTime.UtcNow);
+        _setActiveViewId(activeViewId);
+        _events.Publish("settings.updated", "settings", new { revision = newRevision }, DateTime.UtcNow);
 
         var updated = current with
         {
@@ -773,18 +808,18 @@ public sealed partial class OperationDispatcher
     }
 
     /// <summary>settings.reset：恢复默认值；开机启动一并关闭（移除快捷方式）。</summary>
-    private Envelope<object> SettingsReset(IpcRequest request)
+    public Envelope<object> SettingsReset(IpcRequest request)
     {
-        var store = _state.Library.Store;
+        var store = _storeAccessor();
         if (store is null)
         {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
+            return IpcRequests.InvalidArgument(request, "库未初始化（先 library.init）");
         }
 
         var current = store.ReadSettings();
         if (current.AutostartEnabled)
         {
-            var result = _state.StartupShortcuts.Disable();
+            var result = _startupShortcuts().Disable();
             if (!result.Success)
             {
                 return new Envelope<object>
@@ -803,8 +838,8 @@ public sealed partial class OperationDispatcher
         }
 
         var revision = store.ResetSettings(DateTime.UtcNow);
-        _state.ActiveViewId = null;
-        _state.Events.Publish("settings.updated", "settings", new { revision, reset = true }, DateTime.UtcNow);
+        _setActiveViewId(null);
+        _events.Publish("settings.updated", "settings", new { revision, reset = true }, DateTime.UtcNow);
         return new Envelope<object>
         {
             RequestId = request.RequestId,
@@ -814,6 +849,7 @@ public sealed partial class OperationDispatcher
         };
     }
 
+    /// <summary>设置快照 DTO：九字段受限集，字段顺序即响应字段顺序。</summary>
     private static object SettingsDto(AppSettingsSnapshot settings) => new
     {
         revision = settings.Revision,
@@ -826,9 +862,4 @@ public sealed partial class OperationDispatcher
         uiFontFamily = settings.UiFontFamily,
         cacheParentDirectory = settings.CacheParentDirectory,
     };
-
-    /// <summary>
-    /// host.stop（T18）：先返回已接收收据，随后在响应送达后请求宿主优雅停机
-    /// （排空连接后退出进程；不杀游戏/翻译器）。stop 属持久收据操作，同键重放幂等。
-    /// </summary>
 }

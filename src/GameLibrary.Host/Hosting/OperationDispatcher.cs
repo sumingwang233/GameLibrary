@@ -38,7 +38,8 @@ public sealed class HostIdentity
 }
 
 /// <summary>
-/// 操作分发器（按域拆分为 partial：OperationDispatcher.Backups/Views.Notifications.Settings/…）。
+/// 操作分发器（按域拆分为 partial：OperationDispatcher.Backups/Cataloging/Launching/Observability；
+/// 候选审核/忽略规则/标签/工具验证/视图设置五域已独立为 Handler 类）。
 /// 本文件承载：请求门/纪元校验/收据中间件/路由 + 系统（capabilities/schema/host）与扫描候选域。
 /// </summary>
 public sealed partial class OperationDispatcher
@@ -61,6 +62,11 @@ public sealed partial class OperationDispatcher
     /// （library.init/restore 整体替换 Library）；域内零事件，不注入 EventStream。</summary>
     private readonly VerificationHandler _verification;
 
+    /// <summary>视图设置域（views.*/notifications.*/settings.* 十三操作）：store 经委托每请求
+    /// 取当前值（library.init/restore 整体替换 Library），events 为 init-only 引用，
+    /// ActiveViewId/StartupShortcuts 为宿主可变态经委托读写。</summary>
+    private readonly ViewSettingsHandler _viewSettings;
+
     public OperationDispatcher(HostRuntimeState state)
     {
         _state = state;
@@ -68,6 +74,14 @@ public sealed partial class OperationDispatcher
         _ignoreRules = new IgnoreRulesHandler(() => state.Library.Store, state.Roots);
         _tags = new TagsHandler(() => state.Library.Store, state.Events);
         _verification = new VerificationHandler(() => state.Library.Store);
+        _viewSettings = new ViewSettingsHandler(
+            () => state.Library.Store,
+            state.Events,
+            () => state.ActiveViewId,
+            value => state.ActiveViewId = value,
+            state.Roots,
+            state.DataDirectory,
+            () => state.StartupShortcuts);
     }
 
     /// <summary>已接入收据的操作子集：catalog 声明 requiresIdempotencyKey 的已实现操作。
@@ -686,19 +700,19 @@ public sealed partial class OperationDispatcher
         "translation.set" => TranslationSet(request),
         "games.update" => GamesUpdate(request),
         "games.relink" => GamesRelink(request),
-        "views.list" => ViewsList(request),
-        "views.get" => ViewsGet(request),
-        "views.create" => ViewsCreate(request),
-        "views.update" => ViewsUpdate(request),
-        "views.remove" => ViewsRemove(request),
-        "views.activate" => ViewsActivate(request),
-        "notifications.list" => NotificationsList(request),
-        "notifications.get" => NotificationsGet(request),
-        "notifications.acknowledge" => NotificationTransition(request, "acknowledged"),
-        "notifications.defer" => NotificationTransition(request, "deferred"),
-        "settings.get" => SettingsGet(request),
-        "settings.update" => SettingsUpdate(request),
-        "settings.reset" => SettingsReset(request),
+        "views.list" => _viewSettings.ViewsList(request),
+        "views.get" => _viewSettings.ViewsGet(request),
+        "views.create" => _viewSettings.ViewsCreate(request),
+        "views.update" => _viewSettings.ViewsUpdate(request),
+        "views.remove" => _viewSettings.ViewsRemove(request),
+        "views.activate" => _viewSettings.ViewsActivate(request),
+        "notifications.list" => _viewSettings.NotificationsList(request),
+        "notifications.get" => _viewSettings.NotificationsGet(request),
+        "notifications.acknowledge" => _viewSettings.NotificationTransition(request, "acknowledged"),
+        "notifications.defer" => _viewSettings.NotificationTransition(request, "deferred"),
+        "settings.get" => _viewSettings.SettingsGet(request),
+        "settings.update" => _viewSettings.SettingsUpdate(request),
+        "settings.reset" => _viewSettings.SettingsReset(request),
         "host.stop" => HostStop(request),
         "launch.plan" => LaunchPlanHandler(request),
         "launch.execute" => LaunchExecute(request),
@@ -1749,6 +1763,10 @@ public sealed partial class OperationDispatcher
         };
     }
 
+    /// <summary>
+    /// host.stop（T18）：先返回已接收收据，随后在响应送达后请求宿主优雅停机
+    /// （排空连接后退出进程；不杀游戏/翻译器）。stop 属持久收据操作，同键重放幂等。
+    /// </summary>
     private Envelope<object> HostStop(IpcRequest request)
     {
         _state.NotifyStopRequested?.Invoke();
