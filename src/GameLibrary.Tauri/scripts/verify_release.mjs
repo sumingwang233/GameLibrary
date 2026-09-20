@@ -161,11 +161,28 @@ try {
       };
     })()
   `;
-  const evaluated = await client.send("Runtime.evaluate", {
-    expression,
-    awaitPromise: true,
-    returnByValue: true,
-  });
+  let evaluated;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      evaluated = await client.send("Runtime.evaluate", {
+        expression,
+        awaitPromise: true,
+        returnByValue: true,
+      });
+      break;
+    } catch (error) {
+      const navigationRace = String(error).includes("Execution context was destroyed");
+      if (!navigationRace || attempt === 2) throw error;
+
+      // WebView2 可能在调试目标刚出现后完成最后一次导航，旧 execution context
+      // 会在 Runtime.evaluate 期间被销毁。重新获取目标并有限重试，其他错误仍立即失败。
+      client.close();
+      await sleep(500);
+      const retryTarget = await waitForTarget(port);
+      client = cdp(retryTarget.webSocketDebuggerUrl);
+    }
+  }
+  if (!evaluated) throw new Error("release WebView evaluation did not complete");
   if (evaluated.exceptionDetails) throw new Error(evaluated.exceptionDetails.text);
   const result = evaluated.result.value;
   const failures = [];

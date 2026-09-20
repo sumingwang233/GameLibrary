@@ -570,8 +570,10 @@ public static class LibraryCatalogStore
         }
         command.CommandText = """
             INSERT INTO games
-                (game_id, title, root_path, kind, engine, entry_path, membership, favorite, translation_inherited, revision, accepted_utc, updated_utc)
-            VALUES ($id, $title, $root, $kind, $engine, $entry, 'active', $favorite, $inherited, 1, $accepted, $accepted)
+                (game_id, title, root_path, kind, engine, entry_path, membership, favorite,
+                 translation_inherited, availability, missing_since_utc, revision, accepted_utc, updated_utc)
+            VALUES ($id, $title, $root, $kind, $engine, $entry, 'active', $favorite,
+                    $inherited, $availability, $missing, 1, $accepted, $accepted)
             """;
         command.Parameters.AddWithValue("$id", game.GameId);
         command.Parameters.AddWithValue("$title", game.Title);
@@ -581,6 +583,10 @@ public static class LibraryCatalogStore
         command.Parameters.AddWithValue("$entry", (object?)game.EntryPath ?? DBNull.Value);
         command.Parameters.AddWithValue("$favorite", game.Favorite ? 1 : 0);
         command.Parameters.AddWithValue("$inherited", game.TranslationInherited ? 1 : 0);
+        command.Parameters.AddWithValue("$availability", game.Availability);
+        command.Parameters.AddWithValue("$missing", game.MissingSinceUtc is { } missing
+            ? missing.ToString("O", CultureInfo.InvariantCulture)
+            : DBNull.Value);
         command.Parameters.AddWithValue("$accepted", game.AcceptedUtc.ToString("O", CultureInfo.InvariantCulture));
         command.ExecuteNonQuery();
     }
