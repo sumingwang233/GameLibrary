@@ -13,6 +13,7 @@ import { RootsPanel } from "./components/RootsPanel";
 import { ScanProgressBar } from "./components/ScanProgressBar";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { Sidebar, type Section } from "./components/Sidebar";
+import { SimilarNotice, type SimilarNoticeData } from "./components/SimilarNotice";
 import { TagsPanel } from "./components/TagsPanel";
 import { Button } from "./components/ui/button";
 import { PromptDialog } from "./components/ui/prompt-dialog";
@@ -30,6 +31,8 @@ function App() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [reviewBusy, setReviewBusy] = useState(false);
   const [prompt, setPrompt] = useState<PromptKind>(null);
+  // accept 后的相似副本提示横幅：单例不堆叠，新批（含 M=0 的批）覆盖旧批；defer/ignore 不动它。
+  const [similarNotice, setSimilarNotice] = useState<SimilarNoticeData | null>(null);
 
   const patchFilters = useCallback(
     (change: Partial<GameFilters>) => setFilters((previous) => ({ ...previous, ...change })),
@@ -92,7 +95,19 @@ function App() {
     setReviewBusy(true);
     setActionError(null);
     try {
-      await library.reviewCandidates(items, action);
+      const accepted = await library.reviewCandidates(items, action);
+      if (action === "accept") {
+        // 聚合相似建议：组内按相似度降序（后端已降序，这里防御重放/后端变化），
+        // 组间按各组最高相似度降序；undefined/[] 一律当无建议 → 横幅不渲染。
+        const groups = accepted
+          .filter((item) => item.similarTo.length > 0)
+          .map((item) => ({
+            sourceTitle: item.candidate.relativePath || item.candidate.physicalPath,
+            entries: [...item.similarTo].sort((a, b) => b.similarity - a.similarity),
+          }))
+          .sort((a, b) => b.entries[0].similarity - a.entries[0].similarity);
+        setSimilarNotice(groups.length > 0 ? { addedCount: accepted.length, groups } : null);
+      }
       games.reload();
     } catch (cause) {
       setActionError(describeFailure(cause));
@@ -100,6 +115,19 @@ function App() {
       setReviewBusy(false);
     }
   };
+
+  /** 横幅/详情里的相似条目跳转：先查当前页（命中零成本），miss 则 games.get 兜底。
+   * 失败（目标已被移除等）走 run() 的 actionError 既有路径，selected 保持原游戏。 */
+  const openGameById = (gameId: string) =>
+    void run(async () => {
+      const local = games.games.find((game) => game.gameId === gameId);
+      if (local) {
+        setSelected(local);
+        return;
+      }
+      const detail = await operation<GameItem>("games.get", { gameId });
+      setSelected(detail.data);
+    });
 
   const launch = (gameId: string) =>
     run(async () => {
@@ -172,6 +200,12 @@ function App() {
               </Button>
             </div>
           )}
+
+          <SimilarNotice
+            notice={similarNotice}
+            onDismiss={() => setSimilarNotice(null)}
+            onNavigate={openGameById}
+          />
 
           {library.error && (
             <p className="mb-4 flex items-center gap-2 text-xs text-danger">
@@ -265,6 +299,7 @@ function App() {
             void library.refreshMeta();
             void games.reload();
           }}
+          onNavigate={openGameById}
         />
 
         <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />

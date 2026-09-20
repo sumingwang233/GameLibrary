@@ -12,11 +12,13 @@ import {
 import { describeFailure, operation } from "./api";
 import type {
   CandidateItem,
+  CandidateReviewResult,
   GameItem,
   LaunchPlan,
   LibraryEvent,
   NotificationItem,
   RootItem,
+  SimilarGameSuggestion,
   TagItem,
   ViewItem,
 } from "./types";
@@ -72,7 +74,10 @@ interface LibraryController {
   refreshMeta: () => Promise<void>;
   startScan: () => Promise<void>;
   cancelScan: () => Promise<void>;
-  reviewCandidates: (items: CandidateItem[], action: "accept" | "defer" | "ignore") => Promise<void>;
+  reviewCandidates: (
+    items: CandidateItem[],
+    action: "accept" | "defer" | "ignore",
+  ) => Promise<Array<{ candidate: CandidateItem; similarTo: SimilarGameSuggestion[] }>>;
   launch: (gameId: string) => Promise<void>;
   createTag: (name: string) => Promise<void>;
   renameTag: (tag: TagItem, name: string) => Promise<void>;
@@ -270,13 +275,19 @@ function useLibraryController(): LibraryController {
   const reviewCandidates = useCallback(
     async (items: CandidateItem[], action: "accept" | "defer" | "ignore") => {
       const failures: string[] = [];
+      const accepted: Array<{ candidate: CandidateItem; similarTo: SimilarGameSuggestion[] }> = [];
       for (const candidate of items) {
         try {
-          await operation(
+          const result = await operation<CandidateReviewResult>(
             `candidates.${action}`,
             { candidateId: candidate.candidateId, expectedRevision: candidate.revision },
             `candidates.${action}:${candidate.candidateId}:${candidate.revision}`,
           );
+          // similarTo 只在首次 accept 建卡时返回；幂等重放/defer/ignore/旧后端一律 undefined → []，
+          // 调用方按「无建议」静默处理，不放大失败面（单项失败走下方 failures 链）。
+          if (action === "accept") {
+            accepted.push({ candidate, similarTo: result.data.similarTo ?? [] });
+          }
         } catch (cause) {
           failures.push(`${candidate.relativePath || candidate.physicalPath}: ${describeFailure(cause)}`);
         }
@@ -287,6 +298,7 @@ function useLibraryController(): LibraryController {
       if (failures.length > 0) {
         throw new Error(`${failures.length} 项失败：${failures.slice(0, 3).join("；")}`);
       }
+      return accepted;
     },
     [refreshMeta, bump],
   );

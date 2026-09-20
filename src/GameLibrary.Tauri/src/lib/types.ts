@@ -24,6 +24,23 @@ export interface GameTagRef {
   name: string;
 }
 
+/**
+ * 相似副本建议条目（candidates.accept 响应 / games.get 详情 / game.created 事件共用形状，
+ * FingerprintSuggestions.SimilarGameSuggestion 经 ContractJson camelCase 落到前端）。
+ */
+export interface SimilarGameSuggestion {
+  gameId: string;
+  title: string;
+  similarity: number;
+}
+
+/** games.get 附带的指纹摘要（GamesHandler.cs:165-170）；目录不可读/计算失败时后端返回 null。 */
+export interface FingerprintSummary {
+  strategyVersion: number;
+  entryCount: number;
+  computedUtc: string;
+}
+
 export interface GameItem {
   gameId: string;
   title: string;
@@ -43,6 +60,10 @@ export interface GameItem {
   availability?: string;
   missingSinceUtc?: string | null;
   tags?: GameTagRef[];
+  /** 仅 games.get 注入（games.list 批量 DTO 不带），旧后端无此字段。 */
+  fingerprint?: FingerprintSummary | null;
+  /** 仅 games.get 注入，无指纹/无命中时为空数组，旧后端无此字段。 */
+  similarTo?: SimilarGameSuggestion[];
 }
 
 export interface CandidateItem {
@@ -52,6 +73,19 @@ export interface CandidateItem {
   kind: string;
   reviewState: string;
   revision: number;
+}
+
+/**
+ * candidates.accept / defer / ignore 的响应 Data（CandidateReviewHandler.CandidateReviewResult）。
+ * similarTo 仅在首次 accept 建卡时计算；幂等重放（他端已 accept 同候选）返回空数组，
+ * 旧后端（R60 之前）响应中无此字段——调用方须把 undefined/[] 一律当无建议。
+ */
+export interface CandidateReviewResult {
+  reviewState: string;
+  revision: number;
+  gameId?: string | null;
+  ignoreId?: string | null;
+  similarTo?: SimilarGameSuggestion[];
 }
 
 export interface TagItem {
@@ -145,6 +179,8 @@ export interface LibraryEvent {
   type: string;
   entityKey?: string | null;
   timestampUtc?: string | null;
+  /** 事件负载（如 game.created 的 {gameId,title,similarTo}）；本期前端不消费，仅保持类型完备。 */
+  payload?: unknown;
 }
 
 export interface LibrarySnapshot {

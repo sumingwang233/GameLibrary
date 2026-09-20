@@ -3,8 +3,14 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { Check, ExternalLink, ImagePlus, Play, Star, Trash2 } from "lucide-react";
 import { assetDataUrl, describeFailure, operation } from "../lib/api";
-import type { GameItem, ProfileItem, TagItem, TranslationPolicy } from "../lib/types";
-import { cn, formatTime } from "../lib/utils";
+import type {
+  GameItem,
+  ProfileItem,
+  SimilarGameSuggestion,
+  TagItem,
+  TranslationPolicy,
+} from "../lib/types";
+import { cn, formatSimilarity, formatTime } from "../lib/utils";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { ConfirmDialog } from "./ui/confirm-dialog";
@@ -28,12 +34,15 @@ export function DetailSheet({
   onClose,
   onPlay,
   onChanged,
+  onNavigate,
 }: {
   game: GameItem | null;
   tags: TagItem[];
   onClose: () => void;
   onPlay: (gameId: string) => void;
   onChanged: () => Promise<void> | void;
+  /** 点击「疑似重复」条目跳到目标游戏详情；Sheet 不关闭不重建，由 App 侧换 selected 实现。 */
+  onNavigate?: (gameId: string) => void;
 }) {
   const [current, setCurrent] = useState<GameItem | null>(game);
   const [profiles, setProfiles] = useState<ProfileItem[]>([]);
@@ -331,6 +340,8 @@ export function DetailSheet({
                 <InfoRow label="默认启动程序" value={defaultProfile?.executablePath ?? "尚未配置"} />
               </dl>
 
+              <SimilarGamesSection similarTo={current.similarTo} onNavigate={onNavigate} />
+
               <Button variant="danger" className="w-full" disabled={busy} onClick={() => setConfirmRemove(true)}>
                 <Trash2 size={15} />
                 从游戏库移除
@@ -448,6 +459,46 @@ function LabeledField({ label, children }: { label: string; children: React.Reac
       </span>
       {children}
     </div>
+  );
+}
+
+/**
+ * 「疑似重复」区块：similarTo 随 games.get 自然到达，零新增请求。
+ * undefined（旧后端无字段）与 []（无指纹/无命中）都连标题一起完全隐藏。
+ * 条目是原生 button，点击后 App 换 selected 实现「详情翻页」，Sheet 不关闭不重建。
+ */
+function SimilarGamesSection({
+  similarTo,
+  onNavigate,
+}: {
+  similarTo: SimilarGameSuggestion[] | undefined;
+  onNavigate?: (gameId: string) => void;
+}) {
+  if (!similarTo || similarTo.length === 0) return null;
+
+  return (
+    <LabeledField label="疑似重复">
+      <ul className="space-y-2">
+        {similarTo.map((item) => {
+          const percent = formatSimilarity(item.similarity);
+          return (
+            <li key={item.gameId}>
+              <button
+                type="button"
+                aria-label={`查看《${item.title}》详情，相似度 ${percent}`}
+                onClick={() => onNavigate?.(item.gameId)}
+                className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-md border border-border bg-surface px-3 py-2 text-left text-sm transition hover:border-steam focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <span className="min-w-0 flex-1 truncate text-text-primary">《{item.title}》</span>
+                <Badge variant="steam" aria-hidden="true" className="shrink-0">
+                  相似度 {percent}
+                </Badge>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </LabeledField>
   );
 }
 

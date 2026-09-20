@@ -14,3 +14,9 @@ export function formatTime(value?: string | null) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
     `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
+
+/** 相似度（0..1）转整数百分比文本：四舍五入并夹到 [0,100]，如 0.873 → "87%"。 */
+export function formatSimilarity(value: number) {
+  const percent = Math.min(100, Math.max(0, Math.round(value * 100)));
+  return `${percent}%`;
+}
