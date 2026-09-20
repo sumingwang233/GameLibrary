@@ -39,7 +39,7 @@ public sealed class HostIdentity
 
 /// <summary>
 /// 操作分发器（按域拆分为 partial：OperationDispatcher.Backups/Cataloging/Observability；
-/// 候选审核/忽略规则/标签/工具验证/视图设置/启动六域已独立为 Handler 类）。
+/// 候选审核/忽略规则/标签/工具验证/视图设置/启动/游戏卡七域已独立为 Handler 类）。
 /// 本文件承载：请求门/纪元校验/收据中间件/路由 + 系统（capabilities/schema/host）与扫描候选域。
 /// </summary>
 public sealed partial class OperationDispatcher
@@ -71,6 +71,10 @@ public sealed partial class OperationDispatcher
     /// （library.init/restore 整体替换 Library），launches/roots/events 为 init-only 引用。</summary>
     private readonly LaunchingHandler _launching;
 
+    /// <summary>游戏卡域（games.* 六操作）：store 经委托每请求取当前值
+    /// （library.init/restore 整体替换 Library），roots/events 为 init-only 引用。</summary>
+    private readonly GamesHandler _games;
+
     public OperationDispatcher(HostRuntimeState state)
     {
         _state = state;
@@ -87,6 +91,7 @@ public sealed partial class OperationDispatcher
             state.DataDirectory,
             () => state.StartupShortcuts);
         _launching = new LaunchingHandler(() => state.Library.Store, state.Launches, state.Roots, state.Events);
+        _games = new GamesHandler(() => state.Library.Store, state.Roots, state.Events);
     }
 
     /// <summary>已接入收据的操作子集：catalog 声明 requiresIdempotencyKey 的已实现操作。
@@ -652,10 +657,10 @@ public sealed partial class OperationDispatcher
         "candidates.accept" => _candidateReview.CandidateReview(request, "accept"),
         "candidates.defer" => _candidateReview.CandidateReview(request, "defer"),
         "candidates.ignore" => _candidateReview.CandidateReview(request, "ignore"),
-        "games.list" => GamesList(request),
-        "games.get" => GamesGet(request),
-        "games.create" => GamesCreate(request),
-        "games.remove" => GamesRemove(request),
+        "games.list" => _games.GamesList(request),
+        "games.get" => _games.GamesGet(request),
+        "games.create" => _games.GamesCreate(request),
+        "games.remove" => _games.GamesRemove(request),
         "tags.list" => _tags.TagsList(request),
         "tags.create" => _tags.TagsCreate(request),
         "tags.update" => _tags.TagsUpdate(request),
@@ -703,8 +708,8 @@ public sealed partial class OperationDispatcher
         "profiles.validate" => _launching.ProfilesValidate(request),
         "translation.get" => _launching.TranslationGet(request),
         "translation.set" => _launching.TranslationSet(request),
-        "games.update" => GamesUpdate(request),
-        "games.relink" => GamesRelink(request),
+        "games.update" => _games.GamesUpdate(request),
+        "games.relink" => _games.GamesRelink(request),
         "views.list" => _viewSettings.ViewsList(request),
         "views.get" => _viewSettings.ViewsGet(request),
         "views.create" => _viewSettings.ViewsCreate(request),
@@ -1311,346 +1316,6 @@ public sealed partial class OperationDispatcher
             Ok = true,
             Status = OperationStatus.Completed,
             Data = candidate.ToDetail(),
-        };
-    }
-
-    private Envelope<object> GamesList(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        // 阶段三：搜索/过滤/排序/分页全部下沉 SQL——5000+ 条目不再整表载入内存。
-        string? search = null;
-        var favoriteFilter = false;
-        string? sort = null;
-        string? tagId = null;
-        var limit = 0;
-        var offset = 0;
-        if (request.Parameters is { ValueKind: JsonValueKind.Object } glParameters)
-        {
-            if (glParameters.TryGetProperty("search", out var searchElement) && searchElement.ValueKind == JsonValueKind.String)
-            {
-                search = searchElement.GetString();
-            }
-
-            if (glParameters.TryGetProperty("favorite", out var favElement) && favElement.ValueKind == JsonValueKind.True)
-            {
-                favoriteFilter = true;
-            }
-
-            if (glParameters.TryGetProperty("sort", out var sortElement) && sortElement.ValueKind == JsonValueKind.String)
-            {
-                sort = sortElement.GetString();
-            }
-
-            if (glParameters.TryGetProperty("tagId", out var tagElement) && tagElement.ValueKind == JsonValueKind.String)
-            {
-                tagId = tagElement.GetString();
-            }
-
-            // T15-C：viewId 直接套用该视图的筛选/排序语义（agent 可不先读视图定义）。
-            if (glParameters.TryGetProperty("viewId", out var viewElement) && viewElement.ValueKind == JsonValueKind.String)
-            {
-                var viewId = viewElement.GetString();
-                var builtinView = BuiltInViews.All.FirstOrDefault(v => v.ViewId == viewId);
-                if (builtinView.ViewId == "favorites")
-                {
-                    favoriteFilter = true;
-                }
-                else if (builtinView.ViewId is null)
-                {
-                    var view = store.TryGetView(viewId!);
-                    if (view is not null)
-                    {
-                        search ??= view.Search;
-                        if (view.FavoriteOnly)
-                        {
-                            favoriteFilter = true;
-                        }
-
-                        sort ??= view.Sort;
-                    }
-                }
-            }
-
-            // 分页：未携带 limit 保持全量（兼容既有 CLI/MCP 消费方）；携带后按 offset 截页。
-            if (glParameters.TryGetProperty("limit", out var limitElement)
-                && limitElement.ValueKind == JsonValueKind.Number
-                && limitElement.TryGetInt32(out var parsedLimit))
-            {
-                limit = Math.Clamp(parsedLimit, 1, 1000);
-                if (glParameters.TryGetProperty("offset", out var offsetElement)
-                    && offsetElement.ValueKind == JsonValueKind.Number
-                    && offsetElement.TryGetInt32(out var parsedOffset))
-                {
-                    offset = Math.Max(0, parsedOffset);
-                }
-            }
-        }
-
-        if (sort is not null and not ("title" or "title-asc" or "title-desc" or "recent" or "updated-desc" or "accepted-desc"))
-        {
-            return InvalidArgument(request, "sort 只支持 title-asc、title-desc、updated-desc、accepted-desc");
-        }
-
-        var (total, games) = store.QueryGames(search, favoriteFilter, tagId, sort, limit, offset);
-        // R41：批量充实取代逐游戏 4 次查询（各过一次存储锁）。
-        var enrichment = store.EnrichGameCards(games);
-        var dtos = games.Select(g => GameDto(g, enrichment[g.GameId])).ToArray();
-
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new { total, items = dtos },
-        };
-    }
-
-    private Envelope<object> GamesGet(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        if (!TryGetStringParameter(request, "gameId", out var gameId))
-        {
-            return InvalidArgument(request, "缺少 gameId 参数");
-        }
-
-        var game = store.TryGetGame(gameId);
-        if (game is null)
-        {
-            return NotFound(request, $"游戏不存在：{gameId}");
-        }
-
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = GameDto(store, game),
-        };
-    }
-
-    /// <summary>
-    /// games.update（T13 补齐）：受限字段 patch。本步仅开放 favorite；
-    /// 参数中出现任何未声明字段一律拒绝（契约 4：写请求只允许 schema 声明的字段）。
-    /// </summary>
-    private Envelope<object> GamesUpdate(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        if (!TryGetStringParameter(request, "gameId", out var gameId))
-        {
-            return InvalidArgument(request, "缺少 gameId 参数");
-        }
-
-        if (!TryGetIntParameter(request, "expectedRevision", out var expectedRevision) || expectedRevision is null)
-        {
-            return InvalidArgument(request, "缺少 expectedRevision 参数");
-        }
-
-        if (request.Parameters is not { ValueKind: JsonValueKind.Object } parameters)
-        {
-            return InvalidArgument(request, "缺少 patch 字段");
-        }
-
-        var declared = new HashSet<string>(StringComparer.Ordinal)
-            { "gameId", "expectedRevision", "idempotencyKey", "favorite" };
-        var unknown = parameters.EnumerateObject()
-            .Where(p => !declared.Contains(p.Name))
-            .Select(p => p.Name)
-            .ToArray();
-        if (unknown.Length > 0)
-        {
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ErrorCodes.InvalidArgument,
-                    Message = $"未知 patch 字段：{string.Join(", ", unknown)}；games.update 当前仅支持 favorite",
-                    Retryable = false,
-                },
-            };
-        }
-
-        if (!parameters.TryGetProperty("favorite", out var favoriteElement)
-            || favoriteElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
-        {
-            return InvalidArgument(request, "缺少 favorite 布尔字段（games.update 当前仅支持 favorite patch）");
-        }
-
-        var game = store.TryGetGame(gameId);
-        if (game is null)
-        {
-            return NotFound(request, $"游戏不存在：{gameId}");
-        }
-
-        var newRevision = store.SetFavorite(gameId, favoriteElement.ValueKind == JsonValueKind.True, expectedRevision.Value, DateTime.UtcNow);
-        if (newRevision is null)
-        {
-            var latest = store.TryGetGame(gameId);
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ErrorCodes.RevisionConflict,
-                    Message = $"游戏 Revision 不一致：期望 {expectedRevision}，当前 {latest?.Revision}",
-                    Retryable = false,
-                    CurrentRevision = latest?.Revision,
-                },
-            };
-        }
-
-        var updatedGame = store.TryGetGame(gameId)!;
-        _state.Events.Publish("game.updated", $"game:{gameId}", new { gameId, revision = newRevision }, DateTime.UtcNow);
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new { gameId, favorite = updatedGame.Favorite, revision = newRevision.Value },
-        };
-    }
-
-    /// <summary>
-    /// games.relink（T17）：把游戏的路径绑定改到新目录——只改数据库，不移动/改名/复制任何文件
-    /// （补充规格 1.3）。新路径必须在已注册库根内且当前存在；不可与其他活动游戏绑定冲突。
-    /// </summary>
-    private Envelope<object> GamesRelink(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        if (!TryGetStringParameter(request, "gameId", out var gameId))
-        {
-            return InvalidArgument(request, "缺少 gameId 参数");
-        }
-
-        if (!TryGetStringParameter(request, "newPath", out var newPath))
-        {
-            return InvalidArgument(request, "缺少 newPath 参数（绝对本地目录路径）");
-        }
-
-        if (!TryGetIntParameter(request, "expectedRevision", out var expectedRevision) || expectedRevision is null)
-        {
-            return InvalidArgument(request, "缺少 expectedRevision 参数");
-        }
-
-        var game = store.TryGetGame(gameId);
-        if (game is null)
-        {
-            return NotFound(request, $"游戏不存在：{gameId}");
-        }
-
-        var validation = Domain.Paths.GamePath.TryCreate(newPath);
-        if (!validation.IsValid)
-        {
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = validation.IsUnsupported ? ErrorCodes.UnsupportedPath : ErrorCodes.InvalidPath,
-                    Message = $"新路径非法（{validation.Reason}）：{newPath}",
-                    Retryable = false,
-                },
-            };
-        }
-
-        var newRoot = validation.Path!;
-        if (RejectPathOutsideRoots(request, newRoot.PhysicalPath) is { } outsideRoot)
-        {
-            return outsideRoot;
-        }
-
-        if (string.Equals(newRoot.PhysicalPath, game.RootPath, StringComparison.OrdinalIgnoreCase))
-        {
-            return InvalidArgument(request, $"新路径与当前绑定相同：{newRoot.PhysicalPath}");
-        }
-
-        if (!Directory.Exists(newRoot.PhysicalPath))
-        {
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ErrorCodes.RootOffline,
-                    Message = $"新路径当前不存在；重关联只接受可验证存在的目录：{newRoot.PhysicalPath}",
-                    Retryable = true,
-                },
-            };
-        }
-
-        var conflicting = store.TryGetGameByRootPath(newRoot.PhysicalPath);
-        if (conflicting is not null && !string.Equals(conflicting.GameId, gameId, StringComparison.Ordinal))
-        {
-            return InvalidArgument(request, $"新路径已绑定到其他游戏：{conflicting.GameId}");
-        }
-
-        var newRevision = store.RelinkGame(gameId, newRoot.PhysicalPath, expectedRevision.Value, DateTime.UtcNow);
-        if (newRevision is null)
-        {
-            var latest = store.TryGetGame(gameId);
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ErrorCodes.RevisionConflict,
-                    Message = $"游戏 Revision 不一致：期望 {expectedRevision}，当前 {latest?.Revision}",
-                    Retryable = false,
-                    CurrentRevision = latest?.Revision,
-                },
-            };
-        }
-
-        _state.Events.Publish("game.updated", $"game:{gameId}", new
-        {
-            gameId,
-            rootPath = newRoot.PhysicalPath,
-            availability = "available",
-            revision = newRevision,
-        }, DateTime.UtcNow);
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new
-            {
-                gameId,
-                previousRootPath = game.RootPath,
-                rootPath = newRoot.PhysicalPath,
-                availability = "available",
-                revision = newRevision.Value,
-            },
         };
     }
 
