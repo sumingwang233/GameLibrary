@@ -1,8 +1,10 @@
 using System.Text.Json;
 using GameLibrary.Contracts;
 using GameLibrary.Contracts.Ipc;
+using GameLibrary.Domain.Identity;
 using GameLibrary.Host.Scanning;
 using GameLibrary.Infrastructure.Persistence;
+using GameLibrary.Infrastructure.Scanning;
 
 namespace GameLibrary.Host.Hosting;
 
@@ -53,8 +55,8 @@ internal sealed class CandidateReviewHandler
 
         if (action == "accept" && current.ReviewState == "accepted" && current.GameId is not null)
         {
-            // 幂等：重试同候选返回已有 GameId，不重复建卡。
-            return CandidateReviewResult(request, current.ReviewState, current.Revision, current.GameId, null);
+            // 幂等：重试同候选返回已有 GameId，不重复建卡；similarTo 不重算（安全回放既有结果语义）。
+            return CandidateReviewResult(request, current.ReviewState, current.Revision, current.GameId, null, []);
         }
 
         if (current.ReviewState != "pendingReview")
@@ -65,7 +67,23 @@ internal sealed class CandidateReviewHandler
         var utcNow = DateTime.UtcNow;
         if (action == "accept")
         {
-            // R43：建卡/复用 + 引擎标签 + 候选转移单事务提交；conflict 不落任何写。
+            // 匹配指纹（ADR-0001 第四键）：在 handler 内、store 锁外计算（哈希是文件 I/O，
+            // 不得持 _sync 执行），随 R43 单事务并入 game_fingerprints——建卡/标签/候选转移/指纹
+            // 要么全提交要么全不落。整根不可读 → fingerprint=null 仍照常 accept（指纹是线索不是身份）。
+            var entryPath = TopEntry(current.PayloadJson, current.PhysicalPath, current.Kind);
+            var engine = TopEngine(current.PayloadJson);
+            var fingerprint = MatchFingerprintCalculator.Calculate(current.PhysicalPath, entryPath, engine);
+            GameFingerprintData? fingerprintData = null;
+            if (fingerprint is not null)
+            {
+                fingerprintData = new GameFingerprintData(
+                    fingerprint.StrategyVersion,
+                    JsonSerializer.Serialize(fingerprint.Entries, ContractJson.Options),
+                    utcNow);
+            }
+
+            // R43：建卡/复用 + 引擎标签 + 候选转移 + 指纹单事务提交；conflict 不落任何写
+            //（哈希浪费仅发生在 revision 竞态下，上方已先本地校验 pendingReview）。
             var outcome = store.AcceptCandidate(
                 candidateId,
                 expectedRevision.Value,
@@ -75,15 +93,16 @@ internal sealed class CandidateReviewHandler
                     Title = TitleFromPath(current.PhysicalPath, current.RelativePath, current.Kind),
                     RootPath = current.PhysicalPath,
                     Kind = current.Kind,
-                    Engine = TopEngine(current.PayloadJson),
-                    EntryPath = TopEntry(current.PayloadJson, current.PhysicalPath, current.Kind),
+                    Engine = engine,
+                    EntryPath = entryPath,
                     Membership = "active",
                     TranslationInherited = RequiredByToolNeed(current.PayloadJson),
                     AcceptedUtc = utcNow,
                     UpdatedUtc = utcNow,
                 },
-                TopEngine(current.PayloadJson) ?? "",
-                utcNow);
+                engine ?? "",
+                utcNow,
+                fingerprintData);
             if (outcome.Status == "conflict")
             {
                 return new Envelope<object>
@@ -102,16 +121,24 @@ internal sealed class CandidateReviewHandler
 
             if (outcome.Status == "accepted")
             {
+                // 相似建议：对比集合排除自身（刚 accept 的游戏 membership='active' 且指纹行同事务已插入）。
+                var similarTo = fingerprint is null
+                    ? []
+                    : FingerprintSuggestions.Compute(store, fingerprint, outcome.GameId);
                 _events.Publish("game.created", $"game:{outcome.GameId}", new
                 {
                     gameId = outcome.GameId,
                     fromCandidate = candidateId,
                     title = TitleFromPath(current.PhysicalPath, current.RelativePath, current.Kind),
+                    similarTo = FingerprintSuggestions.ToPayload(similarTo),
                 }, DateTime.UtcNow);
+
+                return CandidateReviewResult(
+                    request, outcome.Candidate.ReviewState, outcome.Candidate.Revision, outcome.GameId, null, similarTo);
             }
 
             return CandidateReviewResult(
-                request, outcome.Candidate.ReviewState, outcome.Candidate.Revision, outcome.GameId, null);
+                request, outcome.Candidate.ReviewState, outcome.Candidate.Revision, outcome.GameId, null, []);
         }
 
         if (action == "ignore")
@@ -145,7 +172,7 @@ internal sealed class CandidateReviewHandler
                 };
             }
 
-            return CandidateReviewResult(request, "ignored", outcome.Candidate.Revision, null, outcome.IgnoreId);
+            return CandidateReviewResult(request, "ignored", outcome.Candidate.Revision, null, outcome.IgnoreId, []);
         }
 
         // defer：单步转移（accept/ignore 已在各自原子路径提前返回）。
@@ -168,10 +195,16 @@ internal sealed class CandidateReviewHandler
             };
         }
 
-        return CandidateReviewResult(request, updated.ReviewState, updated.Revision, updated.GameId, null);
+        return CandidateReviewResult(request, updated.ReviewState, updated.Revision, updated.GameId, null, []);
     }
 
-    private static Envelope<object> CandidateReviewResult(IpcRequest request, string state, int revision, string? gameId, string? ignoreId) =>
+    private static Envelope<object> CandidateReviewResult(
+        IpcRequest request,
+        string state,
+        int revision,
+        string? gameId,
+        string? ignoreId,
+        IReadOnlyList<SimilarGameSuggestion> similarTo) =>
         new()
         {
             RequestId = request.RequestId,
@@ -183,6 +216,7 @@ internal sealed class CandidateReviewHandler
                 revision,
                 gameId,
                 ignoreId,
+                similarTo = FingerprintSuggestions.ToPayload(similarTo),
             },
         };
 

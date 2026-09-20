@@ -267,4 +267,104 @@ public sealed class ManualGameTests : IClassFixture<PipeServerFixture>
         Assert.False(rejected.Ok);
         Assert.Equal(ErrorCodes.PermissionDenied, rejected.Error!.Code);
     }
+
+    [Fact]
+    public async Task CreateAndRelink_ComputeAndRefreshFingerprint()
+    {
+        var root = Path.Combine(DataDir, "fingerprint-fixture");
+        var gameDir = Path.Combine(root, "MyGame");
+        Directory.CreateDirectory(gameDir);
+        File.WriteAllText(Path.Combine(gameDir, "a.bin"), "alpha-content");
+        File.WriteAllText(Path.Combine(gameDir, "b.bin"), "beta-content");
+
+        var addedRoot = await InvokeAsync("roots.add", new { root });
+        Assert.True(addedRoot.Ok, addedRoot.Error?.Message);
+
+        // games.create 建卡后指纹存在（手动目录卡：未知引擎回退 = 根目录最小 ≤1MiB 文件充实）。
+        var created = await InvokeAsync("games.create", new
+        {
+            idempotencyKey = $"manual-fp-create-{Guid.NewGuid():N}",
+            sourcePath = gameDir,
+            title = "指纹游戏",
+        });
+        Assert.True(created.Ok, created.Error?.Message);
+        var gameId = created.Data.GetProperty("gameId").GetString()!;
+        var detail = await InvokeAsync("games.get", new { gameId });
+        Assert.True(detail.Ok, detail.Error?.Message);
+        var fingerprint = detail.Data.GetProperty("fingerprint");
+        Assert.Equal(GameLibrary.Domain.Identity.FingerprintPolicy.StrategyVersion,
+            fingerprint.GetProperty("strategyVersion").GetInt32());
+        Assert.Equal(2, fingerprint.GetProperty("entryCount").GetInt32());
+        var computedFirst = fingerprint.GetProperty("computedUtc").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(computedFirst));
+        // 新建游戏无同指纹对手：similarTo 空且不含自身。
+        Assert.Equal(0, detail.Data.GetProperty("similarTo").GetArrayLength());
+        var revision = detail.Data.GetProperty("revision").GetInt32();
+
+        // 改名拷贝目录（同字节内容）→ relink 重算指纹：computed_utc 更新、条目反映新根。
+        await Task.Delay(50);
+        var copyDir = Path.Combine(root, "MyGame-Renamed");
+        Directory.CreateDirectory(copyDir);
+        foreach (var file in new[] { "a.bin", "b.bin" })
+        {
+            File.Copy(Path.Combine(gameDir, file), Path.Combine(copyDir, file));
+        }
+
+        var relinked = await InvokeAsync("games.relink", new
+        {
+            idempotencyKey = $"manual-fp-relink-{gameId}",
+            gameId,
+            newPath = copyDir,
+            expectedRevision = revision,
+        });
+        Assert.True(relinked.Ok, relinked.Error?.Message);
+
+        var afterRelink = await InvokeAsync("games.get", new { gameId });
+        Assert.True(afterRelink.Ok, afterRelink.Error?.Message);
+        var fingerprintAfter = afterRelink.Data.GetProperty("fingerprint");
+        Assert.Equal(2, fingerprintAfter.GetProperty("entryCount").GetInt32());
+        var computedSecond = fingerprintAfter.GetProperty("computedUtc").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(computedSecond));
+        Assert.NotEqual(computedFirst, computedSecond);
+        // relink 后仍无对手：similarTo 空且不含自身。
+        Assert.Equal(0, afterRelink.Data.GetProperty("similarTo").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task IdenticalStandaloneLaunchers_MatchedOne_IsBlockedByGate()
+    {
+        // 共用启动器场景：两个独立 EXE 字节完全相同 → 单条 hashed 指纹 similarity=1.0，
+        // 但 matched=1 < 2 → 宿主门控拦截（防单条目巧合误报）。
+        var root = Path.Combine(DataDir, "launcher-twin-fixture");
+        Directory.CreateDirectory(root);
+        var first = Path.Combine(root, "LauncherA.exe");
+        var second = Path.Combine(root, "LauncherB.exe");
+        File.WriteAllText(first, "same-launcher-bytes");
+        File.WriteAllText(second, "same-launcher-bytes");
+
+        var addedRoot = await InvokeAsync("roots.add", new { root });
+        Assert.True(addedRoot.Ok, addedRoot.Error?.Message);
+
+        var createFirst = await InvokeAsync("games.create", new
+        {
+            idempotencyKey = $"launcher-first-{Guid.NewGuid():N}",
+            sourcePath = first,
+        });
+        Assert.True(createFirst.Ok, createFirst.Error?.Message);
+        var createSecond = await InvokeAsync("games.create", new
+        {
+            idempotencyKey = $"launcher-second-{Guid.NewGuid():N}",
+            sourcePath = second,
+        });
+        Assert.True(createSecond.Ok, createSecond.Error?.Message);
+
+        var secondId = createSecond.Data.GetProperty("gameId").GetString()!;
+        var detail = await InvokeAsync("games.get", new { gameId = secondId });
+        Assert.True(detail.Ok, detail.Error?.Message);
+        // 指纹存在（单条目）但 similarTo 必须为空——matched≥2 门控生效，similarity=1.0 也不放行。
+        Assert.Equal(1, detail.Data.GetProperty("fingerprint").GetProperty("entryCount").GetInt32());
+        Assert.DoesNotContain(detail.Data.GetProperty("similarTo").EnumerateArray(),
+            s => s.GetProperty("gameId").GetString() == createFirst.Data.GetProperty("gameId").GetString());
+        Assert.Equal(0, detail.Data.GetProperty("similarTo").GetArrayLength());
+    }
 }

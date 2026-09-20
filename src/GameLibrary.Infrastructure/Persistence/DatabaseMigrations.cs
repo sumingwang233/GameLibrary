@@ -332,5 +332,20 @@ public static class DatabaseMigrations
                 ORDER BY created_utc DESC LIMIT 2000
             );
             """, RequiresVacuum: true),
+        // 20：匹配指纹独立表（ADR-0001 第四键的持久化）。accept/relink/create 三处写入，
+        // 建议查询只 JOIN games membership='active'（remove 是软移除，行随卡保留但不产建议）；
+        // ON DELETE CASCADE 仅防御未来硬删除（与 v16/v17 补外键先例同构）。
+        // entries_json 由 Host 层以 ContractJson 序列化（Infrastructure 不引用 Contracts，
+        // 沿 PersistedCandidate.PayloadJson 的 Host 序列化/Store 收串模式）；独立表而非
+        // games 列：games 读路径全部显式列清单，肥 JSON 列会拖累 QueryGames/ListGames。
+        // 空表纯 DDL，无数据改写，无需 RequiresVacuum。
+        new DatabaseMigration(20, """
+            CREATE TABLE game_fingerprints (
+                game_id TEXT PRIMARY KEY REFERENCES games(game_id) ON DELETE CASCADE,
+                strategy_version INTEGER NOT NULL,
+                entries_json TEXT NOT NULL,
+                computed_utc TEXT NOT NULL
+            )
+            """),
     ];
 }

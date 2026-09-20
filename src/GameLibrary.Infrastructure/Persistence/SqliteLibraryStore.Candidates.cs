@@ -41,10 +41,11 @@ public sealed partial class SqliteLibraryStore
         string candidateId, string fromState, string toState, int expectedRevision, string? gameId, DateTime utcNow)
         => Execute((c, _) => LibraryCatalogStore.TransitionCandidate(c, candidateId, fromState, toState, expectedRevision, gameId, utcNow));
 
-    /// <summary>accept 原子化（R43）：建卡/复用 + 引擎标签 + 候选转移单事务提交，conflict 不落任何写。</summary>
+    /// <summary>accept 原子化（R43）：建卡/复用 + 引擎标签 + 候选转移 + 匹配指纹单事务提交，conflict 不落任何写。</summary>
     public AcceptCandidateOutcome AcceptCandidate(
-        string candidateId, int expectedRevision, GameCard newGame, string engine, DateTime utcNow)
-        => Execute((c, _) => LibraryCatalogStore.AcceptCandidate(c, candidateId, expectedRevision, newGame, engine, utcNow));
+        string candidateId, int expectedRevision, GameCard newGame, string engine, DateTime utcNow,
+        GameFingerprintData? fingerprint = null)
+        => Execute((c, _) => LibraryCatalogStore.AcceptCandidate(c, candidateId, expectedRevision, newGame, engine, utcNow, fingerprint));
 
     /// <summary>ignore 原子化（R48）：忽略规则 + 候选转移单事务提交，conflict 不落任何写。</summary>
     public IgnoreCandidateOutcome IgnoreCandidate(

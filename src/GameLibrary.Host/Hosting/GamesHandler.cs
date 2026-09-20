@@ -1,8 +1,11 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using GameLibrary.Contracts;
 using GameLibrary.Contracts.Ipc;
+using GameLibrary.Domain.Identity;
 using GameLibrary.Host.Scanning;
 using GameLibrary.Infrastructure.Persistence;
+using GameLibrary.Infrastructure.Scanning;
 using GameLibrary.Infrastructure.Shell;
 
 namespace GameLibrary.Host.Hosting;
@@ -151,12 +154,42 @@ internal sealed class GamesHandler
             return IpcRequests.NotFound(request, $"游戏不存在：{gameId}");
         }
 
+        // 详情页指纹面（WithHints 同款 JsonNode 后处理）：GameDto 是 list/detail 共用唯一真源，
+        // similarTo 塞进 DTO 会让 games.list 变 O(N²)——只在 games.get 注入，单游戏 one-vs-N 实时可算。
+        var node = JsonSerializer.SerializeToNode(GameDto(store, game), ContractJson.Options)
+            ?? throw new InvalidOperationException("GameDto 序列化失败");
+        var row = store.TryGetGameFingerprint(gameId);
+        var entries = row is null ? null : TryDeserializeEntries(row.EntriesJson);
+        if (row is not null)
+        {
+            node["fingerprint"] = new JsonObject
+            {
+                ["strategyVersion"] = row.StrategyVersion,
+                ["entryCount"] = entries?.Count ?? 0,
+                ["computedUtc"] = row.ComputedUtc.ToString("O"),
+            };
+        }
+        else
+        {
+            node["fingerprint"] = null;
+        }
+
+        var similarTo = row is not null && entries is not null
+            ? FingerprintSuggestions.Compute(
+                store,
+                new MatchFingerprint { StrategyVersion = row.StrategyVersion, Entries = entries },
+                gameId)
+            : [];
+        node["similarTo"] = new JsonArray(
+            [.. FingerprintSuggestions.ToPayload(similarTo)
+                .Select(s => JsonSerializer.SerializeToNode(s, ContractJson.Options))]);
+
         return new Envelope<object>
         {
             RequestId = request.RequestId,
             Ok = true,
             Status = OperationStatus.Completed,
-            Data = GameDto(store, game),
+            Data = node,
         };
     }
 
@@ -383,6 +416,9 @@ internal sealed class GamesHandler
             var revision = store.SetGameField(game.GameId, "title", title, "user", 1, utcNow);
             game = game with { Revision = revision ?? 1 };
         }
+
+        // 手动建卡同计算器接入（与 accept 语义对齐）：锁外哈希，指纹为 null 不阻塞建卡。
+        UpsertFingerprint(store, game, entryPath, utcNow);
 
         _events.Publish("game.created", $"game:{game.GameId}", new
         {
@@ -686,6 +722,12 @@ internal sealed class GamesHandler
             availability = "available",
             revision = newRevision,
         }, DateTime.UtcNow);
+
+        // relink 后重算指纹（防陈旧指纹污染建议）：入口按旧根内相对位置重映射到新根；
+        // 新根不可读 → 指纹为 null 不落写（行保留），下轮 accept/relink 再刷新。
+        var newEntry = RebaseEntry(game.RootPath, game.EntryPath, newRoot.PhysicalPath);
+        UpsertFingerprint(store, game with { RootPath = newRoot.PhysicalPath }, newEntry, DateTime.UtcNow);
+
         return new Envelope<object>
         {
             RequestId = request.RequestId,
@@ -700,6 +742,59 @@ internal sealed class GamesHandler
                 revision = newRevision.Value,
             },
         };
+    }
+
+    /// <summary>计算并落库指纹（handler 内、store 锁外哈希；计算失败静默跳过——指纹是线索不是身份）。</summary>
+    private static void UpsertFingerprint(
+        SqliteLibraryStore store, GameCard game, string? entryPath, DateTime utcNow)
+    {
+        var fingerprint = MatchFingerprintCalculator.Calculate(game.RootPath, entryPath, game.Engine);
+        if (fingerprint is null)
+        {
+            return;
+        }
+
+        store.UpsertGameFingerprint(game.GameId, new GameFingerprintData(
+            fingerprint.StrategyVersion,
+            JsonSerializer.Serialize(fingerprint.Entries, ContractJson.Options),
+            utcNow));
+    }
+
+    /// <summary>relink 的入口重映射：旧根内的入口按相对路径落到新根；不在旧根内则原样返回（按文件名回退由计算器处理）。</summary>
+    private static string? RebaseEntry(string oldRootPath, string? entryPath, string newRootPath)
+    {
+        if (entryPath is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var oldRootFull = Path.GetFullPath(oldRootPath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var entryFull = Path.GetFullPath(entryPath);
+            var prefix = oldRootFull + Path.DirectorySeparatorChar;
+            return entryFull.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                ? Path.GetFullPath(Path.Combine(newRootPath, Path.GetRelativePath(oldRootFull, entryFull)))
+                : entryPath;
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            return entryPath;
+        }
+    }
+
+    private static IReadOnlyList<MatchFingerprint.FingerprintEntry>? TryDeserializeEntries(string entriesJson)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<IReadOnlyList<MatchFingerprint.FingerprintEntry>>(
+                entriesJson, ContractJson.Options);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     /// <summary>检测路径或其任一祖先目录是否含重解析点（目录联接/符号链接）。</summary>

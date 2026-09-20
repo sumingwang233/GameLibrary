@@ -49,6 +49,18 @@ public sealed partial class SqliteLibraryStore
     public int? RelinkGame(string gameId, string newRootPath, int expectedRevision, DateTime utcNow)
         => Execute((c, _) => LibraryCatalogStore.RelinkGame(c, gameId, newRootPath, expectedRevision, utcNow));
 
+    // 匹配指纹域转发（v20 game_fingerprints）：写入仅 accept（R43 事务内）/relink/create 三处。
+
+    public void UpsertGameFingerprint(string gameId, GameFingerprintData fingerprint)
+        => Execute((c, _) => LibraryCatalogStore.UpsertGameFingerprint(c, gameId, fingerprint));
+
+    public GameFingerprintRow? TryGetGameFingerprint(string gameId)
+        => Execute((c, _) => LibraryCatalogStore.TryGetGameFingerprint(c, gameId));
+
+    /// <summary>相似建议对比集合（active + 当前策略版本）；excludeGameId 防自身恒占 similarTo[0]。</summary>
+    public IReadOnlyList<GameFingerprintRow> ListActiveGameFingerprints(string? excludeGameId, int strategyVersion)
+        => Execute((c, _) => LibraryCatalogStore.ListActiveGameFingerprints(c, excludeGameId, strategyVersion));
+
     public IReadOnlyList<IgnoreRule> ListIgnoreRules()
         => Execute((c, _) => LibraryCatalogStore.ListIgnoreRules(c));
 
