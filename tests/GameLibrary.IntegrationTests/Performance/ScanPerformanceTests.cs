@@ -97,12 +97,14 @@ public sealed class ScanPerformanceTests
         try
         {
             GenerateFixture(root, directories: 500, filesPerDirectory: 5);
-            var walker = new DirectoryWalker(GamePath.Create(root), new ScanRuleSet([]));
             var samples = new List<double>();
 
-            // PERF-02：重复取消采样，P95 ≤ 2 秒。
+            // PERF-02：重复取消采样，P95 ≤ 2 秒。每次全新 walker——复用实例会从上次
+            // 取消的续走状态开始，快速环境剩余目录可在取消阈值（20ms）前走完，
+            // 使 cancelRequestedAt 保持 MinValue，差值算术溢出（CI 实测触发过）。
             for (var attempt = 0; attempt < 5; attempt++)
             {
+                var walker = new DirectoryWalker(GamePath.Create(root), new ScanRuleSet([]));
                 using var cts = new CancellationTokenSource();
                 var stopwatch = Stopwatch.StartNew();
                 var cancelRequestedAt = TimeSpan.MinValue;
@@ -119,11 +121,19 @@ public sealed class ScanPerformanceTests
                     pause: null,
                     cts.Token);
 
+                if (cancelRequestedAt == TimeSpan.MinValue)
+                {
+                    // 该次走查在取消阈值前完成：无延迟可测，正常完成即可，跳过采样。
+                    Assert.Equal(ScanCompletion.Complete, coverage.Completion);
+                    continue;
+                }
+
                 var stopLatency = stopwatch.Elapsed - cancelRequestedAt;
                 samples.Add(stopLatency.TotalMilliseconds);
                 Assert.Equal(ScanCompletion.Cancelled, coverage.Completion);
             }
 
+            Assert.NotEmpty(samples);
             samples.Sort();
             var p95 = samples[^1];
             if (EnforceBudget)
