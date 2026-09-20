@@ -181,7 +181,7 @@ internal sealed class GamesHandler
         }
 
         var normalized = validation.Path!;
-        if (RejectPathOutsideRoots(request, normalized.PhysicalPath) is { } outsideRoot)
+        if (IpcRequests.RejectPathOutsideRoots(request, normalized.PhysicalPath, _roots) is { } outsideRoot)
         {
             return outsideRoot;
         }
@@ -271,7 +271,7 @@ internal sealed class GamesHandler
                 return IpcRequests.InvalidArgument(request, "快捷方式目标只能是 EXE 或 SWF 游戏文件");
             }
 
-            if (RejectPathOutsideRoots(request, entryPath) is { } targetOutsideRoot)
+            if (IpcRequests.RejectPathOutsideRoots(request, entryPath, _roots) is { } targetOutsideRoot)
             {
                 return targetOutsideRoot;
             }
@@ -307,7 +307,7 @@ internal sealed class GamesHandler
                     return IpcRequests.InvalidArgument(request, "快捷方式的工作目录不存在");
                 }
 
-                if (RejectPathOutsideRoots(request, workingDirectory) is { } workingOutsideRoot)
+                if (IpcRequests.RejectPathOutsideRoots(request, workingDirectory, _roots) is { } workingOutsideRoot)
                 {
                     return workingOutsideRoot;
                 }
@@ -628,7 +628,7 @@ internal sealed class GamesHandler
         }
 
         var newRoot = validation.Path!;
-        if (RejectPathOutsideRoots(request, newRoot.PhysicalPath) is { } outsideRoot)
+        if (IpcRequests.RejectPathOutsideRoots(request, newRoot.PhysicalPath, _roots) is { } outsideRoot)
         {
             return outsideRoot;
         }
@@ -765,32 +765,6 @@ internal sealed class GamesHandler
             revision = game.Revision,
             acceptedUtc = game.AcceptedUtc.ToString("O"),
             updatedUtc = game.UpdatedUtc.ToString("O"),
-        };
-    }
-
-    /// <summary>
-    /// 路径包含校验（CWE-22 边界）：调用方路径必须在已注册库根内。与
-    /// OperationDispatcher / LaunchingHandler 的同构副本保持一致（多源同构，
-    /// 先例 IgnoreRulesHandler；待剩余域拆完在收尾片收敛到共享处）。
-    /// </summary>
-    private Envelope<object>? RejectPathOutsideRoots(IpcRequest request, string physicalPath)
-    {
-        if (_roots.Contains(physicalPath))
-        {
-            return null;
-        }
-
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = false,
-            Status = OperationStatus.Failed,
-            Error = new RequestError
-            {
-                Code = ErrorCodes.PermissionDenied,
-                Message = $"路径不在已注册库根内（先通过 roots.add 注册）：{physicalPath}",
-                Retryable = false,
-            },
         };
     }
 }

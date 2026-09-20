@@ -1,26 +1,25 @@
 using System.Collections.Concurrent;
-using System.Diagnostics;
-using System.Reflection;
 using System.Text.Json;
 using GameLibrary.Contracts;
 using GameLibrary.Contracts.Ipc;
-using GameLibrary.Domain.Classification;
-using GameLibrary.Domain.Detection;
-using GameLibrary.Domain.Detection.Detectors;
-using GameLibrary.Host.Observability;
-using GameLibrary.Host.Scanning;
-using GameLibrary.Host.Tools;
 using GameLibrary.Infrastructure.Backups;
 using GameLibrary.Infrastructure.Persistence;
-using GameLibrary.Infrastructure.Scanning;
+
 namespace GameLibrary.Host.Hosting;
 
-
-
-/// <summary>OperationDispatcher 的 Backups 域 handler（阶段三按域拆分，partial）：
-/// 备份计划注册表与备份/控制区根路径等域内状态随域集中于此（原物理错放在
-/// Observability 分部，随其删除迁入唯一使用方）。</summary>
-public sealed partial class OperationDispatcher
+/// <summary>
+/// 备份域处理器：backups.list / backups.create / backups.inspect / backups.restore_plan /
+/// backups.restore 五操作 + RestoreCore 与备份计划注册表等域内状态随域整体迁入
+/// （原 OperationDispatcher.Backups 分部删除）。
+/// Library 经委托每请求取当前值（restore 临界区内整体替换 Library 并对当前对象
+/// 置空 Store，禁止构造时缓存引用）；BindLibraryStore 经委托走 HostRuntimeState
+/// 单源（含 Events.BindStore 重绑与 ConnectionGeneration 递增，禁止手抄重实现）；
+/// MaintenanceMode 为宿主 volatile 字段，经 setter 委托读写；Jobs 为 init-only 引用，
+/// DataDirectory/AppVersion 为不可变值直传。由 DispatchCore 调用，天然继承幂等收据
+/// （backups.create 在 ReceiptOperations；backups.restore 自带控制区收据）与串行门、
+/// 权限、维护模式等中间件。
+/// </summary>
+internal sealed class BackupsHandler
 {
     /// <summary>备份计划注册表：planId → (backupId, 过期时刻)。10 分钟有效期（契约 9.3）。</summary>
     private static readonly TimeSpan PlanLifetime = TimeSpan.FromMinutes(10);
@@ -34,9 +33,37 @@ public sealed partial class OperationDispatcher
 
     private readonly ConcurrentDictionary<string, BackupPlan> _backupPlans = new(StringComparer.Ordinal);
 
-    private string BackupsRoot => Path.Combine(_state.DataDirectory, "backups");
+    private readonly Func<HostLibraryState> _library;
+    private readonly Action<SqliteLibraryStore?> _bindLibraryStore;
+    private readonly JobManager _jobs;
+    private readonly string _dataDirectory;
+    private readonly string _appVersion;
+    private readonly Action<bool> _setMaintenanceMode;
 
-    private ControlAreaStore ControlArea => new(Path.Combine(_state.DataDirectory, "control"));
+    /// <summary>
+    /// jobs 以 init-only 引用直传（HostRuntimeState 构造后整体不可替换）；
+    /// Library 经委托每请求取当前值；BindLibraryStore/MaintenanceMode 经委托走
+    /// HostRuntimeState 单源；dataDirectory/appVersion 为不可变值直传。
+    /// </summary>
+    public BackupsHandler(
+        Func<HostLibraryState> library,
+        Action<SqliteLibraryStore?> bindLibraryStore,
+        JobManager jobs,
+        string dataDirectory,
+        string appVersion,
+        Action<bool> setMaintenanceMode)
+    {
+        _library = library;
+        _bindLibraryStore = bindLibraryStore;
+        _jobs = jobs;
+        _dataDirectory = dataDirectory;
+        _appVersion = appVersion;
+        _setMaintenanceMode = setMaintenanceMode;
+    }
+
+    private string BackupsRoot => Path.Combine(_dataDirectory, "backups");
+
+    private ControlAreaStore ControlArea => new(Path.Combine(_dataDirectory, "control"));
 
     private static object BackupDto(string backupId, BackupManifest manifest) => new
     {
@@ -50,16 +77,16 @@ public sealed partial class OperationDispatcher
     };
 
     /// <summary>backups.create（作业）：SQLite 备份 API 一致快照 + 用户原图复制 + 清单哈希。</summary>
-    private Envelope<object> BackupsCreate(IpcRequest request)
+    public Envelope<object> BackupsCreate(IpcRequest request)
     {
-        var store = _state.Library.Store;
+        var store = _library().Store;
         if (store is null)
         {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
+            return IpcRequests.InvalidArgument(request, "库未初始化（先 library.init）");
         }
 
         var backupId = $"backup-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}";
-        var jobId = _state.Jobs.Create(
+        var jobId = _jobs.Create(
             "backup",
             async context =>
             {
@@ -74,7 +101,7 @@ public sealed partial class OperationDispatcher
                 store.CreateBackupAsync(stagedDb, context.Token).GetAwaiter().GetResult();
 
                 // 2. 用户原图复制（应用目录 assets/；缓存与外部游戏不入备份）。
-                var assetsSource = Path.Combine(_state.DataDirectory, "assets");
+                var assetsSource = Path.Combine(_dataDirectory, "assets");
                 var assetCount = Directory.Exists(assetsSource)
                     ? Infrastructure.Backups.BackupArchive.CopyDirectory(assetsSource, Path.Combine(backupDir, "assets"))
                     : 0;
@@ -106,7 +133,7 @@ public sealed partial class OperationDispatcher
     }
 
     /// <summary>backups.list：扫描 backups 根下含有效清单的备份目录。</summary>
-    private Envelope<object> BackupsList(IpcRequest request)
+    public Envelope<object> BackupsList(IpcRequest request)
     {
         var items = new List<object>();
         if (Directory.Exists(BackupsRoot))
@@ -140,18 +167,18 @@ public sealed partial class OperationDispatcher
     }
 
     /// <summary>backups.inspect：清单 + 逐文件 SHA-256 完整性核查。</summary>
-    private Envelope<object> BackupsInspect(IpcRequest request)
+    public Envelope<object> BackupsInspect(IpcRequest request)
     {
-        if (!TryGetStringParameter(request, "backupId", out var backupId))
+        if (!IpcRequests.TryGetStringParameter(request, "backupId", out var backupId))
         {
-            return InvalidArgument(request, "缺少 backupId 参数");
+            return IpcRequests.InvalidArgument(request, "缺少 backupId 参数");
         }
 
         var backupDir = Infrastructure.Backups.BackupArchive.BackupDirectory(BackupsRoot, backupId);
         var manifest = Infrastructure.Backups.BackupArchive.TryReadManifest(backupDir);
         if (manifest is null)
         {
-            return NotFound(request, $"备份不存在或清单损坏：{backupId}");
+            return IpcRequests.NotFound(request, $"备份不存在或清单损坏：{backupId}");
         }
 
         var problems = Infrastructure.Backups.BackupArchive.Verify(backupDir, manifest);
@@ -179,29 +206,29 @@ public sealed partial class OperationDispatcher
     }
 
     /// <summary>backups.restore_plan：影响预览 + 10 分钟有效的计划 ID。</summary>
-    private Envelope<object> BackupsRestorePlan(IpcRequest request)
+    public Envelope<object> BackupsRestorePlan(IpcRequest request)
     {
-        if (!TryGetStringParameter(request, "backupId", out var backupId))
+        if (!IpcRequests.TryGetStringParameter(request, "backupId", out var backupId))
         {
-            return InvalidArgument(request, "缺少 backupId 参数");
+            return IpcRequests.InvalidArgument(request, "缺少 backupId 参数");
         }
 
         var backupDir = Infrastructure.Backups.BackupArchive.BackupDirectory(BackupsRoot, backupId);
         var manifest = Infrastructure.Backups.BackupArchive.TryReadManifest(backupDir);
         if (manifest is null)
         {
-            return NotFound(request, $"备份不存在或清单损坏：{backupId}");
+            return IpcRequests.NotFound(request, $"备份不存在或清单损坏：{backupId}");
         }
 
         var problems = Infrastructure.Backups.BackupArchive.Verify(backupDir, manifest);
         if (problems.Count > 0)
         {
-            return InvalidArgument(request, $"备份完整性校验失败：{string.Join("; ", problems)}");
+            return IpcRequests.InvalidArgument(request, $"备份完整性校验失败：{string.Join("; ", problems)}");
         }
 
         var planId = $"plan-{Guid.NewGuid():N}";
         _backupPlans[planId] = new BackupPlan { BackupId = backupId, ExpiresUtc = DateTime.UtcNow + PlanLifetime };
-        var store = _state.Library.Store;
+        var store = _library().Store;
         return new Envelope<object>
         {
             RequestId = request.RequestId,
@@ -227,21 +254,21 @@ public sealed partial class OperationDispatcher
     /// → 关连接 → 暂存替换 → 重开校验 → dataEpoch 续期 → 维护日志每步落盘。
     /// 同键重试返回原结果，不再覆盖。
     /// </summary>
-    private async Task<Envelope<object>> BackupsRestore(IpcRequest request)
+    public async Task<Envelope<object>> BackupsRestore(IpcRequest request)
     {
-        if (!TryGetStringParameter(request, "backupId", out var backupId))
+        if (!IpcRequests.TryGetStringParameter(request, "backupId", out var backupId))
         {
-            return InvalidArgument(request, "缺少 backupId 参数");
+            return IpcRequests.InvalidArgument(request, "缺少 backupId 参数");
         }
 
-        if (!TryGetStringParameter(request, "planId", out var planId))
+        if (!IpcRequests.TryGetStringParameter(request, "planId", out var planId))
         {
-            return InvalidArgument(request, "缺少 planId 参数（先 backups.restore_plan）");
+            return IpcRequests.InvalidArgument(request, "缺少 planId 参数（先 backups.restore_plan）");
         }
 
-        if (!TryGetStringParameter(request, "idempotencyKey", out var idempotencyKey))
+        if (!IpcRequests.TryGetStringParameter(request, "idempotencyKey", out var idempotencyKey))
         {
-            return InvalidArgument(request, "缺少 idempotencyKey 参数");
+            return IpcRequests.InvalidArgument(request, "缺少 idempotencyKey 参数");
         }
 
         // 控制收据检查优先于 plan 校验：同键同参 → 重试返回原结果；同键异参 → IdempotencyConflict。
@@ -273,7 +300,7 @@ public sealed partial class OperationDispatcher
             var replayed = JsonSerializer.Deserialize<Envelope<object>>(existingResult, ContractJson.Options);
             if (replayed is null)
             {
-                return InvalidArgument(request, "控制收据损坏");
+                return IpcRequests.InvalidArgument(request, "控制收据损坏");
             }
 
             return new Envelope<object>
@@ -299,7 +326,7 @@ public sealed partial class OperationDispatcher
             if (completed is not null)
             {
                 return JsonSerializer.Deserialize<Envelope<object>>(completed, ContractJson.Options)
-                    ?? InvalidArgument(request, "控制收据损坏");
+                    ?? IpcRequests.InvalidArgument(request, "控制收据损坏");
             }
 
             return new Envelope<object>
@@ -318,25 +345,25 @@ public sealed partial class OperationDispatcher
 
         if (plan.BackupId != backupId)
         {
-            return InvalidArgument(request, $"计划 {planId} 对应备份 {plan.BackupId}，与请求的 {backupId} 不一致");
+            return IpcRequests.InvalidArgument(request, $"计划 {planId} 对应备份 {plan.BackupId}，与请求的 {backupId} 不一致");
         }
 
         var backupDir = Infrastructure.Backups.BackupArchive.BackupDirectory(BackupsRoot, backupId);
         var manifest = Infrastructure.Backups.BackupArchive.TryReadManifest(backupDir);
         if (manifest is null)
         {
-            return NotFound(request, $"备份不存在或清单损坏：{backupId}");
+            return IpcRequests.NotFound(request, $"备份不存在或清单损坏：{backupId}");
         }
 
         control.AppendMaintenanceLog($"restore begin: backup={backupId} plan={planId}");
-        var store = _state.Library.Store;
+        var store = _library().Store;
         if (store is null)
         {
-            return InvalidArgument(request, "库未初始化；恢复目标必须存在已初始化的库");
+            return IpcRequests.InvalidArgument(request, "库未初始化；恢复目标必须存在已初始化的库");
         }
 
         // 维护模式（REC-02）：进入恢复临界区——新变更请求被拒绝，只读与恢复自身可用。
-        _state.MaintenanceMode = true;
+        _setMaintenanceMode(true);
         try
         {
             return RestoreCore(request, control, backupDir, manifest, backupId, planId, idempotencyKey, retryDigest)
@@ -344,7 +371,7 @@ public sealed partial class OperationDispatcher
         }
         finally
         {
-            _state.MaintenanceMode = false;
+            _setMaintenanceMode(false);
         }
     }
 
@@ -365,7 +392,7 @@ public sealed partial class OperationDispatcher
             var safetyDir = Infrastructure.Backups.BackupArchive.BackupDirectory(BackupsRoot, safetyId);
             Directory.CreateDirectory(safetyDir);
             var safetyDb = Path.Combine(safetyDir, Infrastructure.Backups.BackupArchive.DatabaseFileName);
-            await _state.Library.Store!.CreateBackupAsync(safetyDb, CancellationToken.None);
+            await _library().Store!.CreateBackupAsync(safetyDb, CancellationToken.None);
             control.AppendMaintenanceLog($"safety backup: {safetyId}");
 
             // 2. 校验备份完整性。
@@ -373,12 +400,12 @@ public sealed partial class OperationDispatcher
             if (problems.Count > 0)
             {
                 control.AppendMaintenanceLog($"verify failed: {string.Join("; ", problems)}");
-                return InvalidArgument(request, $"备份完整性校验失败：{string.Join("; ", problems)}");
+                return IpcRequests.InvalidArgument(request, $"备份完整性校验失败：{string.Join("; ", problems)}");
             }
 
             // 3. 关闭旧连接（WAL checkpoint 归属旧连接）后才能替换文件。
-            var previousStore = _state.Library.Store!;
-            _state.Library.Store = null;
+            var previousStore = _library().Store!;
+            _library().Store = null;
             await previousStore.DisposeAsync();
             control.AppendMaintenanceLog("old connection closed");
 
@@ -387,19 +414,19 @@ public sealed partial class OperationDispatcher
             {
                 // 4. 替换库文件 → 重开并走完整校验/迁移路径。
                 var stagedDb = Path.Combine(backupDir, Infrastructure.Backups.BackupArchive.DatabaseFileName);
-                File.Copy(stagedDb, Path.Combine(_state.DataDirectory, "library.db"), overwrite: true);
+                File.Copy(stagedDb, Path.Combine(_dataDirectory, "library.db"), overwrite: true);
                 foreach (var residue in new[] { "library.db-wal", "library.db-shm" })
                 {
-                    var residuePath = Path.Combine(_state.DataDirectory, residue);
+                    var residuePath = Path.Combine(_dataDirectory, residue);
                     if (File.Exists(residuePath))
                     {
                         File.Delete(residuePath);
                     }
                 }
 
-                restoredStore = (await SqliteLibraryStore.TryOpenAsync(_state.DataDirectory, new SqliteLibraryStoreOptions
+                restoredStore = (await SqliteLibraryStore.TryOpenAsync(_dataDirectory, new SqliteLibraryStoreOptions
                 {
-                    AppVersion = _state.Identity.AppVersion,
+                    AppVersion = _appVersion,
                     ApiVersion = ApiConstants.ApiVersion,
                 }, CancellationToken.None)).Store;
                 if (restoredStore is null)
@@ -409,22 +436,22 @@ public sealed partial class OperationDispatcher
 
                 // v1 审查修复：库会话整体切换——事件流同步重绑到新 Store（新纪元、序号从新库恢复），
                 // 不再指向已关闭的旧连接；连接代数递增使旧纪元客户端断连。
-                _state.BindLibraryStore(restoredStore);
+                _bindLibraryStore(restoredStore);
                 control.AppendMaintenanceLog("database swapped");
             }
             catch (Exception ex)
             {
                 // 恢复失败：从安全备份文件回退，重开旧库继续服务。
                 control.AppendMaintenanceLog($"swap failed: {ex.Message}; rolling back to safety backup");
-                File.Copy(safetyDb, Path.Combine(_state.DataDirectory, "library.db"), overwrite: true);
-                var rolledBack = await SqliteLibraryStore.TryOpenAsync(_state.DataDirectory, new SqliteLibraryStoreOptions
+                File.Copy(safetyDb, Path.Combine(_dataDirectory, "library.db"), overwrite: true);
+                var rolledBack = await SqliteLibraryStore.TryOpenAsync(_dataDirectory, new SqliteLibraryStoreOptions
                 {
-                    AppVersion = _state.Identity.AppVersion,
+                    AppVersion = _appVersion,
                     ApiVersion = ApiConstants.ApiVersion,
                 }, CancellationToken.None);
                 if (rolledBack.IsOpened)
                 {
-                    _state.BindLibraryStore(rolledBack.Store);
+                    _bindLibraryStore(rolledBack.Store);
                 }
 
                 throw;
@@ -435,7 +462,7 @@ public sealed partial class OperationDispatcher
             if (Directory.Exists(backupAssets))
             {
                 Infrastructure.Backups.BackupArchive.CopyDirectory(
-                    backupAssets, Path.Combine(_state.DataDirectory, "assets"));
+                    backupAssets, Path.Combine(_dataDirectory, "assets"));
                 control.AppendMaintenanceLog("assets restored");
             }
 
@@ -480,6 +507,4 @@ public sealed partial class OperationDispatcher
             return failure;
         }
     }
-
-    /// <summary>诊断状态（T24）：进程/库/审计日志统计与队列指标；不含任何业务数据原文。</summary>
 }

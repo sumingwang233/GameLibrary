@@ -287,7 +287,7 @@ internal sealed class ObservabilityHandler
             };
         }
 
-        if (RejectPathOutsideRoots(request, pathValidation.Path!.PhysicalPath) is { } discoverOutsideRoot)
+        if (IpcRequests.RejectPathOutsideRoots(request, pathValidation.Path!.PhysicalPath, _roots) is { } discoverOutsideRoot)
         {
             return discoverOutsideRoot;
         }
@@ -369,32 +369,6 @@ internal sealed class ObservabilityHandler
                     },
                 unsupportedReason = mtoolDiscovery.UnsupportedReason,
                 notice = LogSanitizer.Sanitize(mtoolDiscovery.Notice, _dataDirectory),
-            },
-        };
-    }
-
-    /// <summary>
-    /// 路径包含校验（CWE-22 边界）：调用方路径必须在已注册库根内。与
-    /// OperationDispatcher / LaunchingHandler / GamesHandler 的同构副本保持一致
-    /// （多源同构，先例 IgnoreRulesHandler；待剩余域拆完在收尾片收敛到共享处）。
-    /// </summary>
-    private Envelope<object>? RejectPathOutsideRoots(IpcRequest request, string physicalPath)
-    {
-        if (_roots.Contains(physicalPath))
-        {
-            return null;
-        }
-
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = false,
-            Status = OperationStatus.Failed,
-            Error = new RequestError
-            {
-                Code = ErrorCodes.PermissionDenied,
-                Message = $"路径不在已注册库根内（先通过 roots.add 注册）：{physicalPath}",
-                Retryable = false,
             },
         };
     }

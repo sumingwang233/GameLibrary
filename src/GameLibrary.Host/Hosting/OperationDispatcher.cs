@@ -1,18 +1,9 @@
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Reflection;
 using System.Text.Json;
 using GameLibrary.Contracts;
 using GameLibrary.Contracts.Ipc;
-using GameLibrary.Domain.Classification;
-using GameLibrary.Domain.Detection;
-using GameLibrary.Domain.Detection.Detectors;
 using GameLibrary.Host.Observability;
-using GameLibrary.Host.Scanning;
-using GameLibrary.Host.Tools;
-using GameLibrary.Infrastructure.Backups;
-using GameLibrary.Infrastructure.Persistence;
-using GameLibrary.Infrastructure.Scanning;
 
 namespace GameLibrary.Host.Hosting;
 
@@ -38,11 +29,12 @@ public sealed class HostIdentity
 }
 
 /// <summary>
-/// 操作分发器（按域拆分为 partial：OperationDispatcher.Backups；
-/// 候选审核/忽略规则/标签/工具验证/视图设置/启动/游戏卡/编目/观察九域已独立为 Handler 类）。
-/// 本文件承载：请求门/纪元校验/收据中间件/路由 + 系统（capabilities/schema/host）与扫描域。
+/// 操作分发器（终态：无域 partial；候选审核/忽略规则/标签/工具验证/视图设置/启动/
+/// 游戏卡/编目/观察/扫描/备份十一域已独立为 Handler 类）。本文件只承载：请求门/
+/// 权限/纪元校验/审计中间件/Stamp、幂等收据中间件与 DispatchCore 路由 +
+/// 系统（capabilities/schema/host）操作。
 /// </summary>
-public sealed partial class OperationDispatcher
+public sealed class OperationDispatcher
 {
     private readonly HostRuntimeState _state;
 
@@ -85,6 +77,16 @@ public sealed partial class OperationDispatcher
     /// DiagnosticsStatus 读其快照，直引会读到过期状态），其余依赖为 init-only 引用。</summary>
     private readonly ObservabilityHandler _observability;
 
+    /// <summary>扫描域（scan.* 五操作 + jobs.get）：store 经委托每请求取当前值
+    /// （library.init/restore 整体替换 Library），Coordinator 为 settable 属性经委托取值，
+    /// jobs/candidates/events/roots 为 init-only 引用。</summary>
+    private readonly ScanningHandler _scanning;
+
+    /// <summary>备份域（backups.* 五操作）：Library 经委托每请求取当前值（restore 临界区
+    /// 整体替换 Library），BindLibraryStore 经委托走 HostRuntimeState 单源，MaintenanceMode
+    /// 经 setter 委托读写，jobs 为 init-only 引用，dataDirectory/appVersion 为不可变值直传。</summary>
+    private readonly BackupsHandler _backups;
+
     public OperationDispatcher(HostRuntimeState state)
     {
         _state = state;
@@ -104,6 +106,8 @@ public sealed partial class OperationDispatcher
         _games = new GamesHandler(() => state.Library.Store, state.Roots, state.Events);
         _cataloging = new CatalogingHandler(() => state.Library.Store, state.Roots, state.Events, state.Candidates, state.Jobs, state.DataDirectory);
         _observability = new ObservabilityHandler(() => state.Library.Store, () => state.Library, state.Identity, state.Jobs, state.Metrics, state.Events, state.Roots, state.AuditLog, state.DataDirectory);
+        _scanning = new ScanningHandler(() => state.Library.Store, state.Jobs, () => state.Coordinator, state.Candidates, state.Events, state.Roots);
+        _backups = new BackupsHandler(() => state.Library, state.BindLibraryStore, state.Jobs, state.DataDirectory, state.Identity.AppVersion, value => state.MaintenanceMode = value);
     }
 
     /// <summary>已接入收据的操作子集：catalog 声明 requiresIdempotencyKey 的已实现操作。
@@ -656,11 +660,11 @@ public sealed partial class OperationDispatcher
             Data = BuildCapabilities(),
         },
         "schema.get" => BuildSchema(request),
-        "scan.start" => ScanStart(request),
-        "scan.status" or "jobs.get" => JobSnapshotEnvelope(request, request.OperationId == "scan.status" ? "scan" : null),
-        "scan.cancel" => ScanCancel(request),
-        "scan.coverage" => ScanCoverage(request),
-        "scan.inspect" => ScanInspect(request),
+        "scan.start" => _scanning.ScanStart(request),
+        "scan.status" or "jobs.get" => _scanning.JobSnapshotEnvelope(request, request.OperationId == "scan.status" ? "scan" : null),
+        "scan.cancel" => _scanning.ScanCancel(request),
+        "scan.coverage" => _scanning.ScanCoverage(request),
+        "scan.inspect" => _scanning.ScanInspect(request),
         "roots.add" => _cataloging.RootsAdd(request),
         "roots.list" => _cataloging.RootsList(request),
         "roots.remove" => _cataloging.RootsRemove(request),
@@ -685,11 +689,11 @@ public sealed partial class OperationDispatcher
         "diagnostics.status" => _observability.DiagnosticsStatus(request),
         "diagnostics.logs" => _observability.DiagnosticsLogs(request),
         "diagnostics.cache_rebuild" => _observability.CacheRebuild(request),
-        "backups.list" => BackupsList(request),
-        "backups.create" => BackupsCreate(request),
-        "backups.inspect" => BackupsInspect(request),
-        "backups.restore_plan" => BackupsRestorePlan(request),
-        "backups.restore" => BackupsRestore(request).GetAwaiter().GetResult(),
+        "backups.list" => _backups.BackupsList(request),
+        "backups.create" => _backups.BackupsCreate(request),
+        "backups.inspect" => _backups.BackupsInspect(request),
+        "backups.restore_plan" => _backups.BackupsRestorePlan(request),
+        "backups.restore" => _backups.BackupsRestore(request).GetAwaiter().GetResult(),
         "tools.discover" => _observability.ToolsDiscover(request),
         "verification.start" => _verification.VerificationStart(request),
         "verification.report" => _verification.VerificationReport(request),
@@ -753,337 +757,6 @@ public sealed partial class OperationDispatcher
             },
         },
     };
-
-    private Envelope<object> ScanStart(IpcRequest request)
-    {
-        if (!TryGetStringParameter(request, "root", out var root))
-        {
-            return InvalidArgument(request, "缺少 root 参数（绝对本地路径）");
-        }
-
-        var validation = Domain.Paths.GamePath.TryCreate(root);
-        if (!validation.IsValid)
-        {
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = validation.IsUnsupported ? ErrorCodes.UnsupportedPath : ErrorCodes.InvalidPath,
-                    Message = $"根路径非法（{validation.Reason}）：{root}",
-                    Retryable = false,
-                },
-            };
-        }
-
-        var rootPath = validation.Path!;
-        if (!Directory.Exists(rootPath.PhysicalPath))
-        {
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ErrorCodes.RootOffline,
-                    Message = $"根路径不存在或离线：{rootPath.PhysicalPath}",
-                    Retryable = true,
-                },
-            };
-        }
-
-        if (RejectPathOutsideRoots(request, rootPath.PhysicalPath) is { } outsideRoot)
-        {
-            return outsideRoot;
-        }
-
-        var jobId = _state.Jobs.Create(
-            "scan",
-            context =>
-            {
-                _state.Coordinator.ManualScanRunning = true;
-                try
-                {
-                    var collector = new ScanCandidateCollector(rootPath, context.JobId, _state.Candidates);
-                    // 规则在作业启动时快照：扫描期间的 ignores 变更自下一次扫描生效。
-                    var rules = ScanIgnoreRuleSet.FromStore(_state.Library.Store);
-                    ScanCoverageData? completedCoverage = null;
-                    var outcome = ScanJobRunner.Run(
-                        rootPath,
-                        context,
-                        collector,
-                        onCompleted: coverage => completedCoverage = coverage,
-                        rules: rules);
-                    if (outcome.FinalState == "succeeded")
-                    {
-                        ScanCandidatePersistence.Persist(
-                            _state.Library.Store,
-                            _state.Events,
-                            collector,
-                            context.JobId,
-                            readyForReview: true);
-                        // T17：完整扫描成功后核对库内游戏可用性（ID-04/05）。
-                        if (_state.Library.Store is not null
-                            && completedCoverage?.Completion == ScanCompletion.Complete)
-                        {
-                            var report = ReconcileService.CheckGames(_state.Library.Store, DateTime.UtcNow);
-                            foreach (var transition in report.Transitions)
-                            {
-                                _state.Events.Publish("game.updated", $"game:{transition.GameId}", new
-                                {
-                                    gameId = transition.GameId,
-                                    availability = transition.To,
-                                }, DateTime.UtcNow);
-                            }
-                        }
-
-                        _state.Events.Publish("scan.completed", $"job:{context.JobId}", new
-                        {
-                            jobId = context.JobId,
-                            kind = "manual",
-                            root = rootPath.PhysicalPath,
-                            completion = completedCoverage?.Completion.ToString().ToLowerInvariant(),
-                        }, DateTime.UtcNow);
-                    }
-
-                    return Task.FromResult(outcome);
-                }
-                finally
-                {
-                    _state.Coordinator.ManualScanRunning = false;
-                }
-            },
-            ScanJobRunner.InitialProgress(rootPath));
-
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Accepted,
-            JobId = jobId,
-            Data = new { jobId, kind = "scan", state = "running" },
-        };
-    }
-
-    private Envelope<object> JobSnapshotEnvelope(IpcRequest request, string? expectedKind)
-    {
-        if (!TryGetStringParameter(request, "jobId", out var jobId))
-        {
-            return InvalidArgument(request, "缺少 jobId 参数");
-        }
-
-        var snapshot = _state.Jobs.Get(jobId);
-        if (snapshot is null)
-        {
-            return NotFound(request, $"作业不存在：{jobId}");
-        }
-
-        if (expectedKind is not null && !string.Equals(snapshot.Kind, expectedKind, StringComparison.Ordinal))
-        {
-            return InvalidArgument(request, $"作业 {jobId} 类型是 {snapshot.Kind}，不是 {expectedKind}");
-        }
-
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new
-            {
-                jobId = snapshot.JobId,
-                kind = snapshot.Kind,
-                state = snapshot.State,
-                createdUtc = snapshot.CreatedUtc.ToString("O"),
-                startedUtc = snapshot.StartedUtc?.ToString("O"),
-                finishedUtc = snapshot.FinishedUtc?.ToString("O"),
-                error = snapshot.Error,
-            },
-        };
-    }
-
-    private Envelope<object> ScanCancel(IpcRequest request)
-    {
-        if (!TryGetStringParameter(request, "jobId", out var jobId))
-        {
-            return InvalidArgument(request, "缺少 jobId 参数");
-        }
-
-        if (!_state.Jobs.RequestCancel(jobId))
-        {
-            return _state.Jobs.Get(jobId) is null
-                ? NotFound(request, $"作业不存在：{jobId}")
-                : InvalidArgument(request, $"作业已进入终态，无法取消：{jobId}");
-        }
-
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new { jobId, state = "cancelRequested" },
-        };
-    }
-
-    private Envelope<object> ScanCoverage(IpcRequest request)
-    {
-        if (!TryGetStringParameter(request, "jobId", out var jobId))
-        {
-            return InvalidArgument(request, "缺少 jobId 参数");
-        }
-
-        var progress = _state.Jobs.TryGetProgress(jobId);
-        if (progress is null)
-        {
-            return NotFound(request, $"作业不存在：{jobId}");
-        }
-
-        var (state, data) = progress.Value;
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new
-            {
-                jobId,
-                state,
-                coverage = data,
-            },
-        };
-    }
-
-    /// <summary>
-    /// 路径包含校验（CWE-22 边界）：调用方路径必须在已注册库根内。
-    /// 启动域的同构校验见 LaunchingHandler.RejectPathOutsideRoots（双源同构，
-    /// 先例 IgnoreRulesHandler；待剩余域拆完在收尾片收敛到共享处）。
-    /// </summary>
-    private Envelope<object>? RejectPathOutsideRoots(IpcRequest request, string physicalPath)
-    {
-        if (_state.Roots.Contains(physicalPath))
-        {
-            return null;
-        }
-
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = false,
-            Status = OperationStatus.Failed,
-            Error = new RequestError
-            {
-                Code = ErrorCodes.PermissionDenied,
-                Message = $"路径不在已注册库根内（先通过 roots.add 注册）：{physicalPath}",
-                Retryable = false,
-            },
-        };
-    }
-
-    /// <summary>只读单路径识别（契约 scan.inspect）：不落候选、不启动作业。</summary>
-    private Envelope<object> ScanInspect(IpcRequest request)
-    {
-        if (!TryGetStringParameter(request, "path", out var path))
-        {
-            return InvalidArgument(request, "缺少 path 参数（绝对本地目录路径）");
-        }
-
-        var validation = Domain.Paths.GamePath.TryCreate(path);
-        if (!validation.IsValid)
-        {
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = validation.IsUnsupported ? ErrorCodes.UnsupportedPath : ErrorCodes.InvalidPath,
-                    Message = $"路径非法（{validation.Reason}）：{path}",
-                    Retryable = false,
-                },
-            };
-        }
-
-        if (!Directory.Exists(validation.Path!.PhysicalPath))
-        {
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ErrorCodes.RootOffline,
-                    Message = $"路径不存在或离线：{validation.Path.PhysicalPath}",
-                    Retryable = true,
-                },
-            };
-        }
-
-        if (RejectPathOutsideRoots(request, validation.Path.PhysicalPath) is { } inspectOutsideRoot)
-        {
-            return inspectOutsideRoot;
-        }
-
-        var snapshot = new FileSystemDirectorySnapshot(validation.Path);
-        var report = new EngineDetectorSet(DefaultDetectors()).DetectAll(snapshot);
-        var confirmed = report.Results
-            .Where(r => r.Confidence >= DetectionConfidence.Medium)
-            .ToArray();
-        var generic = confirmed.Length == 0
-            ? GenericGameCandidateDetector.Inspect(snapshot)
-            : new GenericCandidateFinding([], []);
-        var entryCandidates = confirmed.Length > 0
-            ? confirmed.SelectMany(result => result.EntryCandidates).ToArray()
-            : generic.EntryCandidates;
-        var evidence = confirmed.Length > 0
-            ? report.Results.SelectMany(result => result.Evidence).ToArray()
-            : generic.Evidence;
-
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new
-            {
-                path = validation.Path.PhysicalPath,
-                recognized = confirmed.Length > 0 || generic.IsCandidate,
-                candidateKind = confirmed.Length > 0 ? "gameRoot" : generic.IsCandidate ? "unknown" : null,
-                engines = confirmed.Select(r => new
-                {
-                    engine = r.Engine,
-                    detectorVersion = r.DetectorVersion,
-                    confidence = r.Confidence,
-                    likelyRoots = r.LikelyRootRelativePaths,
-                    entryCandidates = r.EntryCandidates.Select(e => new
-                    {
-                        relativePath = e.RelativePath,
-                        score = e.Score,
-                        reasons = e.Reasons,
-                    }).ToArray(),
-                }).ToArray(),
-                engineConflict = report.Conflict is not null,
-                entryCandidates = entryCandidates.Select(e => new
-                {
-                    relativePath = e.RelativePath,
-                    score = e.Score,
-                    reasons = e.Reasons,
-                }).ToArray(),
-                evidence = evidence.Select(e => new
-                {
-                    ruleId = e.RuleId,
-                    relativePath = e.RelativePath,
-                    observation = e.Observation,
-                    polarity = e.Polarity,
-                    detail = e.Detail,
-                }).ToArray(),
-            },
-        };
-    }
-
 
     /// <summary>
     /// host.stop（T18）：先返回已接收收据，随后在响应送达后请求宿主优雅停机
@@ -1194,30 +867,9 @@ public sealed partial class OperationDispatcher
         return result;
     }
 
-    private static IEngineDetector[] DefaultDetectors() =>
-    [
-        new UnityDetector(),
-        new RpgMakerMvMzDetector(),
-        new RenpyDetector(),
-        new KirikiriDetector(),
-        new FlashDetector(),
-    ];
-
-    /// <summary>参数解析与错误信封统一转发 IpcRequests 单源（分部文件内调用点零改动）。</summary>
+    /// <summary>参数解析与错误信封统一转发 IpcRequests 单源（本文件内调用点零改动）。</summary>
     private static bool TryGetStringParameter(IpcRequest request, string name, out string value) =>
         IpcRequests.TryGetStringParameter(request, name, out value);
-
-    private static bool TryGetStringListParameter(IpcRequest request, string name, out IReadOnlyList<string> values) =>
-        IpcRequests.TryGetStringListParameter(request, name, out values);
-
-    private static bool TryGetBoolParameter(IpcRequest request, string name, out bool? value) =>
-        IpcRequests.TryGetBoolParameter(request, name, out value);
-
-    private static bool TryGetIntParameter(IpcRequest request, string name, out int? value) =>
-        IpcRequests.TryGetIntParameter(request, name, out value);
-
-    private static Envelope<object> NotFound(IpcRequest request, string message) =>
-        IpcRequests.NotFound(request, message);
 
     private static object BuildCapabilities()
     {

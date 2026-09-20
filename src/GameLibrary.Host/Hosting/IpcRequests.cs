@@ -1,6 +1,7 @@
 using System.Text.Json;
 using GameLibrary.Contracts;
 using GameLibrary.Contracts.Ipc;
+using GameLibrary.Host.Scanning;
 
 namespace GameLibrary.Host.Hosting;
 
@@ -120,4 +121,30 @@ internal static class IpcRequests
                 Retryable = false,
             },
         };
+
+    /// <summary>
+    /// 路径包含校验（CWE-22 边界）：调用方路径必须在已注册库根内。
+    /// 原先散布在 OperationDispatcher / GamesHandler / LaunchingHandler /
+    /// ObservabilityHandler 的四份同构副本收敛于此（收尾债），错误码与文案逐字节不变。
+    /// </summary>
+    public static Envelope<object>? RejectPathOutsideRoots(IpcRequest request, string physicalPath, RootRegistry roots)
+    {
+        if (roots.Contains(physicalPath))
+        {
+            return null;
+        }
+
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = false,
+            Status = OperationStatus.Failed,
+            Error = new RequestError
+            {
+                Code = ErrorCodes.PermissionDenied,
+                Message = $"路径不在已注册库根内（先通过 roots.add 注册）：{physicalPath}",
+                Retryable = false,
+            },
+        };
+    }
 }

@@ -205,7 +205,7 @@ internal sealed class LaunchingHandler
             return IpcRequests.InvalidArgument(request, "启动目标仅支持 EXE 或 SWF 文件");
         }
 
-        if (RejectPathOutsideRoots(request, executablePath) is { } createOutsideRoot)
+        if (IpcRequests.RejectPathOutsideRoots(request, executablePath, _roots) is { } createOutsideRoot)
         {
             return createOutsideRoot;
         }
@@ -342,7 +342,7 @@ internal sealed class LaunchingHandler
             return IpcRequests.InvalidArgument(request, "启动目标仅支持 EXE 或 SWF 文件");
         }
 
-        if (RejectPathOutsideRoots(request, executablePath) is { } updateOutsideRoot)
+        if (IpcRequests.RejectPathOutsideRoots(request, executablePath, _roots) is { } updateOutsideRoot)
         {
             return updateOutsideRoot;
         }
@@ -758,30 +758,4 @@ internal sealed class LaunchingHandler
                 Retryable = false,
             },
         };
-
-    /// <summary>
-    /// 路径包含校验（CWE-22 边界）：调用方路径必须在已注册库根内。与
-    /// OperationDispatcher.RejectPathOutsideRoots 双份同构（先例 IgnoreRulesHandler），
-    /// 错误码/文案保持一致；待剩余域拆完在收尾片收敛到共享处。
-    /// </summary>
-    private Envelope<object>? RejectPathOutsideRoots(IpcRequest request, string physicalPath)
-    {
-        if (_roots.Contains(physicalPath))
-        {
-            return null;
-        }
-
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = false,
-            Status = OperationStatus.Failed,
-            Error = new RequestError
-            {
-                Code = ErrorCodes.PermissionDenied,
-                Message = $"路径不在已注册库根内（先通过 roots.add 注册）：{physicalPath}",
-                Retryable = false,
-            },
-        };
-    }
 }
