@@ -34,6 +34,22 @@ const SCAN_POLL_MS = 700;
  */
 const EVENT_POLL_MS = 2500;
 
+/** 单次增量读取上限；扫描候选风暴由事件类型过滤，不触发游戏列表刷新。 */
+const EVENT_READ_LIMIT = 4096;
+
+function eventAffectsVisibleLibrary(event: LibraryEvent) {
+  return (
+    event.type.startsWith("game.") ||
+    event.type.startsWith("tag.") ||
+    event.type.startsWith("view.") ||
+    event.type.startsWith("root.") ||
+    event.type.startsWith("settings.") ||
+    event.type.startsWith("notification.") ||
+    event.type === "scan.completed" ||
+    event.type === "scan.failed"
+  );
+}
+
 const TERMINAL_JOB_STATES = ["succeeded", "failed", "cancelled"];
 
 export interface GameFilters {
@@ -57,6 +73,14 @@ interface ScanJob {
   root: string;
 }
 
+export interface ScanProgressState {
+  phase: "starting" | "running" | "cancelling";
+  activeRoots: number;
+  scannedDirectories: number;
+  candidatesFound: number;
+  startedAt: number;
+}
+
 interface LibraryController {
   tags: TagItem[];
   roots: RootItem[];
@@ -70,7 +94,7 @@ interface LibraryController {
   /** 每次收到库事件自增，作为查询侧的失效信号。 */
   changeToken: number;
   scanning: boolean;
-  scanText: string | null;
+  scanProgress: ScanProgressState | null;
   refreshMeta: () => Promise<void>;
   startScan: () => Promise<void>;
   cancelScan: () => Promise<void>;
@@ -103,7 +127,7 @@ function useLibraryController(): LibraryController {
   const [error, setError] = useState<string | null>(null);
   const [changeToken, setChangeToken] = useState(0);
   const [jobs, setJobs] = useState<ScanJob[]>([]);
-  const [scanText, setScanText] = useState<string | null>(null);
+  const [scanProgress, setScanProgress] = useState<ScanProgressState | null>(null);
 
   const cursorRef = useRef<number | undefined>(undefined);
   const mounted = useRef(true);
@@ -159,30 +183,69 @@ function useLibraryController(): LibraryController {
     }
   }, []);
 
+  // 事件流：初次挂载直接以 Host 返回的末尾游标建立基线，避免把最多 1 万条历史事件
+  // 当成“刚发生的变化”。基线建立后再读一次当前快照，避免两者并发产生漏事件窗口。
+  // 之后只对影响可见库的增量事件失效查询。
   useEffect(() => {
-    void refreshMeta();
-  }, [refreshMeta]);
+    let cancelled = false;
+    let timer: number | undefined;
+    let pollInFlight = false;
 
-  // 事件流：按 cursor 增量读取。游标过期（宿主重启或事件被淘汰）则清空游标重新全量读。
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      void (async () => {
-        try {
-          const result = await operation<{ nextCursor: number; items: LibraryEvent[] }>(
-            "events.read",
-            { cursor: cursorRef.current, limit: 200 },
-          );
-          cursorRef.current = result.data.nextCursor;
-          if (result.data.items.length > 0) bump();
-        } catch (cause) {
-          if (describeFailure(cause).includes("CursorExpired")) {
-            cursorRef.current = undefined;
+    const readBatch = async (limit = EVENT_READ_LIMIT) => {
+      const result = await operation<{
+        nextCursor: number;
+        latestCursor?: number;
+        items: LibraryEvent[];
+      }>(
+        "events.read",
+        { cursor: cursorRef.current, limit },
+      );
+      cursorRef.current = result.data.nextCursor;
+      return result.data;
+    };
+
+    const establishBaseline = async () => {
+      cursorRef.current = undefined;
+      const baseline = await readBatch(1);
+      cursorRef.current = baseline.latestCursor ?? baseline.nextCursor;
+    };
+
+    const poll = async () => {
+      if (pollInFlight) return;
+      pollInFlight = true;
+      try {
+        const batch = await readBatch();
+        if (!cancelled && batch.items.some(eventAffectsVisibleLibrary)) {
+          await refreshMeta();
+          bump();
+        }
+      } catch (cause) {
+        if (describeFailure(cause).includes("CursorExpired")) {
+          await establishBaseline();
+          if (!cancelled) {
+            await refreshMeta();
+            bump();
           }
         }
-      })();
-    }, EVENT_POLL_MS);
-    return () => window.clearInterval(timer);
-  }, [bump]);
+      } finally {
+        pollInFlight = false;
+      }
+    };
+
+    void (async () => {
+      await establishBaseline().catch(() => undefined);
+      if (!cancelled) await refreshMeta();
+    })().finally(() => {
+      if (!cancelled) {
+        timer = window.setInterval(() => void poll().catch(() => undefined), EVENT_POLL_MS);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearInterval(timer);
+    };
+  }, [bump, refreshMeta]);
 
   const startScan = useCallback(async () => {
     if (roots.length === 0) {
@@ -211,7 +274,13 @@ function useLibraryController(): LibraryController {
     }
 
     setJobs(started);
-    setScanText(`已请求扫描 ${started.length} 个游戏库目录`);
+    setScanProgress({
+      phase: "starting",
+      activeRoots: started.length,
+      scannedDirectories: 0,
+      candidatesFound: 0,
+      startedAt: Date.now(),
+    });
     if (failures.length > 0) setError(failures.join("；"));
   }, [roots]);
 
@@ -223,7 +292,7 @@ function useLibraryController(): LibraryController {
         ),
       ),
     );
-    setScanText("正在取消扫描…");
+    setScanProgress((previous) => previous && { ...previous, phase: "cancelling" });
   }, [jobs]);
 
   useEffect(() => {
@@ -246,27 +315,35 @@ function useLibraryController(): LibraryController {
 
         const alive = results.filter((item): item is NonNullable<typeof item> => item !== null);
         const running = alive.filter((item) => !TERMINAL_JOB_STATES.includes(item.state));
+        const terminalCount = alive.length - running.length;
 
         if (!mounted.current) return;
 
-        if (running.length === 0) {
+        if (alive.length === jobs.length && running.length === 0) {
           window.clearInterval(timer);
           setJobs([]);
-          setScanText(null);
+          setScanProgress(null);
           await refreshMeta();
           bump();
           return;
         }
 
-        const directories = running.reduce(
+        // 单次 coverage 请求失败不代表扫描结束；保留上一帧，等待下次轮询恢复。
+        if (alive.length === 0) return;
+
+        // 已完成的目录树仍计入累计数，避免多根扫描时某一根先结束后数字反向跳小。
+        const directories = alive.reduce(
           (sum, item) => sum + (item.coverage?.scannedDirectories ?? 0),
           0,
         );
-        const found = running.reduce((sum, item) => sum + (item.coverage?.candidatesFound ?? 0), 0);
-        setScanText(
-          `扫描中 · ${running.length} 个目录树 · ${directories.toLocaleString()} 个目录 · ` +
-            `${found.toLocaleString()} 个识别候选（含已入库）`,
-        );
+        const found = alive.reduce((sum, item) => sum + (item.coverage?.candidatesFound ?? 0), 0);
+        setScanProgress((previous) => ({
+          phase: previous?.phase === "cancelling" ? "cancelling" : "running",
+          activeRoots: jobs.length - terminalCount,
+          scannedDirectories: Math.max(previous?.scannedDirectories ?? 0, directories),
+          candidatesFound: Math.max(previous?.candidatesFound ?? 0, found),
+          startedAt: previous?.startedAt ?? Date.now(),
+        }));
       })();
     }, SCAN_POLL_MS);
     return () => window.clearInterval(timer);
@@ -445,7 +522,7 @@ function useLibraryController(): LibraryController {
       error,
       changeToken,
       scanning,
-      scanText,
+      scanProgress,
       refreshMeta,
       startScan,
       cancelScan,
@@ -472,7 +549,7 @@ function useLibraryController(): LibraryController {
       error,
       changeToken,
       scanning,
-      scanText,
+      scanProgress,
       refreshMeta,
       startScan,
       cancelScan,
@@ -529,6 +606,7 @@ export function useGamesQuery(
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [debouncedSearch, setDebouncedSearch] = useState(filters.search);
+  const hasLoadedRef = useRef(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(filters.search), 250);
@@ -561,8 +639,9 @@ export function useGamesQuery(
   );
 
   useEffect(() => {
+    if (suppressAutoRefresh) return;
     let cancelled = false;
-    setLoading(true);
+    if (!hasLoadedRef.current) setLoading(true);
     setError(null);
     void (async () => {
       try {
@@ -570,7 +649,10 @@ export function useGamesQuery(
       } catch (cause) {
         if (!cancelled) setError(describeFailure(cause));
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          hasLoadedRef.current = true;
+          setLoading(false);
+        }
       }
     })();
     return () => {
@@ -594,13 +676,14 @@ export function useGamesQuery(
   }, [loadingMore, games.length, total, fetchPage]);
 
   const reload = useCallback(async () => {
-    setLoading(true);
+    if (!hasLoadedRef.current) setLoading(true);
     try {
       await fetchPage(0, false);
       setError(null);
     } catch (cause) {
       setError(describeFailure(cause));
     } finally {
+      hasLoadedRef.current = true;
       setLoading(false);
     }
   }, [fetchPage]);

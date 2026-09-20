@@ -159,7 +159,7 @@ public sealed class SettingsTests : IClassFixture<PipeServerFixture>
             idempotencyKey = $"st-reset-{Guid.NewGuid():N}",
         });
         Assert.True(reset.Ok, reset.Error?.Message);
-        Assert.Equal("Segoe UI", reset.Data.GetProperty("uiFontFamily").GetString());
+        Assert.Equal("Microsoft YaHei UI", reset.Data.GetProperty("uiFontFamily").GetString());
         Assert.Equal(1.0, reset.Data.GetProperty("uiFontScale").GetDouble());
     }
 
@@ -294,7 +294,7 @@ public sealed class SettingsTests : IClassFixture<PipeServerFixture>
         Assert.True(reset.Ok, reset.Error?.Message);
         var data = reset.Data;
         Assert.False(data.GetProperty("autostartEnabled").GetBoolean());
-        Assert.Equal(15, data.GetProperty("scanIntervalMinutes").GetInt32());
+        Assert.Equal(60, data.GetProperty("scanIntervalMinutes").GetInt32());
         Assert.False(File.Exists(Path.Combine(_fixture.StartupDir, "GameLibrary.lnk")));
     }
 

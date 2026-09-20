@@ -28,7 +28,9 @@ public static class TagStore
         using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT t.tag_id, t.kind, t.name, t.color, t.revision, t.created_utc, t.updated_utc,
-                   (SELECT COUNT(*) FROM game_tags gt WHERE gt.tag_id = t.tag_id) AS game_count
+                   (SELECT COUNT(*) FROM game_tags gt
+                    JOIN games g ON g.game_id = gt.game_id
+                    WHERE gt.tag_id = t.tag_id AND g.membership = 'active') AS game_count
             FROM tags t
             ORDER BY t.kind, t.name COLLATE NOCASE
             """;
@@ -54,7 +56,9 @@ public static class TagStore
         using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT t.tag_id, t.kind, t.name, t.color, t.revision, t.created_utc, t.updated_utc,
-                   (SELECT COUNT(*) FROM game_tags gt WHERE gt.tag_id = t.tag_id)
+                   (SELECT COUNT(*) FROM game_tags gt
+                    JOIN games g ON g.game_id = gt.game_id
+                    WHERE gt.tag_id = t.tag_id AND g.membership = 'active')
             FROM tags t WHERE t.tag_id = $id
             """;
         command.Parameters.AddWithValue("$id", tagId);
@@ -85,7 +89,9 @@ public static class TagStore
         }
         command.CommandText = """
             SELECT t.tag_id, t.kind, t.name, t.color, t.revision, t.created_utc, t.updated_utc,
-                   (SELECT COUNT(*) FROM game_tags gt WHERE gt.tag_id = t.tag_id)
+                   (SELECT COUNT(*) FROM game_tags gt
+                    JOIN games g ON g.game_id = gt.game_id
+                    WHERE gt.tag_id = t.tag_id AND g.membership = 'active')
             FROM tags t WHERE t.kind = $kind AND t.name = $name COLLATE NOCASE
             """;
         command.Parameters.AddWithValue("$kind", kind);

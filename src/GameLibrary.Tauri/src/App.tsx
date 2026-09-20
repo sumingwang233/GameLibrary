@@ -214,7 +214,10 @@ function App() {
             </p>
           )}
 
-          <ScanProgressBar text={library.scanText} onCancel={() => void run(library.cancelScan)} />
+          <ScanProgressBar
+            progress={library.scanProgress}
+            onCancel={() => void run(library.cancelScan)}
+          />
 
           {actionError && (
             <div

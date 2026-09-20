@@ -89,7 +89,7 @@ html.light {
 }
 
 :root {
-  font-family: var(--gl-font-family, "Segoe UI"), ui-sans-serif, system-ui,
+  font-family: var(--gl-font-family, "Microsoft YaHei UI"), ui-sans-serif, system-ui,
     -apple-system, BlinkMacSystemFont, sans-serif;
   color: var(--color-text-primary);
   background: var(--color-background);
@@ -145,6 +145,19 @@ textarea {
 ::-webkit-scrollbar-thumb {
   background: var(--color-border);
   border-radius: 999px;
+}
+
+@keyframes scan-progress {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(310%);
+  }
+}
+
+.scan-progress-indicator {
+  animation: scan-progress 1.35s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {

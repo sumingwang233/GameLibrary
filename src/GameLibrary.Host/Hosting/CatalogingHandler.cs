@@ -930,6 +930,7 @@ internal sealed class CatalogingHandler
             Data = new
             {
                 nextCursor,
+                latestCursor = _events.LatestSequence,
                 items = events.Select(ev => new
                 {
                     sequence = ev.Sequence,

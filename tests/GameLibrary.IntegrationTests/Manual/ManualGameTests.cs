@@ -59,6 +59,7 @@ public sealed class ManualGameTests : IClassFixture<PipeServerFixture>
         var firstId = createFirst.Data.GetProperty("gameId").GetString()!;
         var firstCard = await InvokeAsync("games.get", new { gameId = firstId });
         Assert.Equal("user", firstCard.Data.GetProperty("titleSource").GetString());
+        Assert.Equal("available", firstCard.Data.GetProperty("availability").GetString());
         var profile = await InvokeAsync("profiles.create", new
         {
             idempotencyKey = $"manual-profile-{Guid.NewGuid():N}",

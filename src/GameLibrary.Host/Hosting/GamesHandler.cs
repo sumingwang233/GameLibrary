@@ -405,6 +405,7 @@ internal sealed class GamesHandler
             Kind = isShortcut ? "manualShortcut" : isFile ? "manualFile" : "manualDirectory",
             EntryPath = entryPath,
             Membership = "active",
+            Availability = "available",
             TranslationInherited = normalized.Segments.Any(segment =>
                 segment.Equals("[toolNeed]", StringComparison.OrdinalIgnoreCase)),
             AcceptedUtc = utcNow,

@@ -23,7 +23,7 @@ public sealed record LibraryEvent
 /// 库事件流（T16/T23-B）：内存环形队列折叠事件风暴（容量 4096、同实体 2 秒合并）；
 /// 每条发布事件同步落库（event_records，折叠结果为唯一事实）——重启后序号延续、事件可回放；
 /// 库可用时 events.read 以库为准（含 CursorExpired 判定与 dataEpoch 过滤），
-/// 库未初始化时退回纯内存语义。保留策略 7 天 / 100,000 条惰性裁剪。
+/// 库未初始化时退回纯内存语义。保留策略 7 天 / 10,000 条惰性裁剪。
 /// </summary>
 public sealed class EventStream
 {

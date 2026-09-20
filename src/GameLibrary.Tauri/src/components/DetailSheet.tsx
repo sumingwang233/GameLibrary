@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { dirname, join, pictureDir } from "@tauri-apps/api/path";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { Check, ExternalLink, ImagePlus, Play, Star, Trash2 } from "lucide-react";
@@ -26,6 +27,18 @@ import { Textarea } from "./ui/textarea";
  */
 function hasTag(game: GameItem, tag: TagItem) {
   return (game.tags ?? []).some((item) => item.name === tag.name && (item.kind ?? null) === tag.kind);
+}
+
+function isFileBackedGame(game: GameItem) {
+  return game.kind === "manualFile" || game.kind === "manualShortcut" || game.kind === "fileGame";
+}
+
+async function gameDirectory(game: GameItem) {
+  return isFileBackedGame(game) ? dirname(game.rootPath) : game.rootPath;
+}
+
+async function screenshotsDirectory() {
+  return join(await pictureDir(), "Screenshots");
 }
 
 export function DetailSheet({
@@ -107,12 +120,14 @@ export function DetailSheet({
 
   const saveField = (field: "title" | "summary", value: string) =>
     run(async () => {
-      const result = await operation<GameItem>(
+      await operation(
         "fields.set",
         { gameId: current.gameId, field, value, expectedRevision: current.revision },
-        `fields.set:${current.gameId}:${field}`,
+        `fields.set:${current.gameId}:${field}:${current.revision}`,
       );
-      setCurrent(result.data);
+      // fields.set 只返回字段修订回执，不是完整 GameItem；重新读取后再渲染，
+      // 避免把缺少 title/rootPath 的回执写入 current 导致整页白屏。
+      await load();
       await onChanged();
     });
 
@@ -154,10 +169,12 @@ export function DetailSheet({
 
   const importCover = () =>
     run(async () => {
+      const defaultPath = await screenshotsDirectory().catch(() => undefined);
       const selected = await open({
         multiple: false,
         directory: false,
         title: "选择封面图片",
+        defaultPath,
         filters: [{ name: "封面图片", extensions: ["png", "jpg", "jpeg", "webp", "gif"] }],
       });
       if (!selected) return;
@@ -177,6 +194,7 @@ export function DetailSheet({
         multiple: false,
         directory: false,
         title: "选择游戏主程序",
+        defaultPath: await gameDirectory(current),
         filters: [{ name: "游戏程序", extensions: ["exe", "swf"] }],
       });
       if (!selected) return;
@@ -227,6 +245,11 @@ export function DetailSheet({
       await onChanged();
     });
 
+  const openGameDirectory = () =>
+    run(async () => {
+      await openPath(await gameDirectory(current));
+    });
+
   const initials = current.title.slice(0, 2).toUpperCase();
   const defaultProfile = profiles.find((profile) => profile.isDefault) ?? profiles[0];
 
@@ -268,7 +291,7 @@ export function DetailSheet({
               <Star size={15} className={current.favorite ? "fill-favorite text-favorite" : undefined} />
               {current.favorite ? "取消收藏" : "收藏"}
             </Button>
-            <Button variant="outline" disabled={busy} onClick={() => void openPath(current.rootPath)}>
+            <Button variant="outline" disabled={busy} onClick={() => void openGameDirectory()}>
               <ExternalLink size={15} />
               打开目录
             </Button>

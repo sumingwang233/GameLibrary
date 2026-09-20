@@ -129,7 +129,7 @@ public sealed class FaultRecoveryTests : IClassFixture<PipeServerFixture>
         Assert.True(get.Ok, get.Error?.Message);
         Assert.Equal(0, get.Data.GetProperty("revision").GetInt32());
         Assert.Equal("dark", get.Data.GetProperty("theme").GetString());
-        Assert.Equal(15, get.Data.GetProperty("scanIntervalMinutes").GetInt32());
+        Assert.Equal(60, get.Data.GetProperty("scanIntervalMinutes").GetInt32());
 
         // settings.update 仍可用（可自愈）。
         var update = await InvokeAsync("settings.update", new

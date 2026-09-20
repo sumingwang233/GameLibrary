@@ -275,6 +275,47 @@ public sealed class TagsTests : IClassFixture<PipeServerFixture>
     }
 
     [Fact]
+    public async Task TagsList_DoesNotCountRemovedGames()
+    {
+        var (gameId, revision) = await CreateGameAsync("tags-removed-count");
+        var create = await InvokeAsync("tags.create", new
+        {
+            idempotencyKey = $"tagc-{Guid.NewGuid():N}",
+            name = $"仅供移除计数-{Guid.NewGuid():N}",
+        });
+        Assert.True(create.Ok, create.Error?.Message);
+        var tagId = create.Data.GetProperty("tagId").GetString()!;
+
+        var assign = await InvokeAsync("tags.assign", new
+        {
+            idempotencyKey = $"taga-{Guid.NewGuid():N}",
+            gameId,
+            tagId,
+            expectedRevision = revision,
+        });
+        Assert.True(assign.Ok, assign.Error?.Message);
+
+        var before = await InvokeAsync("tags.list", new { });
+        var beforeTag = before.Data.GetProperty("items").EnumerateArray()
+            .Single(item => item.GetProperty("tagId").GetString() == tagId);
+        Assert.Equal(1, beforeTag.GetProperty("gameCount").GetInt32());
+
+        var game = await InvokeAsync("games.get", new { gameId });
+        var remove = await InvokeAsync("games.remove", new
+        {
+            idempotencyKey = $"game-remove-{Guid.NewGuid():N}",
+            gameId,
+            expectedRevision = game.Data.GetProperty("revision").GetInt32(),
+        });
+        Assert.True(remove.Ok, remove.Error?.Message);
+
+        var after = await InvokeAsync("tags.list", new { });
+        var afterTag = after.Data.GetProperty("items").EnumerateArray()
+            .Single(item => item.GetProperty("tagId").GetString() == tagId);
+        Assert.Equal(0, afterTag.GetProperty("gameCount").GetInt32());
+    }
+
+    [Fact]
     public async Task Assign_WithStaleGameRevision_IsRejected()
     {
         var (gameId, revision) = await CreateGameAsync("tags-stale");

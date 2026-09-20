@@ -71,6 +71,8 @@ export function Sidebar(props: SidebarProps) {
   } = props;
 
   const pendingBadge = candidateTotal + notificationTotal;
+  // 标签定义仍保留在“管理标签”中；侧栏只展示当前库内至少有一个有效游戏的标签。
+  const visibleTags = tags.filter((tag) => (tag.gameCount ?? 0) > 0);
 
   return (
     <aside className="flex h-full w-[var(--sidebar-width)] shrink-0 flex-col border-r border-border bg-background p-4">
@@ -179,7 +181,7 @@ export function Sidebar(props: SidebarProps) {
       </div>
       <ScrollArea className="min-h-0 flex-1">
         <div className="space-y-1 pr-2">
-          {tags.map((tag) => (
+          {visibleTags.map((tag) => (
             <button
               key={tag.tagId}
               type="button"
@@ -200,8 +202,8 @@ export function Sidebar(props: SidebarProps) {
               </span>
             </button>
           ))}
-          {tags.length === 0 && (
-            <p className="px-2 text-xs text-text-secondary">还没有标签</p>
+          {visibleTags.length === 0 && (
+            <p className="px-2 text-xs text-text-secondary">没有正在使用的标签</p>
           )}
         </div>
       </ScrollArea>

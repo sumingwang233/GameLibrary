@@ -12,7 +12,7 @@ import { Input } from "./ui/input";
 import { Sheet } from "./ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 
-const FONT_CHOICES = ["Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "Inter", "system-ui"];
+const FONT_CHOICES = ["Microsoft YaHei UI", "Segoe UI", "Microsoft YaHei", "Inter", "system-ui"];
 
 export function SettingsDialog({ open: isOpen, onClose }: { open: boolean; onClose: () => void }) {
   const { settings, error: settingsError, update, reload } = useSettings();
@@ -32,7 +32,7 @@ export function SettingsDialog({ open: isOpen, onClose }: { open: boolean; onClo
   if (!isOpen) return null;
   const error = localError ?? settingsError;
   const cacheDirectory = cacheDraft ?? settings?.cacheParentDirectory ?? "";
-  const fontFamily = fontDraft ?? settings?.uiFontFamily ?? "Segoe UI";
+  const fontFamily = fontDraft ?? settings?.uiFontFamily ?? "Microsoft YaHei UI";
 
   const patch = async (change: Record<string, unknown>) => {
     setBusy(true);

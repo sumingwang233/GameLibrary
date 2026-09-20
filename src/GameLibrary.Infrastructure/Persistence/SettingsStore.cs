@@ -19,7 +19,7 @@ public sealed record AppSettingsSnapshot(
     string UiFontFamily,
     string? CacheParentDirectory)
 {
-    public const int DefaultScanIntervalMinutes = 15;
+    public const int DefaultScanIntervalMinutes = 60;
 
     public const string DefaultTheme = "dark";
 
@@ -29,7 +29,7 @@ public sealed record AppSettingsSnapshot(
 
     public const double MaxUiFontScale = 1.6;
 
-    public const string DefaultUiFontFamily = "Segoe UI";
+    public const string DefaultUiFontFamily = "Microsoft YaHei UI";
 
     public static AppSettingsSnapshot Defaults(int revision) => new(
         revision,

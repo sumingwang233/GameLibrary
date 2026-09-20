@@ -4,12 +4,12 @@ namespace GameLibrary.Host.Scanning;
 
 /// <summary>
 /// 扫描协调器（任务书 T16）：周期核对（预算内小步重扫）、手动/后台互斥、事件发布入口。
-/// 周期核对默认 15 分钟（策划案 5.6），间隔可注入以便测试；核对走与手动扫描相同的
+/// 周期核对默认 60 分钟，间隔可注入以便测试；核对走与手动扫描相同的
 /// ScanJobRunner + 候选落库路径（稳定观察/抑制语义一致）。
 /// </summary>
 public sealed class ScanCoordinator : IDisposable
 {
-    public static readonly TimeSpan DefaultInterval = TimeSpan.FromMinutes(15);
+    public static readonly TimeSpan DefaultInterval = TimeSpan.FromMinutes(60);
 
     private readonly RootRegistry _roots;
     private readonly EventStream _events;
