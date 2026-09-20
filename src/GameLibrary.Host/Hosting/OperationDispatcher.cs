@@ -38,8 +38,8 @@ public sealed class HostIdentity
 }
 
 /// <summary>
-/// 操作分发器（按域拆分为 partial：OperationDispatcher.Backups/Cataloging/Launching/Observability；
-/// 候选审核/忽略规则/标签/工具验证/视图设置五域已独立为 Handler 类）。
+/// 操作分发器（按域拆分为 partial：OperationDispatcher.Backups/Cataloging/Observability；
+/// 候选审核/忽略规则/标签/工具验证/视图设置/启动六域已独立为 Handler 类）。
 /// 本文件承载：请求门/纪元校验/收据中间件/路由 + 系统（capabilities/schema/host）与扫描候选域。
 /// </summary>
 public sealed partial class OperationDispatcher
@@ -67,6 +67,10 @@ public sealed partial class OperationDispatcher
     /// ActiveViewId/StartupShortcuts 为宿主可变态经委托读写。</summary>
     private readonly ViewSettingsHandler _viewSettings;
 
+    /// <summary>启动域（launch.*/profiles.*/translation.* 十三操作）：store 经委托每请求取当前值
+    /// （library.init/restore 整体替换 Library），launches/roots/events 为 init-only 引用。</summary>
+    private readonly LaunchingHandler _launching;
+
     public OperationDispatcher(HostRuntimeState state)
     {
         _state = state;
@@ -82,6 +86,7 @@ public sealed partial class OperationDispatcher
             state.Roots,
             state.DataDirectory,
             () => state.StartupShortcuts);
+        _launching = new LaunchingHandler(() => state.Library.Store, state.Launches, state.Roots, state.Events);
     }
 
     /// <summary>已接入收据的操作子集：catalog 声明 requiresIdempotencyKey 的已实现操作。
@@ -689,15 +694,15 @@ public sealed partial class OperationDispatcher
         "ignores.list" => _ignoreRules.List(request),
         "ignores.create" => _ignoreRules.Create(request),
         "ignores.remove" => _ignoreRules.Remove(request),
-        "profiles.create" => ProfilesCreate(request),
-        "profiles.list" => ProfilesList(request),
-        "profiles.get" => ProfilesGet(request),
-        "profiles.update" => ProfilesUpdate(request),
-        "profiles.set_default" => ProfilesSetDefault(request),
-        "profiles.remove" => ProfilesRemove(request),
-        "profiles.validate" => ProfilesValidate(request),
-        "translation.get" => TranslationGet(request),
-        "translation.set" => TranslationSet(request),
+        "profiles.create" => _launching.ProfilesCreate(request),
+        "profiles.list" => _launching.ProfilesList(request),
+        "profiles.get" => _launching.ProfilesGet(request),
+        "profiles.update" => _launching.ProfilesUpdate(request),
+        "profiles.set_default" => _launching.ProfilesSetDefault(request),
+        "profiles.remove" => _launching.ProfilesRemove(request),
+        "profiles.validate" => _launching.ProfilesValidate(request),
+        "translation.get" => _launching.TranslationGet(request),
+        "translation.set" => _launching.TranslationSet(request),
         "games.update" => GamesUpdate(request),
         "games.relink" => GamesRelink(request),
         "views.list" => _viewSettings.ViewsList(request),
@@ -714,10 +719,10 @@ public sealed partial class OperationDispatcher
         "settings.update" => _viewSettings.SettingsUpdate(request),
         "settings.reset" => _viewSettings.SettingsReset(request),
         "host.stop" => HostStop(request),
-        "launch.plan" => LaunchPlanHandler(request),
-        "launch.execute" => LaunchExecute(request),
-        "launch.status" => LaunchStatus(request),
-        "launch.history" => LaunchHistory(request),
+        "launch.plan" => _launching.LaunchPlanHandler(request),
+        "launch.execute" => _launching.LaunchExecute(request),
+        "launch.status" => _launching.LaunchStatus(request),
+        "launch.history" => _launching.LaunchHistory(request),
         _ => new Envelope<object>
         {
             RequestId = request.RequestId,
@@ -1044,7 +1049,11 @@ public sealed partial class OperationDispatcher
         };
     }
 
-    /// <summary>路径包含校验（CWE-22 边界）：调用方路径必须在已注册库根内。</summary>
+    /// <summary>
+    /// 路径包含校验（CWE-22 边界）：调用方路径必须在已注册库根内。
+    /// 启动域的同构校验见 LaunchingHandler.RejectPathOutsideRoots（双源同构，
+    /// 先例 IgnoreRulesHandler；待剩余域拆完在收尾片收敛到共享处）。
+    /// </summary>
     private Envelope<object>? RejectPathOutsideRoots(IpcRequest request, string physicalPath)
     {
         if (_state.Roots.Contains(physicalPath))
@@ -1645,124 +1654,6 @@ public sealed partial class OperationDispatcher
         };
     }
 
-    /// <summary>translation.get：继承值与用户覆盖分离返回；有效值 = 覆盖优先（策划案 7.4）。</summary>
-    private Envelope<object> TranslationGet(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        if (!TryGetStringParameter(request, "gameId", out var gameId))
-        {
-            return InvalidArgument(request, "缺少 gameId 参数");
-        }
-
-        var game = store.TryGetGame(gameId);
-        if (game is null)
-        {
-            return NotFound(request, $"游戏不存在：{gameId}");
-        }
-
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = TranslationDto(game),
-        };
-    }
-
-    /// <summary>
-    /// translation.set：只写用户覆盖层（Auto/Required/NotRequired），继承值不动；
-    /// Required 不因覆盖缺失而回退为直启（回退需显式 NotRequired）。
-    /// </summary>
-    private Envelope<object> TranslationSet(IpcRequest request)
-    {
-        var store = _state.Library.Store;
-        if (store is null)
-        {
-            return InvalidArgument(request, "库未初始化（先 library.init）");
-        }
-
-        if (!TryGetStringParameter(request, "gameId", out var gameId))
-        {
-            return InvalidArgument(request, "缺少 gameId 参数");
-        }
-
-        if (!TryGetStringParameter(request, "override", out var overrideText)
-            || !Enum.TryParse<TranslationRequirement>(overrideText, ignoreCase: false, out var overrideValue))
-        {
-            return InvalidArgument(request, "override 必须是 Auto/Required/NotRequired（区分大小写）");
-        }
-
-        if (!TryGetIntParameter(request, "expectedRevision", out var expectedRevision) || expectedRevision is null)
-        {
-            return InvalidArgument(request, "缺少 expectedRevision 参数");
-        }
-
-        var game = store.TryGetGame(gameId);
-        if (game is null)
-        {
-            return NotFound(request, $"游戏不存在：{gameId}");
-        }
-
-        var storedOverride = overrideValue == TranslationRequirement.Auto ? null : overrideValue.ToString();
-        var newRevision = store.SetTranslationOverride(gameId, storedOverride, expectedRevision.Value, DateTime.UtcNow);
-        if (newRevision is null)
-        {
-            var latest = store.TryGetGame(gameId);
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ErrorCodes.RevisionConflict,
-                    Message = $"游戏 Revision 不一致：期望 {expectedRevision}，当前 {latest?.Revision}",
-                    Retryable = false,
-                    CurrentRevision = latest?.Revision,
-                },
-            };
-        }
-
-        var updatedGame = store.TryGetGame(gameId)!;
-        _state.Events.Publish("game.updated", $"game:{gameId}", new { gameId, revision = newRevision, translation = TranslationDto(updatedGame) }, DateTime.UtcNow);
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = TranslationDto(updatedGame),
-        };
-    }
-
-    private static object TranslationDto(GameCard game)
-    {
-        var inherited = game.TranslationInherited
-            ? TranslationRequirement.Required
-            : TranslationRequirement.Auto;
-        var userOverride = game.TranslationOverride is null
-            ? TranslationRequirement.Auto
-            : Enum.Parse<TranslationRequirement>(game.TranslationOverride, ignoreCase: false);
-        var policy = TranslationPolicy.FromInheritance(
-            new FolderClassification([], inherited == TranslationRequirement.Required, game.TranslationInherited ? "[toolNeed]" : null, ClassificationRules.CurrentVersion))
-            with
-        { UserOverride = userOverride };
-        return new
-        {
-            gameId = game.GameId,
-            userOverride = userOverride.ToString(),
-            inherited = inherited.ToString(),
-            inheritedFrom = game.TranslationInherited ? "[toolNeed]" : null,
-            effective = policy.Effective.ToString(),
-            isRequired = policy.IsRequired,
-            revision = game.Revision,
-        };
-    }
-
     /// <summary>
     /// host.stop（T18）：先返回已接收收据，随后在响应送达后请求宿主优雅停机
     /// （排空连接后退出进程；不杀游戏/翻译器）。stop 属持久收据操作，同键重放幂等。
@@ -1780,10 +1671,9 @@ public sealed partial class OperationDispatcher
     }
 
     /// <summary>
-    /// diagnostics.cache_rebuild（T27/REC-03）：清空可再生缓存目录（缩略图等派生物），
-    /// 用户原图（assets/）与游戏目录永不触碰。损坏的缓存随目录删除自然"重建"（下次按需生成）。
+    /// 显式建库（library.init）。自举豁免前置收据：建库成功后在新库中登记收据，
+    /// 同键重放返回原结果；DB 已存在但收据缺失（建库后、收据前中断）返回 AlreadyInitialized。
     /// </summary>
-
     private Envelope<object> LibraryInit(IpcRequest request)
     {
         if (_state.Library.Store is not null)
