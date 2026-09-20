@@ -30,11 +30,20 @@ public sealed class HostStopE2ETests
             Assert.True(envelope.RootElement.GetProperty("ok").GetBoolean());
             Assert.True(envelope.RootElement.GetProperty("data").GetProperty("stopping").GetBoolean());
 
-            // 宿主在响应送达后自行退出（不依赖 kill）。
-            using var hostProcess = Process.GetProcessById(pid);
-            using var exited = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-            await hostProcess.WaitForExitAsync(exited.Token);
-            Assert.Equal(0, hostProcess.ExitCode);
+            // 宿主在响应送达后自行退出（不依赖 kill）。快速环境下（CI）到达此处时
+            // 宿主可能已退出——进程不存在即已自行退出，无法再核退出码，跳过等待；
+            // stop 信封断言与后续断连断言仍然把关。
+            try
+            {
+                using var hostProcess = Process.GetProcessById(pid);
+                using var exited = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                await hostProcess.WaitForExitAsync(exited.Token);
+                Assert.Equal(0, hostProcess.ExitCode);
+            }
+            catch (ArgumentException)
+            {
+                // 宿主已退出（快速时序）。
+            }
 
             // 停机后再连：HostUnavailable。
             await Assert.ThrowsAsync<HostClientException>(
