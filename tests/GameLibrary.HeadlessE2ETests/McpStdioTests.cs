@@ -114,7 +114,20 @@ public sealed class McpStdioTests
             if (Directory.Exists(testRoot) && testRoot.StartsWith(
                     @"D:\Official\GameLibrary\artifacts\test-runs", StringComparison.OrdinalIgnoreCase))
             {
-                Directory.Delete(testRoot, recursive: true);
+                // 慢速环境：进程树退出与句柄释放可滞后于 WaitForExit（CI 实测 host.lock
+                // 仍被占用）。重试删除；最终失败留下目录也不让清理拖垮测试本身。
+                for (var attempt = 0; attempt < 3; attempt++)
+                {
+                    try
+                    {
+                        Directory.Delete(testRoot, recursive: true);
+                        break;
+                    }
+                    catch (IOException)
+                    {
+                        await Task.Delay(500);
+                    }
+                }
             }
         }
     }
