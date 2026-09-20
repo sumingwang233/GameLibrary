@@ -1,53 +1,91 @@
-using System.Collections.Concurrent;
-using System.Diagnostics;
-using System.Reflection;
 using System.Text.Json;
 using GameLibrary.Contracts;
 using GameLibrary.Contracts.Ipc;
-using GameLibrary.Domain.Classification;
-using GameLibrary.Domain.Detection;
-using GameLibrary.Domain.Detection.Detectors;
 using GameLibrary.Host.Observability;
 using GameLibrary.Host.Scanning;
 using GameLibrary.Host.Tools;
-using GameLibrary.Infrastructure.Backups;
 using GameLibrary.Infrastructure.Persistence;
-using GameLibrary.Infrastructure.Scanning;
+
 namespace GameLibrary.Host.Hosting;
 
-
-
-/// <summary>OperationDispatcher 的 Observability 域 handler（阶段三按域拆分，partial）。</summary>
-public sealed partial class OperationDispatcher
+/// <summary>
+/// 观察域处理器：diagnostics.status / diagnostics.logs / diagnostics.cache_rebuild /
+/// tools.discover 四操作。Store 与 Library 均经委托每请求取当前值
+/// （library.init / backups.restore 会整体替换 Library；DiagnosticsStatus 读取其
+/// Status/Initialized/SchemaVersion/Detail 快照，构造时直引旧引用会读到过期状态）；
+/// Identity/Jobs/Metrics/Events/Roots/AuditLog 为 init-only 引用（HostRuntimeState
+/// 构造后整体不可替换）。由 DispatchCore 调用，天然继承幂等收据
+/// （diagnostics.cache_rebuild 在 ReceiptOperations）与串行门、权限、维护模式等
+/// 中间件。tools.discover 契约声明 execution:job 与实现同步返回 Completed 的
+/// 既有差异保持原样（不修，仅记录）。
+/// </summary>
+internal sealed class ObservabilityHandler
 {
+    private readonly Func<SqliteLibraryStore?> _storeAccessor;
+    private readonly Func<HostLibraryState> _libraryAccessor;
+    private readonly HostIdentity _identity;
+    private readonly JobManager _jobs;
+    private readonly HostMetrics _metrics;
+    private readonly EventStream _events;
+    private readonly RootRegistry _roots;
+    private readonly AuditLogWriter _auditLog;
+    private readonly string _dataDirectory;
+
+    /// <summary>
+    /// identity/jobs/metrics/events/roots/auditLog 以 init-only 引用直传
+    /// （HostRuntimeState 构造后整体不可替换）；Store 与 Library 经委托每请求取
+    /// 当前值（Library 属性可 set 整体替换，直引会读到替换前的旧快照）。
+    /// </summary>
+    public ObservabilityHandler(
+        Func<SqliteLibraryStore?> storeAccessor,
+        Func<HostLibraryState> libraryAccessor,
+        HostIdentity identity,
+        JobManager jobs,
+        HostMetrics metrics,
+        EventStream events,
+        RootRegistry roots,
+        AuditLogWriter auditLog,
+        string dataDirectory)
+    {
+        _storeAccessor = storeAccessor;
+        _libraryAccessor = libraryAccessor;
+        _identity = identity;
+        _jobs = jobs;
+        _metrics = metrics;
+        _events = events;
+        _roots = roots;
+        _auditLog = auditLog;
+        _dataDirectory = dataDirectory;
+    }
+
     /// <summary>
     /// diagnostics.cache_rebuild（T27/REC-03）：清理可再生缓存目录中的普通文件，
     /// 不穿越链接/junction，不触碰用户原图（assets/）与游戏目录。
     /// </summary>
-    private Envelope<object> CacheRebuild(IpcRequest request)
+    public Envelope<object> CacheRebuild(IpcRequest request)
     {
-        var cacheParentDirectory = _state.Library.Store?.ReadSettings().CacheParentDirectory;
-        if (cacheParentDirectory is not null && _state.Roots.Contains(cacheParentDirectory))
+        var cacheParentDirectory = _storeAccessor()?.ReadSettings().CacheParentDirectory;
+        if (cacheParentDirectory is not null && _roots.Contains(cacheParentDirectory))
         {
-            return InvalidArgument(request, "当前缓存位置位于已添加的游戏库内，请先在设置中更换位置");
+            return IpcRequests.InvalidArgument(request, "当前缓存位置位于已添加的游戏库内，请先在设置中更换位置");
         }
 
-        var cacheDirectory = OwnedPreviewCache.GetRoot(_state.DataDirectory, cacheParentDirectory);
+        var cacheDirectory = OwnedPreviewCache.GetRoot(_dataDirectory, cacheParentDirectory);
         CacheDirectoryCleaner.Result cleanup;
         try
         {
             var contentDirectory = OwnedPreviewCache.GetValidatedContentDirectoryForCleanup(
-                _state.DataDirectory, cacheParentDirectory);
+                _dataDirectory, cacheParentDirectory);
             cleanup = contentDirectory is null
                 ? new CacheDirectoryCleaner.Result(0, 0, 0, 0)
                 : CacheDirectoryCleaner.Clear(contentDirectory);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
-            return InvalidArgument(request, ex.Message);
+            return IpcRequests.InvalidArgument(request, ex.Message);
         }
 
-        var assetsDirectory = Path.Combine(_state.DataDirectory, "assets");
+        var assetsDirectory = Path.Combine(_dataDirectory, "assets");
         var userAssets = CacheDirectoryCleaner.CountRegularFiles(assetsDirectory);
 
         return new Envelope<object>
@@ -67,27 +105,11 @@ public sealed partial class OperationDispatcher
         };
     }
 
-    /// <summary>备份计划注册表：planId → (backupId, 过期时刻)。10 分钟有效期（契约 9.3）。</summary>
-    private static readonly TimeSpan PlanLifetime = TimeSpan.FromMinutes(10);
-
-    private sealed class BackupPlan
-    {
-        public required string BackupId { get; init; }
-
-        public DateTime ExpiresUtc { get; init; }
-    }
-
-    private readonly ConcurrentDictionary<string, BackupPlan> _backupPlans = new(StringComparer.Ordinal);
-
-    private string BackupsRoot => Path.Combine(_state.DataDirectory, "backups");
-
-    private ControlAreaStore ControlArea => new(Path.Combine(_state.DataDirectory, "control"));
-
     /// <summary>诊断状态（T24）：进程/库/审计日志统计与队列指标；不含任何业务数据原文。</summary>
-    private Envelope<object> DiagnosticsStatus(IpcRequest request)
+    public Envelope<object> DiagnosticsStatus(IpcRequest request)
     {
-        var (currentFile, currentBytes, fileCount) = _state.AuditLog.Describe();
-        var library = _state.Library;
+        var (currentFile, currentBytes, fileCount) = _auditLog.Describe();
+        var library = _libraryAccessor();
         return new Envelope<object>
         {
             RequestId = request.RequestId,
@@ -95,16 +117,16 @@ public sealed partial class OperationDispatcher
             Status = OperationStatus.Completed,
             Data = new
             {
-                processId = _state.Identity.ProcessId,
-                startedAtUtc = _state.Identity.StartedAtUtc.ToString("O"),
-                appVersion = _state.Identity.AppVersion,
+                processId = _identity.ProcessId,
+                startedAtUtc = _identity.StartedAtUtc.ToString("O"),
+                appVersion = _identity.AppVersion,
                 apiVersion = ApiConstants.ApiVersion,
                 library = new
                 {
                     status = library.Status.ToString(),
                     initialized = library.Initialized,
                     schemaVersion = library.SchemaVersion,
-                    detail = LogSanitizer.Sanitize(library.Detail, _state.DataDirectory),
+                    detail = LogSanitizer.Sanitize(library.Detail, _dataDirectory),
                 },
                 audit = new
                 {
@@ -115,19 +137,19 @@ public sealed partial class OperationDispatcher
                     maxFiles = Observability.AuditLogWriter.DefaultMaxFiles,
                     retentionDays = Observability.AuditLogWriter.DefaultRetentionDays,
                 },
-                jobs = new { activeCount = _state.Jobs.ActiveJobCount() },
-                metrics = _state.Metrics.ToDto(),
+                jobs = new { activeCount = _jobs.ActiveJobCount() },
+                metrics = _metrics.ToDto(),
                 eventStream = new
                 {
-                    occupiedSlots = _state.Events.OccupiedSlots,
-                    overflowed = _state.Events.OverflowedCount,
+                    occupiedSlots = _events.OccupiedSlots,
+                    overflowed = _events.OverflowedCount,
                 },
             },
         };
     }
 
     /// <summary>脱敏审计日志读取（diagnostics.logs）：返回最近 limit 条审计记录。</summary>
-    private Envelope<object> DiagnosticsLogs(IpcRequest request)
+    public Envelope<object> DiagnosticsLogs(IpcRequest request)
     {
         var limit = 100;
         if (request.Parameters is { ValueKind: JsonValueKind.Object } logParameters
@@ -138,7 +160,7 @@ public sealed partial class OperationDispatcher
             limit = Math.Clamp(parsedLimit, 1, 1000);
         }
 
-        var lines = _state.AuditLog.ReadRecentLines(limit);
+        var lines = _auditLog.ReadRecentLines(limit);
         var records = new List<object>();
         foreach (var line in lines)
         {
@@ -167,10 +189,10 @@ public sealed partial class OperationDispatcher
     /// steam（注册表/常见路径发现 + appmanifest 清单）。只读，不自启动任何进程；
     /// 调用方路径仍经库根白名单收口。
     /// </summary>
-    private Envelope<object> ToolsDiscover(IpcRequest request)
+    public Envelope<object> ToolsDiscover(IpcRequest request)
     {
-        TryGetStringParameter(request, "tool", out var discoverTool);
-        var hasPath = TryGetStringParameter(request, "path", out var path) && path.Length > 0;
+        IpcRequests.TryGetStringParameter(request, "tool", out var discoverTool);
+        var hasPath = IpcRequests.TryGetStringParameter(request, "path", out var path) && path.Length > 0;
 
         if (string.Equals(discoverTool, "steam", StringComparison.Ordinal))
         {
@@ -194,7 +216,7 @@ public sealed partial class OperationDispatcher
                         name = m.Name,
                         installDir = m.InstallDir,
                     }).ToArray(),
-                    notice = LogSanitizer.Sanitize(steam.Notice, _state.DataDirectory),
+                    notice = LogSanitizer.Sanitize(steam.Notice, _dataDirectory),
                 },
             };
         }
@@ -207,7 +229,7 @@ public sealed partial class OperationDispatcher
             if (hasPath && File.Exists(path) && players.Count > 0)
             {
                 var validation = Domain.Paths.GamePath.TryCreate(path);
-                if (validation.IsValid && _state.Roots.Contains(validation.Path!.PhysicalPath))
+                if (validation.IsValid && _roots.Contains(validation.Path!.PhysicalPath))
                 {
                     var template = players[0] is { } first
                         ? new Infrastructure.Tools.PlayerAdapter().BuildLaunchTemplate(first, validation.Path.PhysicalPath)
@@ -245,7 +267,7 @@ public sealed partial class OperationDispatcher
 
         if (!hasPath)
         {
-            return InvalidArgument(request, "缺少 path 参数（游戏根的绝对路径）");
+            return IpcRequests.InvalidArgument(request, "缺少 path 参数（游戏根的绝对路径）");
         }
 
         var pathValidation = Domain.Paths.GamePath.TryCreate(path);
@@ -310,7 +332,7 @@ public sealed partial class OperationDispatcher
                         argv = renpy.GuidedPlan.Arguments,
                         cwd = renpy.GuidedPlan.WorkingDirectory,
                     },
-                    notice = LogSanitizer.Sanitize(renpy.Notice, _state.DataDirectory),
+                    notice = LogSanitizer.Sanitize(renpy.Notice, _dataDirectory),
                 },
             };
         }
@@ -346,11 +368,34 @@ public sealed partial class OperationDispatcher
                         }).ToArray(),
                     },
                 unsupportedReason = mtoolDiscovery.UnsupportedReason,
-                notice = LogSanitizer.Sanitize(mtoolDiscovery.Notice, _state.DataDirectory),
+                notice = LogSanitizer.Sanitize(mtoolDiscovery.Notice, _dataDirectory),
             },
         };
     }
 
-    private static readonly string[] ImageExtensions = [".png", ".jpg", ".jpeg", ".webp", ".gif"];
-    private const long MaxAssetBytes = 1 * 1024 * 1024;
+    /// <summary>
+    /// 路径包含校验（CWE-22 边界）：调用方路径必须在已注册库根内。与
+    /// OperationDispatcher / LaunchingHandler / GamesHandler 的同构副本保持一致
+    /// （多源同构，先例 IgnoreRulesHandler；待剩余域拆完在收尾片收敛到共享处）。
+    /// </summary>
+    private Envelope<object>? RejectPathOutsideRoots(IpcRequest request, string physicalPath)
+    {
+        if (_roots.Contains(physicalPath))
+        {
+            return null;
+        }
+
+        return new Envelope<object>
+        {
+            RequestId = request.RequestId,
+            Ok = false,
+            Status = OperationStatus.Failed,
+            Error = new RequestError
+            {
+                Code = ErrorCodes.PermissionDenied,
+                Message = $"路径不在已注册库根内（先通过 roots.add 注册）：{physicalPath}",
+                Retryable = false,
+            },
+        };
+    }
 }

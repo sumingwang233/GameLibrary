@@ -38,9 +38,9 @@ public sealed class HostIdentity
 }
 
 /// <summary>
-/// 操作分发器（按域拆分为 partial：OperationDispatcher.Backups/Cataloging/Observability；
-/// 候选审核/忽略规则/标签/工具验证/视图设置/启动/游戏卡七域已独立为 Handler 类）。
-/// 本文件承载：请求门/纪元校验/收据中间件/路由 + 系统（capabilities/schema/host）与扫描候选域。
+/// 操作分发器（按域拆分为 partial：OperationDispatcher.Backups；
+/// 候选审核/忽略规则/标签/工具验证/视图设置/启动/游戏卡/编目/观察九域已独立为 Handler 类）。
+/// 本文件承载：请求门/纪元校验/收据中间件/路由 + 系统（capabilities/schema/host）与扫描域。
 /// </summary>
 public sealed partial class OperationDispatcher
 {
@@ -75,6 +75,16 @@ public sealed partial class OperationDispatcher
     /// （library.init/restore 整体替换 Library），roots/events 为 init-only 引用。</summary>
     private readonly GamesHandler _games;
 
+    /// <summary>编目域（roots.*/candidates.list/get、fields.*/assets.*/metadata.*/events.read
+    /// 共十八操作）：store 经委托每请求取当前值（library.init/restore 整体替换 Library），
+    /// roots/events/candidates/jobs 为 init-only 引用。</summary>
+    private readonly CatalogingHandler _cataloging;
+
+    /// <summary>观察域（diagnostics.*/tools.discover 四操作）：store 与 Library 均经委托
+    /// 每请求取当前值（library.init/restore 整体替换 Library；Library 属性可 set，
+    /// DiagnosticsStatus 读其快照，直引会读到过期状态），其余依赖为 init-only 引用。</summary>
+    private readonly ObservabilityHandler _observability;
+
     public OperationDispatcher(HostRuntimeState state)
     {
         _state = state;
@@ -92,6 +102,8 @@ public sealed partial class OperationDispatcher
             () => state.StartupShortcuts);
         _launching = new LaunchingHandler(() => state.Library.Store, state.Launches, state.Roots, state.Events);
         _games = new GamesHandler(() => state.Library.Store, state.Roots, state.Events);
+        _cataloging = new CatalogingHandler(() => state.Library.Store, state.Roots, state.Events, state.Candidates, state.Jobs, state.DataDirectory);
+        _observability = new ObservabilityHandler(() => state.Library.Store, () => state.Library, state.Identity, state.Jobs, state.Metrics, state.Events, state.Roots, state.AuditLog, state.DataDirectory);
     }
 
     /// <summary>已接入收据的操作子集：catalog 声明 requiresIdempotencyKey 的已实现操作。
@@ -649,11 +661,11 @@ public sealed partial class OperationDispatcher
         "scan.cancel" => ScanCancel(request),
         "scan.coverage" => ScanCoverage(request),
         "scan.inspect" => ScanInspect(request),
-        "roots.add" => RootsAdd(request),
-        "roots.list" => RootsList(request),
-        "roots.remove" => RootsRemove(request),
-        "candidates.list" => CandidatesList(request),
-        "candidates.get" => CandidatesGet(request),
+        "roots.add" => _cataloging.RootsAdd(request),
+        "roots.list" => _cataloging.RootsList(request),
+        "roots.remove" => _cataloging.RootsRemove(request),
+        "candidates.list" => _cataloging.CandidatesList(request),
+        "candidates.get" => _cataloging.CandidatesGet(request),
         "candidates.accept" => _candidateReview.CandidateReview(request, "accept"),
         "candidates.defer" => _candidateReview.CandidateReview(request, "defer"),
         "candidates.ignore" => _candidateReview.CandidateReview(request, "ignore"),
@@ -669,33 +681,33 @@ public sealed partial class OperationDispatcher
         "tags.unassign" => _tags.TagsUnassign(request),
         "tags.suppress" => _tags.TagsSuppress(request),
         "tags.reset" => _tags.TagsReset(request),
-        "events.read" => EventsRead(request),
-        "diagnostics.status" => DiagnosticsStatus(request),
-        "diagnostics.logs" => DiagnosticsLogs(request),
-        "diagnostics.cache_rebuild" => CacheRebuild(request),
+        "events.read" => _cataloging.EventsRead(request),
+        "diagnostics.status" => _observability.DiagnosticsStatus(request),
+        "diagnostics.logs" => _observability.DiagnosticsLogs(request),
+        "diagnostics.cache_rebuild" => _observability.CacheRebuild(request),
         "backups.list" => BackupsList(request),
         "backups.create" => BackupsCreate(request),
         "backups.inspect" => BackupsInspect(request),
         "backups.restore_plan" => BackupsRestorePlan(request),
         "backups.restore" => BackupsRestore(request).GetAwaiter().GetResult(),
-        "tools.discover" => ToolsDiscover(request),
+        "tools.discover" => _observability.ToolsDiscover(request),
         "verification.start" => _verification.VerificationStart(request),
         "verification.report" => _verification.VerificationReport(request),
         "verification.invalidate" => _verification.VerificationInvalidate(request),
         "verification.get" => _verification.VerificationGet(request),
         "verification.list" => _verification.VerificationList(request),
-        "fields.set" => FieldsSet(request),
-        "fields.clear" => FieldsClear(request),
-        "fields.reset" => FieldsReset(request),
-        "assets.import" => AssetsImport(request),
-        "assets.list" => AssetsList(request),
-        "assets.get" => AssetsGet(request),
-        "assets.choose" => AssetsChoose(request),
-        "assets.crop" => AssetsCrop(request),
-        "assets.reset" => AssetsReset(request),
-        "assets.remove" => AssetsRemove(request),
-        "metadata.preview" => MetadataPreview(request),
-        "metadata.refresh" => MetadataRefresh(request),
+        "fields.set" => _cataloging.FieldsSet(request),
+        "fields.clear" => _cataloging.FieldsClear(request),
+        "fields.reset" => _cataloging.FieldsReset(request),
+        "assets.import" => _cataloging.AssetsImport(request),
+        "assets.list" => _cataloging.AssetsList(request),
+        "assets.get" => _cataloging.AssetsGet(request),
+        "assets.choose" => _cataloging.AssetsChoose(request),
+        "assets.crop" => _cataloging.AssetsCrop(request),
+        "assets.reset" => _cataloging.AssetsReset(request),
+        "assets.remove" => _cataloging.AssetsRemove(request),
+        "metadata.preview" => _cataloging.MetadataPreview(request),
+        "metadata.refresh" => _cataloging.MetadataRefresh(request),
         "ignores.list" => _ignoreRules.List(request),
         "ignores.create" => _ignoreRules.Create(request),
         "ignores.remove" => _ignoreRules.Remove(request),
@@ -943,117 +955,6 @@ public sealed partial class OperationDispatcher
         };
     }
 
-    /// <summary>注册库根（显式授权动作）；重复注册同一规范化路径幂等；同步落库（v13+）。</summary>
-    private Envelope<object> RootsAdd(IpcRequest request)
-    {
-        if (!TryGetStringParameter(request, "root", out var root))
-        {
-            return InvalidArgument(request, "缺少 root 参数（绝对本地路径）");
-        }
-
-        try
-        {
-            var libraryRoot = _state.Roots.Add(root);
-            _state.Library.Store?.UpsertRoot(
-                new PersistedRoot(libraryRoot.RootId, libraryRoot.Path.PhysicalPath, libraryRoot.Revision, libraryRoot.CreatedUtc),
-                DateTime.UtcNow);
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = true,
-                Status = OperationStatus.Completed,
-                Data = libraryRoot.ToDto(),
-            };
-        }
-        catch (Scanning.RootRegistryException ex)
-        {
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ex.Code,
-                    Message = ex.Message,
-                    Retryable = false,
-                },
-            };
-        }
-    }
-
-    /// <summary>
-    /// 移除库根（roots.remove）：仅解除扫描/启动边界，不触碰游戏数据与记录；
-    /// 库内已绑定该根的游戏保留并按 RootUnbound 语义提示。期望 Revision 乐观校验。
-    /// </summary>
-    private Envelope<object> RootsRemove(IpcRequest request)
-    {
-        if (!TryGetStringParameter(request, "rootId", out var rootId))
-        {
-            return InvalidArgument(request, "缺少 rootId 参数");
-        }
-
-        if (!TryGetIntParameter(request, "expectedRevision", out var expectedRevision) || expectedRevision is null)
-        {
-            return InvalidArgument(request, "缺少 expectedRevision 参数");
-        }
-
-        var root = _state.Roots.List().FirstOrDefault(r => string.Equals(r.RootId, rootId, StringComparison.Ordinal));
-        if (root is null)
-        {
-            return NotFound(request, $"库根不存在：{rootId}");
-        }
-
-        if (root.Revision != expectedRevision.Value)
-        {
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ErrorCodes.RevisionConflict,
-                    Message = $"库根 Revision 不一致：期望 {expectedRevision}，当前 {root.Revision}",
-                    Retryable = false,
-                    CurrentRevision = root.Revision,
-                },
-            };
-        }
-
-        var removed = _state.Roots.Remove(rootId);
-        if (removed is null)
-        {
-            return NotFound(request, $"库根不存在：{rootId}");
-        }
-
-        _state.Library.Store?.DeleteRoot(rootId);
-        _state.Events.Publish("root.removed", $"root:{rootId}", new { rootId }, DateTime.UtcNow);
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new { rootId, removed = true },
-        };
-    }
-
-    private Envelope<object> RootsList(IpcRequest request)
-    {
-        var roots = _state.Roots.List();
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new
-            {
-                total = roots.Count,
-                items = roots.Select(r => r.ToDto()).ToArray(),
-            },
-        };
-    }
-
     /// <summary>
     /// 路径包含校验（CWE-22 边界）：调用方路径必须在已注册库根内。
     /// 启动域的同构校验见 LaunchingHandler.RejectPathOutsideRoots（双源同构，
@@ -1183,141 +1084,6 @@ public sealed partial class OperationDispatcher
         };
     }
 
-
-    private Envelope<object> CandidatesList(IpcRequest request)
-    {
-        string? jobId = null;
-        string? state = null;
-        var limit = 0;
-        var offset = 0;
-        if (request.Parameters is { ValueKind: JsonValueKind.Object } listParameters)
-        {
-            if (listParameters.TryGetProperty("jobId", out var jobElement)
-                && jobElement.ValueKind == JsonValueKind.String)
-            {
-                jobId = jobElement.GetString();
-            }
-
-            if (listParameters.TryGetProperty("state", out var stateElement)
-                && stateElement.ValueKind == JsonValueKind.String)
-            {
-                state = stateElement.GetString();
-            }
-
-            if (listParameters.TryGetProperty("limit", out var limitElement)
-                && limitElement.ValueKind == JsonValueKind.Number
-                && limitElement.TryGetInt32(out var parsedLimit))
-            {
-                limit = Math.Clamp(parsedLimit, 1, 1000);
-                if (listParameters.TryGetProperty("offset", out var offsetElement)
-                    && offsetElement.ValueKind == JsonValueKind.Number
-                    && offsetElement.TryGetInt32(out var parsedOffset))
-                {
-                    offset = Math.Max(0, parsedOffset);
-                }
-            }
-        }
-
-        // T11 起以库内候选为事实来源（重扫刷新、审核状态演进）；无库时退回内存注册表。
-        var store = _state.Library.Store;
-        if (store is not null)
-        {
-            var (total, persisted) = store.QueryCandidates(jobId, state, limit, offset);
-            var items = persisted
-                .Select(c => new
-                {
-                    candidateId = c.CandidateId,
-                    jobId = c.JobId,
-                    kind = c.Kind,
-                    relativePath = c.RelativePath,
-                    physicalPath = c.PhysicalPath,
-                    reviewState = c.ReviewState,
-                    revision = c.Revision,
-                    gameId = c.GameId,
-                    observedUtc = c.ObservedUtc.ToString("O"),
-                })
-                .ToArray();
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = true,
-                Status = OperationStatus.Completed,
-                Data = new { total, items },
-            };
-        }
-
-        var filteredCandidates = _state.Candidates.List(jobId)
-            .Where(candidate => state is null
-                || string.Equals(candidate.ReviewState.ToString(), state, StringComparison.OrdinalIgnoreCase))
-            .ToArray();
-        var candidates = limit > 0
-            ? filteredCandidates.Skip(offset).Take(limit).ToArray()
-            : filteredCandidates;
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new
-            {
-                total = filteredCandidates.Length,
-                items = candidates.Select(c => c.ToListItem()).ToArray(),
-            },
-        };
-    }
-
-    private Envelope<object> CandidatesGet(IpcRequest request)
-    {
-        if (!TryGetStringParameter(request, "candidateId", out var candidateId))
-        {
-            return InvalidArgument(request, "缺少 candidateId 参数");
-        }
-
-        var store = _state.Library.Store;
-        if (store is not null)
-        {
-            var persisted = store.TryGetCandidate(candidateId);
-            if (persisted is null)
-            {
-                return NotFound(request, $"候选不存在：{candidateId}");
-            }
-
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = true,
-                Status = OperationStatus.Completed,
-                Data = new
-                {
-                    candidateId = persisted.CandidateId,
-                    jobId = persisted.JobId,
-                    kind = persisted.Kind,
-                    relativePath = persisted.RelativePath,
-                    physicalPath = persisted.PhysicalPath,
-                    reviewState = persisted.ReviewState,
-                    revision = persisted.Revision,
-                    gameId = persisted.GameId,
-                    detail = JsonSerializer.Deserialize<JsonElement>(persisted.PayloadJson, ContractJson.Options).Clone(),
-                    observedUtc = persisted.ObservedUtc.ToString("O"),
-                    updatedUtc = persisted.UpdatedUtc.ToString("O"),
-                },
-            };
-        }
-
-        var candidate = _state.Candidates.Get(candidateId);
-        if (candidate is null)
-        {
-            return NotFound(request, $"候选不存在：{candidateId}");
-        }
-
-        return new Envelope<object>
-        {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = candidate.ToDetail(),
-        };
-    }
 
     /// <summary>
     /// host.stop（T18）：先返回已接收收据，随后在响应送达后请求宿主优雅停机

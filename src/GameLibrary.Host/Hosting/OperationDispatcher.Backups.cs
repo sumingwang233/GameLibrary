@@ -17,9 +17,27 @@ namespace GameLibrary.Host.Hosting;
 
 
 
-/// <summary>OperationDispatcher 的 Backups 域 handler（阶段三按域拆分，partial）。</summary>
+/// <summary>OperationDispatcher 的 Backups 域 handler（阶段三按域拆分，partial）：
+/// 备份计划注册表与备份/控制区根路径等域内状态随域集中于此（原物理错放在
+/// Observability 分部，随其删除迁入唯一使用方）。</summary>
 public sealed partial class OperationDispatcher
 {
+    /// <summary>备份计划注册表：planId → (backupId, 过期时刻)。10 分钟有效期（契约 9.3）。</summary>
+    private static readonly TimeSpan PlanLifetime = TimeSpan.FromMinutes(10);
+
+    private sealed class BackupPlan
+    {
+        public required string BackupId { get; init; }
+
+        public DateTime ExpiresUtc { get; init; }
+    }
+
+    private readonly ConcurrentDictionary<string, BackupPlan> _backupPlans = new(StringComparer.Ordinal);
+
+    private string BackupsRoot => Path.Combine(_state.DataDirectory, "backups");
+
+    private ControlAreaStore ControlArea => new(Path.Combine(_state.DataDirectory, "control"));
+
     private static object BackupDto(string backupId, BackupManifest manifest) => new
     {
         backupId,
