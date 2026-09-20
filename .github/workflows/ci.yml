@@ -10,9 +10,9 @@ jobs:
     name: .NET 门禁（format / Release 构建 / 全量测试）
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v5
         with:
           # global.json 锁定 10.0.401 且 rollForward=disable，必须精确安装。
           dotnet-version: "10.0.401"
@@ -34,15 +34,15 @@ jobs:
     name: 前端与 Rust（typecheck / vite build / cargo）
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v5
         with:
           # prepare:sidecars 需要 .NET 发布 TauriBridge/Host sidecar，
           # cargo check 的 build.rs 校验 externalBin 存在。
           dotnet-version: "10.0.401"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: "22"
           cache: npm
