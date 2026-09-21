@@ -204,6 +204,13 @@ internal sealed class CatalogingHandler
         var store = _storeAccessor();
         if (store is not null)
         {
+            // 文件整理后旧路径候选自动失效，不让用户继续看到已经删除的旧架构。
+            store.IgnoreMissingCandidates(DateTime.UtcNow);
+            foreach (var batch in store.ListNotifications("pending"))
+            {
+                if (!batch.CandidateIds.Any(id => store.TryGetCandidate(id)?.ReviewState == "pendingReview"))
+                    store.TransitionNotification(batch.NotificationId, "acknowledged", DateTime.UtcNow);
+            }
             var (total, persisted) = store.QueryCandidates(jobId, state, limit, offset);
             var items = persisted
                 .Select(c => new

@@ -478,6 +478,58 @@ internal sealed class GamesHandler
             return IpcRequests.InvalidArgument(request, $"游戏已从库中移除：{gameId}");
         }
 
+        IpcRequests.TryGetBoolParameter(request, "deleteFiles", out var deleteFilesValue);
+        var deleteFiles = deleteFilesValue == true;
+        if (deleteFiles)
+        {
+            var target = Path.GetFullPath(current.RootPath);
+            if (current.Revision != expectedRevision.Value)
+                return IpcRequests.InvalidArgument(request, "游戏记录已变化，请重新打开详情确认删除路径");
+            if (!IpcRequests.TryGetStringParameter(request, "confirmedPath", out var confirmedPath)
+                || !string.Equals(confirmedPath, current.RootPath, StringComparison.Ordinal))
+                return IpcRequests.InvalidArgument(request, "删除原文件需要确认完整游戏路径");
+            if (current.Kind == "manualShortcut")
+                return IpcRequests.InvalidArgument(request, "快捷方式不能确定原文件范围，请在资源管理器中清理");
+            if (IpcRequests.RejectPathOutsideRoots(request, target, _roots) is { } outside) return outside;
+            if (target.TrimEnd('\\', '/') == Path.GetPathRoot(target)?.TrimEnd('\\', '/')
+                || _roots.List().Any(root => RuntimeStateStore.ContainsPath(target, root.Path.PhysicalPath)))
+                return IpcRequests.InvalidArgument(request, "不能删除游戏库根目录；如需删除请先移除该游戏库目录");
+            if (store.ListGames().Any(game => game.GameId != gameId && game.Membership == "active"
+                && (RuntimeStateStore.ContainsPath(target, game.RootPath) || RuntimeStateStore.ContainsPath(game.RootPath, target))))
+                return IpcRequests.InvalidArgument(request, "该位置与其他游戏共用或包含其他游戏，请先整理重复记录");
+            if (HasReparseAncestor(target))
+                return IpcRequests.InvalidArgument(request, "不能删除包含目录联接或符号链接的路径");
+            if (Directory.Exists(target))
+            {
+                // 只枚举普通目录，遇到联接立即拒绝，不沿联接遍历。
+                var pending = new Stack<string>();
+                pending.Push(target);
+                while (pending.TryPop(out var directory))
+                {
+                    foreach (var entry in Directory.EnumerateFileSystemEntries(directory))
+                    {
+                        var attributes = File.GetAttributes(entry);
+                        if ((attributes & FileAttributes.ReparsePoint) != 0)
+                            return IpcRequests.InvalidArgument(request, "游戏目录包含链接，请在资源管理器中确认删除范围");
+                        if ((attributes & FileAttributes.Directory) != 0) pending.Push(entry);
+                    }
+                }
+            }
+            if (!File.Exists(target) && !Directory.Exists(target))
+                return IpcRequests.NotFound(request, $"游戏文件或目录不存在：{target}");
+            try
+            {
+                if (File.Exists(target))
+                    Microsoft.VisualBasic.FileIO.FileSystem.DeleteFile(target, Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs, Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin, Microsoft.VisualBasic.FileIO.UICancelOption.ThrowException);
+                else
+                    Microsoft.VisualBasic.FileIO.FileSystem.DeleteDirectory(target, Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs, Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin, Microsoft.VisualBasic.FileIO.UICancelOption.ThrowException);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or OperationCanceledException)
+            {
+                return IpcRequests.InvalidArgument(request, $"原文件未能移入回收站，保留游戏库记录：{ex.Message}");
+            }
+        }
+
         var utcNow = DateTime.UtcNow;
         var ignore = new IgnoreRule
         {
@@ -519,7 +571,8 @@ internal sealed class GamesHandler
                 membership = "removed",
                 revision = newRevision.Value,
                 ignoreId = ignore.IgnoreId,
-                filesDeleted = false,
+                filesDeleted = deleteFiles,
+                recycled = deleteFiles,
             },
         };
     }

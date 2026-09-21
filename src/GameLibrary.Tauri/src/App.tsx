@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AlertCircle, Bell, Library as LibraryIcon } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { describeFailure, operation } from "./lib/api";
@@ -32,6 +32,12 @@ function App() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [reviewBusy, setReviewBusy] = useState(false);
   const [prompt, setPrompt] = useState<PromptKind>(null);
+  useEffect(() => {
+    if (section !== "pending") return;
+    void library.refreshMeta();
+    const timer = window.setInterval(() => { void library.refreshMeta(); }, 15000);
+    return () => window.clearInterval(timer);
+  }, [section, library.refreshMeta]);
   // accept 后的相似副本提示横幅：单例不堆叠，新批（含 M=0 的批）覆盖旧批；defer/ignore 不动它。
   const [similarNotice, setSimilarNotice] = useState<SimilarNoticeData | null>(null);
 
@@ -153,11 +159,6 @@ function App() {
       onCreateTag={() => setPrompt("tag")}
       onCreateView={() => setPrompt("view")}
       onRemoveView={(view: ViewItem) => void run(() => library.removeView(view))}
-      onAddRoot={() => void addRoot()}
-      onManualAdd={() => void manualAdd()}
-      onScan={() => void run(library.startScan)}
-      scanning={library.scanning}
-      onSettings={() => setSettingsOpen(true)}
     />
   );
 
@@ -165,7 +166,7 @@ function App() {
 
   return (
     <TooltipProvider>
-      <AppShell sidebar={sidebar} titleBar={<TitleBar onAddRoot={() => void addRoot()} onScan={() => void run(library.startScan)} onSettings={() => setSettingsOpen(true)} scanning={library.scanning} />}>
+      <AppShell sidebar={sidebar} titleBar={<TitleBar onTags={() => setSection("tags")} onRoots={() => setSection("roots")} onManualAdd={() => void manualAdd()} onAddRoot={() => void addRoot()} onScan={() => void run(library.startScan)} onSettings={() => setSettingsOpen(true)} scanning={library.scanning} />}>
         <main className="min-w-0 flex-1 overflow-y-auto bg-background p-6">
           <header className="mb-6 flex items-end justify-between gap-4">
             <div>

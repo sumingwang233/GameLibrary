@@ -1,20 +1,14 @@
 import {
-  FolderPlus,
-  FolderSearch,
   FolderTree,
   Gamepad2,
   Heart,
   Inbox,
   Plus,
-  PlusCircle,
-  Settings2,
-  Tags as TagsIcon,
   Trash2,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { ViewItem } from "../lib/types";
 import { cn } from "../lib/utils";
-import { Button } from "./ui/button";
 import { ScrollArea } from "./ui/scroll-area";
 import { Separator } from "./ui/separator";
 
@@ -38,11 +32,6 @@ export interface SidebarProps {
   onCreateTag: () => void;
   onCreateView: () => void;
   onRemoveView: (view: ViewItem) => void;
-  onAddRoot: () => void;
-  onManualAdd: () => void;
-  onScan: () => void;
-  scanning: boolean;
-  onSettings: () => void;
 }
 
 export function Sidebar(props: SidebarProps) {
@@ -63,11 +52,6 @@ export function Sidebar(props: SidebarProps) {
     onCreateTag,
     onCreateView,
     onRemoveView,
-    onAddRoot,
-    onManualAdd,
-    onScan,
-    scanning,
-    onSettings,
   } = props;
 
   const pendingBadge = candidateTotal + notificationTotal;
@@ -208,32 +192,6 @@ export function Sidebar(props: SidebarProps) {
         </div>
       </ScrollArea>
 
-      <div className="mt-4 space-y-2">
-        <Button variant="outline" className="w-full" onClick={() => onSectionChange("tags")}>
-          <TagsIcon size={16} />
-          管理标签
-        </Button>
-        <Button variant="outline" className="w-full" onClick={() => onSectionChange("roots")}>
-          <FolderTree size={16} />
-          游戏库目录
-        </Button>
-        <Button variant="outline" className="w-full" onClick={onAddRoot}>
-          <FolderPlus size={16} />
-          添加目录
-        </Button>
-        <Button variant="outline" className="w-full" onClick={onManualAdd}>
-          <PlusCircle size={16} />
-          手动添加游戏
-        </Button>
-        <Button className="w-full" onClick={onScan} disabled={scanning}>
-          <FolderSearch size={16} />
-          {scanning ? "正在扫描…" : "扫描游戏库"}
-        </Button>
-        <Button variant="ghost" className="w-full justify-start" onClick={onSettings}>
-          <Settings2 size={16} />
-          设置
-        </Button>
-      </div>
     </aside>
   );
 }

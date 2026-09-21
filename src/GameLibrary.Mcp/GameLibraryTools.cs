@@ -723,16 +723,20 @@ public static class GameLibraryTools
         });
 
     [McpServerTool(Name = "games_remove")]
-    [Description("从库中移除游戏并登记忽略，绝不删除游戏文件；参数：gameId、expectedRevision、idempotencyKey。")]
+    [Description("从库中移除游戏并登记忽略。默认保留文件；仅用户明确确认时传 deleteFiles=true 和 confirmedPath，将原文件移入回收站。")]
     public static Task<CallToolResult> GamesRemove(
         [Description("游戏 ID")] string gameId,
         [Description("期望 Revision")] int expectedRevision,
-        [Description("幂等键")] string? idempotencyKey = null) =>
+        [Description("幂等键")] string? idempotencyKey = null,
+        [Description("是否明确确认删除原文件")] bool deleteFiles = false,
+        [Description("用户确认的完整游戏路径")] string? confirmedPath = null) =>
         InvokeOperationAsync("games.remove", new
         {
             idempotencyKey = idempotencyKey ?? $"gameremove-{Guid.NewGuid():N}",
             gameId,
             expectedRevision,
+            deleteFiles,
+            confirmedPath,
         });
 
     [McpServerTool(Name = "ignores_list")]

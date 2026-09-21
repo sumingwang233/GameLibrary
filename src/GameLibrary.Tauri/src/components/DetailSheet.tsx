@@ -65,6 +65,7 @@ export function DetailSheet({
   const [titleDraft, setTitleDraft] = useState("");
   const [summaryDraft, setSummaryDraft] = useState("");
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [busy, setBusy] = useState(false);
   const [tagDraft, setTagDraft] = useState("");
 
@@ -116,6 +117,7 @@ export function DetailSheet({
     } catch (cause) {
       setError(describeFailure(cause));
     } finally {
+      setConfirmDelete(false);
       setBusy(false);
     }
   };
@@ -236,14 +238,15 @@ export function DetailSheet({
       await load();
     });
 
-  const removeGame = () =>
+  const removeGame = (deleteFiles = false) =>
     run(async () => {
       await operation(
         "games.remove",
-        { gameId: current.gameId, expectedRevision: current.revision },
-        `games.remove:${current.gameId}:${current.revision}`,
+        { gameId: current.gameId, expectedRevision: current.revision, ...(deleteFiles ? { deleteFiles: true, confirmedPath: current.rootPath } : {}) },
+        `games.remove:${current.gameId}:${current.revision}:${deleteFiles}`,
       );
       setConfirmRemove(false);
+      setConfirmDelete(false);
       onClose();
       await onChanged();
     });
@@ -372,6 +375,9 @@ export function DetailSheet({
                 <Trash2 size={15} />
                 从游戏库移除
               </Button>
+              <Button variant="danger" className="w-full border border-danger/40" disabled={busy} onClick={() => setConfirmDelete(true)}>
+                <Trash2 size={15} />删除游戏及原文件
+              </Button>
             </TabsContent>
 
             <TabsContent value="launch" className="space-y-3">
@@ -485,6 +491,16 @@ export function DetailSheet({
         </div>
       </Sheet>
 
+      <ConfirmDialog
+        open={confirmDelete}
+        title={`删除「${current.title}」及原文件`}
+        description={`将以下位置移入回收站并移除游戏记录：${current.rootPath}。目录型游戏包含其中的存档、补丁和全部子文件；单文件游戏只删除该文件。请确认路径。`}
+        confirmLabel="确认移入回收站"
+        destructive
+        busy={busy}
+        onCancel={() => { if (!busy) setConfirmDelete(false); }}
+        onConfirm={() => void removeGame(true)}
+      />
       <ConfirmDialog
         open={confirmRemove}
         title={`从游戏库移除「${current.title}」`}

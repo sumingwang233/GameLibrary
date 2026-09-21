@@ -23,6 +23,84 @@ public sealed class CandidateReviewTests : IClassFixture<PipeServerFixture>
 
     private static string StubExe => Path.Combine(AppContext.BaseDirectory, "GameLibrary.TestProcessStub.exe");
 
+    [Fact]
+    public void ElevationFallback_PreservesArguments_AndReportsCancellation()
+    {
+        var original = new System.Diagnostics.ProcessStartInfo { FileName = @"F:\日本語\Game.exe", WorkingDirectory = @"F:\日本語", UseShellExecute = false };
+        original.ArgumentList.Add("argument with spaces");
+        var calls = 0;
+        var error = Assert.Throws<GameLibrary.Host.Launching.LaunchException>(() =>
+            GameLibrary.Host.Launching.LaunchRegistry.StartProcessWithElevationFallback(original, info =>
+            {
+                if (++calls == 1) throw new System.ComponentModel.Win32Exception(740);
+                Assert.True(info.UseShellExecute);
+                Assert.Equal("runas", info.Verb);
+                Assert.Equal(original.FileName, info.FileName);
+                Assert.Equal(original.WorkingDirectory, info.WorkingDirectory);
+                Assert.Equal(original.ArgumentList, info.ArgumentList);
+                throw new System.ComponentModel.Win32Exception(1223);
+            }));
+        Assert.Equal(2, calls);
+        Assert.Contains("取消", error.Message);
+    }
+
+    [Fact]
+    public async Task DeleteFiles_RecyclesOnlyConfirmedGame_AndReplayIsSafe()
+    {
+        var root = CreateGameTree("recycle-game");
+        var target = Path.Combine(root, "GameA");
+        var sibling = Path.Combine(root, "keep.txt");
+        File.WriteAllText(sibling, "keep");
+        await InvokeAsync("roots.add", new { root });
+        var created = await InvokeAsync("games.create", new { sourcePath = target, idempotencyKey = Guid.NewGuid().ToString() });
+        Assert.True(created.Ok, created.Error?.Message);
+        var gameId = created.Data.GetProperty("gameId").GetString()!;
+        var parameters = new { gameId, expectedRevision = 1, deleteFiles = true, confirmedPath = target, idempotencyKey = Guid.NewGuid().ToString() };
+        var removed = await InvokeAsync("games.remove", parameters);
+        Assert.True(removed.Ok, removed.Error?.Message);
+        Assert.True(removed.Data.GetProperty("recycled").GetBoolean());
+        Assert.False(Directory.Exists(target));
+        Assert.Equal("keep", File.ReadAllText(sibling));
+        Assert.True((await InvokeAsync("games.remove", parameters)).Ok);
+    }
+
+    [Fact]
+    public async Task MovedCandidate_DisappearsAndCanBeRediscovered()
+    {
+        var root = CreateGameTree("moved-candidate");
+        await InvokeAsync("roots.add", new { root });
+        await ScanAndWaitAsync(root);
+        var before = await InvokeAsync("candidates.list", new { state = "pendingReview" });
+        var oldPath = Path.Combine(root, "GameA");
+        var candidate = before.Data.GetProperty("items").EnumerateArray().Single(item => item.GetProperty("physicalPath").GetString() == oldPath);
+        var id = candidate.GetProperty("candidateId").GetString()!;
+        Directory.Move(oldPath, Path.Combine(root, "Houkago"));
+        var after = await InvokeAsync("candidates.list", new { state = "pendingReview" });
+        Assert.True(after.Ok, after.Error?.Message);
+        Assert.DoesNotContain(after.Data.GetProperty("items").EnumerateArray(), item => item.GetProperty("candidateId").GetString() == id);
+        Assert.Equal("observed", _fixture.State.Library.Store!.TryGetCandidate(id)!.ReviewState);
+        Directory.Move(Path.Combine(root, "Houkago"), oldPath);
+        await ScanAndWaitAsync(root);
+        Assert.Equal("pendingReview", _fixture.State.Library.Store.TryGetCandidate(id)!.ReviewState);
+    }
+
+    [Fact]
+    public async Task DeleteFiles_RequiresConfirmationAndRejectsLibraryRoot()
+    {
+        var root = CreateGameTree("delete-guard");
+        await InvokeAsync("roots.add", new { root });
+        var created = await InvokeAsync("games.create", new { sourcePath = root, idempotencyKey = Guid.NewGuid().ToString() });
+        Assert.True(created.Ok, created.Error?.Message);
+        var gameId = created.Data.GetProperty("gameId").GetString()!;
+        foreach (var confirmedPath in new[] { "", root })
+        {
+            var result = await InvokeAsync("games.remove", new { gameId, expectedRevision = 1, deleteFiles = true, confirmedPath, idempotencyKey = Guid.NewGuid().ToString() });
+            Assert.False(result.Ok);
+            Assert.True(File.Exists(Path.Combine(root, "GameA", "Game.exe")));
+            Assert.Equal("active", _fixture.State.Library.Store!.TryGetGame(gameId)!.Membership);
+        }
+    }
+
     private async Task<Envelope<JsonElement>> InvokeAsync(string operationId, object parameters)
     {
         await using var client = await HostConnection.ConnectAsync(

@@ -91,6 +91,8 @@ public static class OperationSchemas
         ],
         ["games.remove"] =
         [
+            new("deleteFiles", "boolean", false, "同时将原文件移入回收站，必须明确确认路径"),
+            new("confirmedPath", "string", false, "删除原文件时确认的完整游戏路径"),
             new("gameId", "string", true, "游戏 ID"),
             new("expectedRevision", "integer", true, "期望修订"),
             new("idempotencyKey", "string", true, "幂等键"),

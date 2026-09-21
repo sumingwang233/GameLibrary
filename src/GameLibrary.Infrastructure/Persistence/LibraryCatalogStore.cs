@@ -238,6 +238,36 @@ public static class LibraryCatalogStore
         return result;
     }
 
+    /// <summary>删除/整理游戏文件后，旧候选不再继续出现在待确认列表。</summary>
+    public static int IgnoreMissingCandidates(SqliteConnection connection, DateTime utcNow)
+    {
+        var stale = ListCandidates(connection)
+            .Where(candidate => candidate.ReviewState is "pendingReview" or "deferred")
+            .Where(candidate => IsDefinitelyMissing(candidate.PhysicalPath))
+            .ToArray();
+        foreach (var candidate in stale)
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE candidates SET review_state = 'observed', revision = revision + 1, updated_utc = $now WHERE candidate_id = $id AND revision = $revision";
+            command.Parameters.AddWithValue("$now", utcNow.ToString("O", CultureInfo.InvariantCulture));
+            command.Parameters.AddWithValue("$id", candidate.CandidateId);
+            command.Parameters.AddWithValue("$revision", candidate.Revision);
+            command.ExecuteNonQuery();
+        }
+        return stale.Length;
+    }
+
+    private static bool IsDefinitelyMissing(string path)
+    {
+        // 拔盘、无权限和 I/O 故障不等于文件被删除。
+        if (!Directory.Exists(Path.GetPathRoot(path))) return false;
+        try { _ = File.GetAttributes(path); return false; }
+        catch (FileNotFoundException) { return true; }
+        catch (DirectoryNotFoundException) { return true; }
+        catch (IOException) { return false; }
+        catch (UnauthorizedAccessException) { return false; }
+    }
+
     /// <summary>
     /// 按作业/审核状态筛选候选；total 为分页前的匹配总数。
     /// limit &lt;= 0 保持原有全量语义。

@@ -441,7 +441,7 @@ public sealed class LaunchRegistry
                     startInfo.ArgumentList.Add(argument);
                 }
 
-                process = Process.Start(startInfo)
+                process = StartProcessWithElevationFallback(startInfo)
                     ?? throw new LaunchException(ErrorCodes.ProcessStartFailed, "进程启动返回空");
                 started.Add(process);
                 if (step.WaitForExit)
@@ -597,6 +597,34 @@ public sealed class LaunchRegistry
         if (!Directory.Exists(profile.WorkingDirectory))
         {
             throw new LaunchException(ErrorCodes.InvalidPath, $"工作目录不存在：{profile.WorkingDirectory}");
+        }
+    }
+
+    public static Process? StartProcessWithElevationFallback(ProcessStartInfo startInfo, Func<ProcessStartInfo, Process?>? start = null)
+    {
+        start ??= Process.Start;
+        try
+        {
+            return start(startInfo);
+        }
+        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 740 && !startInfo.UseShellExecute)
+        {
+            var elevated = new ProcessStartInfo
+            {
+                FileName = startInfo.FileName,
+                WorkingDirectory = startInfo.WorkingDirectory,
+                UseShellExecute = true,
+                Verb = "runas",
+            };
+            foreach (var argument in startInfo.ArgumentList) elevated.ArgumentList.Add(argument);
+            try
+            {
+                return start(elevated);
+            }
+            catch (System.ComponentModel.Win32Exception retry) when (retry.NativeErrorCode == 1223)
+            {
+                throw new LaunchException(ErrorCodes.ProcessStartFailed, "游戏需要管理员权限，但用户取消了 UAC 提示");
+            }
         }
     }
 }

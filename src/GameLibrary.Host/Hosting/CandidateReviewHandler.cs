@@ -53,6 +53,14 @@ internal sealed class CandidateReviewHandler
             return IpcRequests.NotFound(request, $"候选不存在：{candidateId}");
         }
 
+        if (action == "accept")
+        {
+            store.IgnoreMissingCandidates(DateTime.UtcNow);
+            current = store.TryGetCandidate(candidateId)!;
+            if (!File.Exists(current.PhysicalPath) && !Directory.Exists(current.PhysicalPath))
+                return IpcRequests.InvalidArgument(request, "游戏路径已不存在，请重新扫描整理后的目录");
+        }
+
         if (action == "accept" && current.ReviewState == "accepted" && current.GameId is not null)
         {
             // 幂等：重试同候选返回已有 GameId，不重复建卡；similarTo 不重算（安全回放既有结果语义）。

@@ -34,6 +34,9 @@ public sealed partial class SqliteLibraryStore
     public IReadOnlyList<PersistedCandidate> ListCandidates()
         => Execute((c, _) => LibraryCatalogStore.ListCandidates(c));
 
+    public int IgnoreMissingCandidates(DateTime utcNow)
+        => Execute((c, _) => LibraryCatalogStore.IgnoreMissingCandidates(c, utcNow));
+
     public (int Total, IReadOnlyList<PersistedCandidate> Items) QueryCandidates(
         string? jobId,
         string? state,

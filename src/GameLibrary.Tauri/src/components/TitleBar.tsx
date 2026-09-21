@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { FolderPlus, FolderSearch, Maximize2, Minus, Settings2, X } from "lucide-react";
+import { FolderPlus, FolderSearch, FolderTree, Tags, PlusCircle, Maximize2, Minus, Settings2, X } from "lucide-react";
 import { Button } from "./ui/button";
 
-export function TitleBar({ onAddRoot, onScan, onSettings, scanning }: {
+export function TitleBar({ onAddRoot, onScan, onSettings, scanning, onTags, onRoots, onManualAdd }: {
+  onTags: () => void;
+  onRoots: () => void;
+  onManualAdd: () => void;
   onAddRoot: () => void;
   onScan: () => void;
   onSettings: () => void;
@@ -29,9 +32,12 @@ export function TitleBar({ onAddRoot, onScan, onSettings, scanning }: {
         <span className="pointer-events-none text-sm font-semibold tracking-wide">GameLibrary</span>
       </div>
       <nav aria-label="快捷操作" className="flex items-center gap-1">
+        <Button variant="ghost" size="sm" onClick={onTags}><Tags size={15} />管理标签</Button>
+        <Button variant="ghost" size="sm" onClick={onRoots}><FolderTree size={15} />游戏库目录</Button>
         <Button variant="ghost" size="sm" onClick={onAddRoot}><FolderPlus size={15} />添加目录</Button>
+        <Button variant="ghost" size="sm" onClick={onManualAdd}><PlusCircle size={15} />手动添加游戏</Button>
         <Button variant="ghost" size="sm" onClick={onScan} disabled={scanning}><FolderSearch size={15} />{scanning ? "正在扫描" : "扫描游戏库"}</Button>
-        <Button variant="ghost" size="sm" onClick={onSettings}><Settings2 size={15} />设置</Button>
+        <Button size="sm" className="mx-2 shadow-sm" onClick={onSettings}><Settings2 size={16} />设置</Button>
       </nav>
       <div data-tauri-drag-region className="h-full flex-1" />
       {error && <span role="alert" className="text-xs text-danger">{error}</span>}
