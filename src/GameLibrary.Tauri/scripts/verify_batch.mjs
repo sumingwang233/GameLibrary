@@ -33,6 +33,7 @@ export async function verifyBatch(client, dataDirectory) {
     if (document.querySelector('[role="dialog"]')) throw new Error('checkbox opened details');
     batchButton('批量收藏').click();
     await batchWait(() => document.body.innerText.includes('已完成 3 个'));
+    await batchWait(() => [...document.querySelectorAll('input[type="checkbox"]')].every(e => !e.disabled));
     const games = await batchOp('games.list', { limit: 100 });
     if (games.items.filter(g => g.favorite).length !== 3) throw new Error('favorite failed');
     document.querySelector('[aria-label="紧凑视图"]').click();

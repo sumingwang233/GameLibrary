@@ -25,6 +25,7 @@ def publish(project: str, executable: str, properties: list[str] | None = None) 
         [
             DOTNET,
             "publish",
+            "-t:Rebuild",
             os.path.join(WORKSPACE, "src", project, f"{project}.csproj"),
             "-c",
             "Release",
