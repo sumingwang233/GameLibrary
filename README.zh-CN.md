@@ -62,7 +62,7 @@ GameLibrary 支持 **Windows 10/11 x64**。发布包已包含运行环境，不�
 | [SHA-256 校验值](https://github.com/sumingwang233/GameLibrary/releases/download/v1.4.5/GameLibrary-v1.4.5-SHA256SUMS.txt) | 三个发布包的完整性校验。 |
 
 > [!IMPORTANT]
-> v1.4.4 的 Windows 程序未签名。Windows SmartScreen 可能提示未知发布者。请从本仓库 Release 下载，并核对 SHA-256。
+> v1.4.5 的 Windows 程序未签名。Windows SmartScreen 可能提示未知发布者。请从本仓库 Release 下载，并核对 SHA-256。
 
 ## 快速开始
 

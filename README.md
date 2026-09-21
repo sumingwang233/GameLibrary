@@ -62,7 +62,7 @@ GameLibrary supports **Windows 10/11 x64**. Release packages are self-contained 
 | [SHA-256 checksums](https://github.com/sumingwang233/GameLibrary/releases/download/v1.4.5/GameLibrary-v1.4.5-SHA256SUMS.txt) | Integrity hashes for all three release packages. |
 
 > [!IMPORTANT]
-> The v1.4.4 Windows binaries are unsigned. Windows SmartScreen may show an unknown publisher warning. Download releases from this repository and verify the SHA-256 checksum.
+> The v1.4.5 Windows binaries are unsigned. Windows SmartScreen may show an unknown publisher warning. Download releases from this repository and verify the SHA-256 checksum.
 
 ## Quick start
 
