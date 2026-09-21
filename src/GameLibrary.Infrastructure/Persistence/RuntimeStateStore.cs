@@ -98,6 +98,58 @@ public static class RuntimeStateStore
         command.ExecuteNonQuery();
     }
 
+    public static bool ContainsPath(string root, string path)
+    {
+        var prefix = root.TrimEnd('\\', '/');
+        return string.Equals(prefix, path.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith(prefix + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static int RemoveRootGames(SqliteConnection connection, string rootId, string rootPath, DateTime utcNow)
+    {
+        var remainingRoots = ReadRoots(connection).Where(root => root.RootId != rootId).ToArray();
+        bool RemovedPath(string path) => ContainsPath(rootPath, path)
+            && !remainingRoots.Any(root => ContainsPath(root.PhysicalPath, path));
+        var games = LibraryCatalogStore.ListGames(connection).Where(game => game.Membership == "active" && RemovedPath(game.RootPath)).ToArray();
+        var candidates = LibraryCatalogStore.ListCandidates(connection).Where(candidate => RemovedPath(candidate.PhysicalPath)).ToArray();
+        using var transaction = connection.BeginTransaction();
+        foreach (var game in games)
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = "UPDATE games SET membership='removed', revision=revision+1, updated_utc=$now WHERE game_id=$id";
+            command.Parameters.AddWithValue("$id", game.GameId);
+            command.Parameters.AddWithValue("$now", utcNow.ToString("O", CultureInfo.InvariantCulture));
+            command.ExecuteNonQuery();
+        }
+
+        foreach (var candidate in candidates)
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = "DELETE FROM candidates WHERE candidate_id=$id";
+            command.Parameters.AddWithValue("$id", candidate.CandidateId);
+            command.ExecuteNonQuery();
+        }
+
+        using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                DELETE FROM library_roots WHERE root_id=$id;
+                UPDATE notification_batches SET state='acknowledged'
+                WHERE state='pending' AND NOT EXISTS (
+                    SELECT 1 FROM json_each(candidate_ids_json) ids
+                    JOIN candidates c ON c.candidate_id=ids.value WHERE c.review_state='pendingReview');
+                """;
+            command.Parameters.AddWithValue("$id", rootId);
+            command.ExecuteNonQuery();
+        }
+
+        transaction.Commit();
+        return games.Length;
+    }
+
     // ---- 启动 Profile ----
 
     public static IReadOnlyList<PersistedProfile> ReadProfiles(SqliteConnection connection)

@@ -460,8 +460,9 @@ function useLibraryController(): LibraryController {
         `roots.remove:${root.rootId}:${root.revision}`,
       );
       await refreshMeta();
+      bump();
     },
-    [refreshMeta],
+    [refreshMeta, bump],
   );
 
   const createView = useCallback(

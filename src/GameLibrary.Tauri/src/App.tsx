@@ -251,6 +251,9 @@ function App() {
                 </p>
               )}
               <GameGrid
+                key={JSON.stringify(filters)}
+                tags={library.tags}
+                onChanged={async () => { setSelected(null); await library.refreshMeta(); await games.reload(); }}
                 games={games.games}
                 loading={games.loading}
                 loadingMore={games.loadingMore}

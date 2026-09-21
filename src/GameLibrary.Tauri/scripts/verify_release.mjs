@@ -2,6 +2,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
+import { verifyBatch } from "./verify_batch.mjs";
 
 const [, , executableArgument, dataDirectoryArgument, screenshotArgument, gameDirectoryArgument] = process.argv;
 if (!executableArgument || !dataDirectoryArgument || !screenshotArgument) {
@@ -71,7 +72,7 @@ function cdp(webSocketUrl) {
         const timeout = setTimeout(() => {
           pending.delete(id);
           reject(new Error(`CDP ${method} timed out`));
-        }, 15_000);
+        }, 45_000);
         pending.set(id, (message) => {
           clearTimeout(timeout);
           if (message.error) reject(new Error(`${method}: ${message.error.message}`));
@@ -185,7 +186,7 @@ try {
   if (!evaluated) throw new Error("release WebView evaluation did not complete");
   if (evaluated.exceptionDetails) throw new Error(evaluated.exceptionDetails.text);
   const result = evaluated.result.value;
-  if (gameDirectoryArgument) {
+  if (gameDirectoryArgument && gameDirectoryArgument !== "--batch-smoke") {
     const opened = await client.send("Runtime.evaluate", {
       expression: `(async () => {
         const invoke = window.__TAURI__.core.invoke;
@@ -204,6 +205,7 @@ try {
     if (opened.exceptionDetails) throw new Error(JSON.stringify(opened.exceptionDetails));
     result.directoryOpen = opened.result.value;
   }
+  if (process.argv.includes("--batch-smoke")) result.batchOperations = await verifyBatch(client, dataDirectory);
   const failures = [];
   if (result.css.status !== 200 || !result.css.type?.startsWith("text/css")) failures.push(`CSS response ${result.css.status} ${result.css.type}`);
   if (result.js.status !== 200 || !result.js.type?.includes("javascript")) failures.push(`JS response ${result.js.status} ${result.js.type}`);

@@ -119,7 +119,8 @@ internal sealed class ScanningHandler
                             _events,
                             collector,
                             context.JobId,
-                            readyForReview: true);
+                            readyForReview: true,
+                            requireRegisteredRoot: true);
                         // T17：完整扫描成功后核对库内游戏可用性（ID-04/05）。
                         // store 取局部：委托调用不保留 null 流状态（原属性链同点求值等价）。
                         var libraryStore = _storeAccessor();

@@ -94,8 +94,7 @@ internal sealed class CatalogingHandler
     }
 
     /// <summary>
-    /// 移除库根（roots.remove）：仅解除扫描/启动边界，不触碰游戏数据与记录；
-    /// 库内已绑定该根的游戏保留并按 RootUnbound 语义提示。期望 Revision 乐观校验。
+    /// 移除库根并清空不再由其他根覆盖的游戏和候选；不触碰磁盘文件。
     /// </summary>
     public Envelope<object> RootsRemove(IpcRequest request)
     {
@@ -132,20 +131,20 @@ internal sealed class CatalogingHandler
             };
         }
 
+        var removedGames = _storeAccessor()?.RemoveRootGames(rootId, root.Path.PhysicalPath, DateTime.UtcNow) ?? 0;
         var removed = _roots.Remove(rootId);
         if (removed is null)
         {
             return IpcRequests.NotFound(request, $"库根不存在：{rootId}");
         }
 
-        _storeAccessor()?.DeleteRoot(rootId);
-        _events.Publish("root.removed", $"root:{rootId}", new { rootId }, DateTime.UtcNow);
+        _events.Publish("root.removed", $"root:{rootId}", new { rootId, removedGames }, DateTime.UtcNow);
         return new Envelope<object>
         {
             RequestId = request.RequestId,
             Ok = true,
             Status = OperationStatus.Completed,
-            Data = new { rootId, removed = true },
+            Data = new { rootId, removed = true, removedGames },
         };
     }
 

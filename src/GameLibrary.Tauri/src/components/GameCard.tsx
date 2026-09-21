@@ -7,12 +7,15 @@ import { cn } from "../lib/utils";
 export interface GameCardProps {
   game: GameItem;
   selected: boolean;
+  checked: boolean;
+  selectionDisabled: boolean;
+  onToggle: (gameId: string) => void;
   /** 传 gameId 而非闭包，配合 memo 让搜索输入不再重渲染整片网格。 */
   onSelect: (gameId: string) => void;
   onPlay: (gameId: string) => void;
 }
 
-function GameCardImpl({ game, selected, onSelect, onPlay }: GameCardProps) {
+function GameCardImpl({ game, selected, checked, selectionDisabled, onToggle, onSelect, onPlay }: GameCardProps) {
   const initials = game.title.trim().slice(0, 2).toUpperCase() || "GL";
   const [cover, setCover] = useState<string | null>(null);
 
@@ -42,6 +45,7 @@ function GameCardImpl({ game, selected, onSelect, onPlay }: GameCardProps) {
       aria-pressed={selected}
       onClick={() => onSelect(game.gameId)}
       onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           onSelect(game.gameId);
@@ -52,10 +56,13 @@ function GameCardImpl({ game, selected, onSelect, onPlay }: GameCardProps) {
         "[content-visibility:auto] [contain-intrinsic-size:auto_275px]",
         "hover:-translate-y-1 hover:shadow-2xl hover:shadow-black/40",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-        selected ? "border-steam ring-2 ring-steam/50" : "border-border hover:border-steam/60",
+        selected || checked ? "border-steam ring-2 ring-steam/50" : "border-border hover:border-steam/60",
       )}
     >
       <div className="relative aspect-3/4 overflow-hidden bg-linear-to-br from-steam-soft via-surface-elevated to-gradient-deep">
+        <input type="checkbox" aria-label={`选择 ${game.title}`} checked={checked} disabled={selectionDisabled}
+          className="absolute top-3 left-3 z-10 size-5 cursor-pointer accent-steam"
+          onClick={event => event.stopPropagation()} onChange={() => onToggle(game.gameId)} />
         {cover ? (
           <img
             src={cover}

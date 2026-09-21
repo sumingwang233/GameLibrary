@@ -234,16 +234,21 @@ export function RootsPanel({
         title="移除游戏库目录"
         description={
           removingRoot
-            ? `将不再扫描 ${removingRoot.path}。已入库的游戏不会被删除，但会失去与该目录的关联。`
+            ? `将停止扫描 ${removingRoot.path}，并清空其范围内的游戏库记录和待确认游戏。仍由其他游戏库目录覆盖的游戏会保留。不会删除磁盘上的游戏文件。`
             : ""
         }
         confirmLabel="移除目录"
+        busy={busy}
         destructive
-        onCancel={() => setRemovingRoot(null)}
+        onCancel={() => { if (!busy) setRemovingRoot(null); }}
         onConfirm={() => {
           const target = removingRoot;
-          setRemovingRoot(null);
-          if (target) void onRemoveRoot(target);
+          if (!target || busy) return;
+          setBusy(true);
+          void onRemoveRoot(target).then(() => {
+            setRemovingRoot(null);
+            setError(null);
+          }).catch(cause => setError(describeFailure(cause))).finally(() => setBusy(false));
         }}
       />
     </section>

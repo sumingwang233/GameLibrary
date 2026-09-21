@@ -24,7 +24,8 @@ public static class ScanCandidatePersistence
         EventStream? events,
         ScanCandidateCollector collector,
         string jobId,
-        bool readyForReview = false)
+        bool readyForReview = false,
+        bool requireRegisteredRoot = false)
     {
         if (store is null)
         {
@@ -50,7 +51,7 @@ public static class ScanCandidatePersistence
                 JsonSerializer.Serialize(candidate.ToDetail(), GameLibrary.Contracts.ContractJson.Options),
                 candidate.PhysicalPath);
 
-            var existed = store.UpsertCandidate(new PersistedCandidate
+            var persisted = new PersistedCandidate
             {
                 CandidateId = candidate.CandidateId,
                 JobId = jobId,
@@ -61,7 +62,16 @@ public static class ScanCandidatePersistence
                 ReviewState = readyForReview ? "pendingReview" : "observed",
                 ObservedUtc = candidate.ObservedUtc,
                 UpdatedUtc = utcNow,
-            });
+            };
+            var stored = requireRegisteredRoot
+                ? store.UpsertRegisteredCandidate(persisted)
+                : (Stored: true, Existed: store.UpsertCandidate(persisted));
+            if (!stored.Stored)
+            {
+                continue;
+            }
+
+            var existed = stored.Existed;
             if (existed)
             {
                 store.PromoteRescannedCandidate(candidate.PhysicalPath, utcNow);

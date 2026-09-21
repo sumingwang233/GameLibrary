@@ -246,7 +246,7 @@ public sealed class HostRuntime : IAsyncDisposable
             rules: Scanning.ScanIgnoreRuleSet.FromStore(state.Library.Store));
         if (outcome.FinalState == "succeeded")
         {
-            Scanning.ScanCandidatePersistence.Persist(state.Library.Store, state.Events, collector, jobId);
+            Scanning.ScanCandidatePersistence.Persist(state.Library.Store, state.Events, collector, jobId, requireRegisteredRoot: true);
             // T17：核对成功后同步库内游戏可用性（缺失/离线分级判定）。
             if (state.Library.Store is not null
                 && completedCoverage?.Completion == Infrastructure.Scanning.ScanCompletion.Complete)

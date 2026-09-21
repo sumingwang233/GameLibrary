@@ -171,6 +171,66 @@ public sealed class FieldLayeringAndRuntimeStateTests
     }
 
     [Fact]
+    public async Task RemoveRoot_ClearsOnlyUncoveredGamesAndCandidates_WithoutTouchingFiles()
+    {
+        var dataDir = FreshDataDir("remove-root");
+        try
+        {
+            var rootPath = Path.Combine(dataDir, "[游戏]%_");
+            var nested = Path.Combine(rootPath, "保留");
+            Directory.CreateDirectory(rootPath);
+            var executable = Path.Combine(rootPath, "Game.exe");
+            File.WriteAllText(executable, "game-file");
+            var initialized = await SqliteLibraryStore.InitializeAsync(Path.Combine(dataDir, "data"), Options(), CancellationToken.None);
+            await using var store = initialized.Store!;
+            var now = DateTime.UtcNow;
+            store.UpsertRoot(new PersistedRoot("parent", rootPath, 1, now), now);
+            store.UpsertRoot(new PersistedRoot("child", nested, 1, now), now);
+            store.InsertGame(SampleGame("removed", "移除") with { RootPath = executable });
+            store.InsertGame(SampleGame("kept", "保留") with { RootPath = Path.Combine(nested, "Game.exe") });
+            store.InsertGame(SampleGame("sibling", "相似前缀") with { RootPath = rootPath + "other\\Game.exe" });
+            var candidate = new PersistedCandidate
+            {
+                CandidateId = "candidate",
+                JobId = "scan",
+                Kind = "fileGame",
+                RelativePath = "Game.exe",
+                PhysicalPath = executable,
+                PayloadJson = "{}",
+                ReviewState = "pendingReview",
+                ObservedUtc = now,
+                UpdatedUtc = now,
+            };
+            store.UpsertCandidate(candidate);
+            store.EnsureCandidateBatch(now);
+            Assert.Equal(1, store.RemoveRootGames("parent", rootPath, now));
+            Assert.Equal("removed", store.TryGetGame("removed")!.Membership);
+            Assert.Equal("active", store.TryGetGame("kept")!.Membership);
+            Assert.Equal("active", store.TryGetGame("sibling")!.Membership);
+            Assert.Empty(store.ListCandidates());
+            Assert.Single(store.ReadRoots());
+            Assert.False(store.UpsertRegisteredCandidate(candidate).Stored);
+            Assert.Equal("game-file", File.ReadAllText(executable));
+            store.UpsertRoot(new PersistedRoot("again", rootPath, 1, now), now);
+            Assert.True(store.UpsertRegisteredCandidate(candidate).Stored);
+            var accepted = store.AcceptCandidate("candidate", 1, SampleGame("new-game", "重新添加") with { RootPath = executable }, "", now);
+            Assert.Equal("accepted", accepted.Status);
+            Assert.Equal("active", store.TryGetGame(accepted.GameId)!.Membership);
+        }
+        finally
+        {
+            Cleanup(dataDir);
+        }
+    }
+
+    [Theory]
+    [InlineData(@"F:\", @"F:\游戏\Game.exe", true)]
+    [InlineData(@"F:\Games", @"f:\games\a.exe", true)]
+    [InlineData(@"F:\Games", @"F:\GamesOther\a.exe", false)]
+    public void RootContainment_RespectsDirectoryBoundaries(string root, string path, bool expected)
+        => Assert.Equal(expected, RuntimeStateStore.ContainsPath(root, path));
+
+    [Fact]
     public async Task RuntimeState_RootsProfilesAttemptsJobs_RoundTrip()
     {
         var dataDir = FreshDataDir("runtime-state");

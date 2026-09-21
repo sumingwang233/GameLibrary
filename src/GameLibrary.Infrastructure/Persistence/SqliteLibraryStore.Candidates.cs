@@ -21,6 +21,10 @@ public sealed partial class SqliteLibraryStore
     public bool UpsertCandidate(PersistedCandidate candidate)
         => Execute((c, _) => LibraryCatalogStore.UpsertCandidate(c, candidate));
 
+    public (bool Stored, bool Existed) UpsertRegisteredCandidate(PersistedCandidate candidate)
+        => Execute((c, _) => RuntimeStateStore.ReadRoots(c).Any(root => RuntimeStateStore.ContainsPath(root.PhysicalPath, candidate.PhysicalPath))
+            ? (true, LibraryCatalogStore.UpsertCandidate(c, candidate)) : (false, false));
+
     public void PromoteRescannedCandidate(string physicalPath, DateTime utcNow)
         => Execute((c, _) => LibraryCatalogStore.PromoteRescannedCandidate(c, physicalPath, utcNow));
 
