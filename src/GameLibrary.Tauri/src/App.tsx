@@ -5,6 +5,7 @@ import { describeFailure, operation } from "./lib/api";
 import { emptyFilters, useGamesQuery, useLibrary, type GameFilters } from "./lib/state";
 import type { CandidateItem, GameItem, ViewItem } from "./lib/types";
 import { AppShell } from "./components/AppShell";
+import { TitleBar } from "./components/TitleBar";
 import { DetailSheet } from "./components/DetailSheet";
 import { GameGrid } from "./components/GameGrid";
 import { LibraryToolbar } from "./components/LibraryToolbar";
@@ -164,7 +165,7 @@ function App() {
 
   return (
     <TooltipProvider>
-      <AppShell sidebar={sidebar}>
+      <AppShell sidebar={sidebar} titleBar={<TitleBar onAddRoot={() => void addRoot()} onScan={() => void run(library.startScan)} onSettings={() => setSettingsOpen(true)} scanning={library.scanning} />}>
         <main className="min-w-0 flex-1 overflow-y-auto bg-background p-6">
           <header className="mb-6 flex items-end justify-between gap-4">
             <div>
@@ -300,7 +301,7 @@ function App() {
           game={selected}
           tags={library.tags}
           onClose={() => setSelected(null)}
-          onPlay={(gameId) => void launch(gameId)}
+          onPlay={library.launch}
           onChanged={() => {
             void library.refreshMeta();
             void games.reload();

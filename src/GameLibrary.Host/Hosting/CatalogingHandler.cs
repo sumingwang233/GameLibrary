@@ -441,7 +441,7 @@ internal sealed class CatalogingHandler
         };
     }
 
-    /// <summary>封面导入（T14，assets.import）：用户图片复制入应用自有目录，不反写游戏目录。</summary>
+    /// <summary>封面导入：应用保留副本，同时补齐游戏目录中缺失的 cover 文件。</summary>
     public Envelope<object> AssetsImport(IpcRequest request)
     {
         var store = _storeAccessor();
@@ -505,12 +505,13 @@ internal sealed class CatalogingHandler
         File.Copy(sourcePath, importedPath, overwrite: false);
 
         var asset = store.ImportAsset(gameId, importedPath, DateTime.UtcNow);
+        var coverWarning = GameCoverService.Synchronize(store, store.TryGetGame(gameId)!);
         return new Envelope<object>
         {
             RequestId = request.RequestId,
             Ok = true,
             Status = OperationStatus.Completed,
-            Data = AssetDto(asset),
+            Data = AssetDto(asset, coverWarning),
         };
     }
 
@@ -534,7 +535,7 @@ internal sealed class CatalogingHandler
             RequestId = request.RequestId,
             Ok = true,
             Status = OperationStatus.Completed,
-            Data = new { total = assets.Count, items = assets.Select(AssetDto).ToArray() },
+            Data = new { total = assets.Count, items = assets.Select(asset => AssetDto(asset)).ToArray() },
         };
     }
 
@@ -943,13 +944,14 @@ internal sealed class CatalogingHandler
         };
     }
 
-    private static object AssetDto(GameAsset asset) => new
+    private static object AssetDto(GameAsset asset, string? warning = null) => new
     {
         assetId = asset.AssetId,
         gameId = asset.GameId,
         kind = asset.Kind,
         isCurrent = asset.IsCurrent,
         importedUtc = asset.ImportedUtc.ToString("O"),
+        warning,
     };
 
     private static string AutoTitle(GameCard game) =>

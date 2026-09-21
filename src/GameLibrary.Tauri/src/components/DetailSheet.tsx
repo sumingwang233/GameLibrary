@@ -52,7 +52,7 @@ export function DetailSheet({
   game: GameItem | null;
   tags: TagItem[];
   onClose: () => void;
-  onPlay: (gameId: string) => void;
+  onPlay: (gameId: string) => Promise<void>;
   onChanged: () => Promise<void> | void;
   /** 点击「疑似重复」条目跳到目标游戏详情；Sheet 不关闭不重建，由 App 侧换 selected 实现。 */
   onNavigate?: (gameId: string) => void;
@@ -66,6 +66,7 @@ export function DetailSheet({
   const [summaryDraft, setSummaryDraft] = useState("");
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [tagDraft, setTagDraft] = useState("");
 
   const gameId = game?.gameId ?? null;
 
@@ -101,6 +102,7 @@ export function DetailSheet({
     setTranslation(null);
     setTitleDraft(game?.title ?? "");
     setSummaryDraft(game?.summary ?? "");
+    setTagDraft("");
     if (gameId) void load();
   }, [game, gameId, load]);
 
@@ -178,7 +180,7 @@ export function DetailSheet({
         filters: [{ name: "封面图片", extensions: ["png", "jpg", "jpeg", "webp", "gif"] }],
       });
       if (!selected) return;
-      const result = await operation<{ assetId: string }>(
+      const result = await operation<{ assetId: string; warning?: string }>(
         "assets.import",
         { gameId: current.gameId, sourcePath: String(selected) },
         `assets.import:${current.gameId}:${String(selected)}`,
@@ -186,6 +188,7 @@ export function DetailSheet({
       setCover(await assetDataUrl(result.data.assetId));
       await load();
       await onChanged();
+      if (result.data.warning) setError(result.data.warning);
     });
 
   const addProfile = () =>
@@ -283,7 +286,7 @@ export function DetailSheet({
           )}
 
           <div className="grid grid-cols-2 gap-2">
-            <Button className="col-span-2" size="lg" disabled={busy} onClick={() => onPlay(current.gameId)}>
+            <Button className="col-span-2" size="lg" disabled={busy} onClick={() => void run(() => onPlay(current.gameId))}>
               <Play size={17} fill="currentColor" />
               开始游戏
             </Button>
@@ -344,7 +347,7 @@ export function DetailSheet({
                   className="h-10 w-full rounded-md border border-input bg-field px-3 text-sm text-text-primary focus-visible:border-steam focus-visible:outline-none"
                 >
                   <option value="Auto">Auto · 继承目录约定并自动调用翻译工具</option>
-                  <option value="Required">Required · 必须经翻译工具启动</option>
+                  <option value="Required">Required · 需要翻译插件或翻译工具</option>
                   <option value="NotRequired">NotRequired · 直接启动原文程序</option>
                 </select>
                 {translation && (
@@ -373,8 +376,8 @@ export function DetailSheet({
 
             <TabsContent value="launch" className="space-y-3">
               <p className="text-xs text-text-secondary">
-                配置游戏的原始主程序即可。需要翻译的游戏由程序按目录约定自动拉起翻译工具，
-                不需要你去指定「已翻译的程序」。
+                配置游戏的原始主程序即可。内置 BepInEx + XUnity.AutoTranslator 的游戏直接启动原程序；
+                外部翻译工具需要受支持的启动配方。
               </p>
               {profiles.length === 0 ? (
                 <p className="rounded-md border border-dashed border-border p-4 text-sm text-text-secondary">
@@ -420,8 +423,29 @@ export function DetailSheet({
             </TabsContent>
 
             <TabsContent value="tags" className="space-y-2">
+              <form className="flex gap-2" onSubmit={(event) => {
+                event.preventDefault();
+                if (!tagDraft.trim() || busy) return;
+                void run(async () => {
+                  const name = tagDraft.trim();
+                  const existing = tags.find(tag => tag.kind === "user" && tag.name === name);
+                  const tag = existing ?? (await operation<TagItem>("tags.create", { name }, `tags.create:${name}`)).data;
+                  try {
+                    if (!hasTag(current, tag)) {
+                      await operation("tags.assign", { gameId: current.gameId, tagId: tag.tagId, expectedRevision: current.revision }, `tags.assign:${current.gameId}:${tag.tagId}:${current.revision}`);
+                    }
+                  } finally {
+                    await onChanged();
+                  }
+                  setTagDraft("");
+                  await load();
+                });
+              }}>
+                <Input aria-label="新标签名称" placeholder="新标签名称" value={tagDraft} onChange={(event) => setTagDraft(event.target.value)} />
+                <Button type="submit" disabled={busy || !tagDraft.trim()}>新建并添加</Button>
+              </form>
               {tags.length === 0 ? (
-                <p className="text-sm text-text-secondary">还没有标签，可先到「管理标签」新建。</p>
+                <p className="text-sm text-text-secondary">还没有标签，可以直接在上方新建。</p>
               ) : (
                 <div className="flex flex-wrap gap-2">
                   {tags.map((tag) => {
@@ -450,7 +474,7 @@ export function DetailSheet({
 
             <TabsContent value="cover" className="space-y-3">
               <p className="text-xs text-text-secondary">
-                导入的封面按原始比例完整显示，不会被裁掉。
+                支持最大 5 MiB 图片，按原比例完整显示。游戏目录没有 cover 时，会保存一份 cover.原扩展名；已有 cover 不覆盖。
               </p>
               <Button variant="outline" className="w-full" disabled={busy} onClick={() => void importCover()}>
                 <ImagePlus size={15} />

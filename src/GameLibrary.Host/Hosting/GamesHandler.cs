@@ -420,6 +420,7 @@ internal sealed class GamesHandler
 
         // 手动建卡同计算器接入（与 accept 语义对齐）：锁外哈希，指纹为 null 不阻塞建卡。
         UpsertFingerprint(store, game, entryPath, utcNow);
+        _ = GameCoverService.Synchronize(store, game);
 
         _events.Publish("game.created", $"game:{game.GameId}", new
         {

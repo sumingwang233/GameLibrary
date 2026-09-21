@@ -121,6 +121,8 @@ internal sealed class CandidateReviewHandler
 
             if (outcome.Status == "accepted")
             {
+                if (store.TryGetGame(outcome.GameId!) is { } acceptedGame)
+                    _ = GameCoverService.Synchronize(store, acceptedGame);
                 // 相似建议：对比集合排除自身（刚 accept 的游戏 membership='active' 且指纹行同事务已插入）。
                 var similarTo = fingerprint is null
                     ? []

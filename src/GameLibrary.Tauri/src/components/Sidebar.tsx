@@ -81,7 +81,7 @@ export function Sidebar(props: SidebarProps) {
           aria-hidden="true"
           className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-lg font-black text-primary-foreground"
         >
-          G
+          <img src="/app-icon.svg" alt="" className="h-9 w-9" />
         </div>
         <div className="leading-tight">
           <div className="text-sm font-bold tracking-[0.18em] text-text-primary">GAME</div>

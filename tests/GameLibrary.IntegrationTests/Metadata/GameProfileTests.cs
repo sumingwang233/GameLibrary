@@ -164,6 +164,8 @@ public sealed class GameProfileTests : IClassFixture<PipeServerFixture>
 
             var game = await InvokeAsync("games.get", new { gameId });
             Assert.Equal(assetId, game.Data.GetProperty("coverAssetId").GetString());
+            var portableCover = Path.Combine(game.Data.GetProperty("rootPath").GetString()!, "cover.png");
+            Assert.Equal(await File.ReadAllBytesAsync(pngPath), await File.ReadAllBytesAsync(portableCover));
 
             var missing = await InvokeAsync("assets.import", new
             {

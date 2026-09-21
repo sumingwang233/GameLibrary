@@ -36,7 +36,8 @@ public static class ScanCandidatePersistence
         foreach (var candidate in collector.Candidates)
         {
             // 合集是目录结构信息，不是可启动的游戏，不能进入待添加列表。
-            if (candidate.Kind == GameLibrary.Domain.States.CandidateKind.Container)
+            if (candidate.Kind == GameLibrary.Domain.States.CandidateKind.Container
+                || GameLibrary.Infrastructure.Scanning.DirectoryWalker.IsSystemDirectory(candidate.PhysicalPath))
             {
                 continue;
             }

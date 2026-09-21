@@ -34,7 +34,7 @@ public sealed record GameAsset
 
 /// <summary>
 /// 资料与封面存储（T14）：字段分层（user 覆盖 auto），Revision 即 games.revision（乐观校验）；
-/// 封面资产复制入应用自有目录（assets/），不反写游戏目录。
+/// 记录应用自有目录（assets/）中的封面；游戏目录 cover 同步由 Host 单独编排。
 /// </summary>
 public static class GameProfileStore
 {

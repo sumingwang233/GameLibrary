@@ -8,6 +8,22 @@ namespace GameLibrary.IntegrationTests.Scanning;
 /// <summary>DirectoryWalker（T02-B）：只读遍历、规则剪枝、预算分段续扫、取消、深度上限。</summary>
 public sealed class DirectoryWalkerTests
 {
+    [Theory]
+    [InlineData("$RECYCLE.BIN")]
+    [InlineData("$recycle.bin")]
+    [InlineData("System Volume Information")]
+    public void Walk_SystemDirectoryRoot_IsNeverEnumerated(string name)
+    {
+        var root = Path.Combine(FreshTree("system-skip"), name, "nested");
+        Directory.CreateDirectory(root);
+        File.WriteAllText(Path.Combine(root, "Game.exe"), "fixture");
+        var entries = new List<ScannedEntry>();
+        var coverage = new DirectoryWalker(GamePath.Create(root), new ScanRuleSet([]))
+            .Walk(entries.Add, null, CancellationToken.None);
+        Assert.Empty(entries);
+        Assert.Equal(0, coverage.ScannedDirectories);
+        Assert.Equal(1, coverage.SkippedDirectories);
+    }
     private static string FreshTree(string prefix)
     {
         var path = Path.Combine(@"D:\Official\GameLibrary\artifacts\test-runs", $"{prefix}-{Guid.NewGuid():N}");
@@ -54,9 +70,10 @@ public sealed class DirectoryWalkerTests
 
             var expectedDirs = Directory.GetDirectories(root, "*", SearchOption.AllDirectories).Length + 1;
             Assert.Equal(ScanCompletion.Complete, coverage.Completion);
-            Assert.Equal(expectedDirs, coverage.ScannedDirectories);
-            Assert.Equal(CountFiles(root), coverage.ObservedFileEntries);
-            Assert.Equal(CountFiles(root), entries.Count(e => !e.IsDirectory));
+            Assert.Equal(expectedDirs - 1, coverage.ScannedDirectories);
+            Assert.Equal(CountFiles(root) - 1, coverage.ObservedFileEntries);
+            Assert.Equal(CountFiles(root) - 1, entries.Count(e => !e.IsDirectory));
+            Assert.DoesNotContain(entries, e => e.PhysicalPath.Contains("$RECYCLE.BIN", StringComparison.OrdinalIgnoreCase));
             Assert.Contains(entries, e => e.PhysicalPath.EndsWith("例.exe", StringComparison.Ordinal));
             Assert.All(entries, e => Assert.Equal(ScanRuleOutcome.Continue, e.RuleOutcome));
         }

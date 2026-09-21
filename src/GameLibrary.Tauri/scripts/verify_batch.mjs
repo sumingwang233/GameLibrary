@@ -20,6 +20,10 @@ export async function verifyBatch(client, dataDirectory) {
     window.batchWait = async predicate => { const end = Date.now() + 10000; while (!predicate()) { if (Date.now() > end) throw new Error('UI timeout: ' + document.body.innerText); await new Promise(r => setTimeout(r, 100)); } };
     window.batchButton = text => [...document.querySelectorAll('button')].find(b => b.textContent.trim() === text);
     await batchWait(() => document.querySelector('[aria-label="刷新"]'));
+    document.querySelector('button[aria-label="最大化"]').click();
+    await batchWait(() => document.querySelector('button[aria-label="还原窗口"]'));
+    document.querySelector('button[aria-label="还原窗口"]').click();
+    await batchWait(() => document.querySelector('button[aria-label="最大化"]'));
     if (!(await batchOp('host.status')).libraryInitialized) await batchOp('library.init');
     await batchOp('roots.add', { root: ${JSON.stringify(root)} });
     for (const sourcePath of ${JSON.stringify(files)}) await batchOp('games.create', { sourcePath });
@@ -42,6 +46,23 @@ export async function verifyBatch(client, dataDirectory) {
     await batchWait(() => [...document.querySelectorAll('[role="dialog"] button')].some(b => b.textContent.trim() === '保存' && !b.disabled));
     [...document.querySelectorAll('[role="dialog"] button')].find(b => b.textContent.trim() === '保存').click();
     await batchWait(() => document.querySelector('[role="dialog"] h2')?.textContent === '中文标题回归');
+    const tagsTab = [...document.querySelectorAll('[role="tab"]')].find(b => b.textContent.trim() === '标签');
+    tagsTab.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await batchWait(() => document.querySelector('input[aria-label="新标签名称"]'));
+    const tagInput = document.querySelector('input[aria-label="新标签名称"]');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(tagInput, '详情新建标签');
+    tagInput.dispatchEvent(new Event('input', { bubbles: true }));
+    await batchWait(() => !batchButton('新建并添加').disabled);
+    batchButton('新建并添加').click();
+    await batchWait(() => [...document.querySelectorAll('[role="dialog"] button[aria-pressed="true"]')].some(b => b.textContent.trim() === '详情新建标签'));
+    const detail = (await batchOp('games.list', { limit: 100 })).items.find(g => g.title === '中文标题回归');
+    await batchOp('profiles.create', { gameId: detail.gameId, executablePath: detail.rootPath, argv: [], cwd: ${JSON.stringify(root)}, isDefault: true });
+    const policy = await batchOp('translation.get', { gameId: detail.gameId });
+    await batchOp('translation.set', { gameId: detail.gameId, override: 'Required', expectedRevision: policy.revision });
+    await batchWait(() => !batchButton('开始游戏').disabled);
+    batchButton('开始游戏').click();
+    await batchWait(() => document.querySelector('[role="dialog"] [role="alert"]')?.textContent.includes('翻译'));
+    if ((await batchOp('launch.history', { gameId: detail.gameId })).items?.length) throw new Error('Required launched without translation');
     document.querySelector('[role="dialog"] button[aria-label="关闭"]').click();
     await batchWait(() => !document.querySelector('[role="dialog"]'));
   })()`);
@@ -92,5 +113,5 @@ export async function verifyBatch(client, dataDirectory) {
     if ((await batchOp('roots.list')).total !== 0) throw new Error('root remains');
   })()`);
   for (const file of files) if (readFileSync(file, "utf8") !== "fixture-not-executable") throw new Error("game file changed");
-  return { favorite: true, unfavorite: true, tags: true, batchRemove: true, rootRemove: true, gameFilesPreserved: true };
+  return { windowControls: true, detailCreateTag: true, launchErrorVisible: true, favorite: true, unfavorite: true, tags: true, batchRemove: true, rootRemove: true, gameFilesPreserved: true };
 }

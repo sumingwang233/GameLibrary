@@ -326,6 +326,7 @@ public sealed class TranslationConfigTests : IClassFixture<PipeServerFixture>
 
         Assert.False(plan.Ok);
         Assert.Equal(OperationStatus.NeedsUserAction, plan.Status);
+        Assert.Equal(ErrorCodes.TranslationRouteUnavailable, plan.Error?.Code);
         // 计划仍然返回供预览（无副作用）。
         Assert.Equal(profileId, plan.Data.GetProperty("profileId").GetString());
         Assert.Contains(
@@ -348,6 +349,34 @@ public sealed class TranslationConfigTests : IClassFixture<PipeServerFixture>
         Assert.False(execute.Ok);
         Assert.Equal(ErrorCodes.TranslationRouteUnavailable, execute.Error!.Code);
         Assert.Contains(execute.NextActions, a => a.OperationId == "translation.set");
+        Assert.Empty(_fixture.State.Launches.History(gameId));
+    }
+
+    [Theory]
+    [InlineData(true, true, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, false)]
+    public async Task Required_EmbeddedTranslator_RequiresPluginAndLoader(bool plugin, bool loader, bool enabled)
+    {
+        var gameId = InsertGame(toolNeedInherited: true);
+        var root = _fixture.State.Library.Store!.TryGetGame(gameId)!.RootPath;
+        Directory.CreateDirectory(Path.Combine(root, "BepInEx", "plugins", "XUnity.AutoTranslator"));
+        Directory.CreateDirectory(Path.Combine(root, "BepInEx", "core"));
+        File.WriteAllText(Path.Combine(root, "BepInEx", "core", "BepInEx.dll"), "fixture");
+        File.WriteAllText(Path.Combine(root, "doorstop_config.ini"), $"[General]\nenabled = {enabled}\n");
+        var executable = Path.Combine(root, "Game.exe");
+        File.WriteAllText(executable, "not-executed");
+        if (loader) File.WriteAllText(Path.Combine(root, "winhttp.dll"), "fixture");
+        if (plugin) File.WriteAllText(Path.Combine(root, "BepInEx", "plugins", "XUnity.AutoTranslator", "XUnity.AutoTranslator.Plugin.BepInEx.dll"), "fixture");
+        File.WriteAllText(Path.Combine(root, "BepInEx", "plugins", "XUnity.AutoTranslator", "XUnity.AutoTranslator.Plugin.Core.dll"), "fixture");
+        var profile = _fixture.State.Launches.AddProfile(gameId, executable, [], root);
+        var plan = await InvokeAsync("launch.plan", new { gameId, profileId = profile.ProfileId });
+        Assert.Equal(plugin && loader && enabled, plan.Ok);
+        var resolution = TranslationLaunchRouteResolver.Resolve(_fixture.State.Library.Store.TryGetGame(gameId)!, profile);
+        Assert.Equal(plugin && loader && enabled, resolution.SatisfiedByEmbeddedPlugin);
+        if (plugin && loader && !enabled) Assert.Contains("enabled=false", plan.Error!.Message);
+        Assert.Null(resolution.Route);
         Assert.Empty(_fixture.State.Launches.History(gameId));
     }
 

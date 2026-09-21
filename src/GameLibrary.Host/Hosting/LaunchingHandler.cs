@@ -395,13 +395,14 @@ internal sealed class LaunchingHandler
                     RequestId = request.RequestId,
                     Ok = false,
                     Status = OperationStatus.NeedsUserAction,
+                    Error = block.Error,
                     Data = plan.ToDto(),
                     NextActions =
                     [
                         new NextAction
                         {
                             OperationId = "tools.discover",
-                            Reason = "游戏翻译策略为 Required；目标 Profile 未绑定翻译工具，直启会被拒绝",
+                            Reason = "检查游戏中的 BepInEx/XUnity.AutoTranslator 是否完整且已启用，或配置受支持的外部翻译工具",
                         },
                         new NextAction
                         {
@@ -457,6 +458,7 @@ internal sealed class LaunchingHandler
         if (resolution is null
             || !resolution.IsRequired
             || resolution.SatisfiedByProfileBinding
+            || resolution.SatisfiedByEmbeddedPlugin
             || resolution.Route is not null)
         {
             return null;
@@ -478,7 +480,7 @@ internal sealed class LaunchingHandler
                 new NextAction
                 {
                     OperationId = "tools.discover",
-                    Reason = "发现并绑定翻译工具（MTool/RenpyThief/播放器/steam）后创建翻译 Profile",
+                    Reason = "检查游戏中的 BepInEx/XUnity.AutoTranslator 是否完整且已启用，或配置受支持的外部翻译工具",
                 },
                 new NextAction
                 {

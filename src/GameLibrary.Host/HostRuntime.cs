@@ -86,7 +86,7 @@ public sealed class HostRuntime : IAsyncDisposable
 
             // 可用性核对不依赖完整目录扫描。启动时先按已记录路径快速校准，避免大型游戏库
             // 扫描尚未完成时，磁盘上实际存在的手动游戏仍长期显示为“已缺失”。
-            Scanning.ReconcileService.CheckGames(library.Store, DateTime.UtcNow);
+            Scanning.ReconcileService.CheckGames(library.Store, DateTime.UtcNow, synchronizeCovers: false);
         }
 
         runtimeState.Coordinator = new ScanCoordinator(

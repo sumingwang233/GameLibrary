@@ -190,6 +190,13 @@ public sealed class DirectoryWalker
                 }
 
                 var (dirPath, depth) = stack.Pop();
+                // 根目录及旧续扫游标也必须经过系统目录检查。
+                if (IsSystemDirectory(dirPath))
+                {
+                    skippedDirectories++;
+                    CountExclusion(excludedByRule, "sys.recycle");
+                    continue;
+                }
                 var enumerateStatus = TryEnumerate(dirPath, ct, out var subDirs, out var files);
                 if (enumerateStatus != EnumerateStatus.Ok)
                 {
@@ -334,6 +341,11 @@ public sealed class DirectoryWalker
         var gamePath = GamePath.Create(path);
         return gamePath.Segments.Count - _root.Segments.Count;
     }
+
+    public static bool IsSystemDirectory(string path) =>
+        path.Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries)
+            .Any(segment => segment.Equals("$RECYCLE.BIN", StringComparison.OrdinalIgnoreCase)
+                || segment.Equals("System Volume Information", StringComparison.OrdinalIgnoreCase));
 
     private static EnumerateStatus TryEnumerate(
         string dir,

@@ -827,7 +827,7 @@ public static class GameLibraryTools
         InvokeOperationAsync("fields.set", new { idempotencyKey, gameId, field, value, expectedRevision });
 
     [McpServerTool(Name = "assets_import")]
-    [Description("导入封面图（≤5 MiB，png/jpg/webp/gif），复制入应用自有目录并设为当前封面；不反写游戏目录。参数：idempotencyKey、gameId、sourcePath。")]
+    [Description("导入封面图（≤5 MiB，png/jpg/webp/gif），复制入应用自有目录并设为当前封面；游戏目录没有 cover 时补拷贝 cover.原扩展名，已有文件不覆盖。参数：idempotencyKey、gameId、sourcePath。")]
     public static Task<CallToolResult> AssetsImport(
         [Description("幂等键")] string idempotencyKey,
         [Description("游戏 ID")] string gameId,

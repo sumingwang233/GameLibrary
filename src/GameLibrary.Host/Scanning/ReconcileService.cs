@@ -27,12 +27,25 @@ public sealed record ReconcileReport(
 /// - 卷在线（路径盘根存在）但游戏目录缺失 → 第一次 suspectedMissing，两次成功完整核对间隔 ≥60 秒 → missing；
 /// - 盘根本身不存在 → offline（保存缺失证据但不累计次数，恢复在线后重新计数）；
 /// - offline/accessError/取消/扫描未完成绝不产生 missing（Domain tracker 强制）。
-/// 本服务只读文件系统存在性与写数据库，不移动/不改名任何文件。
+/// 可选补齐 cover 文件；不移动、不改名、不覆盖游戏现有文件。
 /// </summary>
 public static class ReconcileService
 {
-    public static ReconcileReport CheckGames(SqliteLibraryStore store, DateTime utcNow)
+    public static ReconcileReport CheckGames(SqliteLibraryStore store, DateTime utcNow, bool synchronizeCovers = true)
     {
+        // 旧版已经产生的回收站候选也退出待确认；不移除已由用户接受的游戏。
+        foreach (var candidate in store.ListCandidates().Where(candidate =>
+            candidate.ReviewState is "observed" or "pendingReview" or "deferred"
+            && GameLibrary.Infrastructure.Scanning.DirectoryWalker.IsSystemDirectory(candidate.PhysicalPath)))
+        {
+            store.TransitionCandidate(candidate.CandidateId, candidate.ReviewState, "ignored", candidate.Revision, null, utcNow);
+        }
+        foreach (var batch in store.ListNotifications("pending"))
+        {
+            if (!batch.CandidateIds.Any(id => store.TryGetCandidate(id)?.ReviewState == "pendingReview"))
+                store.TransitionNotification(batch.NotificationId, "acknowledged", utcNow);
+        }
+
         int available = 0, suspected = 0, missing = 0, offline = 0;
         var transitions = new List<(string GameId, string From, string To)>();
 
@@ -42,6 +55,9 @@ public static class ReconcileService
             {
                 continue;
             }
+
+            // 完整扫描和周期核对补齐历史封面，启动快检不执行大批文件复制。
+            if (synchronizeCovers) _ = GameCoverService.Synchronize(store, game);
 
             var rootOnline = DriveRootExists(game.RootPath)
                 && (game.Kind != "manualShortcut"

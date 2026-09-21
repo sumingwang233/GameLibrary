@@ -15,7 +15,8 @@ public sealed record TranslationRouteResolution(
     bool IsRequired,
     bool SatisfiedByProfileBinding,
     TranslationLaunchRoute? Route,
-    string? UnavailableReason);
+    string? UnavailableReason,
+    bool SatisfiedByEmbeddedPlugin = false);
 
 /// <summary>
 /// 从游戏目录中的受支持配方解析自动翻译路由。
@@ -37,10 +38,21 @@ public static class TranslationLaunchRouteResolver
             return new(false, false, null, null);
         }
 
-        // 保留旧契约：显式绑定的 Profile 由调用方负责提供工具语义。
+        // 显式配置的外部工具优先，不受目录中已禁用插件的影响。
         if (!string.IsNullOrWhiteSpace(profile.ToolId))
         {
             return new(true, true, null, null);
+        }
+
+        // 注入式 Unity 插件随原始 EXE 加载，并不需要外部翻译启动器。
+        var embedded = InspectEmbeddedTranslator(profile.ExecutablePath);
+        if (embedded.Available)
+        {
+            return new(true, false, null, null, SatisfiedByEmbeddedPlugin: true);
+        }
+        if (embedded.Problem is not null)
+        {
+            return new(true, false, null, embedded.Problem);
         }
 
         var gameRoot = Directory.Exists(game.RootPath)
@@ -78,6 +90,51 @@ public static class TranslationLaunchRouteResolver
         value is not null && Enum.TryParse<TranslationRequirement>(value, ignoreCase: false, out var parsed)
             ? parsed
             : TranslationRequirement.Auto;
+
+    private static (bool Available, string? Problem) InspectEmbeddedTranslator(string executablePath)
+    {
+        var directory = Path.GetDirectoryName(executablePath);
+        if (directory is null || !File.Exists(executablePath)) return (false, null);
+        var bepinex = Path.Combine(directory, "BepInEx");
+        var plugins = Path.Combine(bepinex, "plugins");
+        if (!Directory.Exists(plugins)
+            || !(File.Exists(Path.Combine(bepinex, "core", "BepInEx.dll"))
+                || File.Exists(Path.Combine(bepinex, "core", "BepInEx.Core.dll")))
+            || !(File.Exists(Path.Combine(directory, "winhttp.dll"))
+                || File.Exists(Path.Combine(directory, "version.dll")))) return (false, null);
+        try
+        {
+            var installed = Directory.EnumerateFiles(plugins, "XUnity.AutoTranslator.Plugin.BepIn*.dll", new EnumerationOptions
+            {
+                RecurseSubdirectories = true,
+                IgnoreInaccessible = true,
+                AttributesToSkip = FileAttributes.ReparsePoint,
+                MatchCasing = MatchCasing.CaseInsensitive,
+            }).Any(path => File.Exists(Path.Combine(Path.GetDirectoryName(path)!, "XUnity.AutoTranslator.Plugin.Core.dll")));
+            if (!installed) return (false, null);
+            var config = Path.Combine(directory, "doorstop_config.ini");
+            if (File.Exists(config))
+            {
+                if (new FileInfo(config).Length > 64 * 1024)
+                    return (false, "doorstop_config.ini 过大，无法安全检查内置翻译加载器");
+                var section = "";
+                foreach (var line in File.ReadLines(config))
+                {
+                    var text = line.Trim();
+                    if (text.StartsWith('[')) { section = text.Trim('[', ']').ToLowerInvariant(); continue; }
+                    if (section is not ("general" or "unitydoorstop")) continue;
+                    var pair = text.Split('=', 2, StringSplitOptions.TrimEntries);
+                    if (pair.Length != 2 || !pair[0].Equals("enabled", StringComparison.OrdinalIgnoreCase)) continue;
+                    var value = pair[1].Split(['#', ';'], 2)[0].Trim();
+                    if (value.Equals("false", StringComparison.OrdinalIgnoreCase) || value == "0")
+                        return (false, "检测到 XUnity.AutoTranslator，但 doorstop_config.ini 中 enabled=false，BepInEx 加载器已禁用。请确认插件兼容后启用加载器，或选择不需要翻译");
+                }
+            }
+            return (true, null);
+        }
+        catch (IOException) { return (false, "无法读取内置翻译插件，请检查游戏目录权限"); }
+        catch (UnauthorizedAccessException) { return (false, "无法读取内置翻译插件，请检查游戏目录权限"); }
+    }
 
     private static RecipeProcessStep RewriteGameEntry(RecipeProcessStep step, string executablePath)
     {
