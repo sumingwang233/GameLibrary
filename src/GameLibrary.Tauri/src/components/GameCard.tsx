@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { Play, Star } from "lucide-react";
 import { assetDataUrl } from "../lib/api";
 import type { GameItem } from "../lib/types";
@@ -18,10 +18,25 @@ export interface GameCardProps {
 function GameCardImpl({ game, selected, checked, selectionDisabled, onToggle, onSelect, onPlay }: GameCardProps) {
   const initials = game.title.trim().slice(0, 2).toUpperCase() || "GL";
   const [cover, setCover] = useState<string | null>(null);
+  const [visible, setVisible] = useState(false);
+  const cardRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const node = cardRef.current;
+    if (!node) return;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry?.isIntersecting) {
+        setVisible(true);
+        observer.disconnect();
+      }
+    }, { rootMargin: "600px" });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     let active = true;
-    if (!game.coverAssetId) {
+    if (!visible || !game.coverAssetId) {
       setCover(null);
       return () => {
         active = false;
@@ -35,10 +50,11 @@ function GameCardImpl({ game, selected, checked, selectionDisabled, onToggle, on
     return () => {
       active = false;
     };
-  }, [game.coverAssetId]);
+  }, [game.coverAssetId, visible]);
 
   return (
     <article
+      ref={cardRef}
       role="button"
       tabIndex={0}
       aria-label={`${game.title}，查看详情`}

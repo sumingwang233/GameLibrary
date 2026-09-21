@@ -106,9 +106,29 @@ function validateGame(value: unknown) {
   }
 }
 
+const ASSET_CACHE_LIMIT = 48;
+const assetCache = new Map<string, string>();
+const assetPending = new Map<string, Promise<string>>();
+
 export async function assetDataUrl(assetId: string) {
-  const result = await operation<{ mimeType: string; dataBase64: string }>("assets.get", { assetId });
-  return `data:${result.data.mimeType};base64,${result.data.dataBase64}`;
+  const cached = assetCache.get(assetId);
+  if (cached) {
+    assetCache.delete(assetId);
+    assetCache.set(assetId, cached);
+    return cached;
+  }
+  const pending = assetPending.get(assetId);
+  if (pending) return pending;
+  const request = operation<{ mimeType: string; dataBase64: string }>("assets.get", { assetId })
+    .then((result) => {
+      const value = `data:${result.data.mimeType};base64,${result.data.dataBase64}`;
+      assetCache.set(assetId, value);
+      while (assetCache.size > ASSET_CACHE_LIMIT) assetCache.delete(assetCache.keys().next().value!);
+      return value;
+    })
+    .finally(() => assetPending.delete(assetId));
+  assetPending.set(assetId, request);
+  return request;
 }
 
 /** 把后端 nextActions 渲染成给用户看的一句话，避免只抛一个错误码。 */
