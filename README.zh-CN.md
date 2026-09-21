@@ -56,13 +56,13 @@ GameLibrary 支持 **Windows 10/11 x64**。发布包已包含运行环境，不�
 
 | 文件 | 用途 |
 |---|---|
-| [GameLibrary-Setup-v1.4.5.exe](https://github.com/sumingwang233/GameLibrary/releases/download/v1.4.5/GameLibrary-Setup-v1.4.5.exe) | 推荐普通用户使用的图形安装程序，可修改安装位置，并登记到 Windows“已安装的应用”。 |
-| [GameLibrary-Portable-win-x64-v1.4.5.zip](https://github.com/sumingwang233/GameLibrary/releases/download/v1.4.5/GameLibrary-Portable-win-x64-v1.4.5.zip) | 免安装 Tauri 桌面版、bridge 与 Host，解压后保持三个 EXE 位于同一目录。 |
-| [GameLibrary-Tools-win-x64-v1.4.5.zip](https://github.com/sumingwang233/GameLibrary/releases/download/v1.4.5/GameLibrary-Tools-win-x64-v1.4.5.zip) | 面向自动化和集成的 Host、CLI 与 MCP 工具包。 |
-| [SHA-256 校验值](https://github.com/sumingwang233/GameLibrary/releases/download/v1.4.5/GameLibrary-v1.4.5-SHA256SUMS.txt) | 三个发布包的完整性校验。 |
+| [GameLibrary-Setup-v1.4.6.exe](https://github.com/sumingwang233/GameLibrary/releases/download/v1.4.6/GameLibrary-Setup-v1.4.6.exe) | 推荐普通用户使用的图形安装程序，可修改安装位置，并登记到 Windows“已安装的应用”。 |
+| [GameLibrary-Portable-win-x64-v1.4.6.zip](https://github.com/sumingwang233/GameLibrary/releases/download/v1.4.6/GameLibrary-Portable-win-x64-v1.4.6.zip) | 免安装 Tauri 桌面版、bridge 与 Host，解压后保持三个 EXE 位于同一目录。 |
+| [GameLibrary-Tools-win-x64-v1.4.6.zip](https://github.com/sumingwang233/GameLibrary/releases/download/v1.4.6/GameLibrary-Tools-win-x64-v1.4.6.zip) | 面向自动化和集成的 Host、CLI 与 MCP 工具包。 |
+| [SHA-256 校验值](https://github.com/sumingwang233/GameLibrary/releases/download/v1.4.6/GameLibrary-v1.4.6-SHA256SUMS.txt) | 三个发布包的完整性校验。 |
 
 > [!IMPORTANT]
-> v1.4.5 的 Windows 程序未签名。Windows SmartScreen 可能提示未知发布者。请从本仓库 Release 下载，并核对 SHA-256。
+> v1.4.6 的 Windows 程序未签名。Windows SmartScreen 可能提示未知发布者。请从本仓库 Release 下载，并核对 SHA-256。
 
 ## 快速开始
 
