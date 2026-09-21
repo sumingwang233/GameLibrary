@@ -133,12 +133,12 @@ export function DetailSheet({
 
   const toggleFavorite = () =>
     run(async () => {
-      const result = await operation<GameItem>(
+      await operation(
         "games.update",
         { gameId: current.gameId, favorite: !current.favorite, expectedRevision: current.revision },
         `games.update:${current.gameId}:${current.revision}`,
       );
-      setCurrent(result.data);
+      await load();
       await onChanged();
     });
 

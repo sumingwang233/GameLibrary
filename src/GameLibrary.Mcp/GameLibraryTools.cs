@@ -827,7 +827,7 @@ public static class GameLibraryTools
         InvokeOperationAsync("fields.set", new { idempotencyKey, gameId, field, value, expectedRevision });
 
     [McpServerTool(Name = "assets_import")]
-    [Description("导入封面图（≤1 MiB，png/jpg/webp/gif），复制入应用自有目录并设为当前封面；不反写游戏目录。参数：idempotencyKey、gameId、sourcePath。")]
+    [Description("导入封面图（≤5 MiB，png/jpg/webp/gif），复制入应用自有目录并设为当前封面；不反写游戏目录。参数：idempotencyKey、gameId、sourcePath。")]
     public static Task<CallToolResult> AssetsImport(
         [Description("幂等键")] string idempotencyKey,
         [Description("游戏 ID")] string gameId,
@@ -902,7 +902,7 @@ public static class GameLibraryTools
         InvokeOperationAsync("assets.list", new { gameId });
 
     [McpServerTool(Name = "assets_get")]
-    [Description("读取资产受限预览（≤1 MiB，base64）。参数：assetId。")]
+    [Description("读取资产预览，缓存不可用时返回原图（≤5 MiB，base64）。参数：assetId。")]
     public static Task<CallToolResult> AssetsGet([Description("资产 ID")] string assetId) =>
         InvokeOperationAsync("assets.get", new { assetId });
 

@@ -25,7 +25,7 @@ namespace GameLibrary.Host.Hosting;
 internal sealed class CatalogingHandler
 {
     private static readonly string[] ImageExtensions = [".png", ".jpg", ".jpeg", ".webp", ".gif"];
-    private const long MaxAssetBytes = 1 * 1024 * 1024;
+    private const long MaxAssetBytes = 5 * 1024 * 1024;
 
     private readonly Func<SqliteLibraryStore?> _storeAccessor;
     private readonly RootRegistry _roots;
@@ -493,7 +493,7 @@ internal sealed class CatalogingHandler
                 Error = new RequestError
                 {
                     Code = ErrorCodes.ResourceTooLarge,
-                    Message = $"图片超过 1 MiB 上限：{sourcePath}",
+                    Message = $"图片超过 5 MiB 上限：{sourcePath}",
                     Retryable = false,
                 },
             };
@@ -538,7 +538,7 @@ internal sealed class CatalogingHandler
         };
     }
 
-    /// <summary>资产读取（契约 5.x）：受限预览 ≤1 MiB，base64 返回。</summary>
+    /// <summary>资产读取：原图最多 5 MiB，优先返回缓存预览；缓存不可用时返回原图。</summary>
     public Envelope<object> AssetsGet(IpcRequest request)
     {
         var store = _storeAccessor();
@@ -563,8 +563,7 @@ internal sealed class CatalogingHandler
             return IpcRequests.NotFound(request, $"资产文件缺失：{asset.FilePath}");
         }
 
-        var bytes = File.ReadAllBytes(asset.FilePath);
-        if (bytes.Length > MaxAssetBytes)
+        if (new FileInfo(asset.FilePath).Length > MaxAssetBytes)
         {
             return new Envelope<object>
             {
@@ -574,12 +573,13 @@ internal sealed class CatalogingHandler
                 Error = new RequestError
                 {
                     Code = ErrorCodes.ResourceTooLarge,
-                    Message = "资产超过 1 MiB 预览上限",
+                    Message = "资产超过 5 MiB 上限",
                     Retryable = false,
                 },
             };
         }
 
+        var bytes = File.ReadAllBytes(asset.FilePath);
         var mimeType = asset.FilePath switch
         {
             var p when p.EndsWith(".png", StringComparison.OrdinalIgnoreCase) => "image/png",
@@ -612,7 +612,8 @@ internal sealed class CatalogingHandler
                 isCurrent = asset.IsCurrent,
                 mimeType = preview.MimeType,
                 sizeBytes = preview.Bytes.LongLength,
-                dataBase64 = Convert.ToBase64String(preview.Bytes),
+                // byte[] 由 JSON 序列化器直接写为 Base64，避免 '+' 的额外转义膨胀。
+                dataBase64 = preview.Bytes,
             },
         };
     }

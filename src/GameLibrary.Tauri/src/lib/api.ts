@@ -86,7 +86,24 @@ export async function operation<T>(
     );
   }
 
+  // 泛型只是编译期断言；跨进程返回值必须在进入渲染状态前校验。
+  if (operationId === "games.get") validateGame(result.data);
+  if (operationId === "games.list") {
+    const data = result.data as { items?: unknown[] };
+    if (!Array.isArray(data?.items)) throw new Error("游戏列表数据不完整，请刷新后重试");
+    data.items.forEach(validateGame);
+  }
+
   return result;
+}
+
+function validateGame(value: unknown) {
+  const game = value as Record<string, unknown> | null;
+  if (!game || typeof game.gameId !== "string" || typeof game.title !== "string"
+    || typeof game.rootPath !== "string" || typeof game.kind !== "string"
+    || typeof game.favorite !== "boolean" || !Number.isInteger(game.revision)) {
+    throw new Error("游戏详情数据不完整，请刷新后重试");
+  }
 }
 
 export async function assetDataUrl(assetId: string) {

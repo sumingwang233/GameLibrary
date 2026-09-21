@@ -4,11 +4,11 @@ using System.Text;
 namespace GameLibrary.Contracts.Ipc;
 
 /// <summary>
-/// IPC 消息帧：4 字节大端长度前缀 + UTF-8 JSON 载荷，单消息上限 4 MiB（契约 2.2）。
+/// IPC 消息帧：4 字节大端长度前缀 + UTF-8 JSON 载荷，上限 8 MiB，容纳 5 MiB 图片的 Base64。
 /// </summary>
 public static class IpcFrame
 {
-    public const int MaxMessageBytes = 4 * 1024 * 1024;
+    public const int MaxMessageBytes = 8 * 1024 * 1024;
 
     public static async Task WriteAsync(Stream stream, ReadOnlyMemory<byte> payload, CancellationToken ct)
     {

@@ -28,6 +28,24 @@ export async function verifyBatch(client, dataDirectory) {
     await batchWait(() => document.querySelectorAll('input[type="checkbox"]').length === 3);
   })()`);
   await evaluate(`(async () => {
+    document.querySelector('article[role="button"]').click();
+    await batchWait(() => document.querySelector('[role="dialog"]'));
+    for (const label of ['收藏', '取消收藏']) {
+      await batchWait(() => [...document.querySelectorAll('[role="dialog"] button')].some(b => b.textContent.trim() === label && !b.disabled));
+      [...document.querySelectorAll('[role="dialog"] button')].find(b => b.textContent.trim() === label).click();
+      await batchWait(() => [...document.querySelectorAll('[role="dialog"] button')].some(b => b.textContent.trim() === (label === '收藏' ? '取消收藏' : '收藏') && !b.disabled));
+      if (!document.querySelector('#root > *')) throw new Error('favorite caused blank screen');
+    }
+    const title = document.querySelector('input[aria-label="游戏标题"]');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(title, '中文标题回归');
+    title.dispatchEvent(new Event('input', { bubbles: true }));
+    await batchWait(() => [...document.querySelectorAll('[role="dialog"] button')].some(b => b.textContent.trim() === '保存' && !b.disabled));
+    [...document.querySelectorAll('[role="dialog"] button')].find(b => b.textContent.trim() === '保存').click();
+    await batchWait(() => document.querySelector('[role="dialog"] h2')?.textContent === '中文标题回归');
+    document.querySelector('[role="dialog"] button[aria-label="关闭"]').click();
+    await batchWait(() => !document.querySelector('[role="dialog"]'));
+  })()`);
+  await evaluate(`(async () => {
     [...document.querySelectorAll('input[type="checkbox"]')].forEach(e => e.click());
     await batchWait(() => !batchButton('批量收藏').disabled);
     if (document.querySelector('[role="dialog"]')) throw new Error('checkbox opened details');

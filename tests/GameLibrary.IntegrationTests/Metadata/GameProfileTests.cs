@@ -9,7 +9,7 @@ namespace GameLibrary.IntegrationTests.Metadata;
 
 /// <summary>
 /// T14-A 资料与封面（经真实管道）：fields.set 用户来源与 Revision、assets.import
-/// 复制入应用目录、assets.get ≤1MiB 预览、格式与存在性校验。
+/// 复制入应用目录、5 MiB 原图及预览读取、格式与存在性校验。
 /// </summary>
 public sealed class GameProfileTests : IClassFixture<PipeServerFixture>
 {
@@ -196,11 +196,34 @@ public sealed class GameProfileTests : IClassFixture<PipeServerFixture>
     }
 
     [Fact]
+    public async Task AssetsImport_FiveMiB_RoundTripsEvenWhenPreviewCannotDecode()
+    {
+        var (gameId, _) = await CreateGameAsync("profile-five-mib");
+        var sourcePath = Path.Combine(@"D:\Official\GameLibrary\artifacts\test-runs", $"five-{Guid.NewGuid():N}.webp");
+        // 强制原图回退；0xFB 在 Base64 中产生大量 '+'，覆盖 JSON 转义导致帧超限的风险。
+        var bytes = Enumerable.Repeat((byte)0xFB, 5 * 1024 * 1024).ToArray();
+        await File.WriteAllBytesAsync(sourcePath, bytes);
+        try
+        {
+            var imported = await InvokeAsync("assets.import", new { gameId, sourcePath, idempotencyKey = Guid.NewGuid().ToString() });
+            Assert.True(imported.Ok, imported.Error?.Message);
+            var get = await InvokeAsync("assets.get", new { assetId = imported.Data.GetProperty("assetId").GetString() });
+            Assert.True(get.Ok, get.Error?.Message);
+            Assert.Equal(bytes, Convert.FromBase64String(get.Data.GetProperty("dataBase64").GetString()!));
+            Assert.True((await InvokeAsync("games.get", new { gameId })).Ok);
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+        }
+    }
+
+    [Fact]
     public async Task AssetsImport_OversizedImage_IsResourceTooLarge()
     {
         var (gameId, _) = await CreateGameAsync("profile-big");
         var bigPath = Path.Combine(@"D:\Official\GameLibrary\artifacts\test-runs", $"big-{Guid.NewGuid():N}.png");
-        await File.WriteAllBytesAsync(bigPath, new byte[(1 * 1024 * 1024) + 16]);
+        await File.WriteAllBytesAsync(bigPath, new byte[(5 * 1024 * 1024) + 1]);
         try
         {
             var import = await InvokeAsync("assets.import", new
