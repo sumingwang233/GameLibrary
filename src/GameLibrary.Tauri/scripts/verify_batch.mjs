@@ -41,6 +41,7 @@ export async function verifyBatch(client, dataDirectory) {
     await batchWait(() => !batchButton('取消收藏').disabled);
     batchButton('取消收藏').click();
     await batchWait(() => [...document.querySelectorAll('input[type="checkbox"]')].every(e => !e.checked));
+    await batchWait(() => [...document.querySelectorAll('input[type="checkbox"]')].every(e => !e.disabled));
     if ((await batchOp('games.list', { limit: 100 })).items.some(g => g.favorite)) throw new Error('unfavorite failed');
   })()`);
   await evaluate(`(async () => {
@@ -51,6 +52,7 @@ export async function verifyBatch(client, dataDirectory) {
     await batchWait(() => !batchButton('添加标签').disabled);
     batchButton('添加标签').click();
     await batchWait(() => [...document.querySelectorAll('input[type="checkbox"]')].every(e => !e.checked));
+    await batchWait(() => [...document.querySelectorAll('input[type="checkbox"]')].every(e => !e.disabled));
     if ((await batchOp('tags.list')).items.find(t => t.name === 'BatchTag').gameCount !== 3) throw new Error('tag failed');
     [...document.querySelectorAll('input[type="checkbox"]')].slice(0, 2).forEach(e => e.click());
     await batchWait(() => !batchButton('批量移除').disabled);
