@@ -78,7 +78,9 @@ public static class ScanJobRunner
         }
 
         var segments = new List<ScanCoverageData>();
-        var coverage = walker.Walk(ObserveFile, pause: null, context.Token, InspectDirectory);
+        bool ShouldDescend(string path) => collector?.ShouldDescend(path) ?? true;
+
+        var coverage = walker.Walk(ObserveFile, pause: null, context.Token, InspectDirectory, ShouldDescend);
         segments.Add(coverage);
         while (coverage.Completion == ScanCompletion.Partial
             && coverage.UnvisitedBranches > 0
@@ -90,7 +92,8 @@ public static class ScanJobRunner
                 ObserveFile,
                 pause: null,
                 context.Token,
-                InspectDirectory);
+                InspectDirectory,
+                ShouldDescend);
             segments.Add(coverage);
         }
 

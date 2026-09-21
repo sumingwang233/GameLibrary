@@ -34,6 +34,12 @@ public static class ScanCandidatePersistence
         var utcNow = DateTime.UtcNow;
         foreach (var candidate in collector.Candidates)
         {
+            // 合集是目录结构信息，不是可启动的游戏，不能进入待添加列表。
+            if (candidate.Kind == GameLibrary.Domain.States.CandidateKind.Container)
+            {
+                continue;
+            }
+
             if (store.IsSuppressedByIgnoreRule(candidate.PhysicalPath, null))
             {
                 continue;

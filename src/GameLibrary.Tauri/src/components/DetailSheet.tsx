@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { dirname, join, pictureDir } from "@tauri-apps/api/path";
 import { open } from "@tauri-apps/plugin-dialog";
-import { openPath } from "@tauri-apps/plugin-opener";
+import { invoke } from "@tauri-apps/api/core";
 import { Check, ExternalLink, ImagePlus, Play, Star, Trash2 } from "lucide-react";
 import { assetDataUrl, describeFailure, operation } from "../lib/api";
 import type {
@@ -247,7 +247,7 @@ export function DetailSheet({
 
   const openGameDirectory = () =>
     run(async () => {
-      await openPath(await gameDirectory(current));
+      await invoke("open_game_directory", { path: await gameDirectory(current) });
     });
 
   const initials = current.title.slice(0, 2).toUpperCase();

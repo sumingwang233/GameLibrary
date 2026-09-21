@@ -3,9 +3,9 @@ import { writeFileSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 
-const [, , executableArgument, dataDirectoryArgument, screenshotArgument] = process.argv;
+const [, , executableArgument, dataDirectoryArgument, screenshotArgument, gameDirectoryArgument] = process.argv;
 if (!executableArgument || !dataDirectoryArgument || !screenshotArgument) {
-  throw new Error("usage: node verify_release.mjs <desktop.exe> <data-dir> <screenshot.png>");
+  throw new Error("usage: node verify_release.mjs <desktop.exe> <data-dir> <screenshot.png> [game-directory]");
 }
 
 const executable = path.resolve(executableArgument);
@@ -185,6 +185,25 @@ try {
   if (!evaluated) throw new Error("release WebView evaluation did not complete");
   if (evaluated.exceptionDetails) throw new Error(evaluated.exceptionDetails.text);
   const result = evaluated.result.value;
+  if (gameDirectoryArgument) {
+    const opened = await client.send("Runtime.evaluate", {
+      expression: `(async () => {
+        const invoke = window.__TAURI__.core.invoke;
+        await invoke('open_game_directory', { path: ${JSON.stringify(gameDirectoryArgument)} });
+        try {
+          await invoke('open_game_directory', { path: '.' });
+          throw new Error('relative directory was unexpectedly accepted');
+        } catch (error) {
+          if (!String(error).includes('游戏目录不存在或无法访问')) throw error;
+        }
+        return { opened: true, relativePathRejected: true };
+      })()`,
+      awaitPromise: true,
+      returnByValue: true,
+    });
+    if (opened.exceptionDetails) throw new Error(JSON.stringify(opened.exceptionDetails));
+    result.directoryOpen = opened.result.value;
+  }
   const failures = [];
   if (result.css.status !== 200 || !result.css.type?.startsWith("text/css")) failures.push(`CSS response ${result.css.status} ${result.css.type}`);
   if (result.js.status !== 200 || !result.js.type?.includes("javascript")) failures.push(`JS response ${result.js.status} ${result.js.type}`);

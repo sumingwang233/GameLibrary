@@ -9,8 +9,8 @@ namespace GameLibrary.Host.Scanning;
 /// <summary>
 /// T05-B 扫描候选（宿主内存态；入库/审核状态机与持久化随 T11 进入）。
 /// 已知引擎证据产生 GameRoot；未知引擎的直属 EXE/LNK 产生保守待审核候选；根级独立
-/// EXE/SWF 产生 FileGame。确认根内的独立引擎证据为 NestedCandidate，≥2 个直属
-/// GameRoot 的父目录补充 Container，双 high 记 EngineConflict 不取先注册。
+/// EXE/SWF 产生 FileGame。发现可启动游戏后停止遍历其子树；≥2 个直属
+/// GameRoot 的父目录补充诊断用 Container（不进入待添加列表），双 high 记 EngineConflict。
 /// </summary>
 public sealed record ScanCandidate
 {
@@ -156,6 +156,11 @@ public sealed class ScanCandidateCollector
     public IReadOnlyList<ScanCandidate> Candidates => _candidates;
 
     public int CandidateCount => _candidates.Count;
+
+    public bool ShouldDescend(string directoryPath) =>
+        !_byPath.TryGetValue(directoryPath, out var candidate)
+        || candidate.EntryCandidates.Count == 0
+        || candidate.Kind is not (CandidateKind.GameRoot or CandidateKind.Unknown or CandidateKind.NestedCandidate);
 
     public ScanCandidateCollector(GamePath root, string jobId, CandidateRegistry registry)
     {

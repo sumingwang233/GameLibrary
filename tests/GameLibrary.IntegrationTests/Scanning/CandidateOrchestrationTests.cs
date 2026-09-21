@@ -4,13 +4,14 @@ using GameLibrary.Domain.Paths;
 using GameLibrary.Domain.States;
 using GameLibrary.Host.Hosting;
 using GameLibrary.Host.Scanning;
+using GameLibrary.Infrastructure.Persistence;
 using GameLibrary.Infrastructure.Scanning;
 using Xunit;
 
 namespace GameLibrary.IntegrationTests.Scanning;
 
 /// <summary>
-/// T05-B 候选编排（策划案 5.3）：安装根、合集容器、嵌套候选、引擎冲突与空目录。
+/// 候选编排：安装根、合集诊断、游戏目录边界、引擎冲突与空目录。
 /// 直接驱动 ScanJobRunner + CandidateRegistry，不经管道。
 /// </summary>
 public sealed class CandidateOrchestrationTests
@@ -100,7 +101,7 @@ public sealed class CandidateOrchestrationTests
     }
 
     [Fact]
-    public void NestedGameInsideLauncherRoot_IsNestedCandidate()
+    public void PlayableRoot_StopsBeforeNestedResources()
     {
         var root = NewFixtureRoot();
         try
@@ -115,11 +116,8 @@ public sealed class CandidateOrchestrationTests
 
             var (_, registry) = RunScan(root);
 
-            Assert.Equal(2, registry.List().Count);
-            var nestedCandidate = Assert.Single(registry.List(), c => c.Kind == CandidateKind.NestedCandidate);
-            Assert.EndsWith("Games/Game1", nestedCandidate.RelativePath, StringComparison.Ordinal);
-            Assert.Equal(EngineId.Kirikiri, Assert.Single(nestedCandidate.Engines).Engine);
-            var launcher = Assert.Single(registry.List(), c => c.Kind == CandidateKind.GameRoot);
+            var launcher = Assert.Single(registry.List());
+            Assert.Equal(CandidateKind.GameRoot, launcher.Kind);
             Assert.Equal("", launcher.RelativePath);
         }
         finally
@@ -167,6 +165,55 @@ public sealed class CandidateOrchestrationTests
             var (_, registry) = RunScan(root);
 
             Assert.Empty(registry.List());
+        }
+        finally
+        {
+            TryCleanup(root);
+        }
+    }
+
+    [Fact]
+    public async Task DeepJapaneseCollection_FindsBothVersionsAndSkipsTranslationTools()
+    {
+        var root = NewFixtureRoot();
+        try
+        {
+            var collection = Path.Combine(root, string.Join(Path.DirectorySeparatorChar, Enumerable.Repeat("dir", 13)), "[LunaSoft] マジック&スラッシュ");
+            foreach (var version in new[] { "Ver1.0.0", "Ver1.1.0" })
+            {
+                var game = Path.Combine(collection, version);
+                WriteFile(Path.Combine(game, "Game.exe"));
+                WriteFile(Path.Combine(game, "UnityPlayer.dll"));
+                WriteFile(Path.Combine(game, "Game_Data", "globalgamemanagers"));
+                WriteFile(Path.Combine(game, "汉化工具", "Injector.exe"));
+                WriteFile(Path.Combine(game, "汉化工具", "data.xp3"));
+            }
+
+            var path = GamePath.Create(root);
+            var collector = new ScanCandidateCollector(path, "job-deep", new CandidateRegistry());
+            ScanCoverageData? coverage = null;
+            ScanJobRunner.Run(path, new JobContext { JobId = "job-deep", Token = CancellationToken.None }, collector,
+                options: new ScanWalkOptions { MaxDirectories = 2 }, onCompleted: result => coverage = result);
+
+            Assert.Equal(ScanCompletion.Complete, coverage!.Completion);
+            Assert.Equal(17, coverage.ScannedDirectories);
+            var games = collector.Candidates.Where(c => c.Kind != CandidateKind.Container).ToArray();
+            Assert.Equal(2, games.Length);
+            Assert.All(games, game => Assert.Equal(CandidateKind.GameRoot, game.Kind));
+            Assert.Contains(games, game => game.PhysicalPath == Path.Combine(collection, "Ver1.0.0"));
+            Assert.Contains(games, game => game.PhysicalPath == Path.Combine(collection, "Ver1.1.0"));
+
+            var initialized = await SqliteLibraryStore.InitializeAsync(Path.Combine(root, "db"), new SqliteLibraryStoreOptions
+            {
+                AppVersion = "test",
+                ApiVersion = "1",
+                Migrations = DatabaseMigrations.All,
+            }, CancellationToken.None);
+            Assert.True(initialized.IsOpened, initialized.Detail);
+            await using var store = initialized.Store!;
+            ScanCandidatePersistence.Persist(store, null, collector, "job-deep", readyForReview: true);
+            Assert.Equal(2, store.ListCandidates().Count);
+            Assert.All(store.ListCandidates(), candidate => Assert.Equal("gameRoot", candidate.Kind));
         }
         finally
         {

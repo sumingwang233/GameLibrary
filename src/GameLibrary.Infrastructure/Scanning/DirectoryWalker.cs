@@ -16,7 +16,7 @@ public enum ScanCompletion
 /// <summary>枚举预算与深度限制（策划案 5.2）；达到任一上限即保存续扫游标返回 partial。</summary>
 public sealed record ScanWalkOptions
 {
-    public int MaxDepth { get; init; } = 12;
+    public int MaxDepth { get; init; } = int.MaxValue;
 
     public int MaxDirectories { get; init; } = 20_000;
 
@@ -119,8 +119,9 @@ public sealed class DirectoryWalker
         Action<ScannedEntry> sink,
         PauseSignal? pause,
         CancellationToken ct,
-        Action<ScannedDirectory>? onDirectory = null) =>
-        WalkCore(stackRoots: null, sink, pause, ct, onDirectory);
+        Action<ScannedDirectory>? onDirectory = null,
+        Func<string, bool>? shouldDescend = null) =>
+        WalkCore(stackRoots: null, sink, pause, ct, onDirectory, shouldDescend);
 
     /// <summary>从上次 partial 的游标续扫；游标与根不匹配时抛 <see cref="InvalidOperationException"/>。</summary>
     public ScanCoverageData Resume(
@@ -128,7 +129,8 @@ public sealed class DirectoryWalker
         Action<ScannedEntry> sink,
         PauseSignal? pause,
         CancellationToken ct,
-        Action<ScannedDirectory>? onDirectory = null)
+        Action<ScannedDirectory>? onDirectory = null,
+        Func<string, bool>? shouldDescend = null)
     {
         var state = JsonSerializer.Deserialize<WalkResumeState>(resumeTokenJson)
             ?? throw new InvalidOperationException("续扫游标损坏");
@@ -137,7 +139,7 @@ public sealed class DirectoryWalker
             throw new InvalidOperationException($"续扫游标属于其他根：{state.RootComparisonKey}");
         }
 
-        return WalkCore([.. state.RemainingDirectories], sink, pause, ct, onDirectory);
+        return WalkCore([.. state.RemainingDirectories], sink, pause, ct, onDirectory, shouldDescend);
     }
 
     private ScanCoverageData WalkCore(
@@ -145,7 +147,8 @@ public sealed class DirectoryWalker
         Action<ScannedEntry> sink,
         PauseSignal? pause,
         CancellationToken ct,
-        Action<ScannedDirectory>? onDirectory)
+        Action<ScannedDirectory>? onDirectory,
+        Func<string, bool>? shouldDescend)
     {
         long scannedDirectories = 0;
         long observedFiles = 0;
@@ -239,6 +242,12 @@ public sealed class DirectoryWalker
 
                     observedFiles++;
                     sink(new ScannedEntry(filePath.PhysicalPath, filePath.ComparisonKey, IsDirectory: false, depth, decision.Outcome, decision.WinningRuleId));
+                }
+
+                // 游戏边界由识别层决定；直属文件仍完整计数，资源子树不再参与发现。
+                if (shouldDescend?.Invoke(dirPath) == false)
+                {
+                    continue;
                 }
 
                 foreach (var subDir in subDirs)

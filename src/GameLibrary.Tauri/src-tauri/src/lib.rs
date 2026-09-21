@@ -8,6 +8,46 @@ use std::time::Duration;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, RunEvent, State, WindowEvent};
+use tauri_plugin_opener::OpenerExt;
+
+// 只允许已有目录；不向前端开放可执行文件或任意 URL 的本地打开权限。
+fn validate_game_directory(path: &str) -> Result<PathBuf, String> {
+    let directory = PathBuf::from(path);
+    if !directory.is_absolute() || !directory.is_dir() {
+        return Err(format!("游戏目录不存在或无法访问：{path}"));
+    }
+    Ok(directory)
+}
+
+#[tauri::command]
+fn open_game_directory(app: AppHandle, path: String) -> Result<(), String> {
+    let directory = validate_game_directory(&path)?;
+    app.opener()
+        .open_path(directory.to_string_lossy(), None::<&str>)
+        .map_err(|error| format!("打开游戏目录失败：{error}"))
+}
+
+#[cfg(test)]
+mod directory_tests {
+    use super::validate_game_directory;
+
+    #[test]
+    fn accepts_existing_absolute_directory_but_rejects_files_and_relative_paths() {
+        let directory = std::env::temp_dir().join(format!(
+            "gamelibrary-目录-[LunaSoft]-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let file = directory.join("Game.exe");
+        std::fs::write(&file, b"test").unwrap();
+        assert!(validate_game_directory(directory.to_str().unwrap()).is_ok());
+        assert!(validate_game_directory(file.to_str().unwrap()).is_err());
+        assert!(validate_game_directory(".").is_err());
+        assert!(validate_game_directory(directory.join("missing").to_str().unwrap()).is_err());
+        std::fs::remove_file(file).unwrap();
+        std::fs::remove_dir(directory).unwrap();
+    }
+}
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -334,6 +374,7 @@ pub fn run() {
             bridge_request,
             bridge_status,
             resolve_data_directory,
+            open_game_directory,
             set_close_to_tray
         ])
         .build(tauri::generate_context!())
