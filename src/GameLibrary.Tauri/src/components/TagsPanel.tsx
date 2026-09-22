@@ -1,6 +1,5 @@
-import { useMemo, useState } from "react";
-import { ChevronDown, ChevronUp, Palette, Pencil, Plus, RotateCcw, Star, Trash2 } from "lucide-react";
-import {
+import { useMemo, useState, type DragEvent } from "react";
+import { ChevronDown, ChevronUp, Palette, Pencil, Plus, RotateCcw, Star, Trash2 } from "lucide-react";import {
   TAG_CATEGORIES,
   TAG_PALETTE,
   groupTagsByCategory,
@@ -31,9 +30,11 @@ const groupHeadingLabel = (group: { value: TagCategoryValue; label: string }) =>
   group.value === "engine" ? "自动识别标签" : group.label;
 
 /**
- * 标签管理（feat-3）：按四分类（引擎/玩法/社团/特殊）分组展示与筛选；
+ * 标签管理（feat-3 + v1.5.2）：按四分类（引擎/玩法/社团/特殊）分组展示与筛选；
  * 每个标签支持颜色（预设色板 + 自定义 #RRGGBB）、组内上移/下移（写 sortOrder，
- * 星标置顶）、星级（starred）与重命名（engine 标签走 displayName，state.ts 分发）。
+ * 同评分档内交换）、星级评分 1–5 星（starred，0=无评分；评分降序置顶）与重命名
+ * （engine 标签走 displayName，state.ts 分发）；标签行可拖拽到其他分类分组
+ * （写 category，engine 标签同样允许——自动识别按 name 身份键维护，不受影响）。
  * v1.1.5 只有 tags.create（且用 window.prompt），tags.update / tags.remove 后端早已
  * 实现却完全没有入口——正是用户在 2026-09-14 提过、WPF 已做过的能力在重写中丢失。
  */
@@ -61,6 +62,7 @@ export function TagsPanel({
   const [removing, setRemoving] = useState<TagItem | null>(null);
   const [colorEditing, setColorEditing] = useState<TagItem | null>(null);
   const [busyTagId, setBusyTagId] = useState<string | null>(null);
+  const [dragOverCategory, setDragOverCategory] = useState<TagCategoryValue | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const groups = useMemo(() => groupTagsByCategory(tags), [tags]);
@@ -102,8 +104,9 @@ export function TagsPanel({
       setEditing(null);
     });
 
-  const toggleStarred = (tag: TagItem) =>
-    void run(tag.tagId, () => onUpdate(tag, { starred: !(tag.starred ?? false) }));
+  /** 星级评分：点第 n 颗设为 n 星；再点当前星级同一颗清除（0=无评分）。 */
+  const setStarRating = (tag: TagItem, rating: number) =>
+    void run(tag.tagId, () => onUpdate(tag, { starred: (tag.starred ?? 0) === rating ? 0 : rating }));
 
   const applyColor = (tag: TagItem, color: string) =>
     void run(tag.tagId, async () => {
@@ -111,14 +114,24 @@ export function TagsPanel({
       setColorEditing(null);
     });
 
+  /** 拖拽换分类（v1.5.2）：行 dragstart 带 tagId，分组容器作投放目标，落下写 category。 */
+  const handleDrop = (targetCategory: TagCategoryValue, event: DragEvent) => {
+    event.preventDefault();
+    setDragOverCategory(null);
+    const tagId = event.dataTransfer.getData("text/plain");
+    const tag = tags.find((item) => item.tagId === tagId);
+    if (!tag || tagCategory(tag) === targetCategory) return;
+    void run(tagId, () => onUpdate(tag, { category: targetCategory }));
+  };
+
   /**
-   * 组内上移/下移：在与该标签同一星标分区（星标恒置顶，跨分区交换会被置顶规则吃掉）
-   * 内交换相邻位次，然后把分区按新视觉顺序整体重排为 0..n-1——只写 sortOrder 发生
-   * 变化的条目（首若干次移动后进入稳态，此后每次只写两条）。
+   * 组内上移/下移：在与该标签同一评分档（星级相同，评分降序置顶由 compareTags
+   * 排序保证，跨档交换会被排序吃掉）内交换相邻位次，然后把档按新视觉顺序整体
+   * 重排为 0..n-1——只写 sortOrder 发生变化的条目。
    */
   const moveTag = (tag: TagItem, direction: -1 | 1) => {
     const group = groups.find((item) => item.value === tagCategory(tag))?.items ?? [];
-    const partition = group.filter((item) => (item.starred ?? false) === (tag.starred ?? false));
+    const partition = group.filter((item) => (item.starred ?? 0) === (tag.starred ?? 0));
     const index = partition.findIndex((item) => item.tagId === tag.tagId);
     const target = index + direction;
     if (index < 0 || target < 0 || target >= partition.length) return;
@@ -194,21 +207,47 @@ export function TagsPanel({
         </p>
       )}
 
+      <p className="text-xs text-text-secondary">拖动标签行到其他分类分组即可移动；点击星星评分（1–5 星，再点一次清除），高分标签在组内置顶。</p>
+
       {visibleGroups.map((group) => (
-        <div key={group.value}>
+        <div
+          key={group.value}
+          onDragOver={(event) => {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "move";
+            setDragOverCategory(group.value);
+          }}
+          onDragLeave={(event) => {
+            if (event.currentTarget.contains(event.relatedTarget as Node)) return;
+            setDragOverCategory((current) => (current === group.value ? null : current));
+          }}
+          onDrop={(event) => handleDrop(group.value, event)}
+          className={cn(
+            "rounded-lg p-2 transition-colors",
+            dragOverCategory === group.value && "ring-2 ring-steam bg-steam/10",
+          )}
+        >
           <h2 className="mb-2 text-xs font-semibold tracking-[0.16em] text-text-secondary uppercase">
             {groupHeadingLabel(group)} · {group.items.length}
           </h2>
           {group.items.length === 0 ? (
-            <p className="text-sm text-text-secondary">无</p>
+            <p className={cn("text-sm text-text-secondary", dragOverCategory === group.value && "text-steam")}>
+              {dragOverCategory === group.value ? "松开鼠标移入此分类" : "无（可把标签拖到这里）"}
+            </p>
           ) : (
             <ul className="space-y-1">
               {group.items.map((tag) => {
                 const busy = busyTagId === tag.tagId;
                 const isEditing = editing?.tagId === tag.tagId;
+                const rating = tag.starred ?? 0;
                 return (
                   <li
                     key={tag.tagId}
+                    draggable={!busy && !isEditing}
+                    onDragStart={(event) => {
+                      event.dataTransfer.setData("text/plain", tag.tagId);
+                      event.dataTransfer.effectAllowed = "move";
+                    }}
                     className="relative flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-2"
                   >
                     {isEditing ? (
@@ -257,17 +296,22 @@ export function TagsPanel({
                         <span className="shrink-0 text-xs text-text-secondary">
                           {tag.gameCount ? `${tag.gameCount.toLocaleString()} 个游戏` : ""}
                         </span>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          disabled={busy}
-                          aria-label={`${tag.starred ? "取消星标" : "星标"} ${tagLabel(tag)}`}
-                          aria-pressed={tag.starred ?? false}
-                          title={tag.starred ? "取消星标" : "星标（组内置顶）"}
-                          onClick={() => toggleStarred(tag)}
-                        >
-                          <Star size={14} className={tag.starred ? "fill-favorite text-favorite" : undefined} />
-                        </Button>
+                        <span className="flex shrink-0 items-center" role="group" aria-label={`星级评分 ${tagLabel(tag)}（当前 ${rating} 星）`}>
+                          {[1, 2, 3, 4, 5].map((star) => (
+                            <Button
+                              key={star}
+                              size="icon"
+                              variant="ghost"
+                              disabled={busy}
+                              aria-label={`${star === rating ? "清除" : "评为"} ${star} 星`}
+                              title={star === rating ? "清除评分" : `评为 ${star} 星`}
+                              className={cn("size-7", star <= rating && "text-favorite")}
+                              onClick={() => setStarRating(tag, star)}
+                            >
+                              <Star size={13} className={star <= rating ? "fill-favorite" : undefined} />
+                            </Button>
+                          ))}
+                        </span>
                         <Button
                           size="icon"
                           variant="ghost"

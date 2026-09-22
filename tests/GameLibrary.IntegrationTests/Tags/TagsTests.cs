@@ -103,17 +103,17 @@ public sealed class TagsTests : IClassFixture<PipeServerFixture>
             color = "#FFB86C",
             category = "social",
             sortOrder = 7,
-            starred = true,
+            starred = 4,
             displayName = "联机·合作",
         });
         Assert.True(create.Ok, create.Error?.Message);
         var tagId = create.Data.GetProperty("tagId").GetString()!;
         Assert.Equal("social", create.Data.GetProperty("category").GetString());
         Assert.Equal(7, create.Data.GetProperty("sortOrder").GetInt32());
-        Assert.True(create.Data.GetProperty("starred").GetBoolean());
+        Assert.Equal(4, create.Data.GetProperty("starred").GetInt32());
         Assert.Equal("联机·合作", create.Data.GetProperty("displayName").GetString());
 
-        // 缺省值：category 按 kind 推断（user→special）、sortOrder=0、starred=false、displayName=null。
+        // 缺省值：category 按 kind 推断（user→special）、sortOrder=0、starred=0（无评分）、displayName=null。
         var plain = await InvokeAsync("tags.create", new
         {
             idempotencyKey = $"tagc-{Guid.NewGuid():N}",
@@ -122,7 +122,7 @@ public sealed class TagsTests : IClassFixture<PipeServerFixture>
         Assert.True(plain.Ok, plain.Error?.Message);
         Assert.Equal("special", plain.Data.GetProperty("category").GetString());
         Assert.Equal(0, plain.Data.GetProperty("sortOrder").GetInt32());
-        Assert.False(plain.Data.GetProperty("starred").GetBoolean());
+        Assert.Equal(0, plain.Data.GetProperty("starred").GetInt32());
         Assert.Equal(JsonValueKind.Null, plain.Data.GetProperty("displayName").ValueKind);
 
         // tags.list 返回全部新字段。
@@ -131,7 +131,7 @@ public sealed class TagsTests : IClassFixture<PipeServerFixture>
             .Single(t => t.GetProperty("tagId").GetString() == tagId);
         Assert.Equal("social", listed.GetProperty("category").GetString());
         Assert.Equal(7, listed.GetProperty("sortOrder").GetInt32());
-        Assert.True(listed.GetProperty("starred").GetBoolean());
+        Assert.Equal(4, listed.GetProperty("starred").GetInt32());
         Assert.Equal("联机·合作", listed.GetProperty("displayName").GetString());
     }
 
@@ -165,6 +165,46 @@ public sealed class TagsTests : IClassFixture<PipeServerFixture>
     }
 
     [Fact]
+    public async Task TagCreateOrUpdate_StarredOutOfRange_IsRejected()
+    {
+        // v1.5.2：starred 升级为 0–5 星级评分，越界值在 create 与 update 均拒绝，0=清除评分合法。
+        var create = await InvokeAsync("tags.create", new
+        {
+            idempotencyKey = $"tagc-{Guid.NewGuid():N}",
+            name = "越界星级标签",
+            starred = 6,
+        });
+        Assert.False(create.Ok);
+        Assert.Equal(ErrorCodes.InvalidArgument, create.Error!.Code);
+
+        var seed = await InvokeAsync("tags.create", new
+        {
+            idempotencyKey = $"tagc-{Guid.NewGuid():N}",
+            name = "合法星级标签",
+        });
+        Assert.True(seed.Ok, seed.Error?.Message);
+        var update = await InvokeAsync("tags.update", new
+        {
+            idempotencyKey = $"tagu-{Guid.NewGuid():N}",
+            tagId = seed.Data.GetProperty("tagId").GetString(),
+            starred = -1,
+            expectedRevision = seed.Data.GetProperty("revision").GetInt32(),
+        });
+        Assert.False(update.Ok);
+        Assert.Equal(ErrorCodes.InvalidArgument, update.Error!.Code);
+
+        var clear = await InvokeAsync("tags.update", new
+        {
+            idempotencyKey = $"tagu-{Guid.NewGuid():N}",
+            tagId = seed.Data.GetProperty("tagId").GetString(),
+            starred = 0,
+            expectedRevision = seed.Data.GetProperty("revision").GetInt32(),
+        });
+        Assert.True(clear.Ok, clear.Error?.Message);
+        Assert.Equal(0, clear.Data.GetProperty("starred").GetInt32());
+    }
+
+    [Fact]
     public async Task TagUpdate_PatchesNewFields_AndCanClearDisplayName()
     {
         var create = await InvokeAsync("tags.create", new
@@ -182,14 +222,14 @@ public sealed class TagsTests : IClassFixture<PipeServerFixture>
             tagId,
             category = "gameplay",
             sortOrder = 3,
-            starred = true,
+            starred = 5,
             displayName = "玩法·标签",
             expectedRevision = revision,
         });
         Assert.True(update.Ok, update.Error?.Message);
         Assert.Equal("gameplay", update.Data.GetProperty("category").GetString());
         Assert.Equal(3, update.Data.GetProperty("sortOrder").GetInt32());
-        Assert.True(update.Data.GetProperty("starred").GetBoolean());
+        Assert.Equal(5, update.Data.GetProperty("starred").GetInt32());
         Assert.Equal("玩法·标签", update.Data.GetProperty("displayName").GetString());
         var newRevision = update.Data.GetProperty("revision").GetInt32();
         Assert.True(newRevision > revision);
@@ -240,14 +280,14 @@ public sealed class TagsTests : IClassFixture<PipeServerFixture>
             color = "#8BE9FD",
             category = "engine",
             sortOrder = 2,
-            starred = true,
+            starred = 5,
             expectedRevision = revision,
         });
         Assert.True(update.Ok, update.Error?.Message);
         Assert.Equal(engineName, update.Data.GetProperty("name").GetString());
         Assert.Equal("吉里吉里", update.Data.GetProperty("displayName").GetString());
         Assert.Equal("#8BE9FD", update.Data.GetProperty("color").GetString());
-        Assert.True(update.Data.GetProperty("starred").GetBoolean());
+        Assert.Equal(5, update.Data.GetProperty("starred").GetInt32());
         var newRevision = update.Data.GetProperty("revision").GetInt32();
         Assert.True(newRevision > revision);
 

@@ -25,7 +25,7 @@ public sealed partial class SqliteLibraryStore
         string? color,
         string? category,
         int? sortOrder,
-        bool? starred,
+        int? starred,
         string? displayName,
         bool clearDisplayName,
         int expectedRevision,

@@ -62,7 +62,9 @@ public sealed class OperationSchemaParityTests
             .GetProperty("properties");
         Assert.Equal("string", properties.GetProperty("category").GetProperty("type").GetString());
         Assert.Equal("integer", properties.GetProperty("sortOrder").GetProperty("type").GetString());
-        Assert.Equal("boolean", properties.GetProperty("starred").GetProperty("type").GetString());
+        // v1.5.2：starred 升级为星级评分 0–5。
+        Assert.Equal("integer", properties.GetProperty("starred").GetProperty("type").GetString());
+        Assert.Contains("0–5", properties.GetProperty("starred").GetProperty("description").GetString());
         Assert.Equal("string", properties.GetProperty("displayName").GetProperty("type").GetString());
     }
 

@@ -121,14 +121,14 @@ public sealed class SchemaV22Tests
             Assert.Equal(3L, await ScalarAsync(dataDir, "SELECT revision FROM tags WHERE tag_id = 'tag-v22-user'"));
             var newRevision = upgraded.Store.UpdateTag(
                 "tag-v22-user", name: null, color: null, category: "gameplay", sortOrder: 5,
-                starred: true, displayName: "我的·收藏", clearDisplayName: false,
+                starred: 4, displayName: "我的·收藏", clearDisplayName: false,
                 expectedRevision: 3, DateTime.UtcNow);
             Assert.NotNull(newRevision);
             var updated = upgraded.Store.TryGetTagByName("user", "我的收藏");
             Assert.NotNull(updated);
             Assert.Equal("gameplay", updated!.Category);
             Assert.Equal(5, updated.SortOrder);
-            Assert.True(updated.Starred);
+            Assert.Equal(4, updated.Starred);
             Assert.Equal("我的·收藏", updated.DisplayName);
 
             // 升级后扫描自动建 engine 标签 category='engine'。

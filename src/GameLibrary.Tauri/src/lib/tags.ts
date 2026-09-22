@@ -42,14 +42,14 @@ export function tagLabel(tag: Pick<TagItem, "name" | "displayName">): string {
 }
 
 /**
- * 组内排序（TagsPanel/DetailSheet 共用）：星标置顶 → sortOrder 升序 → 名称
- * 不区分大小写字典序（后端 ListTags 固定 kind+name NOCASE，sort_order 不参与 SQL 排序，
- * TagStore.cs:50，顺序完全由前端消费 sortOrder 决定）。
+ * 组内排序（TagsPanel/DetailSheet 共用）：星级降序置顶（0=无评分垫底）→ sortOrder
+ * 升序 → 名称不区分大小写字典序（后端 ListTags 固定 kind+name NOCASE，sort_order
+ * 不参与 SQL 排序，TagStore.cs:50，顺序完全由前端消费 sortOrder 决定）。
  */
 export function compareTags(a: TagItem, b: TagItem): number {
-  const aStarred = a.starred ?? false;
-  const bStarred = b.starred ?? false;
-  if (aStarred !== bStarred) return aStarred ? -1 : 1;
+  const aStarred = a.starred ?? 0;
+  const bStarred = b.starred ?? 0;
+  if (aStarred !== bStarred) return bStarred - aStarred;
   const order = (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
   if (order !== 0) return order;
   return a.name.toLowerCase().localeCompare(b.name.toLowerCase());

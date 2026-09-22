@@ -96,10 +96,15 @@ internal sealed class TagsHandler
             sortOrder = sortOrderValue!.Value;
         }
 
-        var starred = false;
-        if (IpcRequests.TryGetBoolParameter(request, "starred", out var starredValue))
+        var starred = 0;
+        if (IpcRequests.TryGetIntParameter(request, "starred", out var starredValue))
         {
+            // v1.5.2：starred 语义升级为星级评分 0–5（0=无评分），列类型不变无需迁移。
             starred = starredValue!.Value;
+            if (starred is < 0 or > 5)
+            {
+                return IpcRequests.InvalidArgument(request, "starred 星级评分只支持 0–5（0=无评分）");
+            }
         }
 
         string? displayName = null;
@@ -210,10 +215,15 @@ internal sealed class TagsHandler
             sortOrder = sortOrderValue;
         }
 
-        bool? starred = null;
-        if (IpcRequests.TryGetBoolParameter(request, "starred", out var starredValue))
+        int? starred = null;
+        if (IpcRequests.TryGetIntParameter(request, "starred", out var starredUpdate))
         {
-            starred = starredValue;
+            // v1.5.2：starred 语义升级为星级评分 0–5（0=无评分），列类型不变无需迁移。
+            starred = starredUpdate;
+            if (starred is < 0 or > 5)
+            {
+                return IpcRequests.InvalidArgument(request, "starred 星级评分只支持 0–5（0=无评分）");
+            }
         }
 
         // displayName 支持显式 null 清除（回落 name）；字符串走与 name 相同的清洗校验。

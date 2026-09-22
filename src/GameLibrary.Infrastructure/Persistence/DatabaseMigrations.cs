@@ -443,5 +443,48 @@ public static class DatabaseMigrations
             DELETE FROM library_roots WHERE root_id IN (SELECT root_id FROM library_roots_v23_prune);
             DROP TABLE library_roots_v23_prune;
             """),
+        // 24：starred 语义升级为星级评分 0–5（v1.5.2）。v22 建表时 CHECK 限定 IN (0,1)，
+        // 需重建 tags 放宽为 0–5；全部列值原样保留（与 v22 不同，本次不重置任何字段）。
+        // game_tags 外键引用 tags，照 v22 模式备份→重建→回填，并重建 idx_game_tags_tag。
+        new DatabaseMigration(24, """
+            CREATE TABLE game_tags_v24_backup (
+                game_id TEXT NOT NULL,
+                tag_id TEXT NOT NULL,
+                created_utc TEXT NOT NULL,
+                PRIMARY KEY (game_id, tag_id)
+            );
+            INSERT INTO game_tags_v24_backup (game_id, tag_id, created_utc)
+                SELECT game_id, tag_id, created_utc FROM game_tags;
+            CREATE TABLE tags_new (
+                tag_id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL CHECK (kind IN ('engine', 'user')),
+                name TEXT NOT NULL,
+                color TEXT,
+                category TEXT NOT NULL DEFAULT 'special' CHECK (category IN ('engine', 'gameplay', 'social', 'special')),
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                starred INTEGER NOT NULL DEFAULT 0 CHECK (starred IN (0, 1, 2, 3, 4, 5)),
+                display_name TEXT,
+                revision INTEGER NOT NULL DEFAULT 1,
+                created_utc TEXT NOT NULL,
+                updated_utc TEXT NOT NULL,
+                UNIQUE (kind, name)
+            );
+            INSERT INTO tags_new (tag_id, kind, name, color, category, sort_order, starred, display_name, revision, created_utc, updated_utc)
+                SELECT tag_id, kind, name, color, category, sort_order, starred, display_name, revision, created_utc, updated_utc
+                FROM tags;
+            DROP TABLE game_tags;
+            DROP TABLE tags;
+            ALTER TABLE tags_new RENAME TO tags;
+            CREATE TABLE game_tags (
+                game_id TEXT NOT NULL REFERENCES games(game_id) ON DELETE CASCADE,
+                tag_id TEXT NOT NULL REFERENCES tags(tag_id) ON DELETE CASCADE,
+                created_utc TEXT NOT NULL,
+                PRIMARY KEY (game_id, tag_id)
+            );
+            INSERT INTO game_tags (game_id, tag_id, created_utc)
+            SELECT game_id, tag_id, created_utc FROM game_tags_v24_backup;
+            DROP TABLE game_tags_v24_backup;
+            CREATE INDEX idx_game_tags_tag ON game_tags (tag_id)
+            """),
     ];
 }

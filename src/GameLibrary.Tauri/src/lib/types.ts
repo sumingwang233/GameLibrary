@@ -104,7 +104,8 @@ export interface TagItem {
    */
   category?: string | null;
   sortOrder?: number;
-  starred?: boolean;
+  /** 星级评分 0–5（0=无评分）；存量布尔值 1 自然成为 1 星（迁移 v24）。 */
+  starred?: number;
   displayName?: string | null;
   revision: number;
   gameCount?: number;

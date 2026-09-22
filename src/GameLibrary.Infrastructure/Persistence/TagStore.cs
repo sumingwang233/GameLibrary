@@ -20,7 +20,7 @@ public sealed record PersistedTag(
     DateTime UpdatedUtc,
     string Category = "special",
     int SortOrder = 0,
-    bool Starred = false,
+    int Starred = 0,
     string? DisplayName = null);
 
 /// <summary>
@@ -116,7 +116,7 @@ public static class TagStore
         DateTime.Parse(reader.GetString(6), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
         reader.GetString(7),
         reader.GetInt32(8),
-        reader.GetInt32(9) != 0,
+        reader.GetInt32(9),
         reader.IsDBNull(10) ? null : reader.GetString(10));
 
     public static void CreateTag(SqliteConnection connection, PersistedTag tag, SqliteTransaction? transaction = null)
@@ -136,7 +136,7 @@ public static class TagStore
         command.Parameters.AddWithValue("$color", (object?)tag.Color ?? DBNull.Value);
         command.Parameters.AddWithValue("$category", tag.Category);
         command.Parameters.AddWithValue("$sortOrder", tag.SortOrder);
-        command.Parameters.AddWithValue("$starred", tag.Starred ? 1 : 0);
+        command.Parameters.AddWithValue("$starred", tag.Starred);
         command.Parameters.AddWithValue("$displayName", (object?)tag.DisplayName ?? DBNull.Value);
         command.Parameters.AddWithValue("$rev", tag.Revision);
         command.Parameters.AddWithValue("$created", tag.CreatedUtc.ToString("O", CultureInfo.InvariantCulture));
@@ -158,7 +158,7 @@ public static class TagStore
         string? color,
         string? category,
         int? sortOrder,
-        bool? starred,
+        int? starred,
         string? displayName,
         bool clearDisplayName,
         int expectedRevision,
@@ -227,7 +227,7 @@ public static class TagStore
 
             if (starred is not null)
             {
-                command.Parameters.AddWithValue("$starred", starred.Value ? 1 : 0);
+                command.Parameters.AddWithValue("$starred", starred.Value);
             }
 
             if (!clearDisplayName && displayName is not null)

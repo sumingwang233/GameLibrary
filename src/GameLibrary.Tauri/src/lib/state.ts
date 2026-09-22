@@ -99,7 +99,8 @@ export interface TagChanges {
   color?: string;
   category?: string;
   sortOrder?: number;
-  starred?: boolean;
+  /** 星级评分 0–5（0=清除评分）。 */
+  starred?: number;
   displayName?: string | null;
 }
 
