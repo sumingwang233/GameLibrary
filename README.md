@@ -56,13 +56,13 @@ GameLibrary supports **Windows 10/11 x64**. Release packages are self-contained 
 
 | Package | Intended use |
 |---|---|
-| [GameLibrary-Setup-v1.4.6.exe](https://github.com/sumingwang233/GameLibrary/releases/download/v1.4.6/GameLibrary-Setup-v1.4.6.exe) | Recommended graphical installer. Lets you choose the install location and registers a standard Windows uninstall entry. |
-| [GameLibrary-Portable-win-x64-v1.4.6.zip](https://github.com/sumingwang233/GameLibrary/releases/download/v1.4.6/GameLibrary-Portable-win-x64-v1.4.6.zip) | Portable Tauri desktop app, bridge, and Host. Keep all three EXE files in the same folder. |
-| [GameLibrary-Tools-win-x64-v1.4.6.zip](https://github.com/sumingwang233/GameLibrary/releases/download/v1.4.6/GameLibrary-Tools-win-x64-v1.4.6.zip) | Host, CLI, and MCP server for automation and integrations. |
-| [SHA-256 checksums](https://github.com/sumingwang233/GameLibrary/releases/download/v1.4.6/GameLibrary-v1.4.6-SHA256SUMS.txt) | Integrity hashes for all three release packages. |
+| [GameLibrary-Setup-v1.4.7.exe](https://github.com/sumingwang233/GameLibrary/releases/download/v1.4.7/GameLibrary-Setup-v1.4.7.exe) | Recommended graphical installer. Lets you choose the install location and registers a standard Windows uninstall entry. |
+| [GameLibrary-Portable-win-x64-v1.4.7.zip](https://github.com/sumingwang233/GameLibrary/releases/download/v1.4.7/GameLibrary-Portable-win-x64-v1.4.7.zip) | Portable Tauri desktop app, bridge, and Host. Keep all three EXE files in the same folder. |
+| [GameLibrary-Tools-win-x64-v1.4.7.zip](https://github.com/sumingwang233/GameLibrary/releases/download/v1.4.7/GameLibrary-Tools-win-x64-v1.4.7.zip) | Host, CLI, and MCP server for automation and integrations. |
+| [SHA-256 checksums](https://github.com/sumingwang233/GameLibrary/releases/download/v1.4.7/GameLibrary-v1.4.7-SHA256SUMS.txt) | Integrity hashes for all three release packages. |
 
 > [!IMPORTANT]
-> The v1.4.6 Windows binaries are unsigned. Windows SmartScreen may show an unknown publisher warning. Download releases from this repository and verify the SHA-256 checksum.
+> The v1.4.7 Windows binaries are unsigned. Windows SmartScreen may show an unknown publisher warning. Download releases from this repository and verify the SHA-256 checksum.
 
 ## Quick start
 

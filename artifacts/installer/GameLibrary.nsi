@@ -6,6 +6,9 @@ ShowInstDetails show
 ShowUninstDetails show
 
 !include "MUI2.nsh"
+!include "LogicLib.nsh"
+!include "FileFunc.nsh"
+!insertmacro GetParent
 
 !ifndef VERSION
   !error "VERSION is required"
@@ -31,6 +34,10 @@ ShowUninstDetails show
 !endif
 !ifndef START_MENU_FOLDER
   !define START_MENU_FOLDER "GameLibrary"
+!endif
+; 静默安装（/S）遇到旧版时的默认选择：默认卸载旧版，保证无人值守升级干净覆盖。
+!ifndef OLD_VERSION_SILENT_ANSWER
+  !define OLD_VERSION_SILENT_ANSWER IDYES
 !endif
 
 !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_ID}"
@@ -74,6 +81,48 @@ VIAddVersionKey /LANG=2052 "LegalCopyright" "Copyright 2026 GameLibrary contribu
 
 Section "GameLibrary" SecMain
   SetShellVarContext current
+
+  ; v1.4.7：复制新文件前检测当前用户旧版卸载项，由用户选择是否先卸载，
+  ; 避免覆盖安装后旧版残留文件与新版本冲突。游戏库数据目录不受卸载影响。
+  ReadRegStr $R0 HKCU "${UNINSTALL_KEY}" "UninstallString"
+  ${If} $R0 != ""
+    ; UninstallString 首尾带引号（本安装器与 Tauri 安装器均如此），先剥引号得到裸路径：
+    ; 后续 ${FileExists} 与 ExecWait 都必须用裸路径自己加引号，否则带引号判定/启动会失败。
+    ; 注意：NSIS/LogicLib 中与引号字符比较必须用转义形式 '$\"'，直接写 '$"' 不会匹配。
+    StrCpy $R1 $R0 1
+    ${If} $R1 == '$\"'
+      StrCpy $R0 $R0 "" 1
+      StrLen $R1 $R0
+      IntOp $R1 $R1 - 1
+      StrCpy $R2 $R0 "" $R1
+      ${If} $R2 == '$\"'
+        StrCpy $R0 $R0 $R1
+      ${EndIf}
+    ${EndIf}
+    ${If} ${FileExists} "$R0"
+      MessageBox MB_YESNO|MB_ICONQUESTION "检测到当前用户已安装旧版 ${PRODUCT_NAME}。$\r$\n$\r$\n是否先卸载旧版再继续安装？（推荐）$\r$\n卸载只清理旧版程序文件，不影响游戏库数据；选择“否”将直接覆盖安装，可能残留旧版文件。" /SD ${OLD_VERSION_SILENT_ANSWER} IDYES gl_uninstall_old IDNO gl_keep_old
+
+      gl_uninstall_old:
+        ReadRegStr $R1 HKCU "${UNINSTALL_KEY}" "InstallLocation"
+        ${If} $R1 == ""
+          ${GetParent} $R0 $R1
+        ${EndIf}
+        DetailPrint "正在卸载旧版 ${PRODUCT_NAME}（目录：$R1）..."
+        ; _?= 指定旧安装目录并要求卸载程序原地同步执行，ExecWait 等卸载完成后再复制新文件。
+        ExecWait '"$R0" /S _?=$R1' $R3
+        ${If} $R3 != 0
+          MessageBox MB_OK|MB_ICONSTOP "卸载旧版 ${PRODUCT_NAME} 失败（退出码 $R3），安装已中止。$\r$\n请关闭正在运行的 ${PRODUCT_NAME} 后重新运行安装程序。" /SD IDOK
+          Abort
+        ${EndIf}
+        Goto gl_old_check_done
+
+      gl_keep_old:
+        DetailPrint "按用户选择保留旧版文件，直接覆盖安装"
+
+      gl_old_check_done:
+    ${EndIf}
+  ${EndIf}
+
   SetOutPath "$INSTDIR"
 
 !ifndef TEST_BUILD
