@@ -56,13 +56,13 @@ GameLibrary supports **Windows 10/11 x64**. Release packages are self-contained 
 
 | Package | Intended use |
 |---|---|
-| [GameLibrary-Setup-v1.5.1.exe](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.1/GameLibrary-Setup-v1.5.1.exe) | Recommended graphical installer. Lets you choose the install location and registers a standard Windows uninstall entry. |
-| [GameLibrary-Portable-win-x64-v1.5.1.zip](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.1/GameLibrary-Portable-win-x64-v1.5.1.zip) | Portable Tauri desktop app, bridge, and Host. Keep all three EXE files in the same folder. |
-| [GameLibrary-Tools-win-x64-v1.5.1.zip](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.1/GameLibrary-Tools-win-x64-v1.5.1.zip) | Host, CLI, and MCP server for automation and integrations. |
-| [SHA-256 checksums](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.1/GameLibrary-v1.5.1-SHA256SUMS.txt) | Integrity hashes for all three release packages. |
+| [GameLibrary-Setup-v1.5.2.exe](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.2/GameLibrary-Setup-v1.5.2.exe) | Recommended graphical installer. Lets you choose the install location and registers a standard Windows uninstall entry. |
+| [GameLibrary-Portable-win-x64-v1.5.2.zip](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.2/GameLibrary-Portable-win-x64-v1.5.2.zip) | Portable Tauri desktop app, bridge, and Host. Keep all three EXE files in the same folder. |
+| [GameLibrary-Tools-win-x64-v1.5.2.zip](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.2/GameLibrary-Tools-win-x64-v1.5.2.zip) | Host, CLI, and MCP server for automation and integrations. |
+| [SHA-256 checksums](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.2/GameLibrary-v1.5.2-SHA256SUMS.txt) | Integrity hashes for all three release packages. |
 
 > [!IMPORTANT]
-> The v1.5.1 Windows binaries are unsigned. Windows SmartScreen may show an unknown publisher warning. Download releases from this repository and verify the SHA-256 checksum.
+> The v1.5.2 Windows binaries are unsigned. Windows SmartScreen may show an unknown publisher warning. Download releases from this repository and verify the SHA-256 checksum.
 
 ## Quick start
 

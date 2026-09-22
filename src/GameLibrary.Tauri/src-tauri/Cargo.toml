@@ -1,6 +1,6 @@
 [package]
 name = "gamelibrary-desktop"
-version = "1.5.1"
+version = "1.5.2"
 description = "GameLibrary Tauri desktop client"
 authors = ["GameLibrary contributors"]
 edition = "2021"
