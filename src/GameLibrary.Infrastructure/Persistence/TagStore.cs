@@ -3,7 +3,12 @@ using Microsoft.Data.Sqlite;
 
 namespace GameLibrary.Infrastructure.Persistence;
 
-/// <summary>持久化标签行（含游戏计数，供 tags.list）。</summary>
+/// <summary>
+/// 持久化标签行（含游戏计数，供 tags.list）。
+/// v22 起新增 category/sortOrder/starred/displayName 四字段（feat-3）：
+/// category 按 kind 回填（engine→engine、user→special）；display_name 承载 engine
+/// 标签的用户改名（name 是身份键，扫描识别与 Suppress 覆盖均以其匹配）。
+/// </summary>
 public sealed record PersistedTag(
     string TagId,
     string Kind,
@@ -12,7 +17,11 @@ public sealed record PersistedTag(
     int Revision,
     int GameCount,
     DateTime CreatedUtc,
-    DateTime UpdatedUtc);
+    DateTime UpdatedUtc,
+    string Category = "special",
+    int SortOrder = 0,
+    bool Starred = false,
+    string? DisplayName = null);
 
 /// <summary>
 /// 标签存储（T-collections，迁移 v18）：标签定义按 (类型, 规范值) 唯一——
@@ -22,12 +31,18 @@ public sealed record PersistedTag(
 /// </summary>
 public static class TagStore
 {
+    /// <summary>公共列清单（v22 含四新列）+ 末位游戏计数；读取统一走 <see cref="ReadTag"/>。</summary>
+    private const string SelectColumns = """
+        t.tag_id, t.kind, t.name, t.color, t.revision, t.created_utc, t.updated_utc,
+        t.category, t.sort_order, t.starred, t.display_name
+        """;
+
     public static IReadOnlyList<PersistedTag> ListTags(SqliteConnection connection)
     {
         var result = new List<PersistedTag>();
         using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT t.tag_id, t.kind, t.name, t.color, t.revision, t.created_utc, t.updated_utc,
+        command.CommandText = $"""
+            SELECT {SelectColumns},
                    (SELECT COUNT(*) FROM game_tags gt
                     JOIN games g ON g.game_id = gt.game_id
                     WHERE gt.tag_id = t.tag_id AND g.membership = 'active') AS game_count
@@ -37,15 +52,7 @@ public static class TagStore
         using var reader = command.ExecuteReader();
         while (reader.Read())
         {
-            result.Add(new PersistedTag(
-                reader.GetString(0),
-                reader.GetString(1),
-                reader.GetString(2),
-                reader.IsDBNull(3) ? null : reader.GetString(3),
-                reader.GetInt32(4),
-                reader.GetInt32(7),
-                DateTime.Parse(reader.GetString(5), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
-                DateTime.Parse(reader.GetString(6), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)));
+            result.Add(ReadTag(reader));
         }
 
         return result;
@@ -54,8 +61,8 @@ public static class TagStore
     public static PersistedTag? TryGetTag(SqliteConnection connection, string tagId)
     {
         using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT t.tag_id, t.kind, t.name, t.color, t.revision, t.created_utc, t.updated_utc,
+        command.CommandText = $"""
+            SELECT {SelectColumns},
                    (SELECT COUNT(*) FROM game_tags gt
                     JOIN games g ON g.game_id = gt.game_id
                     WHERE gt.tag_id = t.tag_id AND g.membership = 'active')
@@ -68,15 +75,7 @@ public static class TagStore
             return null;
         }
 
-        return new PersistedTag(
-            reader.GetString(0),
-            reader.GetString(1),
-            reader.GetString(2),
-            reader.IsDBNull(3) ? null : reader.GetString(3),
-            reader.GetInt32(4),
-            reader.GetInt32(7),
-            DateTime.Parse(reader.GetString(5), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
-            DateTime.Parse(reader.GetString(6), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind));
+        return ReadTag(reader);
     }
 
     public static PersistedTag? TryGetTagByName(
@@ -87,8 +86,8 @@ public static class TagStore
         {
             command.Transaction = transaction;
         }
-        command.CommandText = """
-            SELECT t.tag_id, t.kind, t.name, t.color, t.revision, t.created_utc, t.updated_utc,
+        command.CommandText = $"""
+            SELECT {SelectColumns},
                    (SELECT COUNT(*) FROM game_tags gt
                     JOIN games g ON g.game_id = gt.game_id
                     WHERE gt.tag_id = t.tag_id AND g.membership = 'active')
@@ -102,16 +101,23 @@ public static class TagStore
             return null;
         }
 
-        return new PersistedTag(
-            reader.GetString(0),
-            reader.GetString(1),
-            reader.GetString(2),
-            reader.IsDBNull(3) ? null : reader.GetString(3),
-            reader.GetInt32(4),
-            reader.GetInt32(7),
-            DateTime.Parse(reader.GetString(5), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
-            DateTime.Parse(reader.GetString(6), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind));
+        return ReadTag(reader);
     }
+
+    /// <summary>统一行读取：0–10 为 <see cref="SelectColumns"/> 顺序，11 为游戏计数。</summary>
+    private static PersistedTag ReadTag(SqliteDataReader reader) => new(
+        reader.GetString(0),
+        reader.GetString(1),
+        reader.GetString(2),
+        reader.IsDBNull(3) ? null : reader.GetString(3),
+        reader.GetInt32(4),
+        reader.GetInt32(11),
+        DateTime.Parse(reader.GetString(5), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+        DateTime.Parse(reader.GetString(6), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+        reader.GetString(7),
+        reader.GetInt32(8),
+        reader.GetInt32(9) != 0,
+        reader.IsDBNull(10) ? null : reader.GetString(10));
 
     public static void CreateTag(SqliteConnection connection, PersistedTag tag, SqliteTransaction? transaction = null)
     {
@@ -121,28 +127,114 @@ public static class TagStore
             command.Transaction = transaction;
         }
         command.CommandText = """
-            INSERT INTO tags (tag_id, kind, name, color, revision, created_utc, updated_utc)
-            VALUES ($id, $kind, $name, $color, $rev, $created, $updated)
+            INSERT INTO tags (tag_id, kind, name, color, category, sort_order, starred, display_name, revision, created_utc, updated_utc)
+            VALUES ($id, $kind, $name, $color, $category, $sortOrder, $starred, $displayName, $rev, $created, $updated)
             """;
         command.Parameters.AddWithValue("$id", tag.TagId);
         command.Parameters.AddWithValue("$kind", tag.Kind);
         command.Parameters.AddWithValue("$name", tag.Name);
         command.Parameters.AddWithValue("$color", (object?)tag.Color ?? DBNull.Value);
+        command.Parameters.AddWithValue("$category", tag.Category);
+        command.Parameters.AddWithValue("$sortOrder", tag.SortOrder);
+        command.Parameters.AddWithValue("$starred", tag.Starred ? 1 : 0);
+        command.Parameters.AddWithValue("$displayName", (object?)tag.DisplayName ?? DBNull.Value);
         command.Parameters.AddWithValue("$rev", tag.Revision);
         command.Parameters.AddWithValue("$created", tag.CreatedUtc.ToString("O", CultureInfo.InvariantCulture));
         command.Parameters.AddWithValue("$updated", tag.UpdatedUtc.ToString("O", CultureInfo.InvariantCulture));
         command.ExecuteNonQuery();
     }
 
-    /// <summary>更新用户标签（名称/颜色）；期望修订乐观校验，返回新修订，冲突返回 null。</summary>
+    /// <summary>
+    /// 受限 patch 更新（feat-3）：仅拼接显式提供的字段；期望修订乐观校验，
+    /// 返回新修订，冲突返回 null。display_name 特殊——值非 null 即写入、
+    /// <paramref name="clearDisplayName"/> 为 true 时置 NULL（回落 name）。
+    /// name 仅允许 user 标签传值（engine 身份键不可变由 Handler 层把关）。
+    /// 空 patch 与旧行为一致：修订对齐即递增修订，不做其他改动。
+    /// </summary>
     public static int? UpdateTag(
-        SqliteConnection connection, string tagId, string? name, string? color, int expectedRevision, DateTime utcNow)
+        SqliteConnection connection,
+        string tagId,
+        string? name,
+        string? color,
+        string? category,
+        int? sortOrder,
+        bool? starred,
+        string? displayName,
+        bool clearDisplayName,
+        int expectedRevision,
+        DateTime utcNow)
     {
+        var sets = new List<string>();
+        if (name is not null)
+        {
+            sets.Add("name = $name");
+        }
+
+        if (color is not null)
+        {
+            sets.Add("color = $color");
+        }
+
+        if (category is not null)
+        {
+            sets.Add("category = $category");
+        }
+
+        if (sortOrder is not null)
+        {
+            sets.Add("sort_order = $sortOrder");
+        }
+
+        if (starred is not null)
+        {
+            sets.Add("starred = $starred");
+        }
+
+        if (clearDisplayName)
+        {
+            sets.Add("display_name = NULL");
+        }
+        else if (displayName is not null)
+        {
+            sets.Add("display_name = $displayName");
+        }
+
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = "UPDATE tags SET name = COALESCE($name, name), color = COALESCE($color, color), revision = revision + 1, updated_utc = $u WHERE tag_id = $id AND revision = $rev";
-            command.Parameters.AddWithValue("$name", (object?)name ?? DBNull.Value);
-            command.Parameters.AddWithValue("$color", (object?)color ?? DBNull.Value);
+            command.CommandText = $"""
+                UPDATE tags SET {string.Join(", ", sets)}, revision = revision + 1, updated_utc = $u
+                WHERE tag_id = $id AND revision = $rev
+                """;
+            if (name is not null)
+            {
+                command.Parameters.AddWithValue("$name", name);
+            }
+
+            if (color is not null)
+            {
+                command.Parameters.AddWithValue("$color", color);
+            }
+
+            if (category is not null)
+            {
+                command.Parameters.AddWithValue("$category", category);
+            }
+
+            if (sortOrder is not null)
+            {
+                command.Parameters.AddWithValue("$sortOrder", sortOrder.Value);
+            }
+
+            if (starred is not null)
+            {
+                command.Parameters.AddWithValue("$starred", starred.Value ? 1 : 0);
+            }
+
+            if (!clearDisplayName && displayName is not null)
+            {
+                command.Parameters.AddWithValue("$displayName", displayName);
+            }
+
             command.Parameters.AddWithValue("$u", utcNow.ToString("O", CultureInfo.InvariantCulture));
             command.Parameters.AddWithValue("$id", tagId);
             command.Parameters.AddWithValue("$rev", expectedRevision);
@@ -288,8 +380,10 @@ public static class TagStore
         var tag = TryGetTagByName(connection, "engine", engine, transaction);
         if (tag is null)
         {
+            // feat-3：新增 engine 标签 category 固定 'engine'（迁移 v22 存量同规则回填）。
             tag = new PersistedTag(
-                $"tag-{Guid.NewGuid():N}", "engine", engine, null, 1, 0, utcNow, utcNow);
+                $"tag-{Guid.NewGuid():N}", "engine", engine, null, 1, 0, utcNow, utcNow,
+                Category: "engine");
             CreateTag(connection, tag, transaction);
         }
 

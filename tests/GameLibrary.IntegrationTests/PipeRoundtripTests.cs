@@ -135,13 +135,18 @@ public sealed class PipeServerFixture : IAsyncDisposable
             Metrics = metrics,
         };
         events.OnPublished = (coalesced, overflowed) => metrics.RecordEventPublished(coalesced, overflowed);
+        // 只接启动尝试落库与 launch.exited 发布（feat-1/feat-2 生产同源）。
+        // 刻意不接完整 WirePersistence：OnProfileChanged 会触发 launch_profiles 的
+        // games 外键——既有启动用例允许给合成 gameId 建 Profile（不落 games 表），
+        // 夹具行为保持与历史一致。
+        HostRuntime.WireAttemptPersistence(State, init.Store!);
         StartupDir = System.IO.Path.Combine(dataDir.CanonicalPath!, "startup");
         State.StartupShortcuts = new GameLibrary.Infrastructure.Shell.StartupShortcutManager(StartupDir);
         Server = new PipeServer(
             ChannelNames.PipeName(dataDir.ComparisonKey!),
             State,
             new OperationDispatcher(State),
-            NullLogger.Instance);
+            new FileTestLogger(System.IO.Path.Combine(dataDir.CanonicalPath!, "pipe-server.log")));
         Server.Start();
     }
 

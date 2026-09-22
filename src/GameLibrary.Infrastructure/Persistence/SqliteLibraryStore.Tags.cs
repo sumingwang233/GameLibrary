@@ -19,8 +19,18 @@ public sealed partial class SqliteLibraryStore
     public void CreateTag(PersistedTag tag)
         => Execute((c, _) => TagStore.CreateTag(c, tag));
 
-    public int? UpdateTag(string tagId, string? name, string? color, int expectedRevision, DateTime utcNow)
-        => Execute((c, _) => TagStore.UpdateTag(c, tagId, name, color, expectedRevision, utcNow));
+    public int? UpdateTag(
+        string tagId,
+        string? name,
+        string? color,
+        string? category,
+        int? sortOrder,
+        bool? starred,
+        string? displayName,
+        bool clearDisplayName,
+        int expectedRevision,
+        DateTime utcNow)
+        => Execute((c, _) => TagStore.UpdateTag(c, tagId, name, color, category, sortOrder, starred, displayName, clearDisplayName, expectedRevision, utcNow));
 
     public IReadOnlyList<string> RemoveTag(string tagId)
         => Execute((c, _) => TagStore.RemoveTag(c, tagId));

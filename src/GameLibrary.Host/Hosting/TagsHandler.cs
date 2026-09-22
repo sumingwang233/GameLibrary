@@ -46,7 +46,7 @@ internal sealed class TagsHandler
         };
     }
 
-    /// <summary>创建 user 标签：名称 1–100 字符且不含控制字符，color 须为 #RRGGBB。</summary>
+    /// <summary>创建 user 标签：名称 1–100 字符且不含控制字符，color 须为 #RRGGBB；feat-3 起接受 category/sortOrder/starred/displayName。</summary>
     public Envelope<object> TagsCreate(IpcRequest request)
     {
         var store = _storeAccessor();
@@ -77,13 +77,52 @@ internal sealed class TagsHandler
             color = colorValue;
         }
 
+        // feat-3：category 缺省按 kind 推断——本操作只建 user 标签（kind 恒 'user'）故缺省
+        // 'special'；engine 标签由扫描经 EnsureEngineTagAssigned 创建并固定 'engine'。
+        var category = "special";
+        if (IpcRequests.TryGetStringParameter(request, "category", out var categoryValue))
+        {
+            if (categoryValue is not ("engine" or "gameplay" or "social" or "special"))
+            {
+                return IpcRequests.InvalidArgument(request, "category 只支持 engine/gameplay/social/special");
+            }
+
+            category = categoryValue;
+        }
+
+        var sortOrder = 0;
+        if (IpcRequests.TryGetIntParameter(request, "sortOrder", out var sortOrderValue))
+        {
+            sortOrder = sortOrderValue!.Value;
+        }
+
+        var starred = false;
+        if (IpcRequests.TryGetBoolParameter(request, "starred", out var starredValue))
+        {
+            starred = starredValue!.Value;
+        }
+
+        string? displayName = null;
+        if (IpcRequests.TryGetStringParameter(request, "displayName", out var displayNameValue))
+        {
+            var trimmed = displayNameValue.Trim();
+            if (trimmed.Length is < 1 or > 100 || trimmed.Any(char.IsControl))
+            {
+                return IpcRequests.InvalidArgument(request, "displayName 必须是 1–100 字符且不含控制字符");
+            }
+
+            displayName = trimmed;
+        }
+
         if (store.TryGetTagByName("user", name) is not null)
         {
             return IpcRequests.InvalidArgument(request, $"同名用户标签已存在：{name}");
         }
 
         var utcNow = DateTime.UtcNow;
-        var tag = new PersistedTag($"tag-{Guid.NewGuid():N}", "user", name, color, 1, 0, utcNow, utcNow);
+        var tag = new PersistedTag(
+            $"tag-{Guid.NewGuid():N}", "user", name, color, 1, 0, utcNow, utcNow,
+            category, sortOrder, starred, displayName);
         store.CreateTag(tag);
         _events.Publish("tag.created", $"tag:{tag.TagId}", new { tagId = tag.TagId, name }, utcNow);
         return new Envelope<object>
@@ -95,7 +134,12 @@ internal sealed class TagsHandler
         };
     }
 
-    /// <summary>更新 user 标签（engine 标签不可编辑）：expectedRevision 乐观并发校验。</summary>
+    /// <summary>
+    /// 更新标签（feat-3）：color/category/sortOrder/starred/displayName 对 engine 与 user
+    /// 标签均开放；name 是 engine 标签的身份键（扫描识别、Suppress/Reset 覆盖均按
+    /// (kind, name) 匹配）不可变——engine 标签改名走 displayName，user 标签 name 可改。
+    /// expectedRevision 乐观并发校验。
+    /// </summary>
     public Envelope<object> TagsUpdate(IpcRequest request)
     {
         var store = _storeAccessor();
@@ -117,14 +161,14 @@ internal sealed class TagsHandler
             return IpcRequests.NotFound(request, $"标签不存在：{tagId}");
         }
 
-        if (tag.Kind != "user")
-        {
-            return IpcRequests.InvalidArgument(request, "自动标签不可编辑（由引擎识别维护；可删除后 Suppress）");
-        }
-
         string? name = null;
         if (IpcRequests.TryGetStringParameter(request, "name", out var nameValue))
         {
+            if (tag.Kind != "user")
+            {
+                return IpcRequests.InvalidArgument(request, "自动标签 name 不可变（身份键，扫描与 Suppress 均按 name 识别）；改名请用 displayName");
+            }
+
             name = nameValue.Trim();
             if (name.Length is < 1 or > 100 || name.Any(char.IsControl))
             {
@@ -149,7 +193,58 @@ internal sealed class TagsHandler
             color = colorValue;
         }
 
-        var newRevision = store.UpdateTag(tagId, name, color, expectedRevision.Value, DateTime.UtcNow);
+        string? category = null;
+        if (IpcRequests.TryGetStringParameter(request, "category", out var categoryValue))
+        {
+            if (categoryValue is not ("engine" or "gameplay" or "social" or "special"))
+            {
+                return IpcRequests.InvalidArgument(request, "category 只支持 engine/gameplay/social/special");
+            }
+
+            category = categoryValue;
+        }
+
+        int? sortOrder = null;
+        if (IpcRequests.TryGetIntParameter(request, "sortOrder", out var sortOrderValue))
+        {
+            sortOrder = sortOrderValue;
+        }
+
+        bool? starred = null;
+        if (IpcRequests.TryGetBoolParameter(request, "starred", out var starredValue))
+        {
+            starred = starredValue;
+        }
+
+        // displayName 支持显式 null 清除（回落 name）；字符串走与 name 相同的清洗校验。
+        string? displayName = null;
+        var clearDisplayName = false;
+        if (request.Parameters is { ValueKind: System.Text.Json.JsonValueKind.Object } parameters
+            && parameters.TryGetProperty("displayName", out var displayNameElement))
+        {
+            if (displayNameElement.ValueKind == System.Text.Json.JsonValueKind.Null)
+            {
+                clearDisplayName = true;
+            }
+            else if (displayNameElement.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                var trimmed = (displayNameElement.GetString() ?? "").Trim();
+                if (trimmed.Length is < 1 or > 100 || trimmed.Any(char.IsControl))
+                {
+                    return IpcRequests.InvalidArgument(request, "displayName 必须是 1–100 字符且不含控制字符");
+                }
+
+                displayName = trimmed;
+            }
+            else
+            {
+                return IpcRequests.InvalidArgument(request, "displayName 必须是字符串或 null");
+            }
+        }
+
+        var newRevision = store.UpdateTag(
+            tagId, name, color, category, sortOrder, starred, displayName, clearDisplayName,
+            expectedRevision.Value, DateTime.UtcNow);
         if (newRevision is null)
         {
             return new Envelope<object>
@@ -384,12 +479,17 @@ internal sealed class TagsHandler
         };
     }
 
+    /// <summary>标签 DTO（feat-3 起含 category/sortOrder/starred/displayName；UI 展示名优先 displayName）。</summary>
     private static object TagDto(PersistedTag tag) => new
     {
         tagId = tag.TagId,
         kind = tag.Kind,
         name = tag.Name,
         color = tag.Color,
+        category = tag.Category,
+        sortOrder = tag.SortOrder,
+        starred = tag.Starred,
+        displayName = tag.DisplayName,
         gameCount = tag.GameCount,
         revision = tag.Revision,
         createdUtc = tag.CreatedUtc.ToString("O"),

@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { ViewItem } from "../lib/types";
+import { tagLabel } from "../lib/tags";
 import { cn } from "../lib/utils";
 import { ScrollArea } from "./ui/scroll-area";
 import { Separator } from "./ui/separator";
@@ -25,7 +26,7 @@ export interface SidebarProps {
   onFavoriteChange: (value: boolean) => void;
   tagId: string;
   onTagChange: (tagId: string) => void;
-  tags: Array<{ tagId: string; name: string; gameCount?: number }>;
+  tags: Array<{ tagId: string; name: string; displayName?: string | null; gameCount?: number }>;
   candidateTotal: number;
   gameTotal: number;
   notificationTotal: number;
@@ -180,7 +181,7 @@ export function Sidebar(props: SidebarProps) {
                 onTagChange(tagId === tag.tagId ? "" : tag.tagId);
               }}
             >
-              <span className="truncate">{tag.name}</span>
+              <span className="truncate">{tagLabel(tag)}</span>
               <span className="shrink-0 text-xs text-text-secondary">
                 {tag.gameCount ? tag.gameCount.toLocaleString() : ""}
               </span>

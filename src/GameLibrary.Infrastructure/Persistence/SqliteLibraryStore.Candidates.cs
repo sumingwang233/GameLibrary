@@ -21,9 +21,25 @@ public sealed partial class SqliteLibraryStore
     public bool UpsertCandidate(PersistedCandidate candidate)
         => Execute((c, _) => LibraryCatalogStore.UpsertCandidate(c, candidate));
 
+    /// <summary>
+    /// 候选注册根门控：路径必须落在某个 library 根内，且不在任何 manual 根之下
+    /// （v23 bug-5：manual 根下的游戏由用户手动管理，不参与候选发现——即使
+    /// manual 根嵌套在 library 根内，扫描也不得把已手动添加的位置再报一遍）。
+    /// </summary>
     public (bool Stored, bool Existed) UpsertRegisteredCandidate(PersistedCandidate candidate)
-        => Execute((c, _) => RuntimeStateStore.ReadRoots(c).Any(root => RuntimeStateStore.ContainsPath(root.PhysicalPath, candidate.PhysicalPath))
-            ? (true, LibraryCatalogStore.UpsertCandidate(c, candidate)) : (false, false));
+        => Execute((c, _) =>
+        {
+            var roots = RuntimeStateStore.ReadRoots(c);
+            var inLibraryRoot = roots.Any(root =>
+                !string.Equals(root.Kind, "manual", StringComparison.Ordinal)
+                && RuntimeStateStore.ContainsPath(root.PhysicalPath, candidate.PhysicalPath));
+            var underManualRoot = roots.Any(root =>
+                string.Equals(root.Kind, "manual", StringComparison.Ordinal)
+                && RuntimeStateStore.ContainsPath(root.PhysicalPath, candidate.PhysicalPath));
+            return inLibraryRoot && !underManualRoot
+                ? (true, LibraryCatalogStore.UpsertCandidate(c, candidate))
+                : (false, false);
+        });
 
     public void PromoteRescannedCandidate(string physicalPath, DateTime utcNow)
         => Execute((c, _) => LibraryCatalogStore.PromoteRescannedCandidate(c, physicalPath, utcNow));

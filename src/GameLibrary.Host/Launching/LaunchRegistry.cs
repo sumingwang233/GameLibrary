@@ -477,6 +477,10 @@ public sealed class LaunchRegistry
             };
             _attempts[attempt.AttemptId] = attempt;
             _processes[attempt.AttemptId] = process;
+            // feat-1：主动订阅游戏进程退出——不等人查询 launch.status/history 就完成
+            // attempt 记录（经 NotifyAttempt→OnAttemptChanged 落库，与惰性路径同一出口）。
+            // 只订阅最终进程；WaitForExit=true 的翻译注入步骤仍按原有同步有界等待处理。
+            WatchProcessExit(attempt.AttemptId, process);
             NotifyAttempt(attempt);
             return attempt;
         }
@@ -530,6 +534,45 @@ public sealed class LaunchRegistry
 
     private readonly ConcurrentDictionary<string, Process> _processes = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// 退出观察互斥：Exited 回调（线程池线程）与查询路径的惰性 RefreshAttempt 可能并发，
+    /// 没有它同一次退出会被观察两次（双份 launch.exited 事件/两次落库）。
+    /// </summary>
+    private readonly object _refreshLock = new();
+
+    /// <summary>
+    /// feat-1：订阅进程退出事件。EnableRaisingEvents 在 Start 之后设置存在固有窗口
+    /// （订阅前已退出则事件丢失），由查询路径的惰性 RefreshAttempt 兜底——
+    /// 外部管理器杀进程、外壳启动（SWF）拿不到句柄等场景同理。
+    /// </summary>
+    private void WatchProcessExit(string attemptId, Process process)
+    {
+        try
+        {
+            process.EnableRaisingEvents = true;
+            process.Exited += (_, _) =>
+            {
+                try
+                {
+                    if (_attempts.TryGetValue(attemptId, out var current) && current.State == "processCreated")
+                    {
+                        RefreshAttempt(current);
+                    }
+                }
+                catch (Exception)
+                {
+                    // 后台回调失败绝不能带崩宿主（如宿主停机后连接已释放）：
+                    // 状态留在 processCreated，查询路径的惰性刷新兜底。
+                }
+            };
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException
+            or System.ComponentModel.Win32Exception)
+        {
+            // 订阅失败（个别外壳启动形态）：保持纯惰性观察语义。
+        }
+    }
+
     /// <summary>查询时尽力观察：进程已退出则记 exited 并释放互斥（观察不等待，见契约 7.2）。</summary>
     public LaunchAttempt? GetAttempt(string attemptId)
     {
@@ -556,28 +599,42 @@ public sealed class LaunchRegistry
 
     private LaunchAttempt RefreshAttempt(LaunchAttempt attempt)
     {
-        if (attempt.State != "processCreated" || !_processes.TryGetValue(attempt.AttemptId, out var process))
+        if (attempt.State != "processCreated")
         {
             return attempt;
         }
 
-        process.Refresh();
-        if (!process.HasExited)
+        lock (_refreshLock)
         {
-            return attempt;
-        }
+            // 锁内重读：可能已被并发的 Exited 回调/查询先行完成。
+            if (!_attempts.TryGetValue(attempt.AttemptId, out var current) || current.State != "processCreated")
+            {
+                return _attempts.TryGetValue(attempt.AttemptId, out var settled) ? settled : attempt;
+            }
 
-        var observed = attempt with
-        {
-            State = "exited",
-            ExitCode = process.ExitCode,
-            FinishedUtc = DateTime.UtcNow,
-        };
-        _attempts[attempt.AttemptId] = observed;
-        _processes.TryRemove(attempt.AttemptId, out _);
-        _activeByGame.TryRemove(observed.GameId, out _);
-        NotifyAttempt(observed);
-        return observed;
+            if (!_processes.TryGetValue(attempt.AttemptId, out var process))
+            {
+                return current;
+            }
+
+            process.Refresh();
+            if (!process.HasExited)
+            {
+                return current;
+            }
+
+            var observed = current with
+            {
+                State = "exited",
+                ExitCode = process.ExitCode,
+                FinishedUtc = DateTime.UtcNow,
+            };
+            _attempts[attempt.AttemptId] = observed;
+            _processes.TryRemove(attempt.AttemptId, out _);
+            _activeByGame.TryRemove(observed.GameId, out _);
+            NotifyAttempt(observed);
+            return observed;
+        }
     }
 
     private static void ValidatePaths(LaunchProfile profile)

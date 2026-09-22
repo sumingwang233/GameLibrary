@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Ban, FolderPlus, FolderTree, Trash2 } from "lucide-react";
 import { describeFailure, operation } from "../lib/api";
 import type { IgnoreRuleItem, RootItem } from "../lib/types";
+import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { ConfirmDialog } from "./ui/confirm-dialog";
 import { Input } from "./ui/input";
@@ -19,6 +20,45 @@ const SCOPE_LABELS: Record<string, string> = {
   ExactPath: "仅该路径",
   ConfirmedIdentity: "按已确认身份",
 };
+
+/**
+ * bug-4：路径归一化（大小写 + 正反斜杠 + 尾分隔符）后判断 child 是否是 parent 的
+ * 子路径——前缀比较须结尾对齐目录边界（child === parent + 分隔符 + ...），
+ * 避免 "F:\Game" 误吞 "F:\GameTool"。盘根 "F:\" 归一为 "f:"，仍按 "f:\" 前缀对齐。
+ */
+function isSubpathOf(childPath: string, parentPath: string): boolean {
+  const normalize = (value: string) => {
+    let normalized = value.trim().replace(/\//g, "\\");
+    while (normalized.endsWith("\\")) normalized = normalized.slice(0, -1);
+    return normalized.toLowerCase();
+  };
+  const child = normalize(childPath);
+  const parent = normalize(parentPath);
+  if (!child || !parent || child.length <= parent.length) return false;
+  return child.startsWith(`${parent}\\`);
+}
+
+/** 折叠后的过滤名单条目：母条目 + 被它覆盖的子规则数（孙级也计入母条目）。 */
+interface IgnoreDisplay {
+  rule: IgnoreRuleItem;
+  foldedCount: number;
+}
+
+/**
+ * 只显示最外层母文件夹；路径是另一条目子路径的规则不单独成行，数量记为母条目角标
+ * （"含 n 条子规则"）。无路径规则（ConfirmedIdentity 按 gameId）不参与折叠，原样显示。
+ */
+function foldIgnores(ignores: IgnoreRuleItem[]): IgnoreDisplay[] {
+  const withPath = ignores.filter((rule) => rule.path);
+  return ignores
+    .filter((rule) => !rule.path || !withPath.some((other) => other.ignoreId !== rule.ignoreId && isSubpathOf(rule.path!, other.path!)))
+    .map((rule) => ({
+      rule,
+      foldedCount: rule.path
+        ? withPath.filter((other) => other.ignoreId !== rule.ignoreId && isSubpathOf(other.path!, rule.path!)).length
+        : 0,
+    }));
+}
 
 /**
  * 游戏库目录 + 扫描过滤名单。
@@ -41,6 +81,8 @@ export function RootsPanel({
   const [pendingScope, setPendingScope] = useState("Subtree");
   const [removingRoot, setRemovingRoot] = useState<RootItem | null>(null);
   const [busy, setBusy] = useState(false);
+  // bug-4：子路径规则折叠显示（保留原始 ignores 状态用于删除单条规则）。
+  const foldedIgnores = useMemo(() => foldIgnores(ignores), [ignores]);
 
   const loadIgnores = async () => {
     setLoading(true);
@@ -99,16 +141,7 @@ export function RootsPanel({
   };
 
   return (
-    <section aria-labelledby="roots-heading" className="space-y-8">
-      <header>
-        <h1 id="roots-heading" className="text-2xl font-bold tracking-tight text-text-primary">
-          游戏库目录
-        </h1>
-        <p className="mt-1 text-sm text-text-secondary">
-          扫描会遍历这里列出的每一个目录；下面的过滤名单可以把不想入库的子目录排除掉。
-        </p>
-      </header>
-
+    <section className="space-y-8">
       <div className="space-y-3">
         <h2 className="text-xs font-semibold tracking-[0.16em] text-text-secondary uppercase">
           已注册目录 · {roots.length}
@@ -150,7 +183,7 @@ export function RootsPanel({
             }
           >
             <FolderPlus size={16} />
-            添加目录
+            添加游戏库
           </Button>
         </div>
       </div>
@@ -203,7 +236,7 @@ export function RootsPanel({
           </p>
         ) : (
           <ul className="space-y-1">
-            {ignores.map((rule) => (
+            {foldedIgnores.map(({ rule, foldedCount }) => (
               <li
                 key={rule.ignoreId}
                 className="flex items-center gap-3 rounded-md border border-border bg-surface px-3 py-2"
@@ -212,9 +245,15 @@ export function RootsPanel({
                 <span className="shrink-0 text-xs text-text-secondary">
                   {SCOPE_LABELS[rule.scope] ?? rule.scope}
                 </span>
-                <span className="min-w-0 flex-1 truncate text-sm text-text-primary">
+                <span className="min-w-0 flex-1 truncate text-sm text-text-primary" title={rule.path ?? undefined}>
                   {rule.path ?? rule.gameId ?? "—"}
                 </span>
+                {/* bug-4：子路径规则折叠进母条目，数量显示为角标。 */}
+                {foldedCount > 0 && (
+                  <Badge className="shrink-0" aria-label={`含 ${foldedCount} 条子规则`}>
+                    含 {foldedCount} 条子规则
+                  </Badge>
+                )}
                 <Button
                   size="icon"
                   variant="ghost"

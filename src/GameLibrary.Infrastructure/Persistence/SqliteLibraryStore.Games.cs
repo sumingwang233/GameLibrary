@@ -27,6 +27,11 @@ public sealed partial class SqliteLibraryStore
         IReadOnlyList<GameCard> games)
         => Execute((c, _) => LibraryCatalogStore.EnrichGameCards(c, games));
 
+    /// <summary>游玩统计聚合（feat-1）：launch_attempts 按 game_id 聚合时长与最近游玩。</summary>
+    public IReadOnlyDictionary<string, PlaytimeStats> QueryPlaytimeStats(
+        IReadOnlyCollection<string> gameIds)
+        => Execute((c, _) => LibraryCatalogStore.QueryPlaytimeStats(c, gameIds));
+
     public GameCard? TryGetGameByRootPath(string rootPath)
         => Execute((c, _) => LibraryCatalogStore.TryGetGameByRootPath(c, rootPath));
 

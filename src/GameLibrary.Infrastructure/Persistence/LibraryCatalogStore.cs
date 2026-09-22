@@ -113,6 +113,13 @@ public sealed record GameCardEnrichment
     public required IReadOnlyList<(string Kind, string Name)> Tags { get; init; }
 }
 
+/// <summary>
+/// 游玩统计（feat-1）：由 launch_attempts 聚合。PlaytimeMinutes 为
+/// sum(finished-started) 换算的分钟数（整分钟向下取整，负值钳 0）；
+/// LastPlayedUtc 为最近一次有起止时间的 attempt 的 finished_utc（从未玩过为 null）。
+/// </summary>
+public sealed record PlaytimeStats(long PlaytimeMinutes, DateTime? LastPlayedUtc);
+
 /// <summary>accept 结果：accepted=本次转移成功；alreadyAccepted=幂等重放（不写任何表）；conflict=状态或 Revision 不符。</summary>
 public sealed record AcceptCandidateOutcome
 {
@@ -970,6 +977,53 @@ public static class LibraryCatalogStore
         {
             command.Parameters.AddWithValue($"$id{i}", ids[i]);
         }
+    }
+
+    /// <summary>
+    /// 游玩统计聚合（feat-1）：SQL 侧按 game_id 聚合 launch_attempts——
+    /// 只统计同时具备 process_started_utc 与 finished_utc 的 attempt（无起止时间的不计入，
+    /// processStartFailed 只有 finished、未完成只有 started，天然被排除）；
+    /// GROUP BY 保证同一 attempt（唯一行，UPSERT 语义）只计一次。
+    /// julianday() 解析库内 ISO-8601 往返格式（含 'Z' 后缀与多位小数秒），差值 ×86400 得秒；
+    /// 先 ROUND 到整秒再 CAST——julianday 内部是毫秒整数，转 double 后 CAST 截断会丢整秒
+    /// （如 30 分钟变 1799.999…→1799）。
+    /// 查询走既有 idx_launch_attempts_game(game_id, created_utc)。
+    /// </summary>
+    public static IReadOnlyDictionary<string, PlaytimeStats> QueryPlaytimeStats(
+        SqliteConnection connection, IReadOnlyCollection<string> gameIds)
+    {
+        var result = new Dictionary<string, PlaytimeStats>(StringComparer.Ordinal);
+        const int chunkSize = 500;
+        var ids = gameIds.Distinct(StringComparer.Ordinal).ToArray();
+        for (var chunkStart = 0; chunkStart < ids.Length; chunkStart += chunkSize)
+        {
+            var chunk = ids.Skip(chunkStart).Take(chunkSize).ToArray();
+            var idList = string.Join(", ", chunk.Select((_, i) => $"$id{i}"));
+            using var command = connection.CreateCommand();
+            command.CommandText = $"""
+                SELECT game_id,
+                       SUM(CAST(ROUND((julianday(finished_utc) - julianday(process_started_utc)) * 86400.0) AS INTEGER)) AS total_seconds,
+                       MAX(finished_utc) AS last_finished
+                FROM launch_attempts
+                WHERE game_id IN ({idList})
+                  AND process_started_utc IS NOT NULL
+                  AND finished_utc IS NOT NULL
+                GROUP BY game_id
+                """;
+            BindIds(command, chunk);
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                var totalSeconds = Convert.ToInt64(reader.GetValue(1) ?? 0L);
+                var minutes = Math.Max(0, totalSeconds / 60);
+                DateTime? lastFinished = reader.IsDBNull(2)
+                    ? null
+                    : DateTime.Parse(reader.GetString(2), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+                result[reader.GetString(0)] = new PlaytimeStats(minutes, lastFinished);
+            }
+        }
+
+        return result;
     }
 
     public static GameCard? TryGetGameByRootPath(SqliteConnection connection, string rootPath, SqliteTransaction? transaction = null)

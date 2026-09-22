@@ -3,8 +3,11 @@ using Microsoft.Data.Sqlite;
 
 namespace GameLibrary.Infrastructure.Persistence;
 
-/// <summary>持久化库根行。</summary>
-public sealed record PersistedRoot(string RootId, string PhysicalPath, int Revision, DateTime CreatedUtc);
+/// <summary>
+/// 持久化库根行。Kind（v23）：library=扫描根；manual=手动添加游戏时注册的
+/// 路径包含边界根——不参与扫描枚举与候选发现（bug-5）。
+/// </summary>
+public sealed record PersistedRoot(string RootId, string PhysicalPath, int Revision, DateTime CreatedUtc, string Kind = "library");
 
 /// <summary>持久化启动 Profile 行。</summary>
 public sealed record PersistedProfile(
@@ -59,7 +62,10 @@ public static class RuntimeStateStore
     {
         var result = new List<PersistedRoot>();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT root_id, physical_path, revision, created_utc FROM library_roots ORDER BY created_utc, root_id";
+        command.CommandText = """
+            SELECT root_id, physical_path, revision, created_utc, kind
+            FROM library_roots ORDER BY created_utc, root_id
+            """;
         using var reader = command.ExecuteReader();
         while (reader.Read())
         {
@@ -67,7 +73,8 @@ public static class RuntimeStateStore
                 reader.GetString(0),
                 reader.GetString(1),
                 reader.GetInt32(2),
-                DateTime.Parse(reader.GetString(3), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)));
+                DateTime.Parse(reader.GetString(3), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+                reader.GetString(4)));
         }
 
         return result;
@@ -77,16 +84,18 @@ public static class RuntimeStateStore
     {
         using var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO library_roots (root_id, physical_path, revision, created_utc)
-            VALUES ($id, $path, $rev, $created)
+            INSERT INTO library_roots (root_id, physical_path, revision, created_utc, kind)
+            VALUES ($id, $path, $rev, $created, $kind)
             ON CONFLICT(root_id) DO UPDATE SET
                 physical_path = excluded.physical_path,
-                revision = excluded.revision
+                revision = excluded.revision,
+                kind = excluded.kind
             """;
         command.Parameters.AddWithValue("$id", root.RootId);
         command.Parameters.AddWithValue("$path", root.PhysicalPath);
         command.Parameters.AddWithValue("$rev", root.Revision);
         command.Parameters.AddWithValue("$created", root.CreatedUtc.ToString("O", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$kind", root.Kind);
         command.ExecuteNonQuery();
     }
 

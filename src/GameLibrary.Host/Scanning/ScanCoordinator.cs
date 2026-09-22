@@ -51,7 +51,9 @@ public sealed class ScanCoordinator : IDisposable
         try
         {
             Interlocked.Increment(ref TriggeredCount);
-            foreach (var root in _roots.List())
+            // v23（bug-5）：只核对 library 根——manual 根是手动添加游戏的包含边界，
+            // 不参与扫描枚举（manual 根下的游戏不产生候选）。
+            foreach (var root in _roots.ListScannable())
             {
                 var outcome = _runReconcileScan(root.Path.PhysicalPath);
                 _events.Publish(

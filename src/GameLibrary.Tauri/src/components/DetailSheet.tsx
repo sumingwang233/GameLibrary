@@ -4,6 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { Check, ExternalLink, ImagePlus, Play, Star, Trash2 } from "lucide-react";
 import { assetDataUrl, describeFailure, operation } from "../lib/api";
+import { groupTagsByCategory, tagLabel } from "../lib/tags";
 import type {
   GameItem,
   ProfileItem,
@@ -11,7 +12,7 @@ import type {
   TagItem,
   TranslationPolicy,
 } from "../lib/types";
-import { cn, formatSimilarity, formatTime } from "../lib/utils";
+import { cn, formatPlaytime, formatSimilarity, formatTime } from "../lib/utils";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { ConfirmDialog } from "./ui/confirm-dialog";
@@ -337,7 +338,7 @@ export function DetailSheet({
                   onBlur={() => {
                     if (summaryDraft !== (current.summary ?? "")) void saveField("summary", summaryDraft);
                   }}
-                  placeholder="写点什么，或留空使用自动生成的内容"
+                  placeholder="写点什么"
                   aria-label="游戏简介"
                 />
               </LabeledField>
@@ -349,20 +350,17 @@ export function DetailSheet({
                   aria-label="翻译策略"
                   className="h-10 w-full rounded-md border border-input bg-field px-3 text-sm text-text-primary focus-visible:border-steam focus-visible:outline-none"
                 >
-                  <option value="Auto">Auto · 继承目录约定并自动调用翻译工具</option>
-                  <option value="Required">Required · 需要翻译插件或翻译工具</option>
-                  <option value="NotRequired">NotRequired · 直接启动原文程序</option>
+                  <option value="Auto">Auto·自动翻译</option>
+                  <option value="Required">Required·需要翻译</option>
+                  <option value="NotRequired">NotRequired·原生启动</option>
                 </select>
-                {translation && (
-                  <p className="mt-2 text-xs text-text-secondary">
-                    当前有效策略：{translation.effective}
-                    {translation.inherited ? ` · 继承自 ${translation.inherited}` : ""}
-                  </p>
-                )}
               </LabeledField>
 
               <dl className="space-y-2 text-sm">
                 <InfoRow label="路径" value={current.rootPath} />
+                {/* feat-1：游玩统计（launch_attempts 聚合，v1.5 起 GameDto 携带）。 */}
+                <InfoRow label="游玩时长" value={formatPlaytime(current.playtimeMinutes) || "尚未游玩"} />
+                <InfoRow label="最近游玩" value={formatTime(current.lastPlayedUtc)} />
                 <InfoRow label="入库时间" value={formatTime(current.acceptedUtc)} />
                 <InfoRow label="最近修改" value={formatTime(current.updatedUtc)} />
                 <InfoRow label="可用状态" value={current.availability ?? "unknown"} />
@@ -381,10 +379,6 @@ export function DetailSheet({
             </TabsContent>
 
             <TabsContent value="launch" className="space-y-3">
-              <p className="text-xs text-text-secondary">
-                配置游戏的原始主程序即可。内置 BepInEx + XUnity.AutoTranslator 的游戏直接启动原程序；
-                外部翻译工具需要受支持的启动配方。
-              </p>
               {profiles.length === 0 ? (
                 <p className="rounded-md border border-dashed border-border p-4 text-sm text-text-secondary">
                   还没有配置启动方式。
@@ -453,35 +447,53 @@ export function DetailSheet({
               {tags.length === 0 ? (
                 <p className="text-sm text-text-secondary">还没有标签，可以直接在上方新建。</p>
               ) : (
-                <div className="flex flex-wrap gap-2">
-                  {tags.map((tag) => {
-                    const active = hasTag(current, tag);
-                    return (
-                      <button
-                        key={tag.tagId}
-                        type="button"
-                        disabled={busy}
-                        aria-pressed={active}
-                        onClick={() => void toggleTag(tag)}
-                        className={cn(
-                          "cursor-pointer rounded-full border px-3 py-1 text-xs transition disabled:opacity-50",
-                          active
-                            ? "border-steam bg-steam-soft text-steam"
-                            : "border-border text-text-secondary hover:border-steam",
-                        )}
-                      >
-                        {tag.name}
-                      </button>
-                    );
-                  })}
+                // feat-3：按四个分类（引擎/玩法/社团/特殊）分组展示并勾选标注；
+                // 组内星标置顶（compareTags），空分组整段隐藏。
+                <div className="space-y-4">
+                  {groupTagsByCategory(tags)
+                    .filter((group) => group.items.length > 0)
+                    .map((group) => (
+                      <div key={group.value}>
+                        <h4 className="mb-2 text-[11px] font-semibold tracking-[0.14em] text-text-secondary uppercase">
+                          {group.label} · {group.items.length}
+                        </h4>
+                        <div className="flex flex-wrap gap-2">
+                          {group.items.map((tag) => {
+                            const active = hasTag(current, tag);
+                            return (
+                              <button
+                                key={tag.tagId}
+                                type="button"
+                                disabled={busy}
+                                aria-pressed={active}
+                                onClick={() => void toggleTag(tag)}
+                                className={cn(
+                                  "inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition disabled:opacity-50",
+                                  active
+                                    ? "border-steam bg-steam-soft text-steam"
+                                    : "border-border text-text-secondary hover:border-steam",
+                                )}
+                              >
+                                {tag.color && (
+                                  <span
+                                    aria-hidden="true"
+                                    className="size-2 shrink-0 rounded-full"
+                                    style={{ backgroundColor: tag.color }}
+                                  />
+                                )}
+                                {tagLabel(tag)}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
                 </div>
               )}
             </TabsContent>
 
             <TabsContent value="cover" className="space-y-3">
-              <p className="text-xs text-text-secondary">
-                支持最大 5 MiB 图片，按原比例完整显示。游戏目录没有 cover 时，会保存一份 cover.原扩展名；已有 cover 不覆盖。
-              </p>
+              <p className="text-xs text-text-secondary">最大支持 5 MB 的图片文件</p>
               <Button variant="outline" className="w-full" disabled={busy} onClick={() => void importCover()}>
                 <ImagePlus size={15} />
                 导入封面图片

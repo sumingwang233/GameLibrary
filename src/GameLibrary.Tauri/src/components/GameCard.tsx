@@ -1,8 +1,8 @@
 import { memo, useEffect, useRef, useState } from "react";
-import { Play, Star } from "lucide-react";
+import { Clock3, Play, Star } from "lucide-react";
 import { assetDataUrl } from "../lib/api";
 import type { GameItem } from "../lib/types";
-import { cn } from "../lib/utils";
+import { cn, formatPlaytime } from "../lib/utils";
 
 export interface GameCardProps {
   game: GameItem;
@@ -17,6 +17,7 @@ export interface GameCardProps {
 
 function GameCardImpl({ game, selected, checked, selectionDisabled, onToggle, onSelect, onPlay }: GameCardProps) {
   const initials = game.title.trim().slice(0, 2).toUpperCase() || "GL";
+  const playtime = formatPlaytime(game.playtimeMinutes);
   const [cover, setCover] = useState<string | null>(null);
   const [visible, setVisible] = useState(false);
   const cardRef = useRef<HTMLElement | null>(null);
@@ -119,9 +120,18 @@ function GameCardImpl({ game, selected, checked, selectionDisabled, onToggle, on
       </div>
       <div className="flex items-center justify-between gap-2 px-3 py-2 text-[11px] text-text-secondary">
         <span className="truncate">{availabilityLabel(game.availability)}</span>
-        {game.favorite && (
-          <Star size={13} aria-label="已收藏" className="shrink-0 fill-favorite text-favorite" />
-        )}
+        {/* feat-1：卡面底部累计时长（Steam 卡片样式）；0 分钟不显示（formatPlaytime 返回空串）。 */}
+        <span className="flex min-w-0 shrink-0 items-center gap-1.5">
+          {playtime && (
+            <span title={`累计游玩 ${playtime}`} className="inline-flex items-center gap-1 whitespace-nowrap">
+              <Clock3 size={12} aria-hidden="true" />
+              {playtime}
+            </span>
+          )}
+          {game.favorite && (
+            <Star size={13} aria-label="已收藏" className="shrink-0 fill-favorite text-favorite" />
+          )}
+        </span>
       </div>
     </article>
   );

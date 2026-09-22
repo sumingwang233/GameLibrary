@@ -27,14 +27,10 @@ export function TitleBar({ onAddRoot, onScan, onSettings, scanning, onTags, onRo
   };
   return (
     <header className="flex h-12 shrink-0 items-center border-b border-border bg-surface text-text-primary select-none">
-      <div data-tauri-drag-region className="flex h-full min-w-40 items-center gap-2 px-4">
-        <img src="/app-icon.svg" alt="" className="pointer-events-none h-7 w-7" />
-        <span className="pointer-events-none text-sm font-semibold tracking-wide">GameLibrary</span>
-      </div>
-      <nav aria-label="快捷操作" className="flex items-center gap-1">
+      <nav aria-label="快捷操作" className="flex items-center gap-1 px-4">
         <Button variant="ghost" size="sm" onClick={onTags}><Tags size={15} />管理标签</Button>
         <Button variant="ghost" size="sm" onClick={onRoots}><FolderTree size={15} />游戏库目录</Button>
-        <Button variant="ghost" size="sm" onClick={onAddRoot}><FolderPlus size={15} />添加目录</Button>
+        <Button variant="ghost" size="sm" onClick={onAddRoot}><FolderPlus size={15} />添加游戏库</Button>
         <Button variant="ghost" size="sm" onClick={onManualAdd}><PlusCircle size={15} />手动添加游戏</Button>
         <Button variant="ghost" size="sm" onClick={onScan} disabled={scanning}><FolderSearch size={15} />{scanning ? "正在扫描" : "扫描游戏库"}</Button>
         <Button size="sm" className="mx-2 shadow-sm" onClick={onSettings}><Settings2 size={16} />设置</Button>

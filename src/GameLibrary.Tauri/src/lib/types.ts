@@ -60,6 +60,10 @@ export interface GameItem {
   availability?: string;
   missingSinceUtc?: string | null;
   tags?: GameTagRef[];
+  /** 累计游玩分钟（v1.5 feat-1，launch_attempts 聚合，GamesHandler GameDto 恒有、缺省 0）。 */
+  playtimeMinutes?: number;
+  /** 最近一次游玩完成时间（ISO-8601）；从未玩过为 null。 */
+  lastPlayedUtc?: string | null;
   /** 仅 games.get 注入（games.list 批量 DTO 不带），旧后端无此字段。 */
   fingerprint?: FingerprintSummary | null;
   /** 仅 games.get 注入，无指纹/无命中时为空数组，旧后端无此字段。 */
@@ -93,6 +97,15 @@ export interface TagItem {
   kind: string;
   name: string;
   color?: string | null;
+  /**
+   * feat-3（迁移 v22）：四分类 engine/gameplay/social/special，缺省按 kind 推断
+   * （engine→engine，user→special）。UI 展示名优先 displayName（engine 标签 name
+   * 是身份键不可变，改名落 displayName）。
+   */
+  category?: string | null;
+  sortOrder?: number;
+  starred?: boolean;
+  displayName?: string | null;
   revision: number;
   gameCount?: number;
 }
@@ -100,6 +113,8 @@ export interface TagItem {
 export interface RootItem {
   rootId: string;
   path: string;
+  /** v23：library（扫描根）| manual（手动添加游戏的边界根，不进 roots.list/扫描）。 */
+  kind?: string;
   revision: number;
 }
 
@@ -169,7 +184,7 @@ export interface LibrarySettings {
   scanIntervalMinutes: number;
   theme: "dark" | "light" | "system";
   closeToTray: boolean;
-  uiFontScale: number;
+  /** v1.5.0 下线界面缩放：uiFontScale 字段移除，前端不再读写；后端 settings 保留该字段以兼容旧库。 */
   uiFontFamily?: string | null;
   cacheParentDirectory?: string | null;
 }

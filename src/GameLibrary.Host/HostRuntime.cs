@@ -109,8 +109,9 @@ public sealed class HostRuntime : IAsyncDisposable
     /// <summary>
     /// 运行态持久化恢复与回调接线（v13+）：库根/Profile/启动历史回灌内存注册表；
     /// 上次运行未完成的作业标记 interrupted；此后注册表变更同步落库。
+    /// 集成测试夹具复用同一接线（保证 playtime 聚合/launch.exited 事件在测试管道中同真源）。
     /// </summary>
-    private static void WirePersistence(HostRuntimeState state)
+    internal static void WirePersistence(HostRuntimeState state)
     {
         var store = state.Library.Store;
         if (store is null)
@@ -126,7 +127,7 @@ public sealed class HostRuntime : IAsyncDisposable
         {
             try
             {
-                state.Roots.AddExisting(persisted.RootId, persisted.PhysicalPath, persisted.CreatedUtc);
+                state.Roots.AddExisting(persisted.RootId, persisted.PhysicalPath, persisted.CreatedUtc, persisted.Kind);
             }
             catch (RootRegistryException)
             {
@@ -192,7 +193,28 @@ public sealed class HostRuntime : IAsyncDisposable
                 DateTime.UtcNow,
                 DateTime.UtcNow), DateTime.UtcNow);
         };
+        WireAttemptPersistence(state, store);
+        state.Jobs.OnJobRecorded = snapshot =>
+            store.UpsertJobRecord(new PersistedJobRecord(
+                snapshot.JobId,
+                snapshot.Kind,
+                snapshot.State,
+                snapshot.CreatedUtc,
+                snapshot.StartedUtc,
+                snapshot.FinishedUtc,
+                snapshot.Error));
+    }
+
+    /// <summary>
+    /// 启动尝试落库 + launch.exited 事件接线（feat-1/feat-2 单一真源，集成测试夹具复用）：
+    /// 每次状态迁移同步 UPSERT launch_attempts；attempt 进入 exited 时发布 launch.exited
+    /// （前端经 events.read 轮询消费）。RefreshAttempt 的状态门保证同一 attempt 只发一次；
+    /// 折叠键带 attemptId，不会被同实体 2 秒窗口误合并。
+    /// </summary>
+    internal static void WireAttemptPersistence(HostRuntimeState state, SqliteLibraryStore store)
+    {
         state.Launches.OnAttemptChanged = attempt =>
+        {
             store.UpsertLaunchAttempt(new PersistedLaunchAttempt(
                 attempt.AttemptId,
                 attempt.IdempotencyKey,
@@ -209,15 +231,20 @@ public sealed class HostRuntime : IAsyncDisposable
                 attempt.FinishedUtc,
                 attempt.Error,
                 attempt.CreatedUtc));
-        state.Jobs.OnJobRecorded = snapshot =>
-            store.UpsertJobRecord(new PersistedJobRecord(
-                snapshot.JobId,
-                snapshot.Kind,
-                snapshot.State,
-                snapshot.CreatedUtc,
-                snapshot.StartedUtc,
-                snapshot.FinishedUtc,
-                snapshot.Error));
+
+            if (attempt.State == "exited")
+            {
+                state.Events.Publish("launch.exited", $"launch:{attempt.AttemptId}", new
+                {
+                    attemptId = attempt.AttemptId,
+                    gameId = attempt.GameId,
+                    exitCode = attempt.ExitCode,
+                    durationSeconds = attempt.ProcessStartedUtc is { } started && attempt.FinishedUtc is { } finished
+                        ? Math.Max(0L, (long)(finished - started).TotalSeconds)
+                        : (long?)null,
+                }, DateTime.UtcNow);
+            }
+        };
     }
 
     /// <summary>周期核对（T16）：小步重扫 + 候选落库/晋升 + 事件发布；与手动扫描共用同一路径。</summary>

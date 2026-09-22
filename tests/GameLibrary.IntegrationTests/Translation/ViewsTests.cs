@@ -199,4 +199,97 @@ public sealed class ViewsTests : IClassFixture<PipeServerFixture>
         Assert.Contains(favGame, customIds);
         Assert.DoesNotContain(plainGame, customIds);
     }
+
+    // —— bug-1 扩展排序白名单用例（置于类尾并自清理，避免污染
+    //    ViewsList_ShowsBuiltinsBeforeAnyCustom 对"空库恰三内置"的全表断言）——
+
+    [Fact]
+    public async Task ViewsCreate_WithGamesListSortVocabulary_RoundTrips()
+    {
+        // bug-1：前端"保存为收藏夹"默认携带 accepted-desc，旧白名单只有 title/recent 会报
+        // "sort 只支持 title/recent"；白名单现已与 games.list 完全一致（六值）。
+        var created = new List<(string ViewId, int Revision)>();
+        foreach (var sort in new[] { "title", "title-asc", "title-desc", "recent", "updated-desc", "accepted-desc" })
+        {
+            var create = await InvokeAsync("views.create", new
+            {
+                idempotencyKey = $"t15c-sort-{sort}-{Guid.NewGuid():N}",
+                name = $"排序视图 {sort}",
+                favoriteOnly = true,
+                sort,
+            });
+            Assert.True(create.Ok, $"{sort}: {create.Error?.Message}");
+            Assert.Equal(sort, create.Data.GetProperty("sort").GetString());
+
+            var viewId = create.Data.GetProperty("viewId").GetString()!;
+            var get = await InvokeAsync("views.get", new { viewId });
+            Assert.True(get.Ok, get.Error?.Message);
+            Assert.Equal(sort, get.Data.GetProperty("sort").GetString());
+            created.Add((viewId, create.Data.GetProperty("revision").GetInt32()));
+        }
+
+        // update 同样接受扩展白名单并落库（数据库 CHECK 已随迁移 v21 放宽）。
+        var last = created[^1];
+        var update = await InvokeAsync("views.update", new
+        {
+            idempotencyKey = $"t15c-sort-upd-{Guid.NewGuid():N}",
+            viewId = last.ViewId,
+            sort = "title-desc",
+            expectedRevision = last.Revision,
+        });
+        Assert.True(update.Ok, update.Error?.Message);
+        Assert.Equal("title-desc", update.Data.GetProperty("sort").GetString());
+
+        // 自清理：逐个删除，恢复库视图面。
+        var revision = update.Data.GetProperty("revision").GetInt32();
+        foreach (var (viewId, _) in created)
+        {
+            var remove = await InvokeAsync("views.remove", new
+            {
+                idempotencyKey = $"t15c-sort-rm-{viewId}",
+                viewId,
+                expectedRevision = viewId == last.ViewId ? revision : 1,
+            });
+            Assert.True(remove.Ok, remove.Error?.Message);
+        }
+    }
+
+    [Fact]
+    public async Task ViewsCreateOrUpdate_WithUnknownSort_IsRejected()
+    {
+        var create = await InvokeAsync("views.create", new
+        {
+            idempotencyKey = $"t15c-sort-bad-{Guid.NewGuid():N}",
+            name = "坏排序视图",
+            sort = "random",
+        });
+        Assert.False(create.Ok);
+        Assert.Equal(ErrorCodes.InvalidArgument, create.Error!.Code);
+
+        var seed = await InvokeAsync("views.create", new
+        {
+            idempotencyKey = $"t15c-sort-seed-{Guid.NewGuid():N}",
+            name = "待改排序视图",
+        });
+        Assert.True(seed.Ok, seed.Error?.Message);
+        var seedViewId = seed.Data.GetProperty("viewId").GetString()!;
+        var update = await InvokeAsync("views.update", new
+        {
+            idempotencyKey = $"t15c-sort-badupd-{Guid.NewGuid():N}",
+            viewId = seedViewId,
+            sort = "name",
+            expectedRevision = seed.Data.GetProperty("revision").GetInt32(),
+        });
+        Assert.False(update.Ok);
+        Assert.Equal(ErrorCodes.InvalidArgument, update.Error!.Code);
+
+        // 自清理。
+        var remove = await InvokeAsync("views.remove", new
+        {
+            idempotencyKey = $"t15c-sort-seedrm-{seedViewId}",
+            viewId = seedViewId,
+            expectedRevision = 1,
+        });
+        Assert.True(remove.Ok, remove.Error?.Message);
+    }
 }

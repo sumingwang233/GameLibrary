@@ -131,6 +131,19 @@ export async function assetDataUrl(assetId: string) {
   return request;
 }
 
+/**
+ * 置前主窗口（feat-2：launch.exited 事件到达时调用；托盘"显示"/单实例唤醒共用
+ * lib.rs show_main_window 同一实现）。浏览器开发环境没有窗口概念，静默忽略。
+ */
+export async function showMainWindow(): Promise<void> {
+  try {
+    const tauriInvoke = window.__TAURI__?.core?.invoke ?? invoke;
+    await tauriInvoke("show_main_window");
+  } catch {
+    // 非 Tauri 运行环境（vite dev）或命令未注册：不打断事件轮询主流程。
+  }
+}
+
 /** 把后端 nextActions 渲染成给用户看的一句话，避免只抛一个错误码。 */
 export function describeFailure(cause: unknown): string {
   if (cause instanceof OperationError) {

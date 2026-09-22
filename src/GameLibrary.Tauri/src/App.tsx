@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, Bell, Library as LibraryIcon } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AlertCircle, Bell } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { describeFailure, operation } from "./lib/api";
 import { emptyFilters, useGamesQuery, useLibrary, type GameFilters } from "./lib/state";
@@ -77,7 +77,10 @@ function App() {
       if (!picked) return;
       const sourcePath = String(picked);
       const root = sourcePath.replace(/[\\/][^\\/]+$/, "");
-      await library.addRoot(root);
+      // bug-5：手动添加只注册 kind='manual' 的边界根（仍参与路径包含校验），
+      // roots.list 默认不返回 manual 根（CatalogingHandler.cs:180-182），
+      // 扫描枚举也不取（RootRegistry.ListScannable）——游戏库目录列表保持干净。
+      await library.addRoot(root, "manual");
       const created = await operation<{
         gameId: string;
         launchSuggestion?: { executablePath: string; argv: string[]; cwd: string };
@@ -124,17 +127,34 @@ function App() {
   };
 
   /** 横幅/详情里的相似条目跳转：先查当前页（命中零成本），miss 则 games.get 兜底。
-   * 失败（目标已被移除等）走 run() 的 actionError 既有路径，selected 保持原游戏。 */
-  const openGameById = (gameId: string) =>
-    void run(async () => {
-      const local = games.games.find((game) => game.gameId === gameId);
-      if (local) {
-        setSelected(local);
-        return;
-      }
-      const detail = await operation<GameItem>("games.get", { gameId });
-      setSelected(detail.data);
-    });
+   * 失败（目标已被移除等）走 run() 的 actionError 既有路径，selected 保持原游戏。
+   * useCallback：launch.exited 到达时（feat-2）经它把退出的游戏设为选中。 */
+  const openGameById = useCallback(
+    (gameId: string) => {
+      void run(async () => {
+        const local = games.games.find((game) => game.gameId === gameId);
+        if (local) {
+          setSelected(local);
+          return;
+        }
+        const detail = await operation<GameItem>("games.get", { gameId });
+        setSelected(detail.data);
+      });
+    },
+    [games.games],
+  );
+
+  // feat-2：launch.exited 事件到达 → state.ts 已置前主窗口，这里把该游戏设为选中
+  // （openGameById 兜底 games.get）。nonce 去重保证每个事件只动作一次：
+  // openGameById 依赖 games.games，若不按 nonce 挡住，退出后每次列表刷新都会重复选中。
+  // 关闭到托盘不产生 launch.exited，与"退出自动弹窗"互不冲突。
+  const handledExitNonce = useRef(-1);
+  useEffect(() => {
+    const exit = library.launchExit;
+    if (!exit || exit.nonce === handledExitNonce.current) return;
+    handledExitNonce.current = exit.nonce;
+    openGameById(exit.gameId);
+  }, [library.launchExit, openGameById]);
 
   const launch = (gameId: string) =>
     run(async () => {
@@ -168,15 +188,8 @@ function App() {
     <TooltipProvider>
       <AppShell sidebar={sidebar} titleBar={<TitleBar onTags={() => setSection("tags")} onRoots={() => setSection("roots")} onManualAdd={() => void manualAdd()} onAddRoot={() => void addRoot()} onScan={() => void run(library.startScan)} onSettings={() => setSettingsOpen(true)} scanning={library.scanning} />}>
         <main className="min-w-0 flex-1 overflow-y-auto bg-background p-6">
-          <header className="mb-6 flex items-end justify-between gap-4">
-            <div>
-              <div className="mb-2 flex items-center gap-2 text-xs font-semibold tracking-[0.22em] text-steam uppercase">
-                <LibraryIcon size={15} aria-hidden="true" />
-                Your collection
-              </div>
-              <h1 className="text-3xl font-bold tracking-tight text-text-primary">{heading.title}</h1>
-              <p className="mt-1 text-sm text-text-secondary">{heading.subtitle}</p>
-            </div>
+          <header className="mb-6">
+            <h1 className="text-3xl font-bold tracking-tight text-text-primary">{heading}</h1>
           </header>
 
           {library.notifications.length > 0 && section !== "pending" && (
@@ -289,6 +302,8 @@ function App() {
               tags={library.tags}
               onCreate={library.createTag}
               onRename={library.renameTag}
+              onUpdate={library.updateTag}
+              onReorder={library.reorderTags}
               onRemove={library.removeTag}
             />
           )}
@@ -342,27 +357,18 @@ function App() {
   );
 }
 
-function sectionHeading(section: Section, filters: GameFilters, views: ViewItem[]) {
-  if (section === "pending") {
-    return { title: "待确认", subtitle: "扫描发现的新游戏，确认后才会进入你的游戏库。" };
-  }
-  if (section === "tags") {
-    return { title: "管理标签", subtitle: "重命名或删除标签，引擎标签由扫描自动维护。" };
-  }
-  if (section === "roots") {
-    return { title: "游戏库目录", subtitle: "管理扫描范围与过滤名单。" };
-  }
+/** ui-2：只保留各页大标题，副标题全部删除。 */
+function sectionHeading(section: Section, filters: GameFilters, views: ViewItem[]): string {
+  if (section === "pending") return "待确认";
+  if (section === "tags") return "管理标签";
+  if (section === "roots") return "游戏库目录";
   if (filters.viewId) {
     const view = views.find((item) => item.viewId === filters.viewId);
-    return { title: view?.name ?? "收藏夹", subtitle: "自定义收藏夹" };
+    return view?.name ?? "收藏夹";
   }
-  if (filters.favoriteOnly) {
-    return { title: "收藏", subtitle: "你标记为收藏的游戏。" };
-  }
-  if (filters.tagId) {
-    return { title: "按标签筛选", subtitle: "只显示带该标签的游戏。" };
-  }
-  return { title: "游戏库", subtitle: "本地优先，数据只存在这台电脑上。" };
+  if (filters.favoriteOnly) return "收藏";
+  if (filters.tagId) return "按标签筛选";
+  return "游戏库";
 }
 
 export default App;

@@ -13,6 +13,13 @@ public sealed record LibraryRoot
 
     public required DateTime CreatedUtc { get; init; }
 
+    /// <summary>
+    /// 根类型（v23，bug-5）：library=常规扫描根；manual=手动添加游戏时为通过路径包含
+    /// 校验而注册的边界根——参与 <see cref="RootRegistry.Contains"/> 判定，但被扫描
+    /// 枚举（<see cref="RootRegistry.ListScannable"/>）与候选发现排除。
+    /// </summary>
+    public string Kind { get; init; } = "library";
+
     /// <summary>乐观修订（roots.remove 校验用；当前根注册后不可变，恒为 1）。</summary>
     public int Revision { get; init; } = 1;
 
@@ -20,6 +27,7 @@ public sealed record LibraryRoot
     {
         rootId = RootId,
         path = Path.PhysicalPath,
+        kind = Kind,
         revision = Revision,
         createdUtc = CreatedUtc.ToString("O"),
     };
@@ -35,9 +43,18 @@ public sealed class RootRegistry
     private readonly ConcurrentDictionary<string, LibraryRoot> _byRootId = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, string> _rootIdByComparisonKey = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>注册库根；同一规范化路径幂等返回既有根。路径必须存在且不是重解析点。</summary>
-    public LibraryRoot Add(string physicalPath)
+    /// <summary>
+    /// 注册库根；同一规范化路径幂等返回既有根。路径必须存在且不是重解析点。
+    /// kind（v23，bug-5）：library（默认，常规扫描根）或 manual（手动添加游戏的
+    /// 路径包含边界根，不被扫描枚举与候选发现）；其他值拒绝。
+    /// </summary>
+    public LibraryRoot Add(string physicalPath, string kind = "library")
     {
+        if (kind is not ("library" or "manual"))
+        {
+            throw new RootRegistryException(ErrorCodes.InvalidArgument, $"根类型只支持 library/manual：{kind}");
+        }
+
         var validation = GamePath.TryCreate(NormalizeInput(physicalPath));
         if (!validation.IsValid)
         {
@@ -65,6 +82,7 @@ public sealed class RootRegistry
             RootId = $"root-{Guid.NewGuid():N}",
             Path = root,
             CreatedUtc = DateTime.UtcNow,
+            Kind = kind,
         };
         _byRootId[libraryRoot.RootId] = libraryRoot;
         _rootIdByComparisonKey[root.ComparisonKey] = libraryRoot.RootId;
@@ -94,7 +112,7 @@ public sealed class RootRegistry
     /// 扫描/核对按 RootOffline 分级处理，注册表不能因目录暂时离线而丢配置）。
     /// 同一规范化路径已注册时幂等返回既有根。
     /// </summary>
-    public LibraryRoot AddExisting(string rootId, string physicalPath, DateTime createdUtc)
+    public LibraryRoot AddExisting(string rootId, string physicalPath, DateTime createdUtc, string kind = "library")
     {
         var validation = GamePath.TryCreate(NormalizeInput(physicalPath));
         if (!validation.IsValid)
@@ -113,6 +131,7 @@ public sealed class RootRegistry
             RootId = rootId,
             Path = root,
             CreatedUtc = createdUtc,
+            Kind = kind,
         };
         _byRootId[libraryRoot.RootId] = libraryRoot;
         _rootIdByComparisonKey[root.ComparisonKey] = libraryRoot.RootId;
@@ -128,6 +147,16 @@ public sealed class RootRegistry
 
     public IReadOnlyList<LibraryRoot> List() =>
         _byRootId.Values.OrderBy(r => r.RootId, StringComparer.Ordinal).ToArray();
+
+    /// <summary>
+    /// 可枚举扫描根（v23，bug-5）：仅 kind='library'。周期核对/候选发现从这里取根，
+    /// manual 根只作路径包含边界，绝不进入扫描枚举。
+    /// </summary>
+    public IReadOnlyList<LibraryRoot> ListScannable() =>
+        _byRootId.Values
+            .Where(r => !string.Equals(r.Kind, "manual", StringComparison.Ordinal))
+            .OrderBy(r => r.RootId, StringComparer.Ordinal)
+            .ToArray();
 
     /// <summary>路径包含判定：candidate 必须等于或位于某个已注册根之下（规范化物理路径前缀比较）。
     /// 盘根的 PhysicalPath 自带尾分隔符（"F:\"），比较前统一剥掉再补齐，避免 "F:\\" 双写失配。</summary>

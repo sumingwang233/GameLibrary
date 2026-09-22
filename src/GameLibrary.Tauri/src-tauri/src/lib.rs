@@ -285,7 +285,10 @@ fn set_close_to_tray(prefs: State<'_, UiPrefs>, enabled: bool) -> Result<(), Str
     Ok(())
 }
 
-fn show_main_window(app: &AppHandle) {
+/// 置前主窗口：托盘"显示"、单实例唤醒与前端（v1.5 feat-2：launch.exited 事件到达时
+/// 经 events.read 轮询发现游戏退出 → invoke show_main_window）共用同一实现。
+#[tauri::command]
+fn show_main_window(app: AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
@@ -310,7 +313,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         .tooltip("GameLibrary")
         .menu(&menu)
         .on_menu_event(|app, event| match event.id.as_ref() {
-            "show" => show_main_window(app),
+            "show" => show_main_window(app.clone()),
             "quit" => app.exit(0),
             _ => {}
         })
@@ -321,7 +324,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
                 ..
             } = event
             {
-                show_main_window(tray.app_handle());
+                show_main_window(tray.app_handle().clone());
             }
         });
 
@@ -340,7 +343,7 @@ pub fn run() {
     let builder = tauri::Builder::default()
         // single-instance 必须最先注册，否则第二个实例会先完成其它初始化再退出。
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            show_main_window(app);
+            show_main_window(app.clone());
         }))
         .manage(BridgeState::default())
         .manage(UiPrefs::default())
@@ -375,7 +378,8 @@ pub fn run() {
             bridge_status,
             resolve_data_directory,
             open_game_directory,
-            set_close_to_tray
+            set_close_to_tray,
+            show_main_window
         ])
         .build(tauri::generate_context!())
         .expect("error while building GameLibrary Tauri app")

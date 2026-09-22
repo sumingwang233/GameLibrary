@@ -79,7 +79,7 @@ export function GameGrid({
     <div>
       <div className="mb-4 rounded-lg border border-border bg-surface p-3">
         <div className="mb-2 flex gap-2">
-          <Button size="sm" variant="outline" disabled={busy} onClick={() => setChecked(new Set(games.map(game => game.gameId)))}>全选已加载的 {games.length} 个</Button>
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => setChecked(new Set(games.map(game => game.gameId)))}>全选</Button>
           <Button size="sm" variant="ghost" disabled={busy || !chosen.length} onClick={() => setChecked(new Set())}>清空选择</Button>
         </div>
         <GameBatchBar games={chosen} tags={tags} onBusy={setBusy} onComplete={async failedIds => {

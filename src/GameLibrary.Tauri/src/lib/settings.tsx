@@ -13,9 +13,10 @@ import { describeFailure, operation } from "./api";
 import type { LibrarySettings } from "./types";
 
 /**
- * settings.theme / uiFontScale / uiFontFamily 在 v1.1.5 里只写库不生效——用户把主题设成 light
- * 后界面仍然是深色。这里把它们真正应用到 documentElement，并把 closeToTray 下发给 Rust
+ * settings.theme / uiFontFamily 应用到 documentElement，closeToTray 下发给 Rust
  * （窗口关闭行为只能在原生侧决定）。Rust 不查库，业务状态仍全部留在 Host。
+ * v1.5.0 起界面缩放（uiFontScale）整体下线：前端不再读写该字段，
+ * 后端 settings 保留字段以兼容旧库；根字号由 index.css 的 --gl-font-scale 回退值 1 固定。
  */
 
 const LIGHT_QUERY = "(prefers-color-scheme: light)";
@@ -28,7 +29,6 @@ function resolveTheme(mode: LibrarySettings["theme"]): "dark" | "light" {
 function applySettings(settings: LibrarySettings) {
   const root = document.documentElement;
   root.classList.toggle("light", resolveTheme(settings.theme) === "light");
-  root.style.setProperty("--gl-font-scale", String(settings.uiFontScale || 1));
   if (settings.uiFontFamily) {
     root.style.setProperty("--gl-font-family", settings.uiFontFamily);
   }

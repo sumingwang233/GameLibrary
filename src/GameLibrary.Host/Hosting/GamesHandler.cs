@@ -123,7 +123,10 @@ internal sealed class GamesHandler
         var (total, games) = store.QueryGames(search, favoriteFilter, tagId, sort, limit, offset);
         // R41：批量充实取代逐游戏 4 次查询（各过一次存储锁）。
         var enrichment = store.EnrichGameCards(games);
-        var dtos = games.Select(g => GameDto(g, enrichment[g.GameId])).ToArray();
+        // feat-1：游玩统计与充实同批 SQL 聚合（launch_attempts，见 QueryPlaytimeStats）。
+        var playtime = store.QueryPlaytimeStats(games.Select(g => g.GameId).ToArray());
+        var dtos = games.Select(g => GameDto(g, enrichment[g.GameId],
+            playtime.TryGetValue(g.GameId, out var stats) ? stats : null)).ToArray();
 
         return new Envelope<object>
         {
@@ -871,13 +874,14 @@ internal sealed class GamesHandler
         return false;
     }
 
-    /// <summary>单游戏充实入口：title/summary/封面/标签逐项查询后组装 DTO。</summary>
+    /// <summary>单游戏充实入口：title/summary/封面/标签/游玩统计逐项查询后组装 DTO。</summary>
     private object GameDto(SqliteLibraryStore store, GameCard game)
     {
         var (title, titleSource) = store.EffectiveField(game.GameId, "title", game.Title);
         var (summary, summarySource) = store.EffectiveField(game.GameId, "summary", "");
         var coverAssetId = store.ListAssets(game.GameId).FirstOrDefault(a => a.IsCurrent)?.AssetId;
         var tags = store.ListGameTags(game.GameId);
+        var playtime = store.QueryPlaytimeStats([game.GameId]);
         return GameDto(game, new GameCardEnrichment
         {
             Title = title,
@@ -886,11 +890,11 @@ internal sealed class GamesHandler
             SummarySource = summarySource,
             CoverAssetId = coverAssetId,
             Tags = tags,
-        });
+        }, playtime.TryGetValue(game.GameId, out var stats) ? stats : null);
     }
 
     /// <summary>DTO 组装（单游戏与 games.list 批量共用，字段形状只有一个真源）。</summary>
-    private object GameDto(GameCard game, GameCardEnrichment enrichment)
+    private object GameDto(GameCard game, GameCardEnrichment enrichment, PlaytimeStats? playtime = null)
     {
         var tags = enrichment.Tags
             .Select(t => new { kind = t.Kind, name = t.Name })
@@ -911,6 +915,8 @@ internal sealed class GamesHandler
             membership = game.Membership,
             availability = game.Availability,
             missingSinceUtc = game.MissingSinceUtc?.ToString("O"),
+            playtimeMinutes = playtime?.PlaytimeMinutes ?? 0,
+            lastPlayedUtc = playtime?.LastPlayedUtc?.ToString("O"),
             tags,
             revision = game.Revision,
             acceptedUtc = game.AcceptedUtc.ToString("O"),

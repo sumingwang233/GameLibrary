@@ -9,7 +9,7 @@ import {
   useState,
   type PropsWithChildren,
 } from "react";
-import { describeFailure, operation } from "./api";
+import { describeFailure, operation, showMainWindow } from "./api";
 import type {
   CandidateItem,
   CandidateReviewResult,
@@ -45,9 +45,20 @@ function eventAffectsVisibleLibrary(event: LibraryEvent) {
     event.type.startsWith("root.") ||
     event.type.startsWith("settings.") ||
     event.type.startsWith("notification.") ||
+    // feat-2：游戏进程退出 → 累计时长/最近游玩变化，游戏列表需要失效重查。
+    event.type === "launch.exited" ||
     event.type === "scan.completed" ||
     event.type === "scan.failed"
   );
+}
+
+/** launch.exited 事件负载（HostRuntime.WireAttemptPersistence：attemptId/gameId/exitCode/durationSeconds）。 */
+function parseLaunchExit(event: LibraryEvent): { attemptId: string; gameId: string } | null {
+  if (event.type !== "launch.exited") return null;
+  const payload = event.payload as { attemptId?: unknown; gameId?: unknown } | null | undefined;
+  if (typeof payload?.gameId !== "string") return null;
+  const attemptId = typeof payload.attemptId === "string" ? payload.attemptId : `seq:${event.sequence}`;
+  return { attemptId, gameId: payload.gameId };
 }
 
 const TERMINAL_JOB_STATES = ["succeeded", "failed", "cancelled"];
@@ -67,6 +78,37 @@ export const emptyFilters: GameFilters = {
   favoriteOnly: false,
   viewId: "",
 };
+
+/**
+ * sort 白名单（bug-1）：games.list / views.create / views.update 三处完全一致
+ * （GamesHandler.cs:118、ViewSettingsHandler.cs:368-369 六值同源）。
+ * LibraryToolbar SORT_OPTIONS 的四个值（accepted-desc/updated-desc/title-asc/title-desc）
+ * 逐一比对均在白名单内；createView 对历史/未知名兜底映射到 "title"。
+ */
+export const SORT_WHITELIST: readonly string[] = [
+  "title",
+  "title-asc",
+  "title-desc",
+  "recent",
+  "updated-desc",
+  "accepted-desc",
+];
+
+/** feat-3：tags.update 可变字段（TagsHandler.TagsUpdate；displayName 传 null 清除回落 name）。 */
+export interface TagChanges {
+  color?: string;
+  category?: string;
+  sortOrder?: number;
+  starred?: boolean;
+  displayName?: string | null;
+}
+
+/** feat-2：launch.exited 到达时向 App 层广播的定位信号；nonce 单调递增使同游戏多次退出也能逐次触发。 */
+export interface LaunchExitNotice {
+  attemptId: string;
+  gameId: string;
+  nonce: number;
+}
 
 interface ScanJob {
   jobId: string;
@@ -93,6 +135,12 @@ interface LibraryController {
   error: string | null;
   /** 每次收到库事件自增，作为查询侧的失效信号。 */
   changeToken: number;
+  /**
+   * feat-2：最近一次 launch.exited 事件（游戏进程退出）。事件流按游标消费、
+   * Host 侧同一 attempt 只发一次（HostRuntime.cs:235 状态门），这里再按 attemptId
+   * 去重兜底——用户主动关闭到托盘不产生该事件，不存在反复弹窗的冲突。
+   */
+  launchExit: LaunchExitNotice | null;
   scanning: boolean;
   scanProgress: ScanProgressState | null;
   refreshMeta: () => Promise<void>;
@@ -103,10 +151,14 @@ interface LibraryController {
     action: "accept" | "defer" | "ignore",
   ) => Promise<Array<{ candidate: CandidateItem; similarTo: SimilarGameSuggestion[] }>>;
   launch: (gameId: string) => Promise<void>;
-  createTag: (name: string) => Promise<void>;
+  createTag: (name: string, category?: string) => Promise<void>;
   renameTag: (tag: TagItem, name: string) => Promise<void>;
+  /** feat-3：color/category/sortOrder/starred/displayName 增量更新（engine 标签同样允许）。 */
+  updateTag: (tag: TagItem, changes: TagChanges) => Promise<void>;
+  /** feat-3：组内重排——批量写 sortOrder 后只刷新一次元数据。 */
+  reorderTags: (updates: Array<{ tag: TagItem; sortOrder: number }>) => Promise<void>;
   removeTag: (tag: TagItem) => Promise<void>;
-  addRoot: (path: string) => Promise<void>;
+  addRoot: (path: string, kind?: "library" | "manual") => Promise<void>;
   removeRoot: (root: RootItem) => Promise<void>;
   createView: (name: string, filters: GameFilters) => Promise<void>;
   removeView: (view: ViewItem) => Promise<void>;
@@ -126,11 +178,15 @@ function useLibraryController(): LibraryController {
   const [metaLoading, setMetaLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [changeToken, setChangeToken] = useState(0);
+  const [launchExit, setLaunchExit] = useState<LaunchExitNotice | null>(null);
   const [jobs, setJobs] = useState<ScanJob[]>([]);
   const [scanProgress, setScanProgress] = useState<ScanProgressState | null>(null);
 
   const cursorRef = useRef<number | undefined>(undefined);
   const mounted = useRef(true);
+  /** launch.exited 按 attemptId 去重（Host 状态门保证单发，这里防游标回拨等异常重放）。 */
+  const seenAttemptIds = useRef<Set<string>>(new Set());
+  const exitNonce = useRef(0);
 
   useEffect(() => {
     mounted.current = true;
@@ -215,7 +271,28 @@ function useLibraryController(): LibraryController {
       pollInFlight = true;
       try {
         const batch = await readBatch();
-        if (!cancelled && batch.items.some(eventAffectsVisibleLibrary)) {
+        if (cancelled) return;
+
+        // feat-2：launch.exited 到达 → 置前主窗口 + 广播给 App 层定位该游戏。
+        // 只在该事件到达时动作一次：attemptId 去重 + 游标只前进，用户关闭到托盘
+        // 不产生该事件，不会触发任何窗口动作。
+        const exits = batch.items
+          .map(parseLaunchExit)
+          .filter((item): item is { attemptId: string; gameId: string } => item !== null);
+        for (const exit of exits) {
+          if (seenAttemptIds.current.has(exit.attemptId)) continue;
+          seenAttemptIds.current.add(exit.attemptId);
+          if (seenAttemptIds.current.size > 1024) {
+            seenAttemptIds.current = new Set([...seenAttemptIds.current].slice(-512));
+          }
+          exitNonce.current += 1;
+          if (mounted.current) {
+            setLaunchExit({ attemptId: exit.attemptId, gameId: exit.gameId, nonce: exitNonce.current });
+          }
+          void showMainWindow();
+        }
+
+        if (batch.items.some(eventAffectsVisibleLibrary)) {
           await refreshMeta();
           bump();
         }
@@ -410,8 +487,13 @@ function useLibraryController(): LibraryController {
   );
 
   const createTag = useCallback(
-    async (name: string) => {
-      await operation("tags.create", { name }, `tags.create:${name}`);
+    async (name: string, category?: string) => {
+      // feat-3：category 缺省由后端按 kind 推断（user→special）；显式传入时校验留给后端。
+      await operation(
+        "tags.create",
+        { name, ...(category ? { category } : {}) },
+        `tags.create:${name}:${category ?? "special"}`,
+      );
       await refreshMeta();
     },
     [refreshMeta],
@@ -419,11 +501,56 @@ function useLibraryController(): LibraryController {
 
   const renameTag = useCallback(
     async (tag: TagItem, name: string) => {
+      // feat-3：engine 标签 name 是身份键不可变（TagsHandler.cs:169），改名走 displayName；
+      // user 标签直接改 name。displayName 无显式清除入口，清除走 updateTag({ displayName: null })。
+      const isEngine = tag.kind === "engine";
       await operation(
         "tags.update",
-        { tagId: tag.tagId, name, expectedRevision: tag.revision },
-        `tags.update:${tag.tagId}:${tag.revision}`,
+        isEngine
+          ? { tagId: tag.tagId, expectedRevision: tag.revision, displayName: name }
+          : { tagId: tag.tagId, expectedRevision: tag.revision, name },
+        `tags.update:${tag.tagId}:${tag.revision}:${isEngine ? "displayName" : "name"}:${name}`,
       );
+      await refreshMeta();
+    },
+    [refreshMeta],
+  );
+
+  const updateTag = useCallback(
+    async (tag: TagItem, changes: TagChanges) => {
+      const parameters: Record<string, unknown> = {
+        tagId: tag.tagId,
+        expectedRevision: tag.revision,
+      };
+      if (changes.color !== undefined) parameters.color = changes.color;
+      if (changes.category !== undefined) parameters.category = changes.category;
+      if (changes.sortOrder !== undefined) parameters.sortOrder = changes.sortOrder;
+      if (changes.starred !== undefined) parameters.starred = changes.starred;
+      // displayName: null 显式清除（后端按 JSON Null 走 clearDisplayName 分支，TagsHandler.cs:225）。
+      if (changes.displayName !== undefined) parameters.displayName = changes.displayName;
+
+      // 幂等键随变更内容稳定：同一次修改重试命中收据重放，不同变更互不串键。
+      const changedKeys = Object.keys(changes).sort();
+      await operation(
+        "tags.update",
+        parameters,
+        `tags.update:${tag.tagId}:${tag.revision}:${changedKeys.join(",")}:${JSON.stringify(changes)}`,
+      );
+      await refreshMeta();
+    },
+    [refreshMeta],
+  );
+
+  const reorderTags = useCallback(
+    async (updates: Array<{ tag: TagItem; sortOrder: number }>) => {
+      // 同组重排：逐条写 sortOrder（各 tag 只更新一次，快照 revision 互不失效），末尾单次刷新。
+      for (const { tag, sortOrder } of updates) {
+        await operation(
+          "tags.update",
+          { tagId: tag.tagId, expectedRevision: tag.revision, sortOrder },
+          `tags.update:${tag.tagId}:${tag.revision}:sortOrder:${sortOrder}`,
+        );
+      }
       await refreshMeta();
     },
     [refreshMeta],
@@ -443,10 +570,17 @@ function useLibraryController(): LibraryController {
   );
 
   const addRoot = useCallback(
-    async (path: string) => {
+    async (path: string, kind?: "library" | "manual") => {
       // roots.add 在 operations.v1.json 中 requiresIdempotencyKey=true，
       // 但 OperationSchemas.InputSpecs 未登记该参数——以契约为准，必须传。
-      await operation("roots.add", { root: path }, `roots.add:${path}`);
+      // bug-5：kind='manual' 注册手动添加游戏的边界根——参与路径包含校验（RootRegistry.Contains），
+      // 但 roots.list 默认不返回、扫描枚举也不取（CatalogingHandler.cs:167-182 / ListScannable）。
+      // roots.add 对同一规范化路径幂等返回既有根（RootRegistry.Add:75-78）。
+      await operation(
+        "roots.add",
+        { root: path, ...(kind ? { kind } : {}) },
+        `roots.add:${kind ?? "library"}:${path}`,
+      );
       await refreshMeta();
     },
     [refreshMeta],
@@ -473,7 +607,9 @@ function useLibraryController(): LibraryController {
           name,
           search: filters.search || undefined,
           favoriteOnly: filters.favoriteOnly || undefined,
-          sort: filters.sort,
+          // bug-1：views.create 的 sort 白名单与 games.list 完全一致（六值，ViewSettingsHandler.cs:368）。
+          // LibraryToolbar 四个排序值均合法；未知名兜底映射到 "title"，避免保存收藏夹被后端拒绝。
+          sort: SORT_WHITELIST.includes(filters.sort) ? filters.sort : "title",
         },
         `views.create:${name}`,
       );
@@ -522,6 +658,7 @@ function useLibraryController(): LibraryController {
       metaLoading,
       error,
       changeToken,
+      launchExit,
       scanning,
       scanProgress,
       refreshMeta,
@@ -531,6 +668,8 @@ function useLibraryController(): LibraryController {
       launch,
       createTag,
       renameTag,
+      updateTag,
+      reorderTags,
       removeTag,
       addRoot,
       removeRoot,
@@ -549,6 +688,7 @@ function useLibraryController(): LibraryController {
       metaLoading,
       error,
       changeToken,
+      launchExit,
       scanning,
       scanProgress,
       refreshMeta,
@@ -558,6 +698,8 @@ function useLibraryController(): LibraryController {
       launch,
       createTag,
       renameTag,
+      updateTag,
+      reorderTags,
       removeTag,
       addRoot,
       removeRoot,
@@ -608,6 +750,13 @@ export function useGamesQuery(
   const [error, setError] = useState<string | null>(null);
   const [debouncedSearch, setDebouncedSearch] = useState(filters.search);
   const hasLoadedRef = useRef(false);
+  /** games/total 的镜像 ref：串行队列里的异步任务读它决定补拉范围，避免闭包读到旧 state。 */
+  const gamesRef = useRef<GameItem[]>([]);
+  const totalRef = useRef(0);
+  /** 上一次生效的查询参数；引用未变却触发重查 ⇒ 后台失效刷新（bug-2：保留已加载页）。 */
+  const lastRequestRef = useRef<Record<string, unknown> | null>(null);
+  /** 串行队列：刷新与触底加载互斥，避免并发 games.list 交叉覆盖（补拉的页被 append 吞掉等）。 */
+  const chainRef = useRef<Promise<unknown>>(Promise.resolve());
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(filters.search), 250);
@@ -625,28 +774,78 @@ export function useGamesQuery(
     [debouncedSearch, filters.sort, filters.tagId, filters.favoriteOnly, filters.viewId],
   );
 
-  const fetchPage = useCallback(
-    async (offset: number, append: boolean) => {
+  const enqueue = useCallback(<T,>(task: () => Promise<T>): Promise<T> => {
+    // 前一任务无论成败都继续执行本任务；链尾吞掉错误由各调用方自行捕获。
+    const next = chainRef.current.then(task, task);
+    chainRef.current = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
+  }, []);
+
+  const applyResult = useCallback((items: GameItem[], totalNow: number) => {
+    gamesRef.current = items;
+    totalRef.current = totalNow;
+    setGames(items);
+    setTotal(totalNow);
+  }, []);
+
+  const queryPage = useCallback(
+    async (offset: number) => {
       const result = await operation<{ total: number; items: GameItem[] }>("games.list", {
         ...request,
         limit: PAGE_SIZE,
         offset,
       });
-      setTotal(result.data.total);
-      setGames((previous) => (append ? [...previous, ...result.data.items] : result.data.items));
-      return result.data.items.length;
+      return result.data;
     },
     [request],
+  );
+
+  /**
+   * 刷新（bug-2）：preserveLoaded=true 时重新拉取第 0 页后，把此前已加载的后续页
+   * 一并补拉回来，避免整组替换把已触底加载的页清掉——列表变短会让外层滚动容器
+   * scrollTop 被钳制，表现为"点开始游戏/添加封面后页面自动跳顶"。筛选/排序变化
+   * 走 preserveLoaded=false，重置回第 0 页（此时滚动重置是合理行为）。
+   */
+  const refresh = useCallback(
+    async (preserveLoaded: boolean) => {
+      const first = await queryPage(0);
+      const previousCount = preserveLoaded ? gamesRef.current.length : 0;
+      let items = first.items;
+      // 偏移分页在数据插入/删除时可能跨页重复同一游戏（边界位移），按 gameId 去重。
+      const seen = new Set(items.map((item) => item.gameId));
+      while (items.length < previousCount && items.length < first.total) {
+        const more = await queryPage(items.length);
+        if (more.items.length === 0) break;
+        const before = items.length;
+        for (const item of more.items) {
+          if (!seen.has(item.gameId)) {
+            seen.add(item.gameId);
+            items.push(item);
+          }
+        }
+        // 本页全是重复项（刷新窗口内插入量 ≥ 页大小等极端场景）：继续拉同一偏移会死循环，放弃补齐。
+        if (items.length === before) break;
+      }
+      applyResult(items, first.total);
+    },
+    [queryPage, applyResult],
   );
 
   useEffect(() => {
     if (suppressAutoRefresh) return;
     let cancelled = false;
+    // request 引用变化 ⇒ 筛选/排序/搜索变化 ⇒ 重置分页；仅 changeToken 变化 ⇒ 保留已加载页。
+    const isFilterChange = lastRequestRef.current !== request;
+    lastRequestRef.current = request;
     if (!hasLoadedRef.current) setLoading(true);
     setError(null);
     void (async () => {
       try {
-        await fetchPage(0, false);
+        // 经串行队列执行：与进行中的触底加载互斥，避免两者交叉覆盖 gamesRef。
+        await enqueue(() => refresh(!isFilterChange && hasLoadedRef.current));
       } catch (cause) {
         if (!cancelled) setError(describeFailure(cause));
       } finally {
@@ -660,26 +859,33 @@ export function useGamesQuery(
       cancelled = true;
     };
     // suppressAutoRefresh 期间（扫描进行中）不自动重查，避免与扫描写入争抢后端串行锁。
-  }, [fetchPage, changeToken, suppressAutoRefresh]);
+  }, [enqueue, refresh, changeToken, suppressAutoRefresh]);
 
   const loadMore = useCallback(() => {
-    if (loadingMore || games.length >= total) return;
+    if (loadingMore || gamesRef.current.length >= totalRef.current) return;
     setLoadingMore(true);
-    void (async () => {
-      try {
-        await fetchPage(games.length, true);
-      } catch (cause) {
-        setError(describeFailure(cause));
-      } finally {
-        setLoadingMore(false);
+    void enqueue(async () => {
+      const page = await queryPage(gamesRef.current.length);
+      const seen = new Set(gamesRef.current.map((item) => item.gameId));
+      const merged = [...gamesRef.current];
+      for (const item of page.items) {
+        if (!seen.has(item.gameId)) {
+          seen.add(item.gameId);
+          merged.push(item);
+        }
       }
-    })();
-  }, [loadingMore, games.length, total, fetchPage]);
+      applyResult(merged, page.total);
+    })
+      .catch((cause) => setError(describeFailure(cause)))
+      .finally(() => setLoadingMore(false));
+  }, [loadingMore, enqueue, queryPage, applyResult]);
 
   const reload = useCallback(async () => {
     if (!hasLoadedRef.current) setLoading(true);
     try {
-      await fetchPage(0, false);
+      // 手动刷新同样保留已加载页（详情页"添加封面"等 onChanged → reload 的路径与
+      // 事件流 bump() 共用同一语义：后台刷新不得改变已加载条数与顺序）。
+      await enqueue(() => refresh(true));
       setError(null);
     } catch (cause) {
       setError(describeFailure(cause));
@@ -687,7 +893,7 @@ export function useGamesQuery(
       hasLoadedRef.current = true;
       setLoading(false);
     }
-  }, [fetchPage]);
+  }, [enqueue, refresh]);
 
   return { games, total, loading, loadingMore, error, hasMore: games.length < total, loadMore, reload };
 }

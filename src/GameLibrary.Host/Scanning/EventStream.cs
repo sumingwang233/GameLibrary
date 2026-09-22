@@ -10,7 +10,8 @@ public sealed record LibraryEvent
 
     public required DateTime TimestampUtc { get; init; }
 
-    /// <summary>candidate.discovered / candidate.promoted / game.created / scan.completed / scan.failed。</summary>
+    /// <summary>candidate.discovered / candidate.promoted / game.created / game.updated / game.removed /
+    /// root.removed / scan.completed / scan.failed / notification.*/launch.exited（feat-2：游戏进程退出）。</summary>
     public required string Type { get; init; }
 
     /// <summary>折叠键：同一实体的事件在抖动窗口内合并。</summary>

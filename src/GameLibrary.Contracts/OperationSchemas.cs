@@ -24,6 +24,7 @@ public static class OperationSchemas
         ["roots.add"] =
         [
             new("root", "string", true, "库根绝对路径"),
+            new("kind", "string", false, "根类型 library/manual（默认 library；manual 仅作路径包含边界，不参与扫描枚举与候选发现）"),
             new("idempotencyKey", "string", true, "幂等键"),
         ],
         ["roots.remove"] =
@@ -32,7 +33,10 @@ public static class OperationSchemas
             new("expectedRevision", "integer", true, "期望库根修订"),
             new("idempotencyKey", "string", true, "幂等键"),
         ],
-        ["roots.list"] = [],
+        ["roots.list"] =
+        [
+            new("includeManual", "boolean", false, "包含 manual 根（默认只返回 library 根；manual 根是手动添加游戏的包含边界）"),
+        ],
         ["scan.start"] =
         [
             new("root", "string", true, "扫描根（须在已注册库根内）"),
@@ -173,13 +177,21 @@ public static class OperationSchemas
         [
             new("name", "string", true, "标签名（1–100 字符）"),
             new("color", "string", false, "颜色 #RRGGBB（可选）"),
+            new("category", "string", false, "分类 engine/gameplay/social/special（缺省按 kind 推断：user 标签为 special）"),
+            new("sortOrder", "integer", false, "排序权重（缺省 0）"),
+            new("starred", "boolean", false, "星标（缺省 false）"),
+            new("displayName", "string", false, "显示名（缺省同 name）"),
             new("idempotencyKey", "string", true, "幂等键"),
         ],
         ["tags.update"] =
         [
             new("tagId", "string", true, "标签 ID"),
-            new("name", "string", false, "新名称（可选）"),
-            new("color", "string", false, "新颜色 #RRGGBB（可选）"),
+            new("name", "string", false, "新名称（可选；engine 标签 name 是身份键不可改，改名用 displayName）"),
+            new("color", "string", false, "新颜色 #RRGGBB（可选，engine 标签同样允许）"),
+            new("category", "string", false, "新分类 engine/gameplay/social/special（可选，engine 标签同样允许）"),
+            new("sortOrder", "integer", false, "新排序权重（可选）"),
+            new("starred", "boolean", false, "新星标（可选）"),
+            new("displayName", "string", false, "新显示名（可选；传 null 清除，回落 name）"),
             new("expectedRevision", "integer", true, "期望标签修订"),
             new("idempotencyKey", "string", true, "幂等键"),
         ],
@@ -349,7 +361,7 @@ public static class OperationSchemas
             new("name", "string", true, "视图名"),
             new("search", "string", false, "搜索词"),
             new("favoriteOnly", "boolean", false, "仅收藏"),
-            new("sort", "string", false, "title / recent"),
+            new("sort", "string", false, "title/title-asc、title-desc、recent/updated-desc 或 accepted-desc"),
             new("idempotencyKey", "string", true, "幂等键"),
         ],
         ["views.update"] =
@@ -358,7 +370,7 @@ public static class OperationSchemas
             new("name", "string", false, "新名称"),
             new("search", "string", false, "新搜索词"),
             new("favoriteOnly", "boolean", false, "仅收藏"),
-            new("sort", "string", false, "title / recent"),
+            new("sort", "string", false, "title/title-asc、title-desc、recent/updated-desc 或 accepted-desc"),
             new("expectedRevision", "integer", true, "期望修订"),
             new("idempotencyKey", "string", true, "幂等键"),
         ],

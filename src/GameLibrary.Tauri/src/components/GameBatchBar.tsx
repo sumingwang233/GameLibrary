@@ -1,9 +1,16 @@
 import { useState } from "react";
+import { Tag } from "lucide-react";
 import { describeFailure, operation } from "../lib/api";
+import { groupTagsByCategory, tagLabel } from "../lib/tags";
 import type { GameItem, TagItem } from "../lib/types";
 import { Button } from "./ui/button";
 import { ConfirmDialog } from "./ui/confirm-dialog";
 
+/**
+ * 批量操作条。bug-3：「添加标签」不再依赖先在下拉里选好标签的前置状态（用户不理解
+ * 按钮为何灰），改为按钮常可点（busy 除外）→ 点击弹出按分类分组的标签浮层 → 选择即
+ * 应用。assign 调用链保持不变：逐游戏 games.get 取最新 revision 后 tags.assign。
+ */
 export function GameBatchBar({ games, tags, onComplete, onBusy }: {
   games: GameItem[];
   tags: TagItem[];
@@ -12,10 +19,11 @@ export function GameBatchBar({ games, tags, onComplete, onBusy }: {
 }) {
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(false);
-  const [tagId, setTagId] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [result, setResult] = useState("");
-  const execute = async (action: "favorite" | "unfavorite" | "remove" | "tag") => {
+  const execute = async (action: "favorite" | "unfavorite" | "remove" | "tag", tagId = "") => {
     if (busy || games.length === 0) return;
+    if (action === "tag" && !tagId) return;
     setBusy(true);
     onBusy(true);
     setConfirm(false);
@@ -45,16 +53,59 @@ export function GameBatchBar({ games, tags, onComplete, onBusy }: {
       onBusy(false);
     }
   };
+  const applyTag = (tagId: string) => {
+    setPickerOpen(false);
+    void execute("tag", tagId);
+  };
+  const groups = groupTagsByCategory(tags).filter((group) => group.items.length > 0);
   return <>
     <div className="flex flex-wrap items-center gap-2" aria-label="游戏批量操作">
       <span className="text-sm">已选 {games.length} 个</span>
       <Button size="sm" variant="outline" disabled={busy || !games.length} onClick={() => void execute("favorite")}>批量收藏</Button>
       <Button size="sm" variant="outline" disabled={busy || !games.length} onClick={() => void execute("unfavorite")}>取消收藏</Button>
-      <select aria-label="批量添加标签" className="rounded border border-border bg-surface p-2 text-sm" disabled={busy} value={tagId} onChange={event => setTagId(event.target.value)}>
-        <option value="">选择标签</option>
-        {tags.map(tag => <option key={tag.tagId} value={tag.tagId}>{tag.name}</option>)}
-      </select>
-      <Button size="sm" variant="outline" disabled={busy || !games.length || !tagId} onClick={() => void execute("tag")}>添加标签</Button>
+      <span className="relative">
+        <Button size="sm" variant="outline" disabled={busy || !games.length} aria-haspopup="listbox" aria-expanded={pickerOpen} onClick={() => setPickerOpen(previous => !previous)}>
+          <Tag size={14} />
+          添加标签
+        </Button>
+        {pickerOpen && (
+          <>
+            <button type="button" aria-label="关闭标签选择" className="fixed inset-0 z-10 cursor-default" onClick={() => setPickerOpen(false)} />
+            <div role="listbox" aria-label="选择标签" className="absolute top-full left-0 z-20 mt-1 max-h-72 w-72 overflow-y-auto rounded-md border border-border bg-panel p-3 shadow-2xl">
+              {groups.length === 0 ? (
+                <p className="px-1 py-2 text-sm text-text-secondary">库里还没有标签，先到「管理标签」新建。</p>
+              ) : (
+                groups.map((group) => (
+                  <div key={group.value} className="mb-3 last:mb-0">
+                    <p className="mb-1 px-1 text-[11px] font-semibold tracking-[0.14em] text-text-secondary uppercase">
+                      {group.label} · {group.items.length}
+                    </p>
+                    <ul>
+                      {group.items.map((tag) => (
+                        <li key={tag.tagId}>
+                          <button
+                            type="button"
+                            role="option"
+                            aria-selected={false}
+                            className="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-text-primary transition hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            onClick={() => applyTag(tag.tagId)}
+                          >
+                            {tag.color && (
+                              <span aria-hidden="true" className="size-2 shrink-0 rounded-full" style={{ backgroundColor: tag.color }} />
+                            )}
+                            <span className="min-w-0 flex-1 truncate">{tagLabel(tag)}</span>
+                            {tag.gameCount ? <span className="shrink-0 text-xs text-text-secondary">{tag.gameCount.toLocaleString()}</span> : null}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))
+              )}
+            </div>
+          </>
+        )}
+      </span>
       <Button size="sm" variant="danger" disabled={busy || !games.length} onClick={() => setConfirm(true)}>批量移除</Button>
       {busy && <span role="status">正在处理…</span>}
     </div>

@@ -347,5 +347,101 @@ public static class DatabaseMigrations
                 computed_utc TEXT NOT NULL
             )
             """),
+        // 21：views.sort 白名单与 games.list 对齐（bug-1）。前端"保存为收藏夹"默认携带
+        // accepted-desc，而 v8 的 CHECK (sort IN ('title','recent')) 使 views.create/update
+        // 直接报错；重建表放宽为六值，与 GamesHandler 白名单及 LibraryCatalogStore.QueryGames
+        // 的 ORDER BY 分支一一对应。library_views 无外键引用，按 v14/v15 先例重建搬数据。
+        new DatabaseMigration(21, """
+            CREATE TABLE library_views_new (
+                view_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                filter_json TEXT NOT NULL,
+                sort TEXT NOT NULL CHECK (sort IN ('title', 'title-asc', 'title-desc', 'recent', 'updated-desc', 'accepted-desc')),
+                revision INTEGER NOT NULL,
+                created_utc TEXT NOT NULL,
+                updated_utc TEXT NOT NULL
+            );
+            INSERT INTO library_views_new (view_id, name, filter_json, sort, revision, created_utc, updated_utc)
+                SELECT view_id, name, filter_json, sort, revision, created_utc, updated_utc FROM library_views;
+            DROP TABLE library_views;
+            ALTER TABLE library_views_new RENAME TO library_views
+            """),
+        // 22：标签数据模型升级（feat-3）。tags 新增四列：category（engine|gameplay|social|special，
+        // 存量按 kind 回填——engine→engine、user 保持默认 special）、sort_order、starred、
+        // display_name（engine 标签 name 是身份键不可变，用户改名落 display_name）。
+        // 注意：tags 被 game_tags 外键引用，而迁移在 PRAGMA foreign_keys=ON 的连接上单事务执行
+        // （SqliteLibraryStore.ApplyPragmasAsync 先于迁移），直接 DROP TABLE tags 会触发级联
+        // 清空 game_tags。故先把关联行备份到无约束临时表，重建两表后回填，并重建随 DROP
+        // 消失的 idx_game_tags_tag（v19）。
+        new DatabaseMigration(22, """
+            CREATE TABLE game_tags_v22_backup (
+                game_id TEXT NOT NULL,
+                tag_id TEXT NOT NULL,
+                created_utc TEXT NOT NULL,
+                PRIMARY KEY (game_id, tag_id)
+            );
+            INSERT INTO game_tags_v22_backup (game_id, tag_id, created_utc)
+                SELECT game_id, tag_id, created_utc FROM game_tags;
+            CREATE TABLE tags_new (
+                tag_id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL CHECK (kind IN ('engine', 'user')),
+                name TEXT NOT NULL,
+                color TEXT,
+                category TEXT NOT NULL DEFAULT 'special' CHECK (category IN ('engine', 'gameplay', 'social', 'special')),
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                starred INTEGER NOT NULL DEFAULT 0 CHECK (starred IN (0, 1)),
+                display_name TEXT,
+                revision INTEGER NOT NULL DEFAULT 1,
+                created_utc TEXT NOT NULL,
+                updated_utc TEXT NOT NULL,
+                UNIQUE (kind, name)
+            );
+            INSERT INTO tags_new (tag_id, kind, name, color, category, sort_order, starred, display_name, revision, created_utc, updated_utc)
+                SELECT tag_id, kind, name, color,
+                       CASE kind WHEN 'engine' THEN 'engine' ELSE 'special' END,
+                       0, 0, NULL, revision, created_utc, updated_utc
+                FROM tags;
+            DROP TABLE game_tags;
+            DROP TABLE tags;
+            ALTER TABLE tags_new RENAME TO tags;
+            CREATE TABLE game_tags (
+                game_id TEXT NOT NULL REFERENCES games(game_id) ON DELETE CASCADE,
+                tag_id TEXT NOT NULL REFERENCES tags(tag_id) ON DELETE CASCADE,
+                created_utc TEXT NOT NULL,
+                PRIMARY KEY (game_id, tag_id)
+            );
+            INSERT INTO game_tags (game_id, tag_id, created_utc)
+            SELECT game_id, tag_id, created_utc FROM game_tags_v22_backup;
+            DROP TABLE game_tags_v22_backup;
+            CREATE INDEX idx_game_tags_tag ON game_tags (tag_id)
+            """),
+        // 23：库根分类与存量治理（bug-5）。library_roots 增加 kind 列（library|manual）：
+        // manual 根是"手动添加游戏时为通过路径包含校验而注册的目录"，只作路径包含边界，
+        // 不参与扫描枚举与候选发现；存量一律 'library'。
+        // 同步治理历史冗余：删除"是另一 library 根的严格子路径"的 library 根
+        // （大小写与分隔符归一后比较，substr 精确前缀而非 LIKE——路径可含 %/_ 通配符）；
+        // 被删根下的既有游戏不受影响（父根覆盖其路径，games/candidates 均不动）。
+        // 待删集先物化到临时表再删除：SQLite 的 DELETE 逐行执行，若逐行评估 EXISTS，
+        // 先删父根会让本应级联删除的子根逃逸；快照计算保证链式子路径全部命中。
+        new DatabaseMigration(23, """
+            ALTER TABLE library_roots ADD COLUMN kind TEXT NOT NULL DEFAULT 'library' CHECK (kind IN ('library', 'manual'));
+            CREATE TABLE library_roots_v23_prune AS
+            SELECT child.root_id AS root_id
+            FROM library_roots child
+            WHERE child.kind = 'library'
+              AND EXISTS (
+                  SELECT 1 FROM library_roots parent
+                  WHERE parent.root_id <> child.root_id
+                    AND parent.kind = 'library'
+                    AND length(rtrim(replace(lower(parent.physical_path), '/', '\'), '\'))
+                        < length(rtrim(replace(lower(child.physical_path), '/', '\'), '\'))
+                    AND substr(rtrim(replace(lower(child.physical_path), '/', '\'), '\'),
+                               1,
+                               length(rtrim(replace(lower(parent.physical_path), '/', '\'), '\')) + 1)
+                        = rtrim(replace(lower(parent.physical_path), '/', '\'), '\') || '\'
+              );
+            DELETE FROM library_roots WHERE root_id IN (SELECT root_id FROM library_roots_v23_prune);
+            DROP TABLE library_roots_v23_prune;
+            """),
     ];
 }

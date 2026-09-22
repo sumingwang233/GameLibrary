@@ -19,7 +19,7 @@ public sealed record LibraryView
 
     public bool FavoriteOnly { get; init; }
 
-    /// <summary>title 或 recent。</summary>
+    /// <summary>排序值；白名单与 games.list 一致：title/title-asc/title-desc/recent/updated-desc/accepted-desc（迁移 v21 起 CHECK 放宽为六值）。</summary>
     public string Sort { get; init; } = "title";
 
     public int Revision { get; init; } = 1;

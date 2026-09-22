@@ -147,7 +147,7 @@ internal sealed class ViewSettingsHandler
         };
     }
 
-    /// <summary>创建自定义视图：name 必填，sort 仅 title/recent。</summary>
+    /// <summary>创建自定义视图：name 必填；sort 白名单与 games.list 完全一致（六值，bug-1）。</summary>
     public Envelope<object> ViewsCreate(IpcRequest request)
     {
         var store = _storeAccessor();
@@ -164,9 +164,9 @@ internal sealed class ViewSettingsHandler
         IpcRequests.TryGetStringParameter(request, "search", out var search);
         IpcRequests.TryGetBoolParameter(request, "favoriteOnly", out var favoriteOnly);
         IpcRequests.TryGetStringParameter(request, "sort", out var sort);
-        if (sort.Length > 0 && sort is not ("title" or "recent"))
+        if (sort.Length > 0 && !IsValidSort(sort))
         {
-            return IpcRequests.InvalidArgument(request, "sort 只支持 title/recent");
+            return IpcRequests.InvalidArgument(request, SortRuleMessage);
         }
 
         var now = DateTime.UtcNow;
@@ -219,9 +219,9 @@ internal sealed class ViewSettingsHandler
         IpcRequests.TryGetStringParameter(request, "search", out var search);
         IpcRequests.TryGetBoolParameter(request, "favoriteOnly", out var favoriteOnly);
         IpcRequests.TryGetStringParameter(request, "sort", out var sort);
-        if (sort.Length > 0 && sort is not ("title" or "recent"))
+        if (sort.Length > 0 && !IsValidSort(sort))
         {
-            return IpcRequests.InvalidArgument(request, "sort 只支持 title/recent");
+            return IpcRequests.InvalidArgument(request, SortRuleMessage);
         }
 
         var newRevision = store.UpdateView(
@@ -360,6 +360,16 @@ internal sealed class ViewSettingsHandler
             Data = new { viewId, active = true },
         };
     }
+
+    /// <summary>
+    /// sort 白名单与 games.list 完全一致（bug-1：收藏夹默认携带 accepted-desc 保存被拒）。
+    /// 文案与 OperationSchemas 中 games.list/views.* 的 sort 描述保持同源措辞。
+    /// </summary>
+    private static bool IsValidSort(string sort) =>
+        sort is "title" or "title-asc" or "title-desc" or "recent" or "updated-desc" or "accepted-desc";
+
+    private const string SortRuleMessage =
+        "sort 只支持 title/title-asc、title-desc、recent/updated-desc 或 accepted-desc";
 
     /// <summary>自定义视图 DTO（视图存在性已由调用方保证）。</summary>
     private object ViewDto(SqliteLibraryStore store, string viewId)

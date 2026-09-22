@@ -54,7 +54,11 @@ internal sealed class CatalogingHandler
         _dataDirectory = dataDirectory;
     }
 
-    /// <summary>注册库根（显式授权动作）；重复注册同一规范化路径幂等；同步落库（v13+）。</summary>
+    /// <summary>
+    /// 注册库根（显式授权动作）；重复注册同一规范化路径幂等；同步落库（v13+）。
+    /// v23（bug-5）：可选 kind=library|manual（默认 library）——manual 根是手动添加
+    /// 游戏时为通过路径包含校验而注册的边界根，不参与扫描枚举与候选发现。
+    /// </summary>
     public Envelope<object> RootsAdd(IpcRequest request)
     {
         if (!IpcRequests.TryGetStringParameter(request, "root", out var root))
@@ -62,11 +66,22 @@ internal sealed class CatalogingHandler
             return IpcRequests.InvalidArgument(request, "缺少 root 参数（绝对本地路径）");
         }
 
+        IpcRequests.TryGetStringParameter(request, "kind", out var kind);
+        if (kind.Length == 0)
+        {
+            kind = "library";
+        }
+
+        if (kind is not ("library" or "manual"))
+        {
+            return IpcRequests.InvalidArgument(request, $"kind 只支持 library/manual：{kind}");
+        }
+
         try
         {
-            var libraryRoot = _roots.Add(root);
+            var libraryRoot = _roots.Add(root, kind);
             _storeAccessor()?.UpsertRoot(
-                new PersistedRoot(libraryRoot.RootId, libraryRoot.Path.PhysicalPath, libraryRoot.Revision, libraryRoot.CreatedUtc),
+                new PersistedRoot(libraryRoot.RootId, libraryRoot.Path.PhysicalPath, libraryRoot.Revision, libraryRoot.CreatedUtc, libraryRoot.Kind),
                 DateTime.UtcNow);
             return new Envelope<object>
             {
@@ -148,10 +163,23 @@ internal sealed class CatalogingHandler
         };
     }
 
-    /// <summary>roots.list：列出全部已注册库根。</summary>
+    /// <summary>
+    /// roots.list：默认只返回 library 根（既有消费方看到的仍是扫描边界）；
+    /// includeManual=true 返回全部（含 manual 根，DTO 带 kind 字段）。
+    /// </summary>
     public Envelope<object> RootsList(IpcRequest request)
     {
-        var roots = _roots.List();
+        var includeManual = false;
+        if (request.Parameters is { ValueKind: JsonValueKind.Object } listParameters
+            && listParameters.TryGetProperty("includeManual", out var includeElement)
+            && includeElement.ValueKind == JsonValueKind.True)
+        {
+            includeManual = true;
+        }
+
+        var roots = _roots.List()
+            .Where(r => includeManual || !string.Equals(r.Kind, "manual", StringComparison.Ordinal))
+            .ToList();
         return new Envelope<object>
         {
             RequestId = request.RequestId,

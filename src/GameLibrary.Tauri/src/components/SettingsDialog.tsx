@@ -2,12 +2,11 @@ import { useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Download, FolderOpen, Power, RefreshCw, RotateCcw } from "lucide-react";
+import { Download, FolderOpen, RefreshCw, RotateCcw } from "lucide-react";
 import { describeFailure, operation } from "../lib/api";
 import { useSettings } from "../lib/settings";
 import { checkForUpdate, type UpdateInfo } from "../lib/update";
 import { Button } from "./ui/button";
-import { ConfirmDialog } from "./ui/confirm-dialog";
 import { Input } from "./ui/input";
 import { Sheet } from "./ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
@@ -21,7 +20,6 @@ export function SettingsDialog({ open: isOpen, onClose }: { open: boolean; onClo
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
-  const [confirmStop, setConfirmStop] = useState(false);
   const [appVersion, setAppVersion] = useState("…");
 
   useEffect(() => {
@@ -54,13 +52,6 @@ export function SettingsDialog({ open: isOpen, onClose }: { open: boolean; onClo
     }
   };
 
-  const stopHost = () =>
-    runRaw(async () => {
-      await operation("host.stop", {}, "host.stop");
-      setConfirmStop(false);
-      onClose();
-    });
-
   const resetSettings = () =>
     runRaw(async () => {
       await operation("settings.reset", {}, "settings.reset");
@@ -71,7 +62,7 @@ export function SettingsDialog({ open: isOpen, onClose }: { open: boolean; onClo
 
   return (
     <>
-      <Sheet open={isOpen} onClose={onClose} title="设置" description="外观、扫描、存储与关于">
+      <Sheet open={isOpen} onClose={onClose} title="设置" description="外观、游戏库与关于">
         {error && (
           <p role="alert" className="mb-4 rounded-md border border-danger/40 bg-danger/10 p-3 text-sm text-danger">
             {error}
@@ -85,8 +76,6 @@ export function SettingsDialog({ open: isOpen, onClose }: { open: boolean; onClo
             <TabsList aria-label="设置分区">
               <TabsTrigger value="appearance">外观</TabsTrigger>
               <TabsTrigger value="library">游戏库</TabsTrigger>
-              <TabsTrigger value="storage">存储</TabsTrigger>
-              <TabsTrigger value="guide">使用指南</TabsTrigger>
               <TabsTrigger value="about">关于</TabsTrigger>
             </TabsList>
 
@@ -103,23 +92,6 @@ export function SettingsDialog({ open: isOpen, onClose }: { open: boolean; onClo
                   <option value="light">浅色</option>
                   <option value="system">跟随系统</option>
                 </select>
-              </Field>
-
-              <Field
-                label={`界面缩放 ${Math.round(settings.uiFontScale * 100)}%`}
-                hint="整体文字与间距按比例缩放（85%–160%）。"
-              >
-                <input
-                  type="range"
-                  min={0.85}
-                  max={1.6}
-                  step={0.05}
-                  value={settings.uiFontScale}
-                  disabled={busy}
-                  onChange={(event) => void patch({ uiFontScale: Number(event.target.value) })}
-                  aria-label="界面缩放"
-                  className="w-full accent-steam"
-                />
               </Field>
 
               <Field label="字体" hint="界面使用的字体族。">
@@ -173,9 +145,7 @@ export function SettingsDialog({ open: isOpen, onClose }: { open: boolean; onClo
                 disabled={busy}
                 onChange={(checked) => void patch({ autostartEnabled: checked })}
               />
-            </TabsContent>
 
-            <TabsContent value="storage" className="space-y-5">
               <Field
                 label="封面与预览缓存目录"
                 hint="留空则使用数据目录下的 cache。修改后新的缓存会写到新位置。"
@@ -228,39 +198,6 @@ export function SettingsDialog({ open: isOpen, onClose }: { open: boolean; onClo
               </Field>
             </TabsContent>
 
-            <TabsContent value="guide" className="space-y-4 text-sm text-text-secondary">
-              <GuideBlock title="怎么把游戏加进来">
-                先在「游戏库目录」里注册你的游戏盘或游戏文件夹，再点侧栏的「扫描游戏库」。
-                扫描出的候选会进入「待确认」，你可以逐个或批量加入、暂不处理、忽略。
-                不想入库的目录可以加进「扫描过滤名单」。
-              </GuideBlock>
-              <GuideBlock title="怎么启动游戏">
-                打开游戏详情，在「启动」分区里选中游戏的原始主程序（.exe 或 .swf）即可。
-                之后点封面上的播放键或详情页的「开始游戏」。
-              </GuideBlock>
-              <GuideBlock title="三种翻译策略分别是什么意思">
-                <ul className="mt-1 list-disc space-y-1 pl-5">
-                  <li>
-                    <strong className="text-text-primary">Auto</strong>
-                    ：按目录约定自动判断。放在需要翻译的目录里的游戏，启动时会自动先调用翻译工具，
-                    你只需要配置游戏的原始程序。
-                  </li>
-                  <li>
-                    <strong className="text-text-primary">Required</strong>
-                    ：强制必须经翻译工具启动。找不到可用的翻译配方时会明确拦住并告诉你下一步做什么，
-                    不会偷偷直接启动原文。
-                  </li>
-                  <li>
-                    <strong className="text-text-primary">NotRequired</strong>
-                    ：明确不需要翻译，直接启动原文程序。
-                  </li>
-                </ul>
-              </GuideBlock>
-              <GuideBlock title="封面显示不全怎么办">
-                详情页的封面按原始比例完整显示，不会被裁切。换一张图重新导入即可。
-              </GuideBlock>
-            </TabsContent>
-
             <TabsContent value="about" className="space-y-4">
               <div className="rounded-md border border-border bg-surface p-4 text-sm">
                 <div className="font-semibold text-text-primary">GameLibrary</div>
@@ -278,39 +215,48 @@ export function SettingsDialog({ open: isOpen, onClose }: { open: boolean; onClo
 
               <div className="rounded-md border border-border bg-surface p-4">
                 <div className="text-sm font-semibold text-text-primary">恢复默认设置</div>
-                <p className="mt-1 text-xs text-text-secondary">
-                  把外观、扫描周期、缓存目录等全部恢复为默认值。游戏与标签不受影响。
-                </p>
                 <Button variant="outline" className="mt-3" size="sm" disabled={busy} onClick={() => void resetSettings()}>
                   <RotateCcw size={14} />
                   恢复默认
                 </Button>
               </div>
 
-              <div className="rounded-md border border-danger/40 bg-danger/10 p-4">
-                <div className="text-sm font-semibold text-danger">高级</div>
-                <p className="mt-1 text-xs text-text-secondary">
-                  停止后台服务。命令行与 MCP 下次调用时会自动把它重新拉起。
-                </p>
-                <Button variant="danger" className="mt-3" size="sm" disabled={busy} onClick={() => setConfirmStop(true)}>
-                  <Power size={14} />
-                  停止后台服务
-                </Button>
+              <div className="space-y-4 text-sm text-text-secondary">
+                <GuideBlock title="怎么把游戏加进来">
+                  先在「游戏库目录」里注册你的游戏盘或游戏文件夹，再点侧栏的「扫描游戏库」。
+                  扫描出的候选会进入「待确认」，你可以逐个或批量加入、暂不处理、忽略。
+                  不想入库的目录可以加进「扫描过滤名单」。
+                </GuideBlock>
+                <GuideBlock title="怎么启动游戏">
+                  打开游戏详情，在「启动」分区里选中游戏的原始主程序（.exe 或 .swf）即可。
+                  之后点封面上的播放键或详情页的「开始游戏」。
+                </GuideBlock>
+                <GuideBlock title="三种翻译策略分别是什么意思">
+                  <ul className="mt-1 list-disc space-y-1 pl-5">
+                    <li>
+                      <strong className="text-text-primary">Auto</strong>
+                      ：按目录约定自动判断。放在需要翻译的目录里的游戏，启动时会自动先调用翻译工具，
+                      你只需要配置游戏的原始程序。
+                    </li>
+                    <li>
+                      <strong className="text-text-primary">Required</strong>
+                      ：强制必须经翻译工具启动。找不到可用的翻译配方时会明确拦住并告诉你下一步做什么，
+                      不会偷偷直接启动原文。
+                    </li>
+                    <li>
+                      <strong className="text-text-primary">NotRequired</strong>
+                      ：明确不需要翻译，直接启动原文程序。
+                    </li>
+                  </ul>
+                </GuideBlock>
+                <GuideBlock title="封面显示不全怎么办">
+                  详情页的封面按原始比例完整显示，不会被裁切。换一张图重新导入即可。
+                </GuideBlock>
               </div>
             </TabsContent>
           </Tabs>
         )}
       </Sheet>
-
-      <ConfirmDialog
-        open={confirmStop}
-        title="停止后台服务"
-        description="游戏库数据不会丢失。下次打开程序或调用命令行时会自动重新启动后台服务。"
-        confirmLabel="停止"
-        destructive
-        onCancel={() => setConfirmStop(false)}
-        onConfirm={() => void stopHost()}
-      />
     </>
   );
 }

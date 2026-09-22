@@ -28,8 +28,6 @@ export function ScanProgressBar({
 
   if (!progress) return null;
   const elapsed = Math.max(0, now - progress.startedAt);
-  const elapsedSeconds = Math.max(1, elapsed / 1000);
-  const averageRate = Math.round(progress.scannedDirectories / elapsedSeconds);
   const title =
     progress.phase === "starting"
       ? "正在准备扫描…"
@@ -47,13 +45,7 @@ export function ScanProgressBar({
         <div className="min-w-0 flex-1">
           <p className="font-medium">{title}</p>
           <p className="mt-1 text-xs text-text-secondary">
-            {progress.activeRoots} 个游戏库位置 · 已运行 {formatElapsed(elapsed)}
-            {progress.phase === "running" && averageRate > 0
-              ? ` · 平均每秒检查 ${averageRate.toLocaleString()} 个文件夹`
-              : ""}
-          </p>
-          <p className="mt-1 text-xs text-text-secondary">
-            扫描完成后会自动去重，只显示需要确认的新游戏。
+            已运行 {formatElapsed(elapsed)}
           </p>
         </div>
         <Button
