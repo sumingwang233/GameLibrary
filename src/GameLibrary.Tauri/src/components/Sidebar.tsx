@@ -61,19 +61,6 @@ export function Sidebar(props: SidebarProps) {
 
   return (
     <aside className="flex h-full w-[var(--sidebar-width)] shrink-0 flex-col border-r border-border bg-background p-4">
-      <div className="mb-6 flex items-center gap-3 px-1">
-        <div
-          aria-hidden="true"
-          className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-lg font-black text-primary-foreground"
-        >
-          <img src="/app-icon.svg" alt="" className="h-9 w-9" />
-        </div>
-        <div className="leading-tight">
-          <div className="text-sm font-bold tracking-[0.18em] text-text-primary">GAME</div>
-          <div className="text-[10px] tracking-[0.28em] text-steam">LIBRARY</div>
-        </div>
-      </div>
-
       <SectionLabel>Library</SectionLabel>
       <nav className="space-y-1" aria-label="游戏库导航">
         <NavButton

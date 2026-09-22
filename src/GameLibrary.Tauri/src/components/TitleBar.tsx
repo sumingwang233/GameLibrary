@@ -27,7 +27,11 @@ export function TitleBar({ onAddRoot, onScan, onSettings, scanning, onTags, onRo
   };
   return (
     <header className="flex h-12 shrink-0 items-center border-b border-border bg-surface text-text-primary select-none">
-      <nav aria-label="快捷操作" className="flex items-center gap-1 px-4">
+      <div data-tauri-drag-region className="flex h-full min-w-40 items-center gap-2 px-4">
+        <img src="/app-icon.svg" alt="" className="pointer-events-none h-7 w-7" />
+        <span className="pointer-events-none text-sm font-semibold tracking-wide">GameLibrary</span>
+      </div>
+      <nav aria-label="快捷操作" className="flex items-center gap-1">
         <Button variant="ghost" size="sm" onClick={onTags}><Tags size={15} />管理标签</Button>
         <Button variant="ghost" size="sm" onClick={onRoots}><FolderTree size={15} />游戏库目录</Button>
         <Button variant="ghost" size="sm" onClick={onAddRoot}><FolderPlus size={15} />添加游戏库</Button>
