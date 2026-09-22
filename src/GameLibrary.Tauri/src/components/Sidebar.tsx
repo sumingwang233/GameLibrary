@@ -7,8 +7,8 @@ import {
   Trash2,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import type { ViewItem } from "../lib/types";
-import { tagLabel } from "../lib/tags";
+import type { TagItem, ViewItem } from "../lib/types";
+import { groupTagsByCategory, tagLabel } from "../lib/tags";
 import { cn } from "../lib/utils";
 import { ScrollArea } from "./ui/scroll-area";
 import { Separator } from "./ui/separator";
@@ -26,7 +26,7 @@ export interface SidebarProps {
   onFavoriteChange: (value: boolean) => void;
   tagId: string;
   onTagChange: (tagId: string) => void;
-  tags: Array<{ tagId: string; name: string; displayName?: string | null; gameCount?: number }>;
+  tags: TagItem[];
   candidateTotal: number;
   gameTotal: number;
   notificationTotal: number;
@@ -56,8 +56,10 @@ export function Sidebar(props: SidebarProps) {
   } = props;
 
   const pendingBadge = candidateTotal + notificationTotal;
-  // 标签定义仍保留在“管理标签”中；侧栏只展示当前库内至少有一个有效游戏的标签。
+  // 标签定义仍保留在“管理标签”中；侧栏只展示当前库内至少有一个有效游戏的标签，
+  // 并与管理页同口径按四分类分组（v1.5.3），空分组不占位。
   const visibleTags = tags.filter((tag) => (tag.gameCount ?? 0) > 0);
+  const tagGroups = groupTagsByCategory(visibleTags).filter((group) => group.items.length > 0);
 
   return (
     <aside className="flex h-full w-[var(--sidebar-width)] shrink-0 flex-col border-r border-border bg-background p-4">
@@ -153,26 +155,40 @@ export function Sidebar(props: SidebarProps) {
       </div>
       <ScrollArea className="min-h-0 flex-1">
         <div className="space-y-1 pr-2">
-          {visibleTags.map((tag) => (
-            <button
-              key={tag.tagId}
-              type="button"
-              className={cn(
-                "flex w-full cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-2 text-left text-sm transition",
-                tagId === tag.tagId
-                  ? "bg-steam-soft text-text-primary"
-                  : "text-text-secondary hover:bg-surface hover:text-text-primary",
-              )}
-              onClick={() => {
-                onSectionChange("library");
-                onTagChange(tagId === tag.tagId ? "" : tag.tagId);
-              }}
-            >
-              <span className="truncate">{tagLabel(tag)}</span>
-              <span className="shrink-0 text-xs text-text-secondary">
-                {tag.gameCount ? tag.gameCount.toLocaleString() : ""}
-              </span>
-            </button>
+          {tagGroups.map((group) => (
+            <div key={group.value}>
+              <p className="px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-text-secondary/80">
+                {group.label}
+              </p>
+              {group.items.map((tag) => (
+                <button
+                  key={tag.tagId}
+                  type="button"
+                  className={cn(
+                    "flex w-full cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-2 text-left text-sm transition",
+                    tagId === tag.tagId
+                      ? "bg-steam-soft text-text-primary"
+                      : "text-text-secondary hover:bg-surface hover:text-text-primary",
+                  )}
+                  onClick={() => {
+                    onSectionChange("library");
+                    onTagChange(tagId === tag.tagId ? "" : tag.tagId);
+                  }}
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span
+                      aria-hidden="true"
+                      className="size-2 shrink-0 rounded-full border border-border"
+                      style={{ backgroundColor: tag.color ?? "transparent" }}
+                    />
+                    <span className="truncate">{tagLabel(tag)}</span>
+                  </span>
+                  <span className="shrink-0 text-xs text-text-secondary">
+                    {tag.gameCount ? tag.gameCount.toLocaleString() : ""}
+                  </span>
+                </button>
+              ))}
+            </div>
           ))}
           {visibleTags.length === 0 && (
             <p className="px-2 text-xs text-text-secondary">没有正在使用的标签</p>
