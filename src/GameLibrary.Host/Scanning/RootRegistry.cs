@@ -77,6 +77,21 @@ public sealed class RootRegistry
             return _byRootId[existingId];
         }
 
+        // 常规游戏库根只需要最外层边界。手动添加游戏仍保留独立的 manual
+        // 边界根，但把 F:\Games\RPG 这样的子目录再次添加为 library 根没有额外
+        // 扫描意义，会造成目录列表重复。
+        if (kind == "library")
+        {
+            var parent = _byRootId.Values
+                .Where(existing => existing.Kind == "library" && IsSameOrSubpath(root.PhysicalPath, existing.Path.PhysicalPath))
+                .OrderBy(existing => existing.Path.PhysicalPath.Length)
+                .FirstOrDefault();
+            if (parent is not null)
+            {
+                return parent;
+            }
+        }
+
         var libraryRoot = new LibraryRoot
         {
             RootId = $"root-{Guid.NewGuid():N}",
@@ -87,6 +102,15 @@ public sealed class RootRegistry
         _byRootId[libraryRoot.RootId] = libraryRoot;
         _rootIdByComparisonKey[root.ComparisonKey] = libraryRoot.RootId;
         return libraryRoot;
+    }
+
+    private static bool IsSameOrSubpath(string candidatePath, string parentPath)
+    {
+        var candidate = candidatePath.TrimEnd('\\', '/');
+        var parent = parentPath.TrimEnd('\\', '/');
+        return string.Equals(candidate, parent, StringComparison.OrdinalIgnoreCase)
+            || candidate.StartsWith(parent + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+            || candidate.StartsWith(parent + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

@@ -28,8 +28,10 @@ public sealed partial class SqliteLibraryStore
         => Execute((c, _) => LibraryViewStore.ListViews(c));
 
     public int? UpdateView(
-        string viewId, string? name, string? search, bool? favoriteOnly, string? sort, int expectedRevision, DateTime utcNow)
-        => Execute((c, _) => LibraryViewStore.UpdateView(c, viewId, name, search, favoriteOnly, sort, expectedRevision, utcNow));
+        string viewId, string? name, string? search, bool? favoriteOnly, string? tagId, string? sort,
+        int expectedRevision, DateTime utcNow)
+        => Execute((c, _) => LibraryViewStore.UpdateView(
+            c, viewId, name, search, favoriteOnly, tagId, sort, expectedRevision, utcNow));
 
     public bool DeleteView(string viewId)
         => Execute((c, _) => LibraryViewStore.DeleteView(c, viewId));

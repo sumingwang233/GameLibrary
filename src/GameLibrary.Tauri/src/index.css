@@ -98,9 +98,8 @@ html.light {
   -webkit-font-smoothing: antialiased;
 }
 
-/* settings.uiFontScale 由 ThemeProvider 写入 --gl-font-scale；正文一律用 rem 才能随之缩放。 */
 html {
-  font-size: calc(16px * var(--gl-font-scale, 1));
+  font-size: 16px;
 }
 
 * {

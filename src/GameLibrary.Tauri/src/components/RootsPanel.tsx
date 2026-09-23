@@ -38,6 +38,13 @@ function isSubpathOf(childPath: string, parentPath: string): boolean {
   return child.startsWith(`${parent}\\`);
 }
 
+function coversSubtree(parent: IgnoreRuleItem, child: IgnoreRuleItem): boolean {
+  return parent.scope === "Subtree"
+    && Boolean(parent.path)
+    && Boolean(child.path)
+    && isSubpathOf(child.path!, parent.path!);
+}
+
 /** 折叠后的过滤名单条目：母条目 + 被它覆盖的子规则数（孙级也计入母条目）。 */
 interface IgnoreDisplay {
   rule: IgnoreRuleItem;
@@ -51,11 +58,11 @@ interface IgnoreDisplay {
 function foldIgnores(ignores: IgnoreRuleItem[]): IgnoreDisplay[] {
   const withPath = ignores.filter((rule) => rule.path);
   return ignores
-    .filter((rule) => !rule.path || !withPath.some((other) => other.ignoreId !== rule.ignoreId && isSubpathOf(rule.path!, other.path!)))
+    .filter((rule) => !rule.path || !withPath.some((other) => other.ignoreId !== rule.ignoreId && coversSubtree(other, rule)))
     .map((rule) => ({
       rule,
       foldedCount: rule.path
-        ? withPath.filter((other) => other.ignoreId !== rule.ignoreId && isSubpathOf(other.path!, rule.path!)).length
+        ? withPath.filter((other) => other.ignoreId !== rule.ignoreId && coversSubtree(rule, other)).length
         : 0,
     }));
 }

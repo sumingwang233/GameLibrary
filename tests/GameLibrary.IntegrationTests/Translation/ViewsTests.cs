@@ -200,6 +200,72 @@ public sealed class ViewsTests : IClassFixture<PipeServerFixture>
         Assert.DoesNotContain(plainGame, customIds);
     }
 
+    [Fact]
+    public async Task GamesList_WithCustomView_UsesSavedSnapshotOverCallerFilters()
+    {
+        var marker = Guid.NewGuid().ToString("N");
+        var targetGame = InsertGame($"收藏夹目标 {marker}", favorite: true);
+        var otherGame = InsertGame($"收藏夹干扰 {marker}", favorite: false);
+        var tag = await InvokeAsync("tags.create", new
+        {
+            idempotencyKey = $"t15c-view-tag-{marker}",
+            name = $"收藏夹标签 {marker}",
+            category = "special",
+        });
+        Assert.True(tag.Ok, tag.Error?.Message);
+        var tagId = tag.Data.GetProperty("tagId").GetString()!;
+
+        var assigned = await InvokeAsync("tags.assign", new
+        {
+            idempotencyKey = $"t15c-view-assign-{marker}",
+            gameId = targetGame,
+            tagId,
+            expectedRevision = 1,
+        });
+        Assert.True(assigned.Ok, assigned.Error?.Message);
+
+        var created = await InvokeAsync("views.create", new
+        {
+            idempotencyKey = $"t15c-view-snapshot-{marker}",
+            name = $"收藏夹快照 {marker}",
+            search = $"收藏夹目标 {marker}",
+            favoriteOnly = true,
+            tagId,
+            sort = "title-desc",
+        });
+        Assert.True(created.Ok, created.Error?.Message);
+        var viewId = created.Data.GetProperty("viewId").GetString()!;
+        try
+        {
+            Assert.Equal(tagId, created.Data.GetProperty("tagId").GetString());
+
+            // 调用方故意携带另一组旧筛选条件；自定义视图应以已保存快照为准。
+            var listed = await InvokeAsync("games.list", new
+            {
+                viewId,
+                search = $"收藏夹干扰 {marker}",
+                tagId = "tag-missing",
+                sort = "title-asc",
+            });
+            Assert.True(listed.Ok, listed.Error?.Message);
+            var ids = listed.Data.GetProperty("items").EnumerateArray()
+                .Select(item => item.GetProperty("gameId").GetString())
+                .ToList();
+            Assert.Contains(targetGame, ids);
+            Assert.DoesNotContain(otherGame, ids);
+        }
+        finally
+        {
+            var removed = await InvokeAsync("views.remove", new
+            {
+                idempotencyKey = $"t15c-view-snapshot-remove-{marker}",
+                viewId,
+                expectedRevision = 1,
+            });
+            Assert.True(removed.Ok, removed.Error?.Message);
+        }
+    }
+
     // —— bug-1 扩展排序白名单用例（置于类尾并自清理，避免污染
     //    ViewsList_ShowsBuiltinsBeforeAnyCustom 对"空库恰三内置"的全表断言）——
 

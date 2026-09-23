@@ -17,6 +17,12 @@ export const SORT_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "title-desc", label: "名称 Z→A" },
 ];
 
+function displaySortValue(sort: string) {
+  if (sort === "title") return "title-asc";
+  if (sort === "recent") return "updated-desc";
+  return SORT_OPTIONS.some((option) => option.value === sort) ? sort : "accepted-desc";
+}
+
 export function LibraryToolbar({
   search,
   onSearch,
@@ -60,7 +66,7 @@ export function LibraryToolbar({
         <span className="text-xs whitespace-nowrap text-text-secondary" aria-live="polite">
           {shown.toLocaleString()} / {total.toLocaleString()}
         </span>
-        <Select value={sort} onValueChange={onSort}>
+        <Select value={displaySortValue(sort)} onValueChange={onSort}>
           <SelectTrigger className="w-[130px]" aria-label="排序方式">
             <SelectValue />
           </SelectTrigger>

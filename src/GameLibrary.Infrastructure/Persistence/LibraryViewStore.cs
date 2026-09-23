@@ -7,7 +7,7 @@ namespace GameLibrary.Infrastructure.Persistence;
 /// <summary>
 /// 自定义视图（T15-C）：搜索/筛选/排序的语义状态（契约 3.1 views.*）。
 /// 内置视图（all/favorites/pending）由 BuiltInViews 代码定义，不入库。
-/// filter_json 形如 {"search":"…","favoriteOnly":true}；字段未出现即不启用该条件。
+/// filter_json 形如 {"search":"…","favoriteOnly":true,"tagId":"…"}；字段未出现即不启用该条件。
 /// </summary>
 public sealed record LibraryView
 {
@@ -18,6 +18,9 @@ public sealed record LibraryView
     public string? Search { get; init; }
 
     public bool FavoriteOnly { get; init; }
+
+    /// <summary>可选标签筛选；保存收藏夹时与搜索、收藏条件一起持久化。</summary>
+    public string? TagId { get; init; }
 
     /// <summary>排序值；白名单与 games.list 一致：title/title-asc/title-desc/recent/updated-desc/accepted-desc（迁移 v21 起 CHECK 放宽为六值）。</summary>
     public string Sort { get; init; } = "title";
@@ -41,13 +44,19 @@ public sealed record LibraryView
             parts.Add("\"favoriteOnly\":true");
         }
 
+        if (!string.IsNullOrWhiteSpace(view.TagId))
+        {
+            parts.Add($"\"tagId\":{JsonEncode(view.TagId)}");
+        }
+
         return "{" + string.Join(",", parts) + "}";
     }
 
-    public static (string? Search, bool FavoriteOnly) ParseFilter(string filterJson)
+    public static (string? Search, bool FavoriteOnly, string? TagId) ParseFilter(string filterJson)
     {
         string? search = null;
         var favoriteOnly = false;
+        string? tagId = null;
         try
         {
             using var document = JsonDocument.Parse(filterJson);
@@ -64,6 +73,12 @@ public sealed record LibraryView
                 {
                     favoriteOnly = true;
                 }
+
+                if (document.RootElement.TryGetProperty("tagId", out var tagElement)
+                    && tagElement.ValueKind == JsonValueKind.String)
+                {
+                    tagId = tagElement.GetString();
+                }
             }
         }
         catch (JsonException)
@@ -71,7 +86,7 @@ public sealed record LibraryView
             // 损坏 filter 按空视图条件处理，不阻塞列表。
         }
 
-        return (search, favoriteOnly);
+        return (search, favoriteOnly, tagId);
     }
 
     private static string JsonEncode(string value) =>
@@ -120,7 +135,8 @@ public static class LibraryViewStore
 
     /// <summary>受限 patch：期望 Revision 对齐，事务内更新并递增；视图不存在或冲突返回 null。未提供的字段保持不变。</summary>
     public static int? UpdateView(
-        SqliteConnection connection, string viewId, string? name, string? search, bool? favoriteOnly, string? sort, int expectedRevision, DateTime utcNow)
+        SqliteConnection connection, string viewId, string? name, string? search, bool? favoriteOnly,
+        string? tagId, string? sort, int expectedRevision, DateTime utcNow)
     {
         using var transaction = (SqliteTransaction)connection.BeginTransaction();
         int currentRevision;
@@ -147,8 +163,8 @@ public static class LibraryViewStore
             return null;
         }
 
-        var (existingSearch, existingFavoriteOnly) = LibraryView.ParseFilter(currentFilter);
-        var filterChanged = search is not null || favoriteOnly is not null;
+        var (existingSearch, existingFavoriteOnly, existingTagId) = LibraryView.ParseFilter(currentFilter);
+        var filterChanged = search is not null || favoriteOnly is not null || tagId is not null;
         var filterJson = filterChanged
             ? LibraryView.SerializeFilter(new LibraryView
             {
@@ -156,6 +172,7 @@ public static class LibraryViewStore
                 Name = string.Empty,
                 Search = search ?? existingSearch,
                 FavoriteOnly = favoriteOnly ?? existingFavoriteOnly,
+                TagId = tagId ?? existingTagId,
                 CreatedUtc = default,
                 UpdatedUtc = default,
             })
@@ -193,13 +210,14 @@ public static class LibraryViewStore
 
     private static LibraryView ReadView(SqliteDataReader reader)
     {
-        var (search, favoriteOnly) = LibraryView.ParseFilter(reader.GetString(2));
+        var (search, favoriteOnly, tagId) = LibraryView.ParseFilter(reader.GetString(2));
         return new LibraryView
         {
             ViewId = reader.GetString(0),
             Name = reader.GetString(1),
             Search = search,
             FavoriteOnly = favoriteOnly,
+            TagId = tagId,
             Sort = reader.GetString(3),
             Revision = reader.GetInt32(4),
             CreatedUtc = DateTime.Parse(reader.GetString(5), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),

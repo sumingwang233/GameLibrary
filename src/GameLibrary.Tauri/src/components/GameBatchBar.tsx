@@ -22,7 +22,11 @@ export function GameBatchBar({ games, tags, onComplete, onBusy }: {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [result, setResult] = useState("");
   const execute = async (action: "favorite" | "unfavorite" | "remove" | "tag", tagId = "") => {
-    if (busy || games.length === 0) return;
+    if (busy) return;
+    if (games.length === 0) {
+      setResult("请先勾选游戏");
+      return;
+    }
     if (action === "tag" && !tagId) return;
     setBusy(true);
     onBusy(true);
@@ -64,7 +68,7 @@ export function GameBatchBar({ games, tags, onComplete, onBusy }: {
       <Button size="sm" variant="outline" disabled={busy || !games.length} onClick={() => void execute("favorite")}>批量收藏</Button>
       <Button size="sm" variant="outline" disabled={busy || !games.length} onClick={() => void execute("unfavorite")}>取消收藏</Button>
       <span className="relative">
-        <Button size="sm" variant="outline" disabled={busy || !games.length} aria-haspopup="listbox" aria-expanded={pickerOpen} onClick={() => setPickerOpen(previous => !previous)}>
+        <Button size="sm" variant="outline" disabled={busy} aria-haspopup="listbox" aria-expanded={pickerOpen} onClick={() => setPickerOpen(previous => !previous)}>
           <Tag size={14} />
           添加标签
         </Button>

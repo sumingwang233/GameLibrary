@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AlertCircle, Bell } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { describeFailure, operation } from "./lib/api";
@@ -32,6 +32,8 @@ function App() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [reviewBusy, setReviewBusy] = useState(false);
   const [prompt, setPrompt] = useState<PromptKind>(null);
+  const mainRef = useRef<HTMLElement | null>(null);
+  const pendingScrollTop = useRef<number | null>(null);
   useEffect(() => {
     if (section !== "pending") return;
     void library.refreshMeta();
@@ -49,6 +51,19 @@ function App() {
   // 扫描进行中不让事件流触发重查：后端所有请求经单一 _requestGate 串行，
   // 扫描写入期间频繁重查会与之争锁，正是 v1.1.5「扫描时很卡」的成因之一。
   const games = useGamesQuery(filters, library.changeToken, library.scanning);
+
+  /** 详情操作会触发列表失效重查。记录主滚动容器的位置，等新一帧列表提交后恢复，
+   * 避免启动游戏、导入封面等操作把用户从当前卡片跳回列表顶部。 */
+  const preserveLibraryScroll = useCallback(async (work: () => Promise<void>) => {
+    pendingScrollTop.current = mainRef.current?.scrollTop ?? 0;
+    await work();
+  }, []);
+
+  useLayoutEffect(() => {
+    if (pendingScrollTop.current === null || games.loading) return;
+    mainRef.current?.scrollTo({ top: pendingScrollTop.current, behavior: "auto" });
+    pendingScrollTop.current = null;
+  }, [games.games, games.loading, library.changeToken]);
 
   const run = async (work: () => Promise<unknown>) => {
     setActionError(null);
@@ -158,7 +173,7 @@ function App() {
 
   const launch = (gameId: string) =>
     run(async () => {
-      await library.launch(gameId);
+      await preserveLibraryScroll(() => library.launch(gameId));
     });
 
   const sidebar = (
@@ -166,12 +181,27 @@ function App() {
       section={section}
       onSectionChange={setSection}
       viewId={filters.viewId}
-      onViewChange={(viewId) => patchFilters({ viewId })}
+      onViewChange={(viewId) => {
+        const view = library.views.find((item) => item.viewId === viewId);
+        patchFilters({
+          viewId,
+          search: view?.search ?? "",
+          favoriteOnly: view?.favoriteOnly ?? false,
+          tagId: view?.tagId ?? "",
+          sort: view?.sort ?? "accepted-desc",
+        });
+      }}
       views={library.views}
       favoriteOnly={filters.favoriteOnly}
-      onFavoriteChange={(favoriteOnly) => patchFilters({ favoriteOnly })}
+      onFavoriteChange={(favoriteOnly) => patchFilters({
+        viewId: "",
+        favoriteOnly,
+        tagId: "",
+        search: "",
+        sort: "accepted-desc",
+      })}
       tagId={filters.tagId}
-      onTagChange={(tagId) => patchFilters({ tagId })}
+      onTagChange={(tagId) => patchFilters({ tagId, viewId: "", favoriteOnly: false })}
       tags={library.tags}
       candidateTotal={library.candidateTotal}
       gameTotal={library.gameTotal}
@@ -187,7 +217,7 @@ function App() {
   return (
     <TooltipProvider>
       <AppShell sidebar={sidebar} titleBar={<TitleBar onTags={() => setSection("tags")} onRoots={() => setSection("roots")} onManualAdd={() => void manualAdd()} onAddRoot={() => void addRoot()} onScan={() => void run(library.startScan)} onSettings={() => setSettingsOpen(true)} scanning={library.scanning} />}>
-        <main className="min-w-0 flex-1 overflow-y-auto bg-background p-6">
+        <main ref={mainRef} className="min-w-0 flex-1 overflow-y-auto bg-background p-6">
           <header className="mb-6">
             <h1 className="text-3xl font-bold tracking-tight text-text-primary">{heading}</h1>
           </header>
@@ -248,9 +278,9 @@ function App() {
             <>
               <LibraryToolbar
                 search={filters.search}
-                onSearch={(search) => patchFilters({ search })}
+                onSearch={(search) => patchFilters({ search, viewId: "" })}
                 sort={filters.sort}
-                onSort={(sort) => patchFilters({ sort })}
+                onSort={(sort) => patchFilters({ sort, viewId: "" })}
                 onRefresh={() => {
                   void games.reload();
                   void library.refreshMeta();
@@ -268,7 +298,11 @@ function App() {
               <GameGrid
                 key={JSON.stringify(filters)}
                 tags={library.tags}
-                onChanged={async () => { setSelected(null); await library.refreshMeta(); await games.reload(); }}
+                onChanged={() => preserveLibraryScroll(async () => {
+                  setSelected(null);
+                  await library.refreshMeta();
+                  await games.reload();
+                })}
                 games={games.games}
                 loading={games.loading}
                 loadingMore={games.loadingMore}
@@ -317,10 +351,12 @@ function App() {
           game={selected}
           tags={library.tags}
           onClose={() => setSelected(null)}
-          onPlay={library.launch}
+          onPlay={launch}
           onChanged={() => {
-            void library.refreshMeta();
-            void games.reload();
+            return preserveLibraryScroll(async () => {
+              await library.refreshMeta();
+              await games.reload();
+            });
           }}
           onNavigate={openGameById}
         />

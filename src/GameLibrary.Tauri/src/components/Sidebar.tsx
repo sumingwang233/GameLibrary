@@ -57,7 +57,7 @@ export function Sidebar(props: SidebarProps) {
 
   const pendingBadge = candidateTotal + notificationTotal;
   // 标签定义仍保留在“管理标签”中；侧栏只展示当前库内至少有一个有效游戏的标签，
-  // 并与管理页同口径按四分类分组（v1.5.3），空分组不占位。
+  // 并与管理页同口径按四分类分组（v1.5.4），空分组不占位。
   const visibleTags = tags.filter((tag) => (tag.gameCount ?? 0) > 0);
   const tagGroups = groupTagsByCategory(visibleTags).filter((group) => group.items.length > 0);
 
@@ -72,8 +72,8 @@ export function Sidebar(props: SidebarProps) {
           active={section === "library" && !favoriteOnly && viewId === ""}
           onClick={() => {
             onSectionChange("library");
-            onFavoriteChange(false);
             onViewChange("");
+            onFavoriteChange(false);
           }}
         />
         <NavButton
@@ -82,8 +82,8 @@ export function Sidebar(props: SidebarProps) {
           active={section === "library" && favoriteOnly}
           onClick={() => {
             onSectionChange("library");
-            onFavoriteChange(true);
             onViewChange("");
+            onFavoriteChange(true);
           }}
         />
         <NavButton
@@ -123,8 +123,8 @@ export function Sidebar(props: SidebarProps) {
                 className="flex-1"
                 onClick={() => {
                   onSectionChange("library");
-                  onViewChange(view.viewId);
                   onFavoriteChange(false);
+                  onViewChange(view.viewId);
                 }}
               />
               <button

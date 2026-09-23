@@ -66,4 +66,25 @@ public sealed class RootRegistryDriveRootTests
         var ex = Assert.Throws<RootRegistryException>(() => registry.Add("C:"));
         Assert.Equal(ErrorCodes.InvalidPath, ex.Code);
     }
+
+    [Fact]
+    public void Add_LibraryChildPath_ReusesExistingParentRoot()
+    {
+        var parent = Path.Combine(Path.GetTempPath(), "gamelibrary-root-" + Guid.NewGuid().ToString("N"));
+        var child = Path.Combine(parent, "Games", "Rpg");
+        Directory.CreateDirectory(child);
+        try
+        {
+            var registry = new RootRegistry();
+            var first = registry.Add(parent);
+            var second = registry.Add(child);
+
+            Assert.Equal(first.RootId, second.RootId);
+            Assert.Single(registry.ListScannable());
+        }
+        finally
+        {
+            Directory.Delete(parent, recursive: true);
+        }
+    }
 }

@@ -47,6 +47,17 @@ public sealed class SchemaV21Tests
                 });
             }
 
+            result.Store.InsertView(new LibraryView
+            {
+                ViewId = "view-v21-tag-filter",
+                Name = "标签筛选",
+                TagId = "tag-custom",
+                Sort = "accepted-desc",
+                CreatedUtc = utcNow,
+                UpdatedUtc = utcNow,
+            });
+            Assert.Equal("tag-custom", result.Store.TryGetView("view-v21-tag-filter")!.TagId);
+
             await result.Store.DisposeAsync();
 
             // 白名单之外仍被数据库拒绝（CHECK 仍在，只是放宽到六值）。

@@ -89,13 +89,12 @@ internal sealed class GamesHandler
                     var view = store.TryGetView(viewId!);
                     if (view is not null)
                     {
-                        search ??= view.Search;
-                        if (view.FavoriteOnly)
-                        {
-                            favoriteFilter = true;
-                        }
-
-                        sort ??= view.Sort;
+                        // 自定义收藏夹是一个完整的查询快照。旧实现只在调用方省略
+                        // 参数时套用视图，导致 UI 里残留的排序/标签/搜索条件覆盖收藏夹。
+                        search = view.Search;
+                        favoriteFilter = view.FavoriteOnly;
+                        tagId = view.TagId;
+                        sort = view.Sort;
                     }
                 }
             }
@@ -117,7 +116,7 @@ internal sealed class GamesHandler
 
         if (sort is not null and not ("title" or "title-asc" or "title-desc" or "recent" or "updated-desc" or "accepted-desc"))
         {
-            return IpcRequests.InvalidArgument(request, "sort 只支持 title-asc、title-desc、updated-desc、accepted-desc");
+            return IpcRequests.InvalidArgument(request, "sort 只支持 title/title-asc、title-desc、recent/updated-desc 或 accepted-desc");
         }
 
         var (total, games) = store.QueryGames(search, favoriteFilter, tagId, sort, limit, offset);

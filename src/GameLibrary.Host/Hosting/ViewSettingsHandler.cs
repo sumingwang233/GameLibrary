@@ -62,6 +62,7 @@ internal sealed class ViewSettingsHandler
             kind = "builtin",
             search = (string?)null,
             favoriteOnly = v.ViewId == "favorites",
+            tagId = (string?)null,
             sort = "title",
             revision = (int?)null,
             active = string.Equals(_getActiveViewId(), v.ViewId, StringComparison.Ordinal),
@@ -73,6 +74,7 @@ internal sealed class ViewSettingsHandler
             kind = "custom",
             search = v.Search,
             favoriteOnly = v.FavoriteOnly,
+            tagId = v.TagId,
             sort = v.Sort,
             revision = (int?)v.Revision,
             active = string.Equals(_getActiveViewId(), v.ViewId, StringComparison.Ordinal),
@@ -117,6 +119,7 @@ internal sealed class ViewSettingsHandler
                     kind = "builtin",
                     search = (string?)null,
                     favoriteOnly = builtin.ViewId == "favorites",
+                    tagId = (string?)null,
                     sort = "title",
                     revision = (int?)null,
                 },
@@ -141,6 +144,7 @@ internal sealed class ViewSettingsHandler
                 kind = "custom",
                 search = view.Search,
                 favoriteOnly = view.FavoriteOnly,
+                tagId = view.TagId,
                 sort = view.Sort,
                 revision = (int?)view.Revision,
             },
@@ -163,6 +167,7 @@ internal sealed class ViewSettingsHandler
 
         IpcRequests.TryGetStringParameter(request, "search", out var search);
         IpcRequests.TryGetBoolParameter(request, "favoriteOnly", out var favoriteOnly);
+        IpcRequests.TryGetStringParameter(request, "tagId", out var tagId);
         IpcRequests.TryGetStringParameter(request, "sort", out var sort);
         if (sort.Length > 0 && !IsValidSort(sort))
         {
@@ -176,6 +181,7 @@ internal sealed class ViewSettingsHandler
             Name = name,
             Search = search.Length > 0 ? search : null,
             FavoriteOnly = favoriteOnly == true,
+            TagId = tagId.Length > 0 ? tagId : null,
             Sort = sort.Length > 0 ? sort : "title",
             CreatedUtc = now,
             UpdatedUtc = now,
@@ -218,6 +224,7 @@ internal sealed class ViewSettingsHandler
         IpcRequests.TryGetStringParameter(request, "name", out var name);
         IpcRequests.TryGetStringParameter(request, "search", out var search);
         IpcRequests.TryGetBoolParameter(request, "favoriteOnly", out var favoriteOnly);
+        IpcRequests.TryGetStringParameter(request, "tagId", out var tagId);
         IpcRequests.TryGetStringParameter(request, "sort", out var sort);
         if (sort.Length > 0 && !IsValidSort(sort))
         {
@@ -229,6 +236,7 @@ internal sealed class ViewSettingsHandler
             name.Length > 0 ? name : null,
             search.Length > 0 ? search : null,
             favoriteOnly,
+            tagId.Length > 0 ? tagId : null,
             sort.Length > 0 ? sort : null,
             expectedRevision.Value,
             DateTime.UtcNow);
@@ -382,6 +390,7 @@ internal sealed class ViewSettingsHandler
             kind = "custom",
             search = view.Search,
             favoriteOnly = view.FavoriteOnly,
+            tagId = view.TagId,
             sort = view.Sort,
             revision = (int?)view.Revision,
         };

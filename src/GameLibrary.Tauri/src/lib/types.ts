@@ -126,6 +126,7 @@ export interface ViewItem {
   kind?: "builtin" | "custom" | string;
   search?: string | null;
   favoriteOnly?: boolean;
+  tagId?: string | null;
   sort?: string | null;
   revision: number | null;
   active?: boolean;

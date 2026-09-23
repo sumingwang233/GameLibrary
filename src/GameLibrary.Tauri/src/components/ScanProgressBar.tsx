@@ -33,7 +33,7 @@ export function ScanProgressBar({
       ? "正在准备扫描…"
       : progress.phase === "cancelling"
         ? "正在停止扫描…"
-        : `已检查 ${progress.scannedDirectories.toLocaleString()} 个文件夹，找到 ${progress.candidatesFound.toLocaleString()} 个游戏位置`;
+        : "正在扫描游戏库…";
 
   return (
     <div
