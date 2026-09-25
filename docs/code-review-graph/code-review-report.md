@@ -138,3 +138,73 @@
 3. **P1 / CI 供应链**：处理 H-01，固定第三方 action SHA；随后补 M-01、M-02、M-03、M-04。
 4. **P2 / 回归防护**：为 IPC、扫描、备份恢复、启动流程增加测试，优先覆盖图谱列出的未测试桥接节点。
 5. **P2 / 可维护性**：按桥接节点和超大函数拆分边界，拆分前后都重新刷新图谱并复核受影响流程。
+
+## 定向 OCR 审查（高风险 IPC 模块）
+
+### OCR 范围
+
+本轮根据 H-02、M-05 选择了历史提交 `fade857` 中的 4 个高风险变更文件，并排除了该提交的其他无关文件：
+
+- `src/GameLibrary.Contracts/Ipc/WireMessages.cs`
+- `src/GameLibrary.Host/Ipc/PipeServer.cs`
+- `src/GameLibrary.Host/Hosting/OperationDispatcher.cs`
+- `contracts/operations.v1.json`
+
+运行环境为 `ocr v1.12.9`，Provider/Model 为 `deepseek/deepseek-flash`。由于 `OperationDispatcher.cs` 的历史变更很大，OCR 分为多个定向会话执行；其中 `WireMessages`/`PipeServer` 会话在完成这两个文件后提前中止，但已保存结果，`OperationDispatcher` 和 `operations.v1.json` 随后单文件完成。总覆盖为 4 个目标文件，OCR 产生 11 条原始评论；按规则过滤低优先级后保留 7 条中高优先级评论。OCR 没有修改代码。
+
+### High
+
+#### OCR-H-01 权限集完全由握手客户端自报
+
+- **位置**：`src/GameLibrary.Host/Hosting/OperationDispatcher.cs:312-320`；关联 `src/GameLibrary.Host/Ipc/PipeServer.cs:135-140`、`src/GameLibrary.Contracts/Ipc/WireMessages.cs:42-46`
+- **类别**：security
+- **OCR 结论**：`GrantedPermissions == null` 被视为完全特权，`access.admin` 也直接由客户端声明；Host 没有服务端策略或身份绑定。
+- **处理意见**：与静态审计 H-02 相互印证，应按 P0 处理。将有效权限改为 Host 侧根据可信客户端身份计算，并拒绝未知权限项；补真实 Named Pipe 权限集成测试。
+
+#### OCR-H-02 全局请求锁覆盖长耗时和同步等待操作
+
+- **位置**：`src/GameLibrary.Host/Hosting/OperationDispatcher.cs:179,218-245`
+- **类别**：performance / availability
+- **OCR 结论**：`_requestGate` 包住整个请求分发；备份恢复、校验和其他重操作可能在锁内执行，部分路径使用 `GetAwaiter().GetResult()`。一个慢请求会阻塞所有客户端，且同步等待异步操作存在死锁和资源耗尽风险。
+- **处理意见**：将锁缩小到共享状态临界区，长任务改为作业队列；为 IPC 请求增加超时和取消传播。此项与静态审计 M-05 的资源保护建议合并处理。
+
+### Medium
+
+#### OCR-M-01 `host.stop` 绕过权限与维护/纪元校验
+
+- **位置**：`src/GameLibrary.Host/Hosting/OperationDispatcher.cs:212-215`；`contracts/operations.v1.json:17`
+- **类别**：security
+- **OCR 结论**：`host.stop` 在进入 `_requestGate` 之前直接调用 `DispatchInternal`，因此不经过 `HasPermission`、维护模式和 `ValidateEpoch`；catalog 同时把该操作声明为 `host.manage`。
+- **处理意见**：明确停机是否必须受 `host.manage` 保护。若需要保护，应先执行权限校验，再仅跳过依赖业务库的步骤；若设计为无权限控制面操作，应同步修改 catalog 和威胁模型说明。
+
+#### OCR-M-02 纪元校验依赖请求字段，连接级旧客户端可省略校验
+
+- **位置**：`src/GameLibrary.Contracts/Ipc/WireMessages.cs:25-32`；`src/GameLibrary.Host/Hosting/OperationDispatcher.cs:273-305`
+- **类别**：security
+- **OCR 结论**：`LibraryInstanceId`/`ExpectedDataEpoch` 为空时直接跳过校验；长连接在 `library.init` 或 `backups.restore` 后只要不发送这些字段，就不会触发请求级纪元拒绝。
+- **处理意见**：把握手时的库实例和纪元快照保存在连接状态中，由 `PipeServer` 在每个请求回填并强制校验；如果必须保留旧客户端兼容，应记录为明确的降级模式并限制其写操作。
+
+#### OCR-M-03 根注册持久化可能与内存状态分叉
+
+- **位置**：当前实现 `src/GameLibrary.Host/Hosting/CatalogingHandler.cs:80-85,149-150`；持久化 API `src/GameLibrary.Infrastructure/Persistence/SqliteLibraryStore.Runtime.cs:13-20`
+- **类别**：bug / data consistency
+- **OCR 结论**：`roots.add` 先修改内存注册表，再用 null 条件调用 `UpsertRoot`；`roots.remove` 调用 `RemoveRootGames` 后移除内存根，但当前 handler 没有调用 `DeleteRoot`。数据库异常或重启后可能恢复出已经移除的根，或者内存与数据库不一致。
+- **处理意见**：用事务化的“持久化成功后提交内存变更”顺序；失败时回滚内存注册表，并为 add/remove 增加重启恢复测试。
+
+#### OCR-M-04 新权限链路缺少测试覆盖
+
+- **位置**：`src/GameLibrary.Contracts/Ipc/WireMessages.cs:29-46`
+- **类别**：test
+- **OCR 结论**：测试中没有覆盖 `HandshakeRequest.Permissions → GrantedPermissions → HasPermission` 链路，也没有覆盖 `PermissionDenied`。
+- **处理意见**：增加真实 Named Pipe 集成测试：限制 `library.read` 时拒绝 `library.write`，验证 `access.admin` 的授予来源，以及请求体中的 `grantedPermissions` 不能覆盖握手权限；同时覆盖纪元切换后的旧连接行为。
+
+### OCR 无新增问题的文件
+
+`contracts/operations.v1.json` 单文件 OCR 完成，未发现新的 critical/high/medium 问题。其权限声明仍会受到上述 Host 侧权限实现问题影响，因此不能单独证明权限边界有效。
+
+### OCR 验证记录
+
+- `575a661d-ae18-4e96-92e3-67028fdaa796`：2 个文件完成，6 条原始评论；会话随后中止。
+- `1ae1cdbc-5025-4179-8881-ccd7e7a4588b`：`OperationDispatcher.cs` 完成，5 条评论；工具报告达到 token budget，但无工具调用失败。
+- `a98c59c0-d1c3-4e7d-8edc-18cf070ed749`：`operations.v1.json` 完成，0 条评论。
+- 本轮只做审查，没有自动修复或提交业务源码。
