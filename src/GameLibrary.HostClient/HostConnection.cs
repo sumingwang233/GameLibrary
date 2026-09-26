@@ -17,18 +17,24 @@ public sealed class HostConnection : IAsyncDisposable
     private bool _disposed;
     private readonly string _dataDirectory;
     private readonly string? _clientName;
+    private readonly IReadOnlyList<string>? _permissions;
 
-    private HostConnection(string dataDirectory, string? clientName)
+    private HostConnection(string dataDirectory, string? clientName, IReadOnlyList<string>? permissions)
     {
         _dataDirectory = dataDirectory;
         _clientName = clientName;
+        _permissions = permissions;
     }
 
     public HandshakeResponse Handshake =>
         _handshake ?? throw new InvalidOperationException("尚未完成握手");
 
     /// <summary>连接已存在的宿主并完成握手；未运行时抛 HostUnavailable。</summary>
-    public static async Task<HostConnection> ConnectAsync(string dataDirectory, string? clientName, CancellationToken ct)
+    public static async Task<HostConnection> ConnectAsync(
+        string dataDirectory,
+        string? clientName,
+        CancellationToken ct,
+        IReadOnlyList<string>? permissions = null)
     {
         var resolved = DataDirectory.Resolve(dataDirectory);
         if (!resolved.IsValid)
@@ -52,7 +58,7 @@ public sealed class HostConnection : IAsyncDisposable
             throw new HostClientException(HostClientErrorCodes.HostUnavailable, "宿主管道连接超时");
         }
 
-        var client = new HostConnection(dataDirectory, clientName) { _pipe = pipe };
+        var client = new HostConnection(dataDirectory, clientName, permissions) { _pipe = pipe };
         try
         {
             await client.HandshakeAsync(clientName, ct);
@@ -121,7 +127,7 @@ public sealed class HostConnection : IAsyncDisposable
             await oldPipe.DisposeAsync();
         }
 
-        var reconnected = await ConnectAsync(dataDirectory, clientName, ct);
+        var reconnected = await ConnectAsync(dataDirectory, clientName, ct, _permissions);
         _pipe = reconnected._pipe;
         _handshake = reconnected._handshake;
         reconnected._pipe = null;
@@ -131,7 +137,10 @@ public sealed class HostConnection : IAsyncDisposable
     private async Task HandshakeAsync(string? clientName, CancellationToken ct)
     {
         var pipe = _pipe!;
-        await IpcFrame.WriteJsonAsync(pipe, new HandshakeRequest { ClientName = clientName }, ct);
+        await IpcFrame.WriteJsonAsync(
+            pipe,
+            new HandshakeRequest { ClientName = clientName, Permissions = _permissions },
+            ct);
         var response = await IpcFrame.ReadJsonAsync<HandshakeResponse>(pipe, ct);
 
         if (!string.Equals(response.ApiVersion, ApiConstants.ApiVersion, StringComparison.Ordinal))

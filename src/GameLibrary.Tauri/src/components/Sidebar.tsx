@@ -57,7 +57,7 @@ export function Sidebar(props: SidebarProps) {
 
   const pendingBadge = candidateTotal + notificationTotal;
   // 标签定义仍保留在“管理标签”中；侧栏只展示当前库内至少有一个有效游戏的标签，
-  // 并与管理页同口径按四分类分组（v1.5.4），空分组不占位。
+  // 并与管理页同口径按四分类分组（v1.5.5），空分组不占位。
   const visibleTags = tags.filter((tag) => (tag.gameCount ?? 0) > 0);
   const tagGroups = groupTagsByCategory(visibleTags).filter((group) => group.items.length > 0);
 

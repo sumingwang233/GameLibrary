@@ -209,7 +209,25 @@ public sealed class OperationDispatcher
 
     private Envelope<object> DispatchGated(IpcRequest request)
     {
-        // host.stop 是控制面操作：不依赖业务库、不参与串行（停机不得被长请求阻塞）。
+        var info = OperationCatalog.Catalog.Find(request.OperationId);
+        if (info is not null && !HasPermission(request, info.Permission))
+        {
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
+                Error = new RequestError
+                {
+                    Code = ErrorCodes.PermissionDenied,
+                    Message = $"客户端握手未声明操作所需权限（{info.Permission}）：{request.OperationId}",
+                    Retryable = false,
+                },
+            };
+        }
+
+        // host.stop 是控制面操作：不依赖业务库、不参与串行（停机不得被长请求阻塞），
+        // 但仍必须先通过上面的 catalog 权限校验。
         if (request.OperationId == "host.stop")
         {
             return DispatchInternal(request);
@@ -217,23 +235,6 @@ public sealed class OperationDispatcher
 
         lock (_requestGate)
         {
-            var info = OperationCatalog.Catalog.Find(request.OperationId);
-            if (info is not null && !HasPermission(request, info.Permission))
-            {
-                return new Envelope<object>
-                {
-                    RequestId = request.RequestId,
-                    Ok = false,
-                    Status = OperationStatus.Failed,
-                    Error = new RequestError
-                    {
-                        Code = ErrorCodes.PermissionDenied,
-                        Message = $"客户端握手未声明操作所需权限（{info.Permission}）：{request.OperationId}",
-                        Retryable = false,
-                    },
-                };
-            }
-
             if (_state.MaintenanceMode && !MaintenanceAllowedOperations.Contains(request.OperationId))
             {
                 return new Envelope<object>
@@ -261,7 +262,8 @@ public sealed class OperationDispatcher
 
     /// <summary>
     /// 库实例/纪元校验（契约 5）：客户端握手获得 libraryInstanceId/dataEpoch 后，
-    /// 变更请求应原样携带。不携带时跳过（兼容未升级的 CLI/MCP）；携带不一致即拒绝。
+    /// 变更请求应原样携带。PipeServer 会把省略字段绑定到握手快照；直接调用 Dispatcher
+    /// 的旧客户端仍允许省略字段，但携带不一致即拒绝。
     /// </summary>
     private Envelope<object>? ValidateEpoch(IpcRequest request)
     {
@@ -307,7 +309,7 @@ public sealed class OperationDispatcher
 
     /// <summary>
     /// 权限校验（契约 access.*）：握手未声明权限集 = 不限权（第一方 CLI/Desktop）；
-    /// 声明后须包含操作所需权限，或持有 access.admin（全权）。
+    /// 声明后须精确包含操作所需权限。access.admin 不再作为客户端自声明的通配符。
     /// </summary>
     private static bool HasPermission(IpcRequest request, string permission)
     {
@@ -316,8 +318,7 @@ public sealed class OperationDispatcher
             return true;
         }
 
-        return request.GrantedPermissions.Contains(permission, StringComparer.Ordinal)
-            || request.GrantedPermissions.Contains("access.admin", StringComparer.Ordinal);
+        return request.GrantedPermissions.Contains(permission, StringComparer.Ordinal);
     }
 
     /// <summary>以当前库状态补全信封的库实例/纪元字段（null 键保留，值以当前状态为准）。</summary>
@@ -389,7 +390,7 @@ public sealed class OperationDispatcher
 
         if (!IsValidIdempotencyKey(key))
         {
-            return InvalidArgument(request, "idempotencyKey 非法（1–200 字符、不含控制字符与路径分隔符）");
+            return InvalidArgument(request, "idempotencyKey 非法（1–200 字符且不含控制字符）");
         }
 
         var actor = string.IsNullOrWhiteSpace(request.ClientName) ? "anonymous" : request.ClientName!;

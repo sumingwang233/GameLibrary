@@ -73,6 +73,28 @@ public sealed class EpochGuardTests : IClassFixture<PipeServerFixture>
     }
 
     [Fact]
+    public async Task Handshake_AccessAdminDeclaration_DoesNotElevate()
+    {
+        await using var client = await HostConnection.ConnectAsync(
+            @$"D:\Official\GameLibrary\artifacts\test-runs\{_fixture.TestId}\data",
+            clientName: "restricted-agent",
+            CancellationToken.None,
+            permissions: ["access.admin"]);
+
+        var envelope = await client.InvokeAsync(
+            new IpcRequest
+            {
+                RequestId = $"req-{Guid.NewGuid():N}",
+                OperationId = "roots.add",
+                Parameters = JsonSerializer.SerializeToElement(new { root = @"D:\not-a-real-root" }),
+            },
+            CancellationToken.None);
+
+        Assert.False(envelope.Ok);
+        Assert.Equal(ErrorCodes.PermissionDenied, envelope.Error!.Code);
+    }
+
+    [Fact]
     public async Task RootsAdd_PersistsRowForRestartRecovery()
     {
         var root = Path.Combine(@"D:\Official\GameLibrary\artifacts\test-runs", $"epoch-root-{Guid.NewGuid():N}");
@@ -86,6 +108,41 @@ public sealed class EpochGuardTests : IClassFixture<PipeServerFixture>
 
             var persisted = _fixture.State.Library.Store!.ReadRoots();
             Assert.Contains(persisted, r => r.PhysicalPath == Path.GetFullPath(root));
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(root, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
+    [Fact]
+    public async Task RootsRemove_DeletesPersistedRow()
+    {
+        var root = Path.Combine(@"D:\Official\GameLibrary\artifacts\test-runs", $"epoch-remove-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var added = await InvokeAsync("roots.add", new { root });
+            Assert.True(added.Ok, added.Error?.Message);
+            var rootId = added.Data.GetProperty("rootId").GetString();
+            Assert.False(string.IsNullOrWhiteSpace(rootId));
+
+            var removed = await InvokeAsync("roots.remove", new
+            {
+                rootId,
+                expectedRevision = added.Data.GetProperty("revision").GetInt32(),
+                idempotencyKey = $"remove-{Guid.NewGuid():N}",
+            });
+
+            Assert.True(removed.Ok, removed.Error?.Message);
+            Assert.DoesNotContain(_fixture.State.Library.Store!.ReadRoots(), r => r.RootId == rootId);
         }
         finally
         {

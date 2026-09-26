@@ -208,3 +208,19 @@
 - `1ae1cdbc-5025-4179-8881-ccd7e7a4588b`：`OperationDispatcher.cs` 完成，5 条评论；工具报告达到 token budget，但无工具调用失败。
 - `a98c59c0-d1c3-4e7d-8edc-18cf070ed749`：`operations.v1.json` 完成，0 条评论。
 - 本轮只做审查，没有自动修复或提交业务源码。
+
+## v1.5.5 安全优化实施
+
+本次依据 H-02、M-05、OCR-M-01～M-04 完成以下修复，并将版本登记为 `v1.5.5`：
+
+- `PipeServer` 增加 10 秒握手超时、2 分钟请求空闲读取超时和 64 个并发连接上限；连接会话捕获一致的库状态/连接代数，旧代数在读帧前和分发前断开；省略的实例/纪元字段绑定到握手快照。
+- 握手权限在 Host 侧规范化，客户端自报的 `access.admin` 被剥离；`OperationDispatcher` 移除客户端 `access.admin` 通配授权，并让 `host.stop` 先经过 catalog 权限校验后再走快速控制面路径。
+- `roots.add` 要求已初始化的持久化库，落库失败回滚新建的内存根；`roots.remove` 同步删除 `library_roots` 持久化行，数据库操作失败时恢复内存白名单。
+- `code-review-graph` 工作流固定第三方 action SHA，补充完整 checkout、超时和并发取消策略。
+- 新增 Named Pipe 权限回归测试（`access.admin` 自声明不得提权）与根删除持久化回归测试。
+
+### 当前限制与后续项
+
+- `Permissions = null` 仍保留第一方 CLI/Desktop 的兼容语义（同一 Windows 用户边界）；若产品需要把同用户进程也视为不可信，需要进一步引入 Host 侧 capability/身份绑定。
+- `_requestGate` 的长任务拆分（OCR-H-02）未在本次小版本中重构，避免改变备份/扫描执行语义；连接级超时和并发上限已先提供资源保护。
+- 本机未安装 `global.json` 要求的 .NET SDK `10.0.401`，因此 .NET 构建/测试需由 CI 使用目标 SDK 验证；前端和 Rust 检查仍按项目脚本执行。

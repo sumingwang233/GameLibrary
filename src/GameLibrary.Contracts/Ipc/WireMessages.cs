@@ -42,6 +42,7 @@ public sealed class HandshakeRequest
     /// <summary>
     /// 客户端声明的权限集合（契约 access.*：同用户下不同 agent/MCP 客户端可被限制读写范围）。
     /// null/缺省 = 不限权（第一方 CLI/Desktop）；声明后宿主按操作 catalog 的 permission 逐请求校验。
+    /// access.admin 是宿主保留能力，客户端自报该项不会获得通配授权。
     /// </summary>
     public IReadOnlyList<string>? Permissions { get; init; }
 }

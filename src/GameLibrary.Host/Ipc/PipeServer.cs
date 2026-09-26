@@ -13,6 +13,10 @@ namespace GameLibrary.Host.Ipc;
 /// </summary>
 public sealed class PipeServer : IAsyncDisposable
 {
+    private const int MaxConcurrentClients = 64;
+    private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan IdleReadTimeout = TimeSpan.FromMinutes(2);
+
     private readonly string _pipeName;
     private readonly HostRuntimeState _state;
     private readonly OperationDispatcher _dispatcher;
@@ -20,6 +24,7 @@ public sealed class PipeServer : IAsyncDisposable
     private readonly CancellationTokenSource _shutdown = new();
     private readonly List<Task> _clients = [];
     private readonly object _clientsLock = new();
+    private int _activeClients;
     private Task? _acceptLoop;
 
     public PipeServer(string pipeName, HostRuntimeState state, OperationDispatcher dispatcher, ILogger logger)
@@ -82,7 +87,25 @@ public sealed class PipeServer : IAsyncDisposable
             // 直接捕获循环变量 pipe 会在下一轮迭代被重新赋值，导致
             // 正在服务的任务引用被换成新管道（响应串台/连接错乱）。
             var connected = pipe;
-            var clientTask = Task.Run(() => ServeClientAsync(connected, ct), ct);
+            if (Interlocked.Increment(ref _activeClients) > MaxConcurrentClients)
+            {
+                Interlocked.Decrement(ref _activeClients);
+                _logger.LogWarning("客户端连接数达到上限 {Limit}，拒绝新连接", MaxConcurrentClients);
+                await connected.DisposeAsync();
+                continue;
+            }
+
+            var clientTask = Task.Run(async () =>
+            {
+                try
+                {
+                    await ServeClientAsync(connected, ct);
+                }
+                finally
+                {
+                    Interlocked.Decrement(ref _activeClients);
+                }
+            }, CancellationToken.None);
             lock (_clientsLock)
             {
                 _clients.Add(clientTask);
@@ -95,7 +118,7 @@ public sealed class PipeServer : IAsyncDisposable
     {
         try
         {
-            var handshake = await IpcFrame.ReadJsonAsync<HandshakeRequest>(pipe, ct);
+            var handshake = await ReadJsonWithTimeoutAsync<HandshakeRequest>(pipe, ct, HandshakeTimeout);
             if (!string.Equals(handshake.ApiVersion, ApiConstants.ApiVersion, StringComparison.Ordinal))
             {
                 _logger.LogWarning("客户端协议版本不匹配：{ApiVersion}", handshake.ApiVersion);
@@ -108,24 +131,38 @@ public sealed class PipeServer : IAsyncDisposable
 
             // 连接代数快照：library.init / backups.restore 成功后代数递增，
             // 下一轮循环检测到不一致即断开——旧纪元客户端必须重连获取新纪元（契约恢复语义）。
-            var generationAtHandshake = Volatile.Read(ref _state.ConnectionGeneration);
+            int generationAtHandshake;
+            HostLibraryState libraryAtHandshake;
+            do
+            {
+                generationAtHandshake = Volatile.Read(ref _state.ConnectionGeneration);
+                libraryAtHandshake = _state.Library;
+            }
+            while (generationAtHandshake != Volatile.Read(ref _state.ConnectionGeneration));
+
+            var effectivePermissions = NormalizePermissions(handshake.Permissions);
 
             await IpcFrame.WriteJsonAsync(pipe, new HandshakeResponse
             {
                 ApiVersion = ApiConstants.ApiVersion,
                 HostInstanceId = _state.Identity.InstanceId,
-                LibraryInstanceId = _state.Library.LibraryInstanceId,
-                DataEpoch = _state.Library.DataEpoch,
-                LibraryInitialized = _state.Library.Initialized,
+                LibraryInstanceId = libraryAtHandshake.LibraryInstanceId,
+                DataEpoch = libraryAtHandshake.DataEpoch,
+                LibraryInitialized = libraryAtHandshake.Initialized,
                 AppVersion = _state.Identity.AppVersion,
             }, ct);
 
             while (!ct.IsCancellationRequested && pipe.IsConnected)
             {
+                if (Volatile.Read(ref _state.ConnectionGeneration) != generationAtHandshake)
+                {
+                    break;
+                }
+
                 IpcRequest request;
                 try
                 {
-                    request = await IpcFrame.ReadJsonAsync<IpcRequest>(pipe, ct);
+                    request = await ReadJsonWithTimeoutAsync<IpcRequest>(pipe, ct, IdleReadTimeout);
                 }
                 catch (EndOfStreamException)
                 {
@@ -133,9 +170,17 @@ public sealed class PipeServer : IAsyncDisposable
                 }
 
                 // 收据 actor 与审计需要调用方标签：握手声明回填到每个请求；
-                // 握手声明的权限集合同样回填（null=不限权）。
+                // 握手声明的权限集合同样回填（null=不限权，access.admin 永不由客户端自授）。
                 request.ClientName ??= handshake.ClientName;
-                request.GrantedPermissions = handshake.Permissions;
+                request.GrantedPermissions = effectivePermissions;
+                request.LibraryInstanceId ??= libraryAtHandshake.LibraryInstanceId;
+                request.ExpectedDataEpoch ??= libraryAtHandshake.DataEpoch;
+
+                if (Volatile.Read(ref _state.ConnectionGeneration) != generationAtHandshake)
+                {
+                    break;
+                }
+
                 var envelope = SafeDispatch(request);
                 await IpcFrame.WriteJsonAsync(pipe, envelope, ct);
 
@@ -162,6 +207,31 @@ public sealed class PipeServer : IAsyncDisposable
         {
             await pipe.DisposeAsync();
         }
+    }
+
+    private static async Task<T> ReadJsonWithTimeoutAsync<T>(
+        NamedPipeServerStream pipe,
+        CancellationToken shutdownToken,
+        TimeSpan timeout)
+    {
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(shutdownToken);
+        timeoutCts.CancelAfter(timeout);
+        return await IpcFrame.ReadJsonAsync<T>(pipe, timeoutCts.Token);
+    }
+
+    private static IReadOnlyList<string>? NormalizePermissions(IReadOnlyList<string>? declaredPermissions)
+    {
+        if (declaredPermissions is null)
+        {
+            return null;
+        }
+
+        // access.admin is a server-side capability. Treating it as a client-declared
+        // permission would let a restricted same-user agent self-elevate.
+        return declaredPermissions
+            .Where(permission => !string.Equals(permission, "access.admin", StringComparison.Ordinal))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
     }
 
     private Contracts.Envelope<object> SafeDispatch(IpcRequest request)

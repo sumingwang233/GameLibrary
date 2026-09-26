@@ -77,12 +77,36 @@ internal sealed class CatalogingHandler
             return IpcRequests.InvalidArgument(request, $"kind 只支持 library/manual：{kind}");
         }
 
+        var store = _storeAccessor();
+        if (store is null)
+        {
+            return IpcRequests.InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        var existingRootIds = _roots.List()
+            .Select(existing => existing.RootId)
+            .ToHashSet(StringComparer.Ordinal);
         try
         {
             var libraryRoot = _roots.Add(root, kind);
-            _storeAccessor()?.UpsertRoot(
-                new PersistedRoot(libraryRoot.RootId, libraryRoot.Path.PhysicalPath, libraryRoot.Revision, libraryRoot.CreatedUtc, libraryRoot.Kind),
-                DateTime.UtcNow);
+            try
+            {
+                store.UpsertRoot(
+                    new PersistedRoot(libraryRoot.RootId, libraryRoot.Path.PhysicalPath, libraryRoot.Revision, libraryRoot.CreatedUtc, libraryRoot.Kind),
+                    DateTime.UtcNow);
+            }
+            catch
+            {
+                // Add is in-memory first because it owns path validation and ID creation.
+                // Roll back only a newly created root; idempotent/parent-root calls must survive.
+                if (!existingRootIds.Contains(libraryRoot.RootId))
+                {
+                    _roots.Remove(libraryRoot.RootId);
+                }
+
+                throw;
+            }
+
             return new Envelope<object>
             {
                 RequestId = request.RequestId,
@@ -146,11 +170,29 @@ internal sealed class CatalogingHandler
             };
         }
 
-        var removedGames = _storeAccessor()?.RemoveRootGames(rootId, root.Path.PhysicalPath, DateTime.UtcNow) ?? 0;
+        var store = _storeAccessor();
+        if (store is null)
+        {
+            return IpcRequests.InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
         var removed = _roots.Remove(rootId);
         if (removed is null)
         {
             return IpcRequests.NotFound(request, $"库根不存在：{rootId}");
+        }
+
+        int removedGames;
+        try
+        {
+            removedGames = store.RemoveRootGames(rootId, root.Path.PhysicalPath, DateTime.UtcNow);
+            store.DeleteRoot(rootId);
+        }
+        catch
+        {
+            // Keep the in-memory whitelist aligned with persistence when either write fails.
+            _roots.AddExisting(removed.RootId, removed.Path.PhysicalPath, removed.CreatedUtc, removed.Kind);
+            throw;
         }
 
         _events.Publish("root.removed", $"root:{rootId}", new { rootId, removedGames }, DateTime.UtcNow);
