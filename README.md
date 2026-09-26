@@ -52,14 +52,17 @@ Only folders you explicitly add are scanned. Removing a game removes its library
 
 ## Download
 
-GameLibrary supports **Windows 10/11 x64**. The current desktop interface is in Simplified Chinese.
+GameLibrary supports **Windows 10/11 x64**. Release packages are self-contained and do not require a system-wide .NET installation. The current desktop interface is in Simplified Chinese.
 
 | Package | Intended use |
 |---|---|
-| [GameLibrary v1.5.5 source archive](https://github.com/sumingwang233/GameLibrary/archive/refs/tags/v1.5.5.zip) | Security patch release source. |
+| [GameLibrary-Setup-v1.5.5.exe](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.5/GameLibrary-Setup-v1.5.5.exe) | Recommended graphical installer. |
+| [GameLibrary-Portable-win-x64-v1.5.5.zip](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.5/GameLibrary-Portable-win-x64-v1.5.5.zip) | Portable Tauri desktop app, bridge, and Host. |
+| [GameLibrary-Tools-win-x64-v1.5.5.zip](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.5/GameLibrary-Tools-win-x64-v1.5.5.zip) | Host, CLI, and MCP tools. |
+| [SHA-256 checksums](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.5/GameLibrary-v1.5.5-SHA256SUMS.txt) | Integrity hashes for all three packages. |
 
 > [!IMPORTANT]
-> v1.5.5 is published as a source release. Windows binary packages remain available from the previous release until the packaging workflow is run.
+> The v1.5.5 Windows binaries are unsigned. Verify the SHA-256 checksum after downloading.
 
 ## Quick start
 

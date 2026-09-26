@@ -52,14 +52,17 @@ Tauri 桌面程序、命令行客户端和 MCP 服务共享同一个带版本的
 
 ## 下载
 
-GameLibrary 支持 **Windows 10/11 x64**。
+GameLibrary 支持 **Windows 10/11 x64**。发布包已包含运行环境，不要求系统预先安装 .NET。
 
 | 文件 | 用途 |
 |---|---|
-| [GameLibrary v1.5.5 源码压缩包](https://github.com/sumingwang233/GameLibrary/archive/refs/tags/v1.5.5.zip) | 安全修复版本源码。 |
+| [GameLibrary-Setup-v1.5.5.exe](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.5/GameLibrary-Setup-v1.5.5.exe) | 推荐普通用户使用的图形安装程序。 |
+| [GameLibrary-Portable-win-x64-v1.5.5.zip](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.5/GameLibrary-Portable-win-x64-v1.5.5.zip) | 免安装 Tauri 桌面版、bridge 与 Host。 |
+| [GameLibrary-Tools-win-x64-v1.5.5.zip](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.5/GameLibrary-Tools-win-x64-v1.5.5.zip) | Host、CLI 与 MCP 工具包。 |
+| [SHA-256 校验值](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.5/GameLibrary-v1.5.5-SHA256SUMS.txt) | 三个发布包的完整性校验。 |
 
 > [!IMPORTANT]
-> v1.5.5 当前发布为源码版本。Windows 二进制包在打包工作流运行前仍可从上一版本获取。
+> v1.5.5 的 Windows 程序未签名。下载后请核对 SHA-256 校验值。
 
 ## 快速开始
 
