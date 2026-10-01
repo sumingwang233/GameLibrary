@@ -22,6 +22,12 @@ internal static class Program
         {
             Thread.Sleep(Math.Clamp(holdMs, 0, 60_000));
         }
+        var waitIndex = Array.IndexOf(args, "--wait-for-file");
+        if (waitIndex >= 0 && waitIndex + 1 < args.Length)
+        {
+            var deadline = DateTime.UtcNow.AddSeconds(60);
+            while (!File.Exists(args[waitIndex + 1]) && DateTime.UtcNow < deadline) Thread.Sleep(50);
+        }
 
         var payload = new
         {

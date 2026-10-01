@@ -88,7 +88,15 @@ public static class OperationSchemas
             payload["required"] = required;
         }
         if (operationId == "assets.import")
-            payload["oneOf"] = new[] { new { required = new[] { "sourcePath" } }, new { required = new[] { "imageBase64" } } };
+        {
+            foreach (var name in new[] { "sourcePath", "imageBase64", "mimeType" })
+                ((Dictionary<string, object>)properties[name])["type"] = new[] { "string", "null" };
+            payload["oneOf"] = new[]
+            {
+                new { required = new[] { "sourcePath" }, properties = new { sourcePath = new { type = "string" }, imageBase64 = new { type = "null" }, mimeType = new { type = "null" } } },
+                new { required = new[] { "imageBase64", "mimeType" }, properties = new { sourcePath = new { type = "null" }, imageBase64 = new { type = "string" }, mimeType = new { type = "string" } } },
+            };
+        }
 
         return JsonSerializer.SerializeToElement(payload);
     }

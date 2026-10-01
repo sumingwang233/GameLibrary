@@ -38,6 +38,18 @@ public sealed class GameCoverTests : IClassFixture<PipeServerFixture>
         return output.ToArray();
     }
 
+    internal static void AssertPixelsEqual(byte[] expectedBytes, byte[] actualBytes)
+    {
+        using var expectedStream = new MemoryStream(expectedBytes);
+        using var actualStream = new MemoryStream(actualBytes);
+        using var expected = new System.Drawing.Bitmap(expectedStream);
+        using var actual = new System.Drawing.Bitmap(actualStream);
+        Assert.Equal(expected.Size, actual.Size);
+        for (var y = 0; y < expected.Height; y++)
+            for (var x = 0; x < expected.Width; x++)
+                Assert.Equal(expected.GetPixel(x, y).ToArgb(), actual.GetPixel(x, y).ToArgb());
+    }
+
     [Fact]
     public void HistoricalCover_IsCopiedOnce_ExistingDifferentExtensionIsPreserved()
     {
@@ -50,14 +62,15 @@ public sealed class GameCoverTests : IClassFixture<PipeServerFixture>
         ReconcileService.CheckGames(store, DateTime.UtcNow, synchronizeCovers: false);
         Assert.False(File.Exists(Path.Combine(game.RootPath, "cover.png")));
         ReconcileService.CheckGames(store, DateTime.UtcNow);
-        Assert.Equal(GameCoverService.PrepareImage(original).Bytes, File.ReadAllBytes(Path.Combine(game.RootPath, "cover.png")));
+        var portableBytes = File.ReadAllBytes(Path.Combine(game.RootPath, "cover.png"));
+        AssertPixelsEqual(original, portableBytes);
         File.Move(Path.Combine(game.RootPath, "cover.png"), Path.Combine(game.RootPath, "cover.jpg"));
         var replacement = Path.Combine(game.RootPath, "new.png");
         File.WriteAllBytes(replacement, Png(System.Drawing.Color.Blue));
         store.ImportAsset(game.GameId, replacement, DateTime.UtcNow);
         Assert.Null(GameCoverService.Synchronize(store, game));
         Assert.False(File.Exists(Path.Combine(game.RootPath, "cover.png")));
-        Assert.Equal(GameCoverService.PrepareImage(original).Bytes, File.ReadAllBytes(Path.Combine(game.RootPath, "cover.jpg")));
+        Assert.Equal(portableBytes, File.ReadAllBytes(Path.Combine(game.RootPath, "cover.jpg")));
     }
 
     [Fact]
@@ -90,7 +103,7 @@ public sealed class GameCoverTests : IClassFixture<PipeServerFixture>
         Assert.Null(GameCoverService.Synchronize(store, game with { Membership = "removed" }));
         Assert.False(File.Exists(Path.Combine(game.RootPath, "Game.cover.png")));
         Assert.Null(GameCoverService.Synchronize(store, game with { Kind = "fileGame", RootPath = exe }));
-        Assert.Equal(GameCoverService.PrepareImage(bytes).Bytes, File.ReadAllBytes(Path.Combine(game.RootPath, "Game.cover.png")));
+        AssertPixelsEqual(bytes, File.ReadAllBytes(Path.Combine(game.RootPath, "Game.cover.png")));
         Assert.Equal("game", File.ReadAllText(exe));
     }
 
@@ -109,13 +122,16 @@ public sealed class GameCoverTests : IClassFixture<PipeServerFixture>
         Assert.Null(GameCoverService.Synchronize(store, game, replaceExisting: true));
         Assert.False(File.Exists(coverPath));
         var portable = Path.Combine(game.RootPath, "cover.png");
-        Assert.Equal(GameCoverService.PrepareImage(nextBytes).Bytes, File.ReadAllBytes(portable));
+        var selectedPortableBytes = File.ReadAllBytes(portable);
+        AssertPixelsEqual(nextBytes, selectedPortableBytes);
         var previous = Assert.Single(store.ListAssets(game.GameId), asset => !asset.IsCurrent);
         Assert.Equal(oldBytes, File.ReadAllBytes(previous.FilePath));
         Assert.Equal(selected.AssetId, Assert.Single(store.ListAssets(game.GameId), asset => asset.IsCurrent).AssetId);
         store.ChooseAsset(game.GameId, previous.AssetId);
         Assert.Null(GameCoverService.Synchronize(store, game, replaceExisting: true));
-        Assert.Equal(GameCoverService.PrepareImage(oldBytes).Bytes, File.ReadAllBytes(portable));
+        AssertPixelsEqual(oldBytes, File.ReadAllBytes(portable));
+        Assert.Contains(store.ListAssets(game.GameId), asset => !asset.IsCurrent && File.ReadAllBytes(asset.FilePath).SequenceEqual(selectedPortableBytes));
+        Assert.Equal(oldBytes, File.ReadAllBytes(previous.FilePath));
         Assert.True(File.Exists(nextPath));
     }
 
@@ -167,6 +183,23 @@ public sealed class GameCoverTests : IClassFixture<PipeServerFixture>
         using var output = new MemoryStream();
         image.Save(output, System.Drawing.Imaging.ImageFormat.Png);
         Assert.Throws<ArgumentException>(() => GameCoverService.PrepareImage(output.ToArray()));
+    }
+
+    [Fact]
+    public void PrepareImage_PngPreservesAllArgbPixels_IncludingTransparency()
+    {
+        using var image = new System.Drawing.Bitmap(2, 2);
+        image.SetPixel(0, 0, System.Drawing.Color.FromArgb(128, 24, 96, 160));
+        image.SetPixel(1, 0, System.Drawing.Color.FromArgb(64, 13, 97, 151));
+        image.SetPixel(0, 1, System.Drawing.Color.Transparent);
+        image.SetPixel(1, 1, System.Drawing.Color.Red);
+        using var output = new MemoryStream();
+        image.Save(output, System.Drawing.Imaging.ImageFormat.Png);
+        var original = output.ToArray();
+        var prepared = GameCoverService.PrepareImage(original);
+        Assert.Equal(".png", prepared.Extension);
+        AssertPixelsEqual(original, prepared.Bytes);
+        AssertPixelsEqual(original, GameCoverService.PrepareImage(prepared.Bytes).Bytes);
     }
 
     [Theory]

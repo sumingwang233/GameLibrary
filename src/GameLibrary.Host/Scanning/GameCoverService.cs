@@ -25,10 +25,9 @@ public static class GameCoverService
         using var input = new MemoryStream(bytes, writable: false);
         using var image = System.Drawing.Image.FromStream(input, useEmbeddedColorManagement: false, validateImageData: false);
         CheckDimensions(image.Width, image.Height);
-        using var bitmap = new System.Drawing.Bitmap(image.Width, image.Height);
-        using (var graphics = System.Drawing.Graphics.FromImage(bitmap)) graphics.DrawImage(image, 0, 0, image.Width, image.Height);
         using var output = new MemoryStream();
-        bitmap.Save(output, System.Drawing.Imaging.ImageFormat.Png);
+        // 直接转码保留解码像素；DrawImage 的预乘 alpha 会舍入半透明像素的 RGB。
+        image.Save(output, System.Drawing.Imaging.ImageFormat.Png);
         if (output.Length > MaxBytes) throw new ArgumentException("解码后的 PNG 超过 5 MiB 上限");
         return (output.ToArray(), ".png");
     }

@@ -87,13 +87,18 @@ internal sealed class CandidateReviewHandler(Func<SqliteLibraryStore?> storeAcce
             var group = FlashCandidateReviewService.ReadGroup(candidate.PayloadJson);
             using var payload = JsonDocument.Parse(candidate.PayloadJson);
             IReadOnlyList<FlashAdjustmentPreview> adjustments = [];
-            if (request.Parameters is { } parameters && parameters.TryGetProperty("flashKind", out var kind))
+            if (request.Parameters is { ValueKind: JsonValueKind.Object } parameters)
             {
-                if (!parameters.TryGetProperty("entryPaths", out var paths) || paths.ValueKind != JsonValueKind.Array
-                    || paths.EnumerateArray().Any(path => path.ValueKind != JsonValueKind.String))
-                    return IpcRequests.InvalidArgument(request, "entryPaths 必须为字符串数组");
-                adjustments = new FlashCandidateReviewService(store, new CatalogFiles()).Preview(candidate,
-                    kind.GetString()!, paths.EnumerateArray().Select(path => path.GetString()!).ToArray());
+                var hasKind = parameters.TryGetProperty("flashKind", out var kind) && kind.ValueKind != JsonValueKind.Null;
+                var hasPaths = parameters.TryGetProperty("entryPaths", out var paths) && paths.ValueKind != JsonValueKind.Null;
+                if (hasKind || hasPaths)
+                {
+                    if (!hasKind || kind.ValueKind != JsonValueKind.String || !hasPaths || paths.ValueKind != JsonValueKind.Array
+                        || paths.EnumerateArray().Any(path => path.ValueKind != JsonValueKind.String))
+                        return IpcRequests.InvalidArgument(request, "Flash 预览需要 flashKind 与 entryPaths 字符串数组");
+                    adjustments = new FlashCandidateReviewService(store, new CatalogFiles()).Preview(candidate,
+                        kind.GetString()!, paths.EnumerateArray().Select(path => path.GetString()!).ToArray());
+                }
             }
             return new()
             {
@@ -119,14 +124,16 @@ internal sealed class CandidateReviewHandler(Func<SqliteLibraryStore?> storeAcce
         selection = null;
         error = null;
         if (parameters is not { ValueKind: JsonValueKind.Object } input) return true;
-        if (!input.TryGetProperty("flashKind", out var kind))
-        {
-            if (!input.TryGetProperty("entryPaths", out _) && !input.TryGetProperty("adjustments", out _)) return true;
-        }
-        else if (kind.ValueKind == JsonValueKind.String && kind.GetString() is "project" or "collection" or "resources"
-            && input.TryGetProperty("entryPaths", out var entries) && entries.ValueKind == JsonValueKind.Array
+        // Generated MCP 参数使用 ContractJson.Never：可选字段的 null 等价于未提供。
+        var hasKind = input.TryGetProperty("flashKind", out var kind) && kind.ValueKind != JsonValueKind.Null;
+        var hasEntries = input.TryGetProperty("entryPaths", out var entries) && entries.ValueKind != JsonValueKind.Null;
+        var hasAdjustments = input.TryGetProperty("adjustments", out var adjustments) && adjustments.ValueKind != JsonValueKind.Null;
+        if (!hasKind && !hasEntries && !hasAdjustments) return true;
+        if (hasKind && hasEntries && hasAdjustments
+            && kind.ValueKind == JsonValueKind.String && (kind.GetString() is "project" or "collection" or "resources")
+            && entries.ValueKind == JsonValueKind.Array
             && entries.GetArrayLength() <= 10000 && entries.EnumerateArray().All(entry => entry.ValueKind == JsonValueKind.String)
-            && input.TryGetProperty("adjustments", out var adjustments) && adjustments.ValueKind == JsonValueKind.Array
+            && adjustments.ValueKind == JsonValueKind.Array
             && adjustments.GetArrayLength() <= 10000)
         {
             var items = new List<FlashLibraryAdjustment>();

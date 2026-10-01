@@ -170,6 +170,120 @@ public sealed class CandidateReviewTests : IClassFixture<PipeServerFixture>
     }
 
     [Fact]
+    public async Task SerializedMcpOptionalNulls_NonFlashAcceptAndBatchRemainValid()
+    {
+        var root = CreateGameTree("mcp-null-options");
+        var secondPath = Path.Combine(root, "GameB");
+        Directory.CreateDirectory(secondPath);
+        File.WriteAllText(Path.Combine(secondPath, "Game.exe"), "x");
+        File.WriteAllText(Path.Combine(secondPath, "data.xp3"), "x");
+        await InvokeAsync("roots.add", new { root });
+        await ScanAndWaitAsync(root);
+        var store = _fixture.State.Library.Store!;
+        var candidate = store.ListCandidates().Single(item => item.PhysicalPath == Path.Combine(root, "GameA"));
+        // Same parameter shape/options as generated MCP CandidatesAccept; null properties must reach the handler.
+        var parameters = JsonSerializer.SerializeToElement(new
+        {
+            idempotencyKey = Guid.NewGuid().ToString("N"),
+            candidateId = candidate.CandidateId,
+            expectedRevision = candidate.Revision,
+            flashKind = (string?)null,
+            entryPaths = (string[]?)null,
+            adjustments = (JsonElement?)null,
+        }, ContractJson.Options);
+        foreach (var name in new[] { "flashKind", "entryPaths", "adjustments" })
+            Assert.Equal(JsonValueKind.Null, parameters.GetProperty(name).ValueKind);
+        var inspect = await InvokeAsync("candidates.inspect", JsonSerializer.SerializeToElement(new
+        { candidateId = candidate.CandidateId, flashKind = (string?)null, entryPaths = (string[]?)null }, ContractJson.Options));
+        Assert.True(inspect.Ok, inspect.Error?.Message);
+        Assert.Equal(JsonValueKind.Null, inspect.Data.GetProperty("flash").ValueKind);
+        Assert.Empty(inspect.Data.GetProperty("adjustments").EnumerateArray());
+        Assert.Equal("pendingReview", store.TryGetCandidate(candidate.CandidateId)!.ReviewState);
+        var accepted = await InvokeAsync("candidates.accept", parameters);
+        Assert.True(accepted.Ok, accepted.Error?.Message);
+        Assert.Equal("accepted", accepted.Data.GetProperty("reviewState").GetString());
+        var game = store.TryGetGame(accepted.Data.GetProperty("gameId").GetString()!)!;
+        Assert.Equal(candidate.PhysicalPath, game.RootPath);
+        Assert.Equal(Path.Combine(candidate.PhysicalPath, "Game.exe"), game.EntryPath);
+
+        var second = store.ListCandidates().Single(item => item.PhysicalPath == secondPath);
+        var batch = await InvokeAsync("candidates.review_batch", JsonSerializer.SerializeToElement(new
+        {
+            idempotencyKey = Guid.NewGuid().ToString("N"),
+            action = "accept",
+            items = new[] { new { candidateId = second.CandidateId, expectedRevision = second.Revision,
+                flashKind = (string?)null, entryPaths = (string[]?)null, adjustments = (JsonElement?)null } },
+        }, ContractJson.Options));
+        Assert.True(batch.Ok, batch.Error?.Message);
+        var result = Assert.Single(batch.Data.GetProperty("items").EnumerateArray()).GetProperty("result");
+        Assert.True(result.GetProperty("ok").GetBoolean());
+        Assert.Equal("accepted", result.GetProperty("data").GetProperty("reviewState").GetString());
+        Assert.Equal(secondPath, store.TryGetGame(result.GetProperty("data").GetProperty("gameId").GetString()!)!.RootPath);
+    }
+
+    [Fact]
+    public async Task SerializedMcpOptionalNulls_FlashRequiresCompleteSelection_InspectDefaultsAreReadOnly()
+    {
+        var root = Path.Combine(@"D:\Official\GameLibrary\artifacts\test-runs", $"mcp-flash-null-{Guid.NewGuid():N}");
+        var project = Path.Combine(root, "Project");
+        Directory.CreateDirectory(Path.Combine(project, "data"));
+        File.WriteAllText(Path.Combine(project, "Main.exe"), "stub");
+        File.WriteAllText(Path.Combine(project, "data", "scene001.swf"), "FWS");
+        await InvokeAsync("roots.add", new { root });
+        await ScanAndWaitAsync(root);
+        var store = _fixture.State.Library.Store!;
+        var candidate = store.ListCandidates().Single(item => item.PhysicalPath == project);
+        Task<Envelope<JsonElement>> AcceptAsync(string? flashKind, string[]? entryPaths, JsonElement? adjustments) =>
+            InvokeAsync("candidates.accept", JsonSerializer.SerializeToElement(new
+            {
+                idempotencyKey = Guid.NewGuid().ToString("N"),
+                candidateId = candidate.CandidateId,
+                expectedRevision = candidate.Revision,
+                flashKind,
+                entryPaths,
+                adjustments,
+            }, ContractJson.Options));
+        var emptyPlan = JsonSerializer.SerializeToElement(Array.Empty<object>(), ContractJson.Options);
+        foreach (var result in new[]
+        {
+            await AcceptAsync(null, null, null),
+            await AcceptAsync("project", ["Main.exe"], null),
+            await AcceptAsync(null, ["Main.exe"], emptyPlan),
+            await AcceptAsync("project", null, emptyPlan),
+        })
+        {
+            Assert.False(result.Ok);
+            Assert.Equal(ErrorCodes.InvalidArgument, result.Error!.Code);
+        }
+        var defaultInspect = await InvokeAsync("candidates.inspect", JsonSerializer.SerializeToElement(new
+        { candidateId = candidate.CandidateId, flashKind = (string?)null, entryPaths = (string[]?)null }, ContractJson.Options));
+        Assert.True(defaultInspect.Ok, defaultInspect.Error?.Message);
+        Assert.True(defaultInspect.Data.GetProperty("flash").GetProperty("requiresReview").GetBoolean());
+        Assert.Empty(defaultInspect.Data.GetProperty("adjustments").EnumerateArray());
+        foreach (var parameters in new[]
+        {
+            JsonSerializer.SerializeToElement(new { candidateId = candidate.CandidateId, flashKind = (string?)null, entryPaths = new[] { "Main.exe" } }, ContractJson.Options),
+            JsonSerializer.SerializeToElement(new { candidateId = candidate.CandidateId, flashKind = "project", entryPaths = (string[]?)null }, ContractJson.Options),
+        })
+        {
+            var partial = await InvokeAsync("candidates.inspect", parameters);
+            Assert.False(partial.Ok);
+            Assert.Equal(ErrorCodes.InvalidArgument, partial.Error!.Code);
+        }
+        Assert.Equal(candidate.Revision, store.TryGetCandidate(candidate.CandidateId)!.Revision);
+        Assert.Equal("pendingReview", store.TryGetCandidate(candidate.CandidateId)!.ReviewState);
+        Assert.DoesNotContain(store.ListGames(), game => game.RootPath == project);
+        Assert.DoesNotContain(store.ListFlashDirectoryRules(), rule => rule.DirectoryPath == project);
+        var preview = await InvokeAsync("candidates.inspect", new { candidateId = candidate.CandidateId, flashKind = "project", entryPaths = new[] { "Main.exe" } });
+        Assert.True(preview.Ok, preview.Error?.Message);
+        var accepted = await AcceptAsync("project", ["Main.exe"], preview.Data.GetProperty("adjustments").Clone());
+        Assert.True(accepted.Ok, accepted.Error?.Message);
+        Assert.Equal("accepted", accepted.Data.GetProperty("reviewState").GetString());
+        Assert.Equal(Path.Combine(project, "Main.exe"), store.TryGetGame(accepted.Data.GetProperty("gameId").GetString()!)!.EntryPath);
+        Assert.Equal("project", store.ListFlashDirectoryRules().Single(rule => rule.DirectoryPath == project).Kind);
+    }
+
+    [Fact]
     public async Task ManualScan_ProducesPendingReview_AcceptCreatesGameWithAbsoluteEntry()
     {
         var root = CreateGameTree("review-accept");

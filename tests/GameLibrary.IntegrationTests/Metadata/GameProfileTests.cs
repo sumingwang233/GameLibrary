@@ -165,7 +165,7 @@ public sealed class GameProfileTests : IClassFixture<PipeServerFixture>
             var game = await InvokeAsync("games.get", new { gameId });
             Assert.Equal(assetId, game.Data.GetProperty("coverAssetId").GetString());
             var portableCover = Path.Combine(game.Data.GetProperty("rootPath").GetString()!, "cover.png");
-            Assert.Equal(GameLibrary.Host.Scanning.GameCoverService.PrepareImage(await File.ReadAllBytesAsync(pngPath)).Bytes, await File.ReadAllBytesAsync(portableCover));
+            GameCoverTests.AssertPixelsEqual(await File.ReadAllBytesAsync(pngPath), await File.ReadAllBytesAsync(portableCover));
 
             var missing = await InvokeAsync("assets.import", new
             {
@@ -266,16 +266,32 @@ public sealed class GameProfileTests : IClassFixture<PipeServerFixture>
         var secondBytes = CoverBytes(System.Drawing.Color.Blue);
         var first = await InvokeAsync("assets.import", new { gameId, imageBase64 = Convert.ToBase64String(firstBytes), mimeType = "image/png", idempotencyKey = Guid.NewGuid().ToString() });
         Assert.True(first.Ok, first.Error?.Message);
-        var firstId = first.Data.GetProperty("assetId").GetString();
+        var firstId = first.Data.GetProperty("assetId").GetString()!;
+        var store = _fixture.State.Library.Store!;
+        var firstAsset = store.TryGetAsset(firstId)!;
+        var firstAssetBytes = File.ReadAllBytes(firstAsset.FilePath);
+        GameCoverTests.AssertPixelsEqual(firstBytes, firstAssetBytes);
+        var portable = Path.Combine(store.TryGetGame(gameId)!.RootPath, "cover.png");
+        var firstPortableBytes = File.ReadAllBytes(portable);
+        GameCoverTests.AssertPixelsEqual(firstBytes, firstPortableBytes);
         var second = await InvokeAsync("assets.import", new { gameId, imageBase64 = Convert.ToBase64String(secondBytes), mimeType = "image/png", idempotencyKey = Guid.NewGuid().ToString() });
         Assert.True(second.Ok, second.Error?.Message);
-        var game = _fixture.State.Library.Store!.TryGetGame(gameId)!;
-        var portable = Path.Combine(game.RootPath, "cover.png");
-        Assert.Equal(GameLibrary.Host.Scanning.GameCoverService.PrepareImage(secondBytes).Bytes, File.ReadAllBytes(portable));
+        var secondId = second.Data.GetProperty("assetId").GetString()!;
+        var secondAsset = store.TryGetAsset(secondId)!;
+        var secondAssetBytes = File.ReadAllBytes(secondAsset.FilePath);
+        var secondPortableBytes = File.ReadAllBytes(portable);
+        GameCoverTests.AssertPixelsEqual(secondBytes, secondAssetBytes);
+        GameCoverTests.AssertPixelsEqual(secondBytes, secondPortableBytes);
+        Assert.Equal(firstAssetBytes, File.ReadAllBytes(firstAsset.FilePath));
+        Assert.Contains(store.ListAssets(gameId), asset => !asset.IsCurrent && File.ReadAllBytes(asset.FilePath).SequenceEqual(firstPortableBytes));
         var restored = await InvokeAsync("assets.choose", new { gameId, assetId = firstId, expectedRevision = revision, idempotencyKey = Guid.NewGuid().ToString() });
         Assert.True(restored.Ok, restored.Error?.Message);
-        Assert.Equal(GameLibrary.Host.Scanning.GameCoverService.PrepareImage(firstBytes).Bytes, File.ReadAllBytes(portable));
-        Assert.Contains(_fixture.State.Library.Store.ListAssets(gameId), asset => !asset.IsCurrent && File.ReadAllBytes(asset.FilePath).SequenceEqual(GameLibrary.Host.Scanning.GameCoverService.PrepareImage(secondBytes).Bytes));
+        GameCoverTests.AssertPixelsEqual(firstBytes, File.ReadAllBytes(portable));
+        Assert.Equal(firstId, Assert.Single(store.ListAssets(gameId), asset => asset.IsCurrent).AssetId);
+        Assert.False(store.TryGetAsset(secondId)!.IsCurrent);
+        Assert.Equal(firstAssetBytes, File.ReadAllBytes(firstAsset.FilePath));
+        Assert.Equal(secondAssetBytes, File.ReadAllBytes(secondAsset.FilePath));
+        Assert.Contains(store.ListAssets(gameId), asset => !asset.IsCurrent && File.ReadAllBytes(asset.FilePath).SequenceEqual(secondPortableBytes));
     }
 
     [Fact]
@@ -299,6 +315,41 @@ public sealed class GameProfileTests : IClassFixture<PipeServerFixture>
         Assert.False(oversized.Ok);
         Assert.Equal(ErrorCodes.ResourceTooLarge, oversized.Error!.Code);
         Assert.Empty(_fixture.State.Library.Store!.ListAssets(gameId));
+    }
+
+    [Fact]
+    public async Task AssetsImport_NullOptionalSiblings_AreOmitted_ButNonNullInputsStayExclusive()
+    {
+        var (gameId, _) = await CreateGameAsync("nullable-assets-import");
+        var bytes = CoverBytes(System.Drawing.Color.Blue);
+        var encoded = Convert.ToBase64String(bytes);
+        var source = Path.Combine(Path.GetTempPath(), $"cover-{Guid.NewGuid():N}.png");
+        await File.WriteAllBytesAsync(source, bytes);
+        try
+        {
+            var pathImport = await InvokeAsync("assets.import", new { gameId, sourcePath = source, imageBase64 = (string?)null, mimeType = (string?)null, idempotencyKey = Guid.NewGuid().ToString() });
+            Assert.True(pathImport.Ok, pathImport.Error?.Message);
+            var imageImport = await InvokeAsync("assets.import", new { gameId, sourcePath = (string?)null, imageBase64 = encoded, mimeType = "image/png", idempotencyKey = Guid.NewGuid().ToString() });
+            Assert.True(imageImport.Ok, imageImport.Error?.Message);
+            var count = _fixture.State.Library.Store!.ListAssets(gameId).Count;
+            object[] invalid = [
+                new { gameId, sourcePath = source, imageBase64 = encoded, mimeType = "image/png", idempotencyKey = Guid.NewGuid().ToString() },
+                new { gameId, sourcePath = source, imageBase64 = (string?)null, mimeType = "image/png", idempotencyKey = Guid.NewGuid().ToString() },
+                new { gameId, sourcePath = (string?)null, imageBase64 = (string?)null, mimeType = "image/png", idempotencyKey = Guid.NewGuid().ToString() },
+                new { gameId, sourcePath = 123, imageBase64 = (string?)null, mimeType = (string?)null, idempotencyKey = Guid.NewGuid().ToString() },
+                new { gameId, sourcePath = (string?)null, imageBase64 = 123, mimeType = "image/png", idempotencyKey = Guid.NewGuid().ToString() },
+                new { gameId, sourcePath = (string?)null, imageBase64 = encoded, mimeType = 123, idempotencyKey = Guid.NewGuid().ToString() },
+                new { gameId, sourcePath = (string?)null, imageBase64 = encoded, mimeType = (string?)null, idempotencyKey = Guid.NewGuid().ToString() },
+            ];
+            foreach (var input in invalid)
+            {
+                var result = await InvokeAsync("assets.import", input);
+                Assert.False(result.Ok);
+                Assert.Equal(ErrorCodes.InvalidArgument, result.Error!.Code);
+            }
+            Assert.Equal(count, _fixture.State.Library.Store.ListAssets(gameId).Count);
+        }
+        finally { File.Delete(source); }
     }
 
     [Fact]

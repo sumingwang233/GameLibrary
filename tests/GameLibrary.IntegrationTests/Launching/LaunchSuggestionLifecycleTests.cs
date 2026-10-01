@@ -37,11 +37,21 @@ public sealed class LaunchSuggestionLifecycleTests
         var registry = Registry();
         var profile = Suggest(registry);
         Assert.Equal(profile.ProfileId, registry.RecommendedProfileId("game"));
-        var attempt = Start(registry, profile, "--hold-ms", "2200");
-        await Wait(() => registry.GetProfile(profile.ProfileId)?.ValidationStatus == "verified");
-        Assert.True(registry.GetProfile(profile.ProfileId)!.IsDefault);
-        Assert.Equal("processCreated", registry.GetAttempt(attempt.AttemptId)!.State);
-        await Wait(() => registry.GetAttempt(attempt.AttemptId)!.IsTerminal);
+        var releaseFile = Path.Combine(Path.GetTempPath(), "gamelibrary-launch-" + Guid.NewGuid().ToString("N"));
+        var attempt = Start(registry, profile, "--wait-for-file", releaseFile);
+        try
+        {
+            // Keep the real process alive until observation succeeds, independent of CI scheduling speed.
+            await Wait(() => registry.GetProfile(profile.ProfileId)?.ValidationStatus == "verified", 20);
+            Assert.True(registry.GetProfile(profile.ProfileId)!.IsDefault);
+            Assert.Equal("processCreated", registry.GetAttempt(attempt.AttemptId)!.State);
+        }
+        finally
+        {
+            File.WriteAllText(releaseFile, "exit");
+            await Wait(() => registry.GetAttempt(attempt.AttemptId)!.IsTerminal);
+            File.Delete(releaseFile);
+        }
         Assert.Single(registry.History("game"));
     }
 

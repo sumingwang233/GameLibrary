@@ -540,9 +540,11 @@ internal sealed class CatalogingHandler
             return IpcRequests.NotFound(request, $"游戏不存在：{gameId}");
         }
 
-        var hasPath = parameters.TryGetProperty("sourcePath", out var sourceElement);
-        var hasImage = parameters.TryGetProperty("imageBase64", out var imageElement);
-        if (hasPath == hasImage || (hasPath && parameters.TryGetProperty("mimeType", out _)))
+        // MCP 生成方法会显式序列化可选 null；与省略字段采用同一语义。
+        var hasPath = parameters.TryGetProperty("sourcePath", out var sourceElement) && sourceElement.ValueKind != JsonValueKind.Null;
+        var hasImage = parameters.TryGetProperty("imageBase64", out var imageElement) && imageElement.ValueKind != JsonValueKind.Null;
+        var hasMime = parameters.TryGetProperty("mimeType", out var mimeElement) && mimeElement.ValueKind != JsonValueKind.Null;
+        if (hasPath == hasImage || (hasPath && hasMime))
             return IpcRequests.InvalidArgument(request, "sourcePath 与 imageBase64/mimeType 必须二选一");
 
         byte[] bytes;

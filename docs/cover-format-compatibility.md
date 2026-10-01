@@ -6,4 +6,6 @@ WebP 按 [Google WebP 容器规范](https://developers.google.com/speed/webp/doc
 
 目录型游戏写入 `cover.png` 或 `cover.webp`；单文件游戏写入 `<游戏文件 stem>.cover.png` 或 `.cover.webp`。自动补齐不覆盖已有封面；显式导入或恢复先将旧格式原文件保存到库内资产历史，再原子写入新封面，成功后清理被替代的目录封面。历史文件保留原扩展名和字节。
 
+PNG 转码直接使用 `Image.Save`，避免 `Graphics.DrawImage` 的预乘 alpha 舍入改变半透明 RGB。测试逐像素比较完整 ARGB 和尺寸，不要求独立转码的 PNG 压缩字节相同；资产历史和被替换的目录原图仍按切换前捕获的字节精确比较，不允许丢失或改写。
+
 测试中的固定 Base64 来自 Pillow 生成的 2×2 单色 VP8L、VP8 和 VP8X 图片，不来自用户封面。新增回归覆盖路径及粘贴导入、格式切换和恢复、同目录多游戏、尺寸与 5 MiB 边界；本轮 dotnet 构建及测试由父代理统一执行。
