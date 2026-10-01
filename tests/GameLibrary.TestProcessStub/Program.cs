@@ -10,6 +10,13 @@ internal static class Program
     private static int Main(string[] args)
     {
         if (args.Length == 4 && args[0] == "--restore-crash") return RestoreCrash(args);
+        if (args.Contains("--spawn-child", StringComparer.Ordinal))
+        {
+            var start = new System.Diagnostics.ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false };
+            start.ArgumentList.Add("--hold-ms");
+            start.ArgumentList.Add("3000");
+            using var child = System.Diagnostics.Process.Start(start);
+        }
         var holdIndex = Array.FindIndex(args, a => a.Equals("--hold-ms", StringComparison.OrdinalIgnoreCase));
         if (holdIndex >= 0 && holdIndex + 1 < args.Length && int.TryParse(args[holdIndex + 1], out var holdMs))
         {
@@ -24,7 +31,8 @@ internal static class Program
             startTimeUtc = DateTime.UtcNow.ToString("O"),
         };
         Console.Out.WriteLine(System.Text.Json.JsonSerializer.Serialize(payload));
-        return 0;
+        var exitIndex = Array.IndexOf(args, "--exit-code");
+        return exitIndex >= 0 && exitIndex + 1 < args.Length && int.TryParse(args[exitIndex + 1], out var exitCode) ? exitCode : 0;
     }
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
     private static int RestoreCrash(string[] args)

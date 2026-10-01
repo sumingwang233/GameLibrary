@@ -75,6 +75,8 @@ public sealed class HostRuntime : IAsyncDisposable
         };
         events.OnPublished = (coalesced, overflowed) => metrics.RecordEventPublished(coalesced, overflowed);
         WirePersistence(runtimeState);
+        runtimeState.Suggestions = new Launching.LaunchSuggestionService(runtimeState);
+        runtimeState.Suggestions.Start();
 
         // settings（T-settings）：库就绪后读取持久化设置——激活视图恢复、核对周期生效。
         TimeSpan reconcileInterval = ScanCoordinator.DefaultInterval;
@@ -152,6 +154,10 @@ public sealed class HostRuntime : IAsyncDisposable
                 ToolId = profile.ToolId,
                 IsDefault = profile.IsDefault,
                 Revision = profile.Revision,
+                Source = profile.Source,
+                ValidationStatus = profile.ValidationStatus,
+                SuggestionScore = profile.SuggestionScore,
+                SuggestionReasons = profile.SuggestionReasons ?? [],
             });
         }
 
@@ -195,8 +201,14 @@ public sealed class HostRuntime : IAsyncDisposable
                 profile.IsDefault,
                 profile.Revision,
                 DateTime.UtcNow,
-                DateTime.UtcNow), DateTime.UtcNow);
+                DateTime.UtcNow, profile.Source, profile.ValidationStatus,
+                profile.SuggestionScore, profile.SuggestionReasons), DateTime.UtcNow);
+            state.Events.Publish("profile.updated", $"profile:{profile.ProfileId}",
+                new { gameId = profile.GameId, profileId = profile.ProfileId, status = profile.ValidationStatus }, DateTime.UtcNow);
         };
+        state.Launches.IsActiveGame = gameId => state.Library.Store?.TryGetGame(gameId)?.Membership == "active";
+        state.Launches.TryCommitValidation = (profile, revision) => state.Library.Store?.CommitSuggestedProfile(
+            profile.ProfileId, revision, profile.ValidationStatus, profile.IsDefault, DateTime.UtcNow) == true;
         WireAttemptPersistence(state);
         state.Jobs.OnJobRecorded = snapshot =>
             state.Library.Store?.UpsertJobRecord(new PersistedJobRecord(
@@ -340,6 +352,9 @@ public sealed class HostRuntime : IAsyncDisposable
     {
         var drained = _state.Sessions.StopAccepting();
         _state.Coordinator.Dispose();
+        _state.Suggestions?.Dispose();
+        _state.Launches.CancelObservations();
+        if (_state.Suggestions is not null) await _state.Suggestions.Stopped;
         await _server.DisposeAsync();
         await _state.Jobs.WaitForIdleAsync();
         await drained;
@@ -371,6 +386,8 @@ public sealed class HostRuntimeState
 
     /// <summary>启动 Profile/计划/尝试注册表（v13+ 持久化，重启恢复）。</summary>
     public required Launching.LaunchRegistry Launches { get; init; }
+
+    internal Launching.LaunchSuggestionService? Suggestions { get; set; }
 
     /// <summary>库根白名单：扫描/启动路径包含边界（v13+ 持久化，重启恢复）。</summary>
     public required Scanning.RootRegistry Roots { get; init; }

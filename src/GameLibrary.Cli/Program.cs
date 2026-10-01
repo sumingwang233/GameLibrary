@@ -77,7 +77,7 @@ internal static class Program
                 "ignores.list" or "ignores.create" or "ignores.remove" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "profiles.create" or "profiles.list" or "profiles.get" or "profiles.update"
-                    or "profiles.set_default" or "profiles.remove" or "profiles.validate" =>
+                    or "profiles.set_default" or "profiles.remove" or "profiles.validate" or "profiles.discover" or "profiles.restore" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "views.list" or "views.get" or "views.create" or "views.update" or "views.remove" or "views.activate" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
@@ -660,6 +660,8 @@ internal static class Program
                 expectedRevision = cli.ExpectedRevision,
             },
             "profiles.list" => cli.GameId is null ? null : new { gameId = cli.GameId },
+            "profiles.discover" => new { gameId = cli.GameId, idempotencyKey = cli.IdempotencyKey },
+            "profiles.restore" => new { profileId = cli.ProfileId, expectedRevision = cli.ExpectedRevision, idempotencyKey = cli.IdempotencyKey },
             "profiles.get" => new { profileId = cli.ProfileId },
             "launch.plan" => new { gameId = cli.GameId, profileId = cli.ProfileId },
             "launch.execute" => cli.PlanId is null

@@ -29,6 +29,11 @@ public sealed record LaunchProfile
 
     /// <summary>更新即递增；使引用旧 Revision 的 LaunchPlan 失效（PlanStale）。</summary>
     public int Revision { get; init; } = 1;
+
+    public string Source { get; init; } = "manual";
+    public string ValidationStatus { get; init; } = "manual";
+    public int SuggestionScore { get; init; }
+    public IReadOnlyList<string> SuggestionReasons { get; init; } = [];
 }
 
 /// <summary>纯数据启动计划（契约 5.x launch.plan）：可预览，不产生系统副作用。</summary>
@@ -124,7 +129,7 @@ public sealed record LaunchAttempt
 /// 幂等键重放返回原尝试、Profile Revision 使旧计划失效（PlanStale）。
 /// 真实启动只允许经由 Profile 校验的 EXE/SWF；SWF 交给 Windows 文件关联打开。
 /// </summary>
-public sealed class LaunchRegistry
+public sealed partial class LaunchRegistry
 {
     /// <summary>翻译注入步骤默认等待上限（120s）；测试可经 Execute 参数收紧。</summary>
     public static readonly TimeSpan DefaultTranslationStepTimeout = TimeSpan.FromSeconds(120);
@@ -137,11 +142,16 @@ public sealed class LaunchRegistry
 
     public void Clear()
     {
-        _profiles.Clear();
-        _plans.Clear();
-        _attempts.Clear();
-        _receiptByKey.Clear();
-        _activeByGame.Clear();
+        lock (_profileLock)
+        {
+            CancelObservations();
+            _profiles.Clear();
+            _plans.Clear();
+            _attempts.Clear();
+            _receiptByKey.Clear();
+            _activeByGame.Clear();
+            _processes.Clear();
+        }
     }
 
     public Func<IDisposable?>? AcquireLibraryLease { get; set; }
@@ -160,7 +170,8 @@ public sealed class LaunchRegistry
     private void NotifyAttempt(LaunchAttempt attempt) => OnAttemptChanged?.Invoke(attempt);
 
     /// <summary>启动恢复：把持久层 Profile 注册回内存（不触发回调）。</summary>
-    public void RestoreProfile(LaunchProfile profile) => _profiles[profile.ProfileId] = profile;
+    public void RestoreProfile(LaunchProfile profile) => _profiles[profile.ProfileId] = profile.ValidationStatus == "verifying"
+        ? profile with { ValidationStatus = "inconclusive" } : profile;
 
     /// <summary>启动恢复：把持久层尝试注册回内存；非终态尝试在重启后直接记为 exited（进程已不属于本生命周期）。</summary>
     public void RestoreAttempt(LaunchAttempt attempt)
@@ -178,7 +189,7 @@ public sealed class LaunchRegistry
         _attempts[attempt.AttemptId] = attempt;
     }
 
-    public LaunchProfile AddProfile(
+    private LaunchProfile AddProfileCore(
         string gameId,
         string executablePath,
         IReadOnlyList<string> arguments,
@@ -186,16 +197,18 @@ public sealed class LaunchRegistry
         string? toolId = null,
         bool isDefault = false)
     {
+        var existing = _profiles.Values.FirstOrDefault(p => p.GameId == gameId && (p.Source == "automatic" || p.ValidationStatus == "deleted")
+            && SamePath(p.ExecutablePath, executablePath));
         var profile = new LaunchProfile
         {
-            ProfileId = $"profile-{Guid.NewGuid():N}",
+            ProfileId = existing?.ProfileId ?? $"profile-{Guid.NewGuid():N}",
             GameId = gameId,
             ExecutablePath = executablePath,
             Arguments = arguments,
             WorkingDirectory = workingDirectory,
             ToolId = toolId,
             IsDefault = isDefault,
-            Revision = 1,
+            Revision = (existing?.Revision ?? 0) + 1,
         };
         _profiles[profile.ProfileId] = profile;
         if (isDefault)
@@ -208,7 +221,7 @@ public sealed class LaunchRegistry
     }
 
     public LaunchProfile? GetProfile(string profileId) =>
-        _profiles.TryGetValue(profileId, out var profile) ? profile : null;
+        _profiles.TryGetValue(profileId, out var profile) && profile.ValidationStatus != "deleted" ? profile : null;
 
     /// <summary>计划归属的 ProfileId（launch.execute 阻断检查用）；计划不存在返回 null。</summary>
     public string? GetPlanProfileId(string planId) =>
@@ -221,6 +234,7 @@ public sealed class LaunchRegistry
     public IReadOnlyList<LaunchProfile> ListProfiles(string? gameId = null) =>
         _profiles.Values
             .Where(p => gameId is null || string.Equals(p.GameId, gameId, StringComparison.Ordinal))
+            .Where(p => p.ValidationStatus != "deleted")
             .OrderBy(p => p.IsDefault ? 0 : 1)
             .ThenBy(p => p.ProfileId, StringComparer.Ordinal)
             .ToArray();
@@ -229,7 +243,7 @@ public sealed class LaunchRegistry
     public LaunchProfile? GetDefaultProfile(string gameId) =>
         ListProfiles(gameId).FirstOrDefault(p => p.IsDefault);
 
-    public LaunchProfile UpdateProfile(string profileId, string executablePath, IReadOnlyList<string> arguments, string workingDirectory)
+    private LaunchProfile UpdateProfileCore(string profileId, string executablePath, IReadOnlyList<string> arguments, string workingDirectory)
     {
         var current = _profiles[profileId];
         var updated = current with
@@ -238,6 +252,8 @@ public sealed class LaunchRegistry
             Arguments = arguments,
             WorkingDirectory = workingDirectory,
             Revision = current.Revision + 1,
+            Source = "manual",
+            ValidationStatus = "manual",
         };
         _profiles[profileId] = updated;
         OnProfileChanged?.Invoke(updated);
@@ -248,7 +264,7 @@ public sealed class LaunchRegistry
     /// 设为该游戏默认（profiles.set_default）：显式替代项语义——新默认生效即清除旧默认。
     /// Profile 不存在或属于其他游戏抛 <see cref="LaunchException"/>。
     /// </summary>
-    public LaunchProfile SetDefault(string gameId, string profileId)
+    private LaunchProfile SetDefaultCore(string gameId, string profileId)
     {
         var profile = _profiles.TryGetValue(profileId, out var p) ? p : null;
         if (profile is null || !string.Equals(profile.GameId, gameId, StringComparison.Ordinal))
@@ -256,9 +272,9 @@ public sealed class LaunchRegistry
             throw new LaunchException(ErrorCodes.NotFound, $"Profile 不存在或不属于该游戏：{profileId}");
         }
 
-        if (!profile.IsDefault)
+        if (!profile.IsDefault || profile.Source == "automatic")
         {
-            var updated = profile with { IsDefault = true, Revision = profile.Revision + 1 };
+            var updated = profile with { IsDefault = true, Revision = profile.Revision + 1, Source = "manual", ValidationStatus = "manual" };
             _profiles[profileId] = updated;
             ClearOtherDefaults(gameId, profileId);
             OnProfileChanged?.Invoke(updated);
@@ -272,7 +288,7 @@ public sealed class LaunchRegistry
     /// 移除非默认 Profile（profiles.remove）。默认 Profile 需先显式 set_default 替代项，
     /// 这里直接拒绝（契约 3.1：默认配置移除需明确替代项）。
     /// </summary>
-    public LaunchProfile RemoveProfile(string profileId)
+    private LaunchProfile RemoveProfileCore(string profileId)
     {
         if (!_profiles.TryGetValue(profileId, out var profile))
         {
@@ -286,8 +302,9 @@ public sealed class LaunchRegistry
                 $"Profile {profileId} 是该游戏的默认配置；先用 profiles.set_default 指定替代项后才能移除");
         }
 
-        _profiles.TryRemove(profileId, out _);
-        OnProfileChanged?.Invoke(null);
+        var deleted = profile with { ValidationStatus = "deleted", Revision = profile.Revision + 1 };
+        _profiles[profileId] = deleted;
+        OnProfileChanged?.Invoke(deleted);
         return profile;
     }
 
@@ -317,6 +334,8 @@ public sealed class LaunchRegistry
         }
 
         ValidatePaths(profile);
+        if (profile.ValidationStatus is "discarded" or "deleted")
+            throw new LaunchException(ErrorCodes.InvalidArgument, "废弃启动方式必须先手动恢复或配置");
         var plan = new LaunchPlan
         {
             PlanId = $"plan-{Guid.NewGuid():N}",
@@ -493,12 +512,16 @@ public sealed class LaunchRegistry
             // feat-1：主动订阅游戏进程退出——不等人查询 launch.status/history 就完成
             // attempt 记录（经 NotifyAttempt→OnAttemptChanged 落库，与惰性路径同一出口）。
             // 只订阅最终进程；WaitForExit=true 的翻译注入步骤仍按原有同步有界等待处理。
-            WatchProcessExit(attempt.AttemptId, process);
             NotifyAttempt(attempt);
+            if (_profiles[plan.ProfileId].Source == "automatic")
+                ObserveSuggestion(attempt, process, plan.ProfileRevision);
+            else
+                WatchProcessExit(attempt.AttemptId, process);
             return attempt;
         }
         catch (Exception ex) when (ex is not LaunchException)
         {
+            CompleteSuggestion(plan.ProfileId, plan.ProfileRevision, translationSteps is null && IsBadExecutable(ex) ? "discarded" : "inconclusive");
             StopStartedProcesses(started);
             attempt = attempt with
             {
@@ -513,6 +536,7 @@ public sealed class LaunchRegistry
         }
         catch (LaunchException ex)
         {
+            CompleteSuggestion(plan.ProfileId, plan.ProfileRevision, "inconclusive");
             StopStartedProcesses(started);
             attempt = attempt with
             {
@@ -538,7 +562,7 @@ public sealed class LaunchRegistry
                     process.Kill(entireProcessTree: true);
                 }
             }
-            catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException)
+            catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException or System.ComponentModel.Win32Exception)
             {
                 // 进程可能已在步骤失败时退出。
             }
@@ -614,6 +638,7 @@ public sealed class LaunchRegistry
 
     private LaunchAttempt RefreshAttempt(LaunchAttempt attempt)
     {
+        if (_observations.ContainsKey(attempt.AttemptId)) return _attempts.GetValueOrDefault(attempt.AttemptId) ?? attempt;
         if (attempt.State != "processCreated")
         {
             return attempt;

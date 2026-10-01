@@ -4,6 +4,7 @@ import { useLanguage } from "./lib/i18n";
 import { AlertCircle, Bell } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { describeFailure, operation } from "./lib/api";
+import { LaunchProfileSelectionRequired } from "./lib/launchProfiles";
 import { emptyFilters, useGamesQuery, useLibrary, type GameFilters } from "./lib/state";
 import type { CandidateItem, GameItem, ViewItem } from "./lib/types";
 import { AppShell } from "./components/AppShell";
@@ -31,6 +32,7 @@ function App() {
   const [filters, setFilters] = useState<GameFilters>(emptyFilters);
   const [layout, setLayout] = useState<"grid" | "compact">("grid");
   const [selected, setSelected] = useState<GameItem | null>(null);
+  const [launchSelectionGameId, setLaunchSelectionGameId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [reviewBusy, setReviewBusy] = useState(false);
@@ -168,7 +170,11 @@ function App() {
 
   const launch = (gameId: string) =>
     run(async () => {
-      await preserveLibraryScroll(() => library.launch(gameId));
+      try { await preserveLibraryScroll(() => library.launch(gameId)); }
+      catch (cause) {
+        if (cause instanceof LaunchProfileSelectionRequired) { setLaunchSelectionGameId(gameId); openGameById(gameId); }
+        throw cause;
+      }
     });
 
   const sidebar = (
@@ -340,9 +346,12 @@ function App() {
 
         <DetailSheet
           game={selected}
+          initialTab={selected?.gameId === launchSelectionGameId ? "launch" : "overview"}
           tags={library.tags}
+          refreshToken={library.changeToken}
+          supportsSuggestions={library.supports("profiles.discover")}
           onClose={() => setSelected(null)}
-          onPlay={(gameId) => preserveLibraryScroll(() => library.launch(gameId))}
+          onPlay={(gameId, profileId) => preserveLibraryScroll(() => library.launch(gameId, profileId))}
           onChanged={() => {
             return preserveLibraryScroll(async () => {
               await library.refreshMeta();

@@ -116,3 +116,34 @@ flowchart LR
 `taskbar_icon.rs` 在 Windows 启动时从当前 EXE 读取共享图标并绑定 ICON_BIG，`lib.rs` 在 setup 调用；不新增依赖，不改图标素材。LR_SHARED 句柄由系统管理，避免窗口生命周期中的图标悬空。API 依据：[LoadImageW](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-loadimagew)。回滚删除模块和 setup 调用即可。
 
 当前运行实例已通过 WM_SETICON 补上新版 ICON_BIG，读回与小图标句柄一致，并发送定向 SHChangeNotify；未关闭程序或重启 Explorer。源码验证：cargo fmt --check、cargo check --locked、cargo test --locked --lib（2/2）、cargo build --locked 通过；新 EXE 的资源 32512 与认可 32×32 图片逐像素相同。单元测试使用隐藏 STATIC 窗口和 Windows 系统图标测试大图标绑定，因 Cargo 测试 EXE 不含应用资源；实际应用资源由构建后检查覆盖。任务栏最终视觉、不同 DPI 和正式包验收待确认，未打包或发布。
+
+## 自动建议启动方式 — v1.6.1 / 2026-10-01
+
+审计基于 `7f6b57d`。修改前调用 code-review-graph 获取上下文，确认 Host 的 LaunchRegistry、运行态持久化与前端 state/DetailSheet 为主要影响边界。新增功能细节与回测证据见 [launch-suggestions.md](../launch-suggestions.md)。
+
+```mermaid
+flowchart TD
+    Startup[Host 启动 / 新游戏与修订 / 显式 discover] --> Queue[LaunchSuggestionService / 单执行器与短租约]
+    Queue --> Rules[LaunchSuggestionDetector / 引擎证据与中文配对]
+    Rules --> Profiles[launch_profiles / 来源、状态、评分证据]
+    Profiles --> List[profiles.list / recommendedProfileId]
+    List --> Choose{默认或唯一可靠建议?}
+    Choose -->|是| Plan[launch.plan / Required 翻译检查]
+    Choose -->|否| Detail[DetailSheet 启动页 / 明确选择]
+    Detail --> Plan
+    Plan --> Execute[launch.execute / 幂等与互斥]
+    Execute --> Watch[父子进程身份与目录 / 500ms 观察]
+    Watch -->|持续30秒| Commit[条件 UPDATE / 活跃游戏、修订及无其他默认]
+    Commit --> Verified[verified / 无默认时晋升]
+    Watch -->|明确启动失败或早期崩溃| Discard[discarded / 手动恢复]
+    Watch -->|短退、环境问题或120秒不确定| Pending[inconclusive]
+    Verified --> Event[profile.updated / 配置刷新]
+    Discard --> Event
+    Pending --> Event
+    Watch --> Exit[最后游戏进程退出 / 同一 attempt 与整段时长]
+    Exit --> LaunchEvent[launch.exited / 既有事件和详情回显]
+```
+
+Schema 25 添加可选元数据，旧手动配置不晋升也不重排默认。删除入口在同表保留不可见抑制行，避免重扫重新添加；get/list 的删除语义保持兼容。CLI/MCP 操作由契约目录同步；没有新增依赖。库切换/停机取消观察，人工修改修订使验证失效，单条条件 UPDATE 保护自动默认晋升。
+
+规则单测、生命周期（含真实30秒）与生产 Host 的发现作业/删除后重启测试通过；.NET全量589项、前端31项、typecheck、生产构建、Rust原生2项及四语言/Release文档检查通过。完整发布验证以最终 `release-validation.json` 为准，Win10/11/DPI人工验收未完成。打包使用隔离 `--dist`，保留已有分发包。

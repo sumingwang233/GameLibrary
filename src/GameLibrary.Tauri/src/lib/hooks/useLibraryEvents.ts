@@ -8,7 +8,7 @@ export function affectedDomains(events: readonly LibraryEvent[]): Set<DataDomain
   const domains = new Set<DataDomain>();
   for (const event of events) {
     const prefix = event.type.split(".")[0];
-    if (prefix === "game" || prefix === "asset" || event.type === "launch.exited") domains.add("games");
+    if (prefix === "game" || prefix === "asset" || prefix === "profile" || event.type === "launch.exited") domains.add("games");
     if (prefix === "candidate" || prefix === "scan") domains.add("candidates");
     if (prefix === "notification" || prefix === "scan" || prefix === "candidate") domains.add("notifications");
     if (prefix === "tag") { domains.add("tags"); domains.add("games"); }

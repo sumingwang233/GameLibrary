@@ -149,6 +149,10 @@ export interface IgnoreRuleItem {
 }
 
 export interface ProfileItem {
+  source?: "manual" | "automatic";
+  validationStatus?: "manual" | "suggested" | "verifying" | "verified" | "discarded" | "inconclusive" | "deleted";
+  suggestionScore?: number;
+  suggestionReasons?: string[];
   profileId: string;
   gameId?: string;
   executablePath: string;

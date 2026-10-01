@@ -521,6 +521,7 @@ def parse_args():
         help="fail unless a trusted Authenticode signing identity is configured",
     )
     parser.add_argument("--check", action="store_true", help="check source versions without building")
+    parser.add_argument("--dist", type=Path, help="isolated output directory; preserves earlier release assets")
     parser.add_argument("--makensis", help="explicit path to NSIS makensis.exe")
     parser.add_argument("--skip-desktop-smoke-reason",
                         help="produce an acceptance candidate without native smoke; records not-run and reason")
@@ -528,8 +529,15 @@ def parse_args():
 
 
 def main():
-    global SOURCE_COMMIT, SOURCE_DIRTY
+    global SOURCE_COMMIT, SOURCE_DIRTY, DIST, STAGING_ROOT, USER_PAYLOAD, TOOLS_PAYLOAD, SYMBOLS, COMPONENT_OUTPUTS
     args = parse_args()
+    if args.dist is not None:
+        DIST = str(args.dist.resolve())
+        STAGING_ROOT = os.path.join(DIST, "staging", uuid.uuid4().hex)
+        USER_PAYLOAD = os.path.join(STAGING_ROOT, "GameLibrary")
+        TOOLS_PAYLOAD = os.path.join(STAGING_ROOT, "GameLibrary-Tools")
+        SYMBOLS = os.path.join(STAGING_ROOT, "symbols")
+        COMPONENT_OUTPUTS = os.path.join(STAGING_ROOT, "component-publish")
     version = read_version()
     assert_version_sync(version)
     if args.check:

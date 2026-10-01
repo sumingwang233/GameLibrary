@@ -53,7 +53,8 @@ internal sealed class LaunchingHandler
 
         try
         {
-            var updated = _launches.SetDefault(gameId, profileId);
+            IpcRequests.TryGetIntParameter(request, "expectedRevision", out var expectedRevision);
+            var updated = _launches.SetDefault(gameId, profileId, expectedRevision);
             return new Envelope<object>
             {
                 RequestId = request.RequestId,
@@ -78,7 +79,8 @@ internal sealed class LaunchingHandler
 
         try
         {
-            var removed = _launches.RemoveProfile(profileId);
+            IpcRequests.TryGetIntParameter(request, "expectedRevision", out var expectedRevision);
+            var removed = _launches.RemoveProfile(profileId, expectedRevision);
             return new Envelope<object>
             {
                 RequestId = request.RequestId,
@@ -259,6 +261,7 @@ internal sealed class LaunchingHandler
             Data = new
             {
                 total = profiles.Count,
+                recommendedProfileId = gameId is null ? null : _launches.RecommendedProfileId(gameId),
                 items = profiles.Select(ProfileDto).ToArray(),
             },
         };
@@ -347,14 +350,18 @@ internal sealed class LaunchingHandler
             return updateOutsideRoot;
         }
 
-        var updated = _launches.UpdateProfile(profileId, executablePath, argv, cwd);
-        return new Envelope<object>
+        try
         {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = ProfileDto(updated),
-        };
+            var updated = _launches.UpdateProfile(profileId, executablePath, argv, cwd, expectedRevision);
+            return new Envelope<object>
+            {
+                RequestId = request.RequestId,
+                Ok = true,
+                Status = OperationStatus.Completed,
+                Data = ProfileDto(updated),
+            };
+        }
+        catch (GameLibrary.Host.Launching.LaunchException ex) { return LaunchError(request, ex); }
     }
 
     /// <summary>已移除库籍的游戏拒绝启动类操作（create 前置 / plan 与 execute 前置共用）。</summary>
@@ -714,7 +721,38 @@ internal sealed class LaunchingHandler
         toolId = profile.ToolId,
         isDefault = profile.IsDefault,
         revision = profile.Revision,
+        source = profile.Source,
+        validationStatus = profile.ValidationStatus,
+        suggestionScore = profile.SuggestionScore,
+        suggestionReasons = profile.SuggestionReasons,
     };
+
+    public Envelope<object> ProfilesDiscover(IpcRequest request, HostRuntimeState state)
+    {
+        IpcRequests.TryGetStringParameter(request, "gameId", out var gameId);
+        if (gameId.Length > 0 && _storeAccessor()?.TryGetGame(gameId) is not { Membership: "active" })
+            return IpcRequests.NotFound(request, "游戏不存在或已移除");
+        state.Suggestions ??= new GameLibrary.Host.Launching.LaunchSuggestionService(state);
+        var jobId = state.Jobs.Create("profiles.discover", async context =>
+        {
+            await state.Suggestions.DiscoverAsync(gameId.Length == 0 ? null : gameId, context.Token);
+            return JobOutcome.Succeeded();
+        });
+        return new Envelope<object> { RequestId = request.RequestId, Ok = true, Status = OperationStatus.Accepted, JobId = jobId };
+    }
+
+    public Envelope<object> ProfilesRestore(IpcRequest request)
+    {
+        if (!IpcRequests.TryGetStringParameter(request, "profileId", out var profileId)
+            || !IpcRequests.TryGetIntParameter(request, "expectedRevision", out var revision) || revision is null)
+            return IpcRequests.InvalidArgument(request, "需要 profileId 和 expectedRevision");
+        try
+        {
+            var restored = _launches.RestoreSuggestion(profileId, revision.Value);
+            return new Envelope<object> { RequestId = request.RequestId, Ok = true, Status = OperationStatus.Completed, Data = ProfileDto(restored) };
+        }
+        catch (GameLibrary.Host.Launching.LaunchException ex) { return LaunchError(request, ex); }
+    }
 
     /// <summary>翻译策略的对外 DTO（形状不可变更：覆盖/继承/有效值分离）。</summary>
     private static object TranslationDto(GameCard game)

@@ -87,9 +87,9 @@ Get-FileHash .\GameLibrary-Setup-v1.5.5.exe -Algorithm SHA256
 </details>
 
 <details>
-<summary><strong>目前原始碼：v1.6.0，尚未發布</strong></summary>
+<summary><strong>目前原始碼：v1.6.1，待驗收版本</strong></summary>
 
-目前原始碼新增簡體中文、繁體中文、English、日本語切換、圖示與安裝介面，並改善並行讀取、還原保護、批次審核與事件更新。上方 v1.5.5 下載包不含這些變更。[v1.6.0 發布草稿](docs/releases/v1.6.0.md)記錄內容與驗收狀態。
+v1.6.1 新增建議啟動方式：優先中文入口、試執行驗證後自動設為預設、明確失敗自動廢棄並支援手動恢復；同步調整卡片時長、主題快捷切換和 Windows 工作列圖示。上方 v1.5.5 穩定下載包不含這些變更。[v1.6.1 說明](docs/releases/v1.6.1.md)記錄內容與驗收狀態。
 </details>
 
 <details>

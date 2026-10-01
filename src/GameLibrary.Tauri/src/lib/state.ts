@@ -11,6 +11,7 @@ import {
   type PropsWithChildren,
 } from "react";
 import { operation } from "./api";
+import { discoverLaunchProfiles, LaunchProfileSelectionRequired, selectLaunchProfile, type ProfileList } from "./launchProfiles";
 import { useLibraryMetadata } from "./hooks/useLibraryMetadata";
 import { useLibraryEvents } from "./hooks/useLibraryEvents";
 import { useScanJobs } from "./hooks/useScanJobs";
@@ -85,6 +86,7 @@ export interface ScanProgressState {
 }
 
 interface LibraryController {
+  supports: (name: string) => boolean;
   tags: TagItem[];
   roots: RootItem[];
   views: ViewItem[];
@@ -111,7 +113,7 @@ interface LibraryController {
     items: CandidateItem[],
     action: "accept" | "defer" | "ignore",
   ) => Promise<Array<{ candidate: CandidateItem; similarTo: SimilarGameSuggestion[] }>>;
-  launch: (gameId: string) => Promise<void>;
+  launch: (gameId: string, profileId?: string) => Promise<void>;
   createTag: (name: string, category?: string) => Promise<void>;
   renameTag: (tag: TagItem, name: string) => Promise<void>;
   /** feat-3：color/category/sortOrder/starred/displayName 增量更新（engine 标签同样允许）。 */
@@ -155,15 +157,18 @@ function useLibraryController(): LibraryController {
   const reviewCandidates = useCandidateReview(supports, refreshReview, bump);
 
   const launch = useCallback(
-    async (gameId: string) => {
-      const profiles = await operation<{ items: Array<{ profileId: string; isDefault: boolean }> }>(
+    async (gameId: string, profileId?: string) => {
+      let profiles = await operation<ProfileList>(
         "profiles.list",
         { gameId },
       );
-      const profile =
-        profiles.data.items.find((item) => item.isDefault) ?? profiles.data.items[0];
+      if (!profileId && !selectLaunchProfile(profiles.data) && supports("profiles.discover")) {
+        await discoverLaunchProfiles(gameId);
+        profiles = await operation<ProfileList>("profiles.list", { gameId });
+      }
+      const profile = selectLaunchProfile(profiles.data, profileId);
       if (!profile) {
-        throw new Error(t("尚未配置启动方式，请先在详情页配置原始游戏程序"));
+        throw new LaunchProfileSelectionRequired();
       }
 
       // 先 plan 再 execute：plan 失败时后端会给出 TranslationRouteUnavailable 等错误码
@@ -180,7 +185,7 @@ function useLibraryController(): LibraryController {
       );
       bump();
     },
-    [bump],
+    [bump, supports],
   );
 
   const refreshTags = useCallback(() => refreshDomains(["tags"]), [refreshDomains]);
@@ -265,6 +270,7 @@ function useLibraryController(): LibraryController {
 
   return useMemo(
     () => ({
+      supports,
       tags,
       roots,
       views,
@@ -295,6 +301,7 @@ function useLibraryController(): LibraryController {
       acknowledgeNotification,
     }),
     [
+      supports,
       tags,
       roots,
       views,

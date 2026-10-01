@@ -20,7 +20,11 @@ public sealed record PersistedProfile(
     bool IsDefault,
     int Revision,
     DateTime CreatedUtc,
-    DateTime UpdatedUtc);
+    DateTime UpdatedUtc,
+    string Source = "manual",
+    string ValidationStatus = "manual",
+    int SuggestionScore = 0,
+    IReadOnlyList<string>? SuggestionReasons = null);
 
 /// <summary>持久化启动尝试行。</summary>
 public sealed record PersistedLaunchAttempt(
@@ -167,7 +171,8 @@ public static class RuntimeStateStore
         using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT profile_id, game_id, executable_path, arguments_json, working_directory,
-                   tool_id, is_default, revision, created_utc, updated_utc
+                   tool_id, is_default, revision, created_utc, updated_utc,
+                   source, validation_status, suggestion_score, suggestion_reasons_json
             FROM launch_profiles ORDER BY created_utc, profile_id
             """;
         using var reader = command.ExecuteReader();
@@ -183,7 +188,9 @@ public static class RuntimeStateStore
                 reader.GetInt64(6) == 1,
                 reader.GetInt32(7),
                 DateTime.Parse(reader.GetString(8), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
-                DateTime.Parse(reader.GetString(9), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)));
+                DateTime.Parse(reader.GetString(9), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+                reader.GetString(10), reader.GetString(11), reader.GetInt32(12),
+                System.Text.Json.JsonSerializer.Deserialize<string[]>(reader.GetString(13)) ?? []));
         }
 
         return result;
@@ -195,8 +202,10 @@ public static class RuntimeStateStore
         command.CommandText = """
             INSERT INTO launch_profiles
                 (profile_id, game_id, executable_path, arguments_json, working_directory,
-                 tool_id, is_default, revision, created_utc, updated_utc)
-            VALUES ($id, $game, $exe, $argv, $cwd, $tool, $def, $rev, $created, $updated)
+                 tool_id, is_default, revision, created_utc, updated_utc,
+                 source, validation_status, suggestion_score, suggestion_reasons_json)
+            VALUES ($id, $game, $exe, $argv, $cwd, $tool, $def, $rev, $created, $updated,
+                    $source, $status, $score, $reasons)
             ON CONFLICT(profile_id) DO UPDATE SET
                 executable_path = excluded.executable_path,
                 arguments_json = excluded.arguments_json,
@@ -204,7 +213,11 @@ public static class RuntimeStateStore
                 tool_id = excluded.tool_id,
                 is_default = excluded.is_default,
                 revision = excluded.revision,
-                updated_utc = excluded.updated_utc
+                updated_utc = excluded.updated_utc,
+                source = excluded.source,
+                validation_status = excluded.validation_status,
+                suggestion_score = excluded.suggestion_score,
+                suggestion_reasons_json = excluded.suggestion_reasons_json
             """;
         command.Parameters.AddWithValue("$id", profile.ProfileId);
         command.Parameters.AddWithValue("$game", profile.GameId);
@@ -216,6 +229,10 @@ public static class RuntimeStateStore
         command.Parameters.AddWithValue("$rev", profile.Revision);
         command.Parameters.AddWithValue("$created", profile.CreatedUtc.ToString("O", CultureInfo.InvariantCulture));
         command.Parameters.AddWithValue("$updated", utcNow.ToString("O", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$source", profile.Source);
+        command.Parameters.AddWithValue("$status", profile.ValidationStatus);
+        command.Parameters.AddWithValue("$score", profile.SuggestionScore);
+        command.Parameters.AddWithValue("$reasons", System.Text.Json.JsonSerializer.Serialize(profile.SuggestionReasons ?? []));
         command.ExecuteNonQuery();
     }
 

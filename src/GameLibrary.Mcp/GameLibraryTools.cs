@@ -471,6 +471,16 @@ public static partial class GameLibraryTools
             viewId,
         });
 
+    [McpServerTool(Name = "profiles_discover")]
+    [Description("识别建议启动方式；只读游戏目录，不运行游戏。返回后台作业 ID。")]
+    public static Task<CallToolResult> ProfilesDiscover(string idempotencyKey, string? gameId = null) =>
+        InvokeOperationAsync("profiles.discover", new { idempotencyKey, gameId });
+
+    [McpServerTool(Name = "profiles_restore")]
+    [Description("手动恢复废弃启动方式；需要当前 revision。")]
+    public static Task<CallToolResult> ProfilesRestore(string profileId, int expectedRevision, string idempotencyKey) =>
+        InvokeOperationAsync("profiles.restore", new { profileId, expectedRevision, idempotencyKey });
+
     [McpServerTool(Name = "profiles_list")]
     [Description("列出启动配置（可按 gameId 过滤）。参数：gameId（可选）。")]
     public static Task<CallToolResult> ProfilesList([Description("按游戏 ID 过滤；省略则返回全部")] string? gameId = null) =>

@@ -5,6 +5,8 @@ namespace GameLibrary.Contracts;
 
 public static class OperationIds
 {
+    public const string ProfilesDiscover = "profiles.discover";
+    public const string ProfilesRestore = "profiles.restore";
     public const string CapabilitiesGet = "capabilities.get";
     public const string SchemaGet = "schema.get";
     public const string HostStatus = "host.status";
@@ -144,6 +146,8 @@ internal static class GeneratedOperations
 {
     internal static readonly IReadOnlySet<string> Available = new HashSet<string>(StringComparer.Ordinal)
     {
+        OperationIds.ProfilesDiscover,
+        OperationIds.ProfilesRestore,
         OperationIds.CapabilitiesGet,
         OperationIds.SchemaGet,
         OperationIds.HostStatus,
@@ -242,6 +246,8 @@ internal static class GeneratedOperations
     internal static readonly IReadOnlyDictionary<string, ParamSpec[]> InputSpecs =
         new Dictionary<string, ParamSpec[]>(StringComparer.Ordinal)
         {
+            [OperationIds.ProfilesDiscover] = [new("gameId", "string", false, "游戏 ID；省略时回填库内游戏"), new("idempotencyKey", "string", true, "识别幂等键")],
+            [OperationIds.ProfilesRestore] = [new("profileId", "string", true, "启动方式 ID"), new("expectedRevision", "integer", true, "预期修订号"), new("idempotencyKey", "string", true, "恢复幂等键")],
             [OperationIds.CapabilitiesGet] = [],
             [OperationIds.HostStatus] = [],
             [OperationIds.HostStop] = [new("idempotencyKey", "string", true, "停机幂等键")],

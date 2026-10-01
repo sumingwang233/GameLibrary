@@ -87,9 +87,9 @@ The installer provides a wizard, Start menu entries and uninstallation registrat
 </details>
 
 <details>
-<summary><strong>Current source: v1.6.0, not yet released</strong></summary>
+<summary><strong>Current source: v1.6.1, acceptance candidate</strong></summary>
 
-The current source adds Simplified Chinese, Traditional Chinese, English and Japanese interfaces, a new icon and installer UI, plus concurrent reads, restore safeguards, batch review and event-refresh improvements. These changes are not in the v1.5.5 downloads above. See the [v1.6.0 release draft](docs/releases/v1.6.0.md) for changes and acceptance status.
+v1.6.1 adds suggested launch profiles, Chinese entry preference, automatic default promotion after trial verification, and manual recovery of clearly failed entries. It also updates card playtime, the titlebar theme shortcut and Windows taskbar icon. These changes are not in the stable v1.5.5 downloads above. See the [v1.6.1 notes](docs/releases/v1.6.1.md) for changes and acceptance status.
 </details>
 
 <details>

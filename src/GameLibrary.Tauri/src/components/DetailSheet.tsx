@@ -5,6 +5,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { Check, ExternalLink, ImagePlus, Play, Star, Trash2 } from "lucide-react";
 import { assetDataUrl, describeFailure, operation } from "../lib/api";
+import { discoverLaunchProfiles, LaunchProfileSelectionRequired } from "../lib/launchProfiles";
 import { groupTagsByCategory, tagLabel } from "../lib/tags";
 import type {
   GameItem,
@@ -50,17 +51,24 @@ export function DetailSheet({
   onPlay,
   onChanged,
   onNavigate,
+  refreshToken,
+  supportsSuggestions = false,
+  initialTab = "overview",
 }: {
   game: GameItem | null;
   tags: TagItem[];
   onClose: () => void;
-  onPlay: (gameId: string) => Promise<void>;
+  onPlay: (gameId: string, profileId?: string) => Promise<void>;
+  refreshToken?: number;
+  supportsSuggestions?: boolean;
+  initialTab?: "overview" | "launch";
   onChanged: () => Promise<void> | void;
   /** 点击「疑似重复」条目跳到目标游戏详情；Sheet 不关闭不重建，由 App 侧换 selected 实现。 */
   onNavigate?: (gameId: string) => void;
 }) {
   const [current, setCurrent] = useState<GameItem | null>(game);
   const [profiles, setProfiles] = useState<ProfileItem[]>([]);
+  const [tab, setTab] = useState<string>(initialTab);
   const [translation, setTranslation] = useState<TranslationPolicy | null>(null);
   const [cover, setCover] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -72,6 +80,7 @@ export function DetailSheet({
   const [tagDraft, setTagDraft] = useState("");
 
   const gameId = game?.gameId ?? null;
+  useEffect(() => { setTab(initialTab); }, [gameId, initialTab]);
 
   const load = useCallback(async () => {
     if (!gameId) return;
@@ -109,6 +118,15 @@ export function DetailSheet({
     if (gameId) void load();
   }, [game, gameId, load]);
 
+  useEffect(() => {
+    if (!gameId) return;
+    let cancelled = false;
+    void operation<{ items: ProfileItem[] }>("profiles.list", { gameId }).then(result => {
+      if (!cancelled) setProfiles(result.data.items);
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [gameId, refreshToken]);
+
   if (!current) return null;
 
   const run = async (work: () => Promise<void>) => {
@@ -117,6 +135,7 @@ export function DetailSheet({
     try {
       await work();
     } catch (cause) {
+      if (cause instanceof LaunchProfileSelectionRequired) setTab("launch");
       setError(describeFailure(cause));
     } finally {
       setConfirmDelete(false);
@@ -213,7 +232,7 @@ export function DetailSheet({
           executablePath,
           argv: [],
           cwd: executablePath.replace(/[\\/][^\\/]+$/, ""),
-          isDefault: profiles.length === 0,
+          isDefault: !profiles.some(profile => profile.isDefault),
         },
         `profiles.create:${current.gameId}:${executablePath}`,
       );
@@ -259,7 +278,7 @@ export function DetailSheet({
     });
 
   const initials = current.title.slice(0, 2).toUpperCase();
-  const defaultProfile = profiles.find((profile) => profile.isDefault) ?? profiles[0];
+  const defaultProfile = profiles.find((profile) => profile.isDefault);
 
   return (
     <>
@@ -301,7 +320,7 @@ export function DetailSheet({
               <ExternalLink size={15} />{t("打开目录")}</Button>
           </div>
 
-          <Tabs defaultValue="overview">
+          <Tabs value={tab} onValueChange={setTab}>
             <TabsList aria-label={t("游戏详情分区")}>
               <TabsTrigger value="overview">{t("概览")}</TabsTrigger>
               <TabsTrigger value="launch">{t("启动")}</TabsTrigger>
@@ -371,6 +390,10 @@ export function DetailSheet({
             </TabsContent>
 
             <TabsContent value="launch" className="space-y-3">
+              {supportsSuggestions && <>
+                <p className="text-xs text-text-secondary">{t("建议入口持续运行30秒后自动验证；明确失败的入口会废弃，其他情况保留待确认。")}</p>
+                <Button variant="outline" disabled={busy} onClick={() => void run(async () => { await discoverLaunchProfiles(current.gameId); await load(); })}>{t("识别建议启动方式")}</Button>
+              </>}
               {profiles.length === 0 ? (
                 <p className="rounded-md border border-dashed border-border p-4 text-sm text-text-secondary">{t("还没有配置启动方式。")}</p>
               ) : (
@@ -390,13 +413,18 @@ export function DetailSheet({
                         {profile.argv && profile.argv.length > 0 ? t(" · 参数：{0}", profile.argv.join(" ")) : ""}
                       </div>
                       <div className="mt-2 flex gap-2">
-                        {!profile.isDefault && (
+                        {profile.source === "automatic" && <Badge>{t(profile.validationStatus === "verifying" ? "试运行验证中" : profile.validationStatus === "verified" ? "已验证" : profile.validationStatus === "discarded" ? "已废弃" : profile.validationStatus === "inconclusive" ? "待确认" : "建议入口")}</Badge>}
+                        {profile.validationStatus === "discarded" ? <Button size="sm" variant="outline" disabled={busy} onClick={() => void run(async () => {
+                          await operation("profiles.restore", { profileId: profile.profileId, expectedRevision: profile.revision }, `profiles.restore:${profile.profileId}:${profile.revision}`); await load();
+                        })}>{t("恢复入口")}</Button> : <Button size="sm" variant="outline" disabled={busy || profile.validationStatus === "verifying"} onClick={() => void run(() => onPlay(current.gameId, profile.profileId))}><Play size={13} />{t("开始游戏")}</Button>}
+                        {!profile.isDefault && profile.validationStatus !== "discarded" && (
                           <Button size="sm" variant="outline" disabled={busy} onClick={() => void setDefaultProfile(profile)}>
                             <Check size={13} />{t("设为默认")}</Button>
                         )}
                         <Button size="sm" variant="ghost" disabled={busy} onClick={() => void removeProfile(profile)}>
                           <Trash2 size={13} />{t("删除")}</Button>
                       </div>
+                      {profile.suggestionReasons?.length ? <p className="mt-2 text-xs text-text-secondary">{profile.suggestionReasons.map(reason => t(reason === "chinese-name" ? "中文入口名称" : reason === "chinese-original-pair" ? "与原版入口配对" : reason === "single-entry" ? "目录中唯一游戏入口" : reason === "multiple-launch-stages" ? "存在多个启动入口" : "引擎目录证据")).filter((value, index, values) => values.indexOf(value) === index).join(" · ")}</p> : null}
                     </li>
                   ))}
                 </ul>

@@ -486,5 +486,11 @@ public static class DatabaseMigrations
             DROP TABLE game_tags_v24_backup;
             CREATE INDEX idx_game_tags_tag ON game_tags (tag_id)
             """),
+        new DatabaseMigration(25, """
+            ALTER TABLE launch_profiles ADD COLUMN source TEXT NOT NULL DEFAULT 'manual';
+            ALTER TABLE launch_profiles ADD COLUMN validation_status TEXT NOT NULL DEFAULT 'manual';
+            ALTER TABLE launch_profiles ADD COLUMN suggestion_score INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE launch_profiles ADD COLUMN suggestion_reasons_json TEXT NOT NULL DEFAULT '[]';
+            """),
     ];
 }

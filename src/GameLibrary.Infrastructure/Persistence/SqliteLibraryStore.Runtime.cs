@@ -28,6 +28,29 @@ public sealed partial class SqliteLibraryStore
     public void DeleteProfile(string profileId)
         => Execute((c, _) => RuntimeStateStore.DeleteProfile(c, profileId));
 
+    public bool CommitSuggestedProfile(string profileId, int expectedRevision, string status, bool isDefault, DateTime utcNow)
+        => Execute((c, _) =>
+        {
+            using var command = c.CreateCommand();
+            // A single conditional UPDATE is the database transaction: manual edits/defaults and
+            // removal must still agree with the observation's snapshot at the moment of promotion.
+            command.CommandText = """
+                UPDATE launch_profiles SET validation_status=$status, is_default=$default,
+                    revision=revision+1, updated_utc=$now
+                WHERE profile_id=$id AND revision=$revision AND source='automatic'
+                  AND validation_status IN ('suggested','verifying','inconclusive')
+                  AND EXISTS (SELECT 1 FROM games WHERE games.game_id=launch_profiles.game_id AND membership='active')
+                  AND ($default=0 OR NOT EXISTS (SELECT 1 FROM launch_profiles other
+                       WHERE other.game_id=launch_profiles.game_id AND other.profile_id<>$id AND other.is_default=1))
+                """;
+            command.Parameters.AddWithValue("$id", profileId);
+            command.Parameters.AddWithValue("$revision", expectedRevision);
+            command.Parameters.AddWithValue("$status", status);
+            command.Parameters.AddWithValue("$default", isDefault ? 1 : 0);
+            command.Parameters.AddWithValue("$now", utcNow.ToString("O"));
+            return command.ExecuteNonQuery() == 1;
+        });
+
     public IReadOnlyList<PersistedLaunchAttempt> ReadLaunchAttempts()
         => ReadExclusive((c, _) => RuntimeStateStore.ReadAttempts(c));
 

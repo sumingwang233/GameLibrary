@@ -24,6 +24,8 @@
     "job"
   ],
   "operations": [
+    {"operationId":"profiles.discover","cli":["profiles","discover"],"mcpTool":"profiles_discover","handler":"ProfilesDiscover","permission":"library.write","requiresRevision":false,"requiresIdempotencyKey":true,"execution":"job","available":true,"parameters":[{"name":"gameId","type":"string","required":false,"description":"游戏 ID；省略时回填库内游戏"},{"name":"idempotencyKey","type":"string","required":true,"description":"识别幂等键"}]},
+    {"operationId":"profiles.restore","cli":["profiles","restore"],"mcpTool":"profiles_restore","handler":"ProfilesRestore","permission":"library.write","requiresRevision":true,"requiresIdempotencyKey":true,"execution":"sync","available":true,"parameters":[{"name":"profileId","type":"string","required":true,"description":"启动方式 ID"},{"name":"expectedRevision","type":"integer","required":true,"description":"预期修订号"},{"name":"idempotencyKey","type":"string","required":true,"description":"恢复幂等键"}]},
     {"operationId":"capabilities.get","cli":["capabilities","get"],"mcpTool":"capabilities_get","handler":"GetCapabilitiesHandler","permission":"none","requiresRevision":false,"requiresIdempotencyKey":false,"execution":"sync","available":true,"parameters":[]},
     {"operationId":"schema.get","cli":["schema","get"],"mcpTool":"schema_get","handler":"GetSchemaHandler","permission":"none","requiresRevision":false,"requiresIdempotencyKey":false,"execution":"sync","available":true},
     {"operationId":"host.status","cli":["host","status"],"mcpTool":"host_status","handler":"GetHostStatusHandler","permission":"none","requiresRevision":false,"requiresIdempotencyKey":false,"execution":"sync","available":true,"parameters":[]},
