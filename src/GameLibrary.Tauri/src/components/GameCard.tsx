@@ -18,7 +18,7 @@ export interface GameCardProps {
 
 function GameCardImpl({ game, selected, checked, selectionDisabled, onToggle, onSelect, onPlay }: GameCardProps) {
   const initials = game.title.trim().slice(0, 2).toUpperCase() || "GL";
-  const playtime = formatPlaytime(game.playtimeMinutes);
+  const playtime = formatPlaytime(game.playtimeMinutes) || t("{0} 分钟", 0);
   const [cover, setCover] = useState<string | null>(null);
   const [visible, setVisible] = useState(false);
   const cardRef = useRef<HTMLElement | null>(null);
@@ -116,12 +116,10 @@ function GameCardImpl({ game, selected, checked, selectionDisabled, onToggle, on
           <h3 className="line-clamp-2 text-sm leading-tight font-semibold text-white">
             {game.title}
           </h3>
-          {playtime && (
-            <p title={t("累计游玩 {0}", playtime)} className="mt-1 flex items-center gap-1 text-[11px] text-white/60">
-              <Clock3 size={12} aria-hidden="true" className="shrink-0" />
-              {playtime}
-            </p>
-          )}
+          <p title={t("累计游玩 {0}", playtime)} className="mt-1 flex items-center gap-1 text-[11px] text-white/60">
+            <Clock3 size={12} aria-hidden="true" className="shrink-0" />
+            {playtime}
+          </p>
         </div>
       </div>
       <div className="flex items-center justify-between gap-2 px-3 py-2 text-[11px] text-text-secondary">

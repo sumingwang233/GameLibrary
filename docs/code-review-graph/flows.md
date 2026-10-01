@@ -159,3 +159,9 @@ Schema 25 添加可选元数据，旧手动配置不晋升也不重排默认。�
 用户升级到 v1.6.1 后仍见旧任务栏图标。修改前刷新 code-review-graph 并审计 `taskbar_icon.rs`、Tauri setup、NSIS 快捷方式；当前运行 EXE 版本为1.6.1，开始菜单指向同一文件，无匹配的固定/隐式任务栏快捷方式。直接提取 EXE 图标、读取当前窗口 ICON_BIG/ICON_SMALL、调用 SHGetFileInfo 查询 Shell 图标，图像均为新版。因此不能把旧显示直接认定为 EXE 资源或窗口设置失败。
 
 针对 EXE 和开始菜单快捷方式发送 SHCNE_UPDATEITEM，随后发送 SHCNE_ASSOCCHANGED 刷新 Shell 图标缓存，并重新发送当前已有的窗口图标句柄。未删除缓存文件、未重启 Explorer 或应用。用户随后明确确认「已经变成新版」，本次为本地 Shell/任务栏缓存显示问题；未新增产品代码、未修改版本或已发布资产。诊断脚本与提取图片仅保留在本机 artifacts，未提交个人安装路径。Windows 通知语义见 [SHChangeNotify](https://learn.microsoft.com/en-us/windows/win32/api/shlobj_core/nf-shlobj_core-shchangenotify)。
+
+## 游玩时长位置遗漏补修 — 2026-10-01 / 未发布
+
+核对运行程序与 v1.6.1 最终暂存 EXE 的 SHA-256 完全一致，标签源码和生产 JS 也包含卡片时长逻辑。遗漏来自显示条件：`formatPlaytime` 对0/缺省返回空串，`GameCard` 原先据此隐藏整行；`GameGrid` 紧凑布局仍展示 engine/kind。只读统计确认多数活跃游戏不足1分钟或没有完成记录，卡片因而看不到时长，并非旧程序或图标缓存问题。
+
+补修 `GameCard` 与 `GameGrid`：复用既有 formatter，卡片/列表局部回退为已翻译的「0 分钟」，两种布局均在标题下方显示时长，紧凑布局移除引擎。详情的「尚未游玩」及后台整分钟聚合语义不变。回归覆盖0、缺省、分钟、小时、两种布局与数据刷新；前端33项、typecheck、生产构建和四语言检查通过。未重建安装包、未改写已发布 v1.6.1 资产，当前安装程序不会自动获得本次源码修改。

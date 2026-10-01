@@ -24,7 +24,7 @@ export function formatSimilarity(value: number) {
 
 /**
  * 累计游玩时长（feat-1，GameDto.playtimeMinutes，分钟整数）：
- * ≥60 分钟显示"x.x 小时"（一位小数），1–59 分钟显示"n 分钟"，0/缺省返回空串（卡面不显示）。
+ * ≥60 分钟显示"x.x 小时"（一位小数），1–59 分钟显示"n 分钟"，0/缺省返回空串，由调用方决定缺省文案。
  */
 export function formatPlaytime(minutes?: number | null) {
   const value = Number.isFinite(minutes) ? Math.floor(minutes ?? 0) : 0;

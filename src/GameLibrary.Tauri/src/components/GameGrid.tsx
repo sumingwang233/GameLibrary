@@ -1,7 +1,8 @@
 import { t } from "../lib/i18n";
 import { useEffect, useRef, useState } from "react";
-import { FolderOpen } from "lucide-react";
+import { Clock3, FolderOpen } from "lucide-react";
 import type { GameItem, TagItem } from "../lib/types";
+import { formatPlaytime } from "../lib/utils";
 import { GameBatchBar } from "./GameBatchBar";
 import { EmptyState } from "./EmptyState";
 import { GameCard } from "./GameCard";
@@ -90,8 +91,9 @@ export function GameGrid({
       </div>
       {layout === "compact" ? (
         <ul className="space-y-2">
-          {games.map((game) => (
-            <li key={game.gameId}>
+          {games.map((game) => {
+            const playtime = formatPlaytime(game.playtimeMinutes) || t("{0} 分钟", 0);
+            return <li key={game.gameId}>
               <div
                 role="button"
                 tabIndex={0}
@@ -112,10 +114,11 @@ export function GameGrid({
                   <span className="block truncate font-semibold text-text-primary">
                     {game.title}
                   </span>
+                  <span title={t("累计游玩 {0}", playtime)} className="mt-1 flex items-center gap-1 text-xs text-text-secondary">
+                    <Clock3 size={12} aria-hidden="true" className="shrink-0" />
+                    {playtime}
+                  </span>
                   <span className="block truncate text-xs text-text-secondary">{game.rootPath}</span>
-                </span>
-                <span className="shrink-0 text-xs text-text-secondary">
-                  {game.engine ?? game.kind}
                 </span>
                 <Button
                   variant="outline"
@@ -127,8 +130,8 @@ export function GameGrid({
                   aria-label={t("启动 {0}", game.title)}
                 >{t("启动")}</Button>
               </div>
-            </li>
-          ))}
+            </li>;
+          })}
         </ul>
       ) : (
         <div className={GRID_CLASS}>
