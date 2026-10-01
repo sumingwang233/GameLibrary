@@ -87,12 +87,13 @@ Get-FileHash .\GameLibrary-Setup-v1.5.5.exe -Algorithm SHA256
 </details>
 
 <details>
-<summary><strong>当前源码：v1.7.1，未发布</strong></summary>
+<summary><strong>当前源码：v1.7.1，待验收预发布</strong></summary>
 
 v1.6.1 新增建议启动方式：中文入口优先、试运行验证后自动设为默认、明确失败自动废弃并支持手动恢复；同步调整卡片时长、主题快捷切换和 Windows 任务栏图标。这些修改不在上方 v1.5.5 稳定下载包中。[v1.6.1 说明](docs/releases/v1.6.1.md)记录交付内容与验收状态。
 
 v1.7.0 新增[游戏名称翻译](docs/title-translation.md)：Google/Bing 免费免密钥翻译、批量进度和取消、中文译名与原文切换；同时补修两种布局标题下方的游玩时长。体验这些功能请使用 [v1.7.0 预发布包](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.0)，[验证记录](docs/releases/v1.7.0-validation.md)列明尚未完成的人工验收。上方稳定版下载保持 v1.5.5。
-v1.7.1 修复翻译后的副标题标点：原文含 `-` 时，将引擎返回的连续长破折号收为 `：` 并去掉首尾包围符。旧译名可在详情重新翻译；原文和手工译名保留。
+
+v1.7.1 修复翻译后的副标题标点：原文含 `-` 时，将引擎返回的连续长破折号收为 `：` 并去掉首尾包围符。旧译名可在详情重新翻译；原文和手工译名保留。[v1.7.1 预发布包](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.1)及[验证记录](docs/releases/v1.7.1-validation.md)提供本次修复和验收状态。
 </details>
 
 <details>
