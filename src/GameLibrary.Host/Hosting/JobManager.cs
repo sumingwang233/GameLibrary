@@ -134,15 +134,16 @@ public sealed class JobManager
         return recovered;
     }
 
-    private void Record(JobEntry entry)
+    private void Record(JobEntry entry, JobSnapshot? snapshot = null)
     {
         lock (entry)
         {
+            snapshot ??= Snapshot(entry);
             if (entry.Kind == "restore" && _restoreHistoryDirectory is not null)
                 ControlAreaStore.WriteAtomic(Path.Combine(_restoreHistoryDirectory, entry.Id + ".json"),
-                    JsonSerializer.Serialize(new RestoreJobHistory(Snapshot(entry),
+                    JsonSerializer.Serialize(new RestoreJobHistory(snapshot,
                         entry.FinalData ?? entry.Context?.ReadProgress()), ContractJson.Options));
-            if (entry.Kind != "restore") OnJobRecorded?.Invoke(Snapshot(entry));
+            if (entry.Kind != "restore") OnJobRecorded?.Invoke(snapshot);
         }
     }
 
@@ -229,32 +230,41 @@ public sealed class JobManager
 
     private async Task RunAsync(JobEntry entry, Func<JobContext, Task<JobOutcome>> executor)
     {
+        JobOutcome outcome;
         try
         {
-            var outcome = await executor(entry.Context!);
+            outcome = await executor(entry.Context!);
             entry.FinalData = entry.Context!.ReadProgress();
-            entry.State = outcome.FinalState;
-            entry.Error = outcome.Error;
         }
         catch (OperationCanceledException) when (entry.Cts.IsCancellationRequested)
         {
-            entry.State = "cancelled";
+            outcome = JobOutcome.Cancelled();
         }
         catch (Exception ex)
         {
-            entry.State = "failed";
-            entry.Error = ex.Message;
+            outcome = JobOutcome.Failed(ex.Message);
         }
-        finally
+
+        try
         {
-            entry.FinishedUtc = DateTime.UtcNow;
-            try
+            lock (entry)
             {
-                Record(entry);
-                OnJobFinished?.Invoke(entry.State);
+                var snapshot = Snapshot(entry) with
+                {
+                    State = outcome.FinalState,
+                    Error = outcome.Error,
+                    FinishedUtc = DateTime.UtcNow,
+                };
+                // Publish the terminal state only after its durable result is available.
+                Record(entry, snapshot);
+                entry.Error = snapshot.Error;
+                entry.FinishedUtc = snapshot.FinishedUtc;
+                entry.State = snapshot.State;
             }
-            finally { entry.Completed.TrySetResult(); }
+
+            OnJobFinished?.Invoke(entry.State);
         }
+        finally { entry.Completed.TrySetResult(); }
     }
 
     private static JobSnapshot Snapshot(JobEntry entry) =>

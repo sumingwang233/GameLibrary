@@ -6,6 +6,34 @@ namespace GameLibrary.IntegrationTests.Scanning;
 public sealed class JobManagerTests
 {
     [Fact]
+    public async Task TerminalState_IsPublishedAfterFinalRecord()
+    {
+        var manager = new JobManager();
+        var recording = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim(false);
+        manager.OnJobRecorded = snapshot =>
+        {
+            if (snapshot.State != "succeeded") return;
+            recording.SetResult();
+            release.Wait(TimeSpan.FromSeconds(10));
+        };
+        var jobId = manager.Create("test", _ => Task.FromResult(JobOutcome.Succeeded()));
+        try
+        {
+            await recording.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal("running", manager.Get(jobId)!.State);
+            Assert.Null(manager.Get(jobId)!.FinishedUtc);
+            Assert.Equal("running", manager.TryGetProgress(jobId)!.Value.State);
+            Assert.Equal(1, manager.ActiveJobCount());
+        }
+        finally { release.Set(); }
+
+        await manager.WaitForIdleAsync();
+        Assert.Equal("succeeded", manager.Get(jobId)!.State);
+        Assert.Equal(0, manager.ActiveJobCount());
+    }
+
+    [Fact]
     public async Task Create_DoesNotWaitForSynchronousExecutor()
     {
         var manager = new JobManager();
@@ -137,7 +165,7 @@ public sealed class JobManagerTests
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(60);
         while (DateTime.UtcNow < deadline)
         {
-            if (manager.Get(jobId)?.FinishedUtc is not null)
+            if (manager.Get(jobId)?.State is "succeeded" or "failed" or "cancelled")
             {
                 return;
             }
