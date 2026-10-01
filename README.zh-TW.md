@@ -87,9 +87,9 @@ Get-FileHash .\GameLibrary-Setup-v1.5.5.exe -Algorithm SHA256
 </details>
 
 <details>
-<summary><strong>目前原始碼：v1.7.2，待驗收預發布</strong></summary>
+<summary><strong>目前原始碼：v1.7.3，待驗收預發布</strong></summary>
 
-v1.7.2 新增詳情封面 Ctrl+V、含預覽的 Flash 目錄審核、標籤預設/白色與文字著色，以及未翻譯 Unity 遊戲的本機外掛配置流程。API Key 與原檔備份僅存於本機；配置完成後由使用者啟動並確認翻譯效果。升級時重設舊忽略規則，schema27 降版須還原遷移前備份。參閱[驗證記錄](docs/releases/v1.7.2-validation.md)。
+v1.7.3 修復舊資源 SWF 候選未按目錄歸併，造成待確認數量過大的問題。首次啟動立即核對受影響的掃描根，以完整目錄組取代舊逐檔候選；保留原遊戲檔案、ID 與中繼資料。維持 schema27，不再次重設忽略規則。保留 v1.7.2 的表紙貼上、Flash 審核、標籤顏色及本機 Unity 翻譯配置。參閱[驗證記錄](docs/releases/v1.7.3-validation.md)。
 
 v1.6.1 新增建議啟動方式：優先中文入口、試執行驗證後自動設為預設、明確失敗自動廢棄並支援手動恢復；同步調整卡片時長、主題快捷切換和 Windows 工作列圖示。上方 v1.5.5 穩定下載包不含這些變更。[v1.6.1 說明](docs/releases/v1.6.1.md)記錄內容與驗收狀態。
 

@@ -87,9 +87,9 @@ Get-FileHash .\GameLibrary-Setup-v1.5.5.exe -Algorithm SHA256
 </details>
 
 <details>
-<summary><strong>当前源码：v1.7.2，待验收预发布</strong></summary>
+<summary><strong>当前源码：v1.7.3，待验收预发布</strong></summary>
 
-v1.7.2 增加详情封面 Ctrl+V、带预览的 Flash 目录审核、标签默认/白色与文字着色，以及未翻译 Unity 游戏的本地插件配置流程。API Key 和原文件备份仅保存在本机；插件配置完成后由用户启动并确认翻译效果。旧忽略规则在升级时重置，schema27 回退需恢复迁移前备份。见[验证记录](docs/releases/v1.7.2-validation.md)。
+v1.7.3 修复旧资源 SWF 候选没有按目录归并、导致待确认数量过大的问题。首次启动立即核对受影响的扫描根，完整目录组代替旧逐文件候选；原游戏文件、ID 与元数据保留。继续使用 schema27，不重复重置忽略规则。保留 v1.7.2 的封面粘贴、Flash 审核、标签颜色和本机 Unity 翻译配置。见[验证记录](docs/releases/v1.7.3-validation.md)。
 
 v1.6.1 新增建议启动方式：中文入口优先、试运行验证后自动设为默认、明确失败自动废弃并支持手动恢复；同步调整卡片时长、主题快捷切换和 Windows 任务栏图标。这些修改不在上方 v1.5.5 稳定下载包中。[v1.6.1 说明](docs/releases/v1.6.1.md)记录交付内容与验收状态。
 

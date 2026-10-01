@@ -87,9 +87,9 @@ The installer provides a wizard, Start menu entries and uninstallation registrat
 </details>
 
 <details>
-<summary><strong>Current source: v1.7.2, acceptance pre-release</strong></summary>
+<summary><strong>Current source: v1.7.3, acceptance pre-release</strong></summary>
 
-v1.7.2 adds cover paste with Ctrl+V, Flash directory review with an adjustment preview, default/white tag colors applied to text, and local translation plugin setup for untranslated Unity games. API keys and original-file backups stay on this computer. Users launch the configured game and confirm translation results. Upgrading resets saved ignore rules; rolling back from schema27 requires a pre-migration backup. See the [validation record](docs/releases/v1.7.2-validation.md).
+v1.7.3 fixes excessive pending counts caused by ungrouped legacy resource SWF candidates. The first startup immediately rescans affected library roots and replaces covered file candidates with complete directory reviews, preserving original game files, IDs and metadata. Schema27 is unchanged and ignore rules are not reset again. Cover paste, Flash review, tag colors and local Unity translation setup from v1.7.2 remain available. See the [validation record](docs/releases/v1.7.3-validation.md).
 
 v1.6.1 adds suggested launch profiles, Chinese entry preference, automatic default promotion after trial verification, and manual recovery of clearly failed entries. It also updates card playtime, the titlebar theme shortcut and Windows taskbar icon. These changes are not in the stable v1.5.5 downloads above. See the [v1.6.1 notes](docs/releases/v1.6.1.md) for changes and acceptance status.
 
