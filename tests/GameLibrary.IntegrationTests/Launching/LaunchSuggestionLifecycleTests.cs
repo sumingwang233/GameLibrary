@@ -124,6 +124,19 @@ public sealed class LaunchSuggestionLifecycleTests
     }
 
     [Fact]
+    public void ManualConfigurationOfVerifiedEntryPreservesItsExistingDefault()
+    {
+        var registry = Registry();
+        var profile = Suggest(registry);
+        registry.RestoreProfile(profile with { ValidationStatus = "verified", IsDefault = true });
+        var manual = registry.AddProfile("game", Stub, ["--manual"], AppContext.BaseDirectory);
+        Assert.Equal(profile.ProfileId, manual.ProfileId);
+        Assert.Equal("manual", manual.Source);
+        Assert.True(manual.IsDefault);
+        Assert.Equal(manual.ProfileId, registry.GetDefaultProfile("game")!.ProfileId);
+    }
+
+    [Fact]
     public void EnvironmentalErrorsAndUserCancellationAreNeverBadExecutables()
     {
         foreach (var code in new[] { 2, 3, 5, 53, 740, 1223 }) Assert.False(LaunchRegistry.IsBadExecutable(new Win32Exception(code)));

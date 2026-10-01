@@ -207,11 +207,11 @@ public sealed partial class LaunchRegistry
             Arguments = arguments,
             WorkingDirectory = workingDirectory,
             ToolId = toolId,
-            IsDefault = isDefault,
+            IsDefault = isDefault || existing?.IsDefault == true,
             Revision = (existing?.Revision ?? 0) + 1,
         };
         _profiles[profile.ProfileId] = profile;
-        if (isDefault)
+        if (profile.IsDefault)
         {
             ClearOtherDefaults(gameId, profile.ProfileId);
         }
