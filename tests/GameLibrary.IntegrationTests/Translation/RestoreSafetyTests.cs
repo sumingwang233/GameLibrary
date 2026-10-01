@@ -46,11 +46,12 @@ public sealed class RestoreSafetyTests
         await store.DisposeAsync();
 
         var start = new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "GameLibrary.TestProcessStub.exe"))
-        { UseShellExecute = false, CreateNoWindow = true };
+        { UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true };
         foreach (var arg in new[] { "--restore-crash", data, backup, phase }) start.ArgumentList.Add(arg);
         using var process = Process.Start(start)!;
+        var stderr = process.StandardError.ReadToEndAsync();
         await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(20));
-        Assert.Equal(86, process.ExitCode);
+        Assert.True(process.ExitCode == 86, $"Restore checkpoint {phase}: expected exit 86, got {process.ExitCode}. {await stderr}");
         LibraryRestoreStorage.RecoverBeforeOpen(data);
         // Recovery is repeatable if the next startup was interrupted too.
         LibraryRestoreStorage.RecoverBeforeOpen(data);
