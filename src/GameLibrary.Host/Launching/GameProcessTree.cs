@@ -6,6 +6,8 @@ namespace GameLibrary.Host.Launching;
 
 internal static class GameProcessTree
 {
+    internal static bool StartedDuringParentLifetime(DateTime childStarted, DateTime parentStarted, DateTime? parentExited)
+        => childStarted >= parentStarted && (parentExited is null || childStarted <= parentExited);
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct ProcessEntry
     {
@@ -60,7 +62,9 @@ internal static class GameProcessTree
                     child = Process.GetProcessById(pid);
                     var started = child.StartTime.ToUniversalTime();
                     // An exited parent retains its start time; a reused parent PID must not adopt a new process.
-                    if (started < parent.Started || (!parent.Process.HasExited && parent.Process.StartTime.ToUniversalTime() != parent.Started)) continue;
+                    if (!StartedDuringParentLifetime(started, parent.Started,
+                        parent.Process.HasExited ? parent.Process.ExitTime.ToUniversalTime() : null)) continue;
+                    if (!parent.Process.HasExited && parent.Process.StartTime.ToUniversalTime() != parent.Started) continue;
                     try
                     {
                         using var liveParent = Process.GetProcessById(parentId);

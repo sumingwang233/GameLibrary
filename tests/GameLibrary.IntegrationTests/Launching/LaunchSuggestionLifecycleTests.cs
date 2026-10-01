@@ -134,6 +134,16 @@ public sealed class LaunchSuggestionLifecycleTests
     }
 
     [Fact]
+    public void ReusedParentPidCannotAdoptChildrenBornAfterOriginalParentExit()
+    {
+        var started = DateTime.UtcNow;
+        var exited = started.AddSeconds(1);
+        Assert.True(GameProcessTree.StartedDuringParentLifetime(started.AddMilliseconds(500), started, exited));
+        Assert.False(GameProcessTree.StartedDuringParentLifetime(started.AddSeconds(2), started, exited));
+        Assert.False(GameProcessTree.StartedDuringParentLifetime(started.AddMilliseconds(-1), started, null));
+    }
+
+    [Fact]
     public async Task Migration25PreservesManualDefaultAndPersistsSuppression()
     {
         var directory = Path.Combine("D:/Official/GameLibrary/artifacts/test-runs", "suggest-migration-" + Guid.NewGuid().ToString("N"));
