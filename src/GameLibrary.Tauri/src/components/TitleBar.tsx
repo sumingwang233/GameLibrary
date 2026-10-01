@@ -28,11 +28,11 @@ export function TitleBar({ onAddRoot, onScan, onSettings, scanning, onTags, onRo
   };
   return (
     <header className="flex h-12 shrink-0 items-center border-b border-border bg-surface text-text-primary select-none">
-      <div data-tauri-drag-region className="flex h-full min-w-40 items-center gap-2 px-4">
-        <img src="/app-icon.png" alt="" className="pointer-events-none h-7 w-7" />
+      <div data-tauri-drag-region className="flex h-full min-w-40 shrink-0 items-center gap-2 px-4">
+        <img src="/app-icon.png" alt="" width={40} height={40} className="pointer-events-none h-10 w-10 shrink-0 object-contain" />
         <span className="pointer-events-none text-sm font-semibold tracking-wide">GameLibrary</span>
       </div>
-      <nav aria-label={t("快捷操作")} className="flex items-center gap-1">
+      <nav aria-label={t("快捷操作")} className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:thin]">
         <Button variant="ghost" size="sm" onClick={onTags}><Tags size={15} />{t("管理标签")}</Button>
         <Button variant="ghost" size="sm" onClick={onRoots}><FolderTree size={15} />{t("游戏库目录")}</Button>
         <Button variant="ghost" size="sm" onClick={onAddRoot}><FolderPlus size={15} />{t("添加游戏库")}</Button>
@@ -42,7 +42,7 @@ export function TitleBar({ onAddRoot, onScan, onSettings, scanning, onTags, onRo
       </nav>
       <div data-tauri-drag-region className="h-full flex-1" />
       {error && <span role="alert" className="text-xs text-danger">{error}</span>}
-      <div className="flex h-full" aria-label={t("窗口控制")}>
+      <div className="flex h-full shrink-0" aria-label={t("窗口控制")}>
         <button aria-label={t("最小化")} className="w-12 hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-steam" onClick={() => void control("minimize")}><Minus size={16} className="mx-auto" /></button>
         <button aria-label={maximized ? t("还原窗口") : t("最大化")} className="w-12 hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-steam" onClick={() => void control("toggleMaximize")}><Maximize2 size={14} className="mx-auto" /></button>
         <button aria-label={t("关闭窗口")} className="w-12 hover:bg-red-600 hover:text-white focus-visible:outline-2 focus-visible:outline-steam" onClick={() => void control("close")}><X size={17} className="mx-auto" /></button>

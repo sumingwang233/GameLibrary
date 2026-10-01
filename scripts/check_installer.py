@@ -99,7 +99,7 @@ def main():
     compiler = args.makensis or shutil.which("makensis") or ROOT / "artifacts/toolchain/nsis-3.12/nsis-3.12/makensis.exe"
     if not Path(compiler).is_file():
         parser.error("Pass --makensis or run artifacts/tools/bootstrap_nsis.py first")
-    for name, size in (("header.bmp", (150, 57)), ("wizard.bmp", (164, 314))):
+    for name, size in (("header.bmp", (600, 228)), ("wizard.bmp", (656, 1256))):
         image = (SCRIPT.parent / name).read_bytes()
         assert image[:2] == b"BM" and struct.unpack_from("<ii", image, 18) == size
         assert struct.unpack_from("<H", image, 28)[0] == 24

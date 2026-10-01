@@ -15,13 +15,15 @@
 
 ## 图标素材
 
-`header.bmp`（150×57）和 `wizard.bmp`（164×314）由已批准的 `src/GameLibrary.Desktop/App.ico` 生成。更新 logo 后，在 Windows 下运行：
+`header.bmp`（600×228）和 `wizard.bmp`（656×1256）直接由已批准的高清 `src/GameLibrary.Tauri/app-icon.png` 生成，保持原来 150×57、164×314 的布局比例。安装器与卸载器使用 GDI HALFTONE 按控件实际像素尺寸缩小图片，避免先从小 ICO 帧取图再放大；完成页沿用同一缩放处理。更新 logo 后，在 Windows 下运行：
 
 ```powershell
 ./scripts/generate_installer_branding.ps1
 ```
 
 这两个位图与 NSIS 源文件一同提交；发布打包器直接读取它们。
+
+主程序标题栏使用 256×256 PNG，显示尺寸为 40×40 CSS px（原为 28×28）。图标不参与压缩；窄窗口的快捷操作区可横向滚动，窗口控制按钮始终保留。
 
 ## 验证及本地预览
 
@@ -37,6 +39,7 @@ python scripts/check_installer.py --makensis <makensis.exe路径> --smoke
 - 带空格路径下的新安装、先卸载旧版再安装、保留旧版文件、卸载及测试快捷方式和登记清理。
 - 数据哨兵和未知文件保留。
 - 两种预览均未创建安装目录、快捷方式或卸载登记。
+- 高清素材及 HALFTONE 回调加入后，重新通过四种严格编译及四语言隔离安装／升级／卸载检查；前端生产构建与 16 项测试通过。浏览器中使用真实 TitleBar 组件、仅模拟 Tauri 窗口 API，检查了深浅主题和四语言 980px 最小窗口宽度：logo 为 40px，页面没有横向溢出，窗口控制区完整。该检查不等同于原生 WebView 或安装器高 DPI 实机验收。
 
 检查生成的 `artifacts/installer-ui/GameLibrary-Installer-Preview.exe` 与 `GameLibrary-Upgrade-Preview.exe` 是原生界面的只读预览。标题注明“界面预览”，安装阶段只显示提示，不复制程序、不卸载旧版，也不启动应用；旧版本页标注示例版本。
 

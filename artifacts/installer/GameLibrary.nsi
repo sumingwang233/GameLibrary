@@ -67,6 +67,7 @@ Var RemovePrevious
 Var PreviousUninstaller
 Var PreviousLocation
 Var PreviousVersion
+Var HeaderBitmap
 
 VIProductVersion "${FILE_VERSION}"
 VIAddVersionKey /LANG=2052 "ProductName" "${PRODUCT_NAME}"
@@ -98,6 +99,8 @@ VIAddVersionKey /LANG=1041 "LegalCopyright" "Copyright 2026 GameLibrary contribu
 !define MUI_HEADERIMAGE
 !define MUI_HEADERIMAGE_RIGHT
 !define MUI_HEADERIMAGE_BITMAP "${__FILEDIR__}\header.bmp"
+!define MUI_CUSTOMFUNCTION_GUIINIT SmoothHeader
+!define MUI_CUSTOMFUNCTION_UNGUIINIT un.SmoothHeader
 !define MUI_WELCOMEFINISHPAGE_BITMAP "${__FILEDIR__}\wizard.bmp"
 !define MUI_UNWELCOMEFINISHPAGE_BITMAP "${__FILEDIR__}\wizard.bmp"
 !define MUI_INSTFILESPAGE_COLORS "1F2937 FFFFFF"
@@ -134,6 +137,7 @@ Page custom UpgradePage UpgradePageLeave
 Page custom ReadyPage
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW StylePage
 !insertmacro MUI_PAGE_INSTFILES
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW SmoothFinish
 !insertmacro MUI_PAGE_FINISH
 
 !ifndef UI_PREVIEW
@@ -141,6 +145,7 @@ Page custom ReadyPage
 !insertmacro MUI_UNPAGE_CONFIRM
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW un.StylePage
 !insertmacro MUI_UNPAGE_INSTFILES
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW un.SmoothFinish
 !insertmacro MUI_UNPAGE_FINISH
 !endif
 
@@ -153,6 +158,85 @@ Page custom ReadyPage
 !define MUI_LANGDLL_WINDOWTITLE "GameLibrary · 语言 / Language"
 !define MUI_LANGDLL_INFO "请选择语言 / Select a language / 言語を選択してください"
 !insertmacro MUI_RESERVEFILE_LANGDLL
+
+; LoadImage /RESIZETOFIT does not provide filtered resampling. Render the 4x
+; artwork into a control-sized bitmap using GDI HALFTONE, including on high DPI.
+!macro SmoothBranding PREFIX
+Function ${PREFIX}SmoothBitmap
+  System::Store "S"
+  Pop $3 ; source height
+  Pop $2 ; source width
+  Pop $1 ; bitmap path
+  Pop $0 ; image control
+  SendMessage $0 ${STM_GETIMAGE} ${IMAGE_BITMAP} 0 $R9
+  System::Call 'user32::LoadImage(p0,tr1,i${IMAGE_BITMAP},i0,i0,i${LR_LOADFROMFILE})p.r4'
+  System::Call 'user32::GetDC(pr0)p.r5'
+  System::Call 'gdi32::CreateCompatibleDC(pr5)p.r6'
+  System::Call 'gdi32::CreateCompatibleDC(pr5)p.r7'
+  System::Alloc 16
+  Pop $8
+  System::Call 'user32::GetClientRect(pr0,pr8)'
+  System::Call '*$8(i,i,i.r9,i.R0)'
+  System::Free $8
+  System::Call 'gdi32::CreateCompatibleBitmap(pr5,ir9,iR0)p.R1'
+  ${If} $4 P<> 0
+  ${AndIf} $5 P<> 0
+  ${AndIf} $6 P<> 0
+  ${AndIf} $7 P<> 0
+  ${AndIf} $R1 P<> 0
+    System::Call 'gdi32::SelectObject(pr6,pr4)p.R2'
+    System::Call 'gdi32::SelectObject(pr7,pR1)p.R3'
+    System::Call 'gdi32::SetStretchBltMode(pr7,i4)' ; HALFTONE
+    System::Call 'gdi32::SetBrushOrgEx(pr7,i0,i0,p0)'
+    System::Call 'gdi32::StretchBlt(pr7,i0,i0,ir9,iR0,pr6,i0,i0,ir2,ir3,i0x00CC0020)i.R4'
+    System::Call 'gdi32::SelectObject(pr6,pR2)'
+    System::Call 'gdi32::SelectObject(pr7,pR3)'
+    ${If} $R4 != 0
+      SendMessage $0 ${STM_SETIMAGE} ${IMAGE_BITMAP} $R1 $R9
+      System::Call 'gdi32::DeleteObject(pR9)'
+      StrCpy $R9 $R1
+      StrCpy $R1 0 ; ownership passes to the page
+    ${EndIf}
+  ${EndIf}
+  System::Call 'gdi32::DeleteObject(pR1)'
+  System::Call 'gdi32::DeleteObject(pr4)'
+  System::Call 'gdi32::DeleteDC(pr6)'
+  System::Call 'gdi32::DeleteDC(pr7)'
+  System::Call 'user32::ReleaseDC(pr0,pr5)'
+  Push $R9
+  System::Store "L"
+FunctionEnd
+
+Function ${PREFIX}SmoothHeader
+  Push $mui.Header.Image
+  Push "$PLUGINSDIR\modern-header.bmp"
+  Push 600
+  Push 228
+  Call ${PREFIX}SmoothBitmap
+  Pop $HeaderBitmap
+FunctionEnd
+
+Function ${PREFIX}SmoothFinish
+  Push $mui.FinishPage.Image
+  Push "$PLUGINSDIR\modern-wizard.bmp"
+  Push 656
+  Push 1256
+  Call ${PREFIX}SmoothBitmap
+  Pop $mui.FinishPage.Image.Bitmap ; MUI releases this when the page is destroyed
+FunctionEnd
+
+!if "${PREFIX}" == ""
+Function .onGUIEnd
+!else
+Function un.onGUIEnd
+!endif
+  ${NSD_FreeImage} $HeaderBitmap
+FunctionEnd
+!macroend
+!insertmacro SmoothBranding ""
+!ifndef UI_PREVIEW
+!insertmacro SmoothBranding "un."
+!endif
 
 ; 只改变页面颜色，保留系统按钮、输入框、焦点和 DPI 缩放行为。
 !macro WhitePageFunction PREFIX
