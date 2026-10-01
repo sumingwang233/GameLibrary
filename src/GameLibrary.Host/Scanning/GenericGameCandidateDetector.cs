@@ -104,7 +104,7 @@ public static class GenericGameCandidateDetector
         && !ExcludedExecutableFragments.Any(fragment =>
             fileName.Contains(fragment, StringComparison.OrdinalIgnoreCase));
 
-    private static bool IsExcludedDirectory(string physicalPath)
+    public static bool IsExcludedDirectory(string physicalPath)
     {
         var name = Path.GetFileName(physicalPath.TrimEnd(
             Path.DirectorySeparatorChar,

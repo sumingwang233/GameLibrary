@@ -62,7 +62,7 @@ export const SORT_WHITELIST: readonly string[] = [
 
 /** feat-3：tags.update 可变字段（TagsHandler.TagsUpdate；displayName 传 null 清除回落 name）。 */
 export interface TagChanges {
-  color?: string;
+  color?: string | null;
   category?: string;
   sortOrder?: number;
   /** 星级评分 0–5（0=清除评分）。 */

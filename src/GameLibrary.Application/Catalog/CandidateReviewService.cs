@@ -41,6 +41,15 @@ public sealed class CandidateReviewService(ICandidateReviewStore store, ICatalog
             error = new(candidateId, ErrorCode: "InvalidArgument", ErrorMessage: $"候选当前状态 {candidate.ReviewState}；仅 pendingReview 可执行 {action}");
         if (error is not null || action != "accept" || candidate!.ReviewState == "accepted")
             return new(candidateId, revision, action, candidate, null, null, error);
+        using (var payload = JsonDocument.Parse(candidate.PayloadJson))
+        {
+            if (payload.RootElement.TryGetProperty("flash", out var flash) && flash.ValueKind == JsonValueKind.Object
+                && flash.TryGetProperty("requiresReview", out var review) && review.GetBoolean()
+                || TopEngine(candidate.PayloadJson)?.Equals("flash", StringComparison.OrdinalIgnoreCase) == true
+                    && (!payload.RootElement.TryGetProperty("flash", out var group) || group.ValueKind != JsonValueKind.Object))
+                return new(candidateId, revision, action, candidate, null, null,
+                    new(candidateId, ErrorCode: "InvalidArgument", ErrorMessage: "Flash 目录尚未确认，请先重新扫描并审核目录用途和入口"));
+        }
         var now = DateTime.UtcNow;
         var entry = TopEntry(candidate.PayloadJson, candidate.PhysicalPath, candidate.Kind);
         var engine = TopEngine(candidate.PayloadJson);

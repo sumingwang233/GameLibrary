@@ -1,5 +1,45 @@
 # GameLibrary 关键流程
 
+## Flash 与封面 — v1.7.2 待验收预发布
+
+```mermaid
+flowchart TD
+    Upgrade[schema27 / 迁移前备份 / 一次忽略重置] --> Scan[新 collector / saved Flash rules]
+    Scan --> Group[直属 SWF 分组 / 子项目分别扫描]
+    Group --> Review[ReviewList / 用途与入口]
+    Review --> Inspect[candidates.inspect / 只读预览]
+    Inspect --> Confirm[整份调整 ID 与 revision 精确匹配]
+    Confirm --> Save[savepoint / 主入口或仅移除库记录 / 保存目录规则]
+    Save --> Scan
+    Paste[聚焦详情封面 / Ctrl+V] --> Import[assets.import / 统一 PrepareImage]
+    Import --> History[保留旧封面资产历史]
+    History --> Atomic[原子写入每游戏 cover / 正确扩展名]
+```
+
+不完整目录拒绝确认；普通取消忽略保留原 observed 流程，不提前晋升。确认项目/资源时完整子树 inventory 用于下次规则匹配，默认直属合集不会移除独立子项目。审核一次预载游戏/候选 lookup，重新接受已移除入口用 SQL 查找并复用 ID。运行依赖/安装器分支早期硬排除；data/swf/f/s/m 不因名称被排除。
+
+## Unity 翻译插件 — v1.7.2 待验收预发布
+
+```mermaid
+flowchart TD
+    Tag[实际新增绑定用户标签 / 启动时现有 tagged Unity] --> Settings[唯一已有配置自动导入 / 首次本机设置]
+    Settings --> Queue[既有 JobManager / 单队列与库租约]
+    Queue --> Inspect[默认启动入口 / Mono与加载器检查]
+    Inspect --> Files[固定哈希公开插件 / 离线补丁]
+    Files --> Recheck[重新校验游戏/标签/设置/原文件]
+    Recheck --> Backup[DPAPI 加密原文件备份]
+    Backup --> Write[原子写入 / 离线验证 / 失败恢复]
+    Write --> Prompt[configured 快照与事件 / 是否尝试运行]
+    Prompt --> Launch[原 launch.plan/execute / 配置期间 busy]
+    Launch --> Result[用户确认插件效果]
+    Result --> Confirm[真实对应启动证明 / attempt和绑定标签一致]
+    Confirm --> Untag[只移除绑定的未翻译标签]
+```
+
+设置元数据在 app_settings，CredentialId 引用工作区外当前用户 DPAPI 文件；换密钥先写新引用，旧引用供数据库失败/旧备份恢复使用。配置过程不调用翻译 API、不启动游戏。IL2CPP/未知或冲突加载器保留标签供人工处理。前端从 snapshot 恢复未处理提示，第一次「是」只启动，第二次「是」才提交 success；体验首次设置仅在组件内模拟，不保存主配置。
+
+图谱基线 `910d660` 加当前工作区，2026-10-02 增量刷新，358文件/3,399节点/29,076边，解析错误0。动态操作登记通过生成器及契约测试验证，图谱的裸名匹配不能替代运行测试。
+
 ## 名称翻译 — v1.7.1 待验收预发布
 
 ```mermaid

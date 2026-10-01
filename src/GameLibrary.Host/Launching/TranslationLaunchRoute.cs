@@ -95,6 +95,14 @@ public static class TranslationLaunchRouteResolver
     {
         var directory = Path.GetDirectoryName(executablePath);
         if (directory is null || !File.Exists(executablePath)) return (false, null);
+        try
+        {
+            var layout = Hosting.UnityTranslationInspection.Inspect(executablePath);
+            if (layout.Reason is null && layout.Loader is "rei" or "bepinex") return (true, null);
+            if (layout.Loader == "conflict") return (false, layout.Reason);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+        { return (false, "无法安全验证 Unity 内置翻译加载器，请检查游戏目录"); }
         var bepinex = Path.Combine(directory, "BepInEx");
         var plugins = Path.Combine(bepinex, "plugins");
         if (!Directory.Exists(plugins)
@@ -113,6 +121,7 @@ public static class TranslationLaunchRouteResolver
             }).Any(path => File.Exists(Path.Combine(Path.GetDirectoryName(path)!, "XUnity.AutoTranslator.Plugin.Core.dll")));
             if (!installed) return (false, null);
             var config = Path.Combine(directory, "doorstop_config.ini");
+            var loaderEnabled = false;
             if (File.Exists(config))
             {
                 if (new FileInfo(config).Length > 64 * 1024)
@@ -128,8 +137,10 @@ public static class TranslationLaunchRouteResolver
                     var value = pair[1].Split(['#', ';'], 2)[0].Trim();
                     if (value.Equals("false", StringComparison.OrdinalIgnoreCase) || value == "0")
                         return (false, "检测到 XUnity.AutoTranslator，但 doorstop_config.ini 中 enabled=false，BepInEx 加载器已禁用。请确认插件兼容后启用加载器，或选择不需要翻译");
+                    loaderEnabled = value.Equals("true", StringComparison.OrdinalIgnoreCase) || value == "1";
                 }
             }
+            if (!loaderEnabled) return (false, "无法确认 BepInEx 加载器已启用，请检查 doorstop_config.ini");
             return (true, null);
         }
         catch (IOException) { return (false, "无法读取内置翻译插件，请检查游戏目录权限"); }

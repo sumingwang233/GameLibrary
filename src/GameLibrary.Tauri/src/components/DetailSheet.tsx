@@ -1,5 +1,5 @@
 import { t } from "../lib/i18n";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ClipboardEvent } from "react";
 import { dirname, join, pictureDir } from "@tauri-apps/api/path";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
@@ -8,7 +8,7 @@ import { assetDataUrl, describeFailure, operation, OperationError } from "../lib
 import type { TitleTranslationController } from "../lib/hooks/useTitleTranslation";
 import { TitleTranslationStatus } from "./TitleTranslationStatus";
 import { discoverLaunchProfiles, LaunchProfileSelectionRequired } from "../lib/launchProfiles";
-import { groupTagsByCategory, tagLabel } from "../lib/tags";
+import { groupTagsByCategory, tagLabel, tagStyle } from "../lib/tags";
 import type {
   GameItem,
   ProfileItem,
@@ -46,6 +46,8 @@ async function screenshotsDirectory() {
   return join(await pictureDir(), "Screenshots");
 }
 
+interface CoverAsset { assetId: string; isCurrent: boolean; importedUtc?: string }
+
 export function DetailSheet({
   game,
   tags,
@@ -56,6 +58,7 @@ export function DetailSheet({
   refreshToken,
   supportsSuggestions = false,
   titleTranslation,
+  onUnityTranslation,
   initialTab = "overview",
 }: {
   game: GameItem | null;
@@ -65,6 +68,7 @@ export function DetailSheet({
   refreshToken?: number;
   supportsSuggestions?: boolean;
   titleTranslation?: TitleTranslationController;
+  onUnityTranslation?: (gameId: string, action: "configure" | "restore") => void;
   initialTab?: "overview" | "launch";
   onChanged: () => Promise<void> | void;
   /** 点击「疑似重复」条目跳到目标游戏详情；Sheet 不关闭不重建，由 App 侧换 selected 实现。 */
@@ -75,6 +79,7 @@ export function DetailSheet({
   const [tab, setTab] = useState<string>(initialTab);
   const [translation, setTranslation] = useState<TranslationPolicy | null>(null);
   const [cover, setCover] = useState<string | null>(null);
+  const [coverAssets, setCoverAssets] = useState<CoverAsset[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [titleDraft, setTitleDraft] = useState("");
   const [titleTarget, setTitleTarget] = useState<"original" | "translated">("original");
@@ -111,6 +116,7 @@ export function DetailSheet({
       setTranslation(translationResult.data);
       if (detail.data.coverAssetId) {
         const url = await assetDataUrl(detail.data.coverAssetId).catch(() => null);
+        if (activeId.current !== gameId) return;
         setCover(url);
       } else {
         setCover(null);
@@ -155,6 +161,16 @@ export function DetailSheet({
     }).catch(() => undefined);
     return () => { cancelled = true; };
   }, [gameId, refreshToken]);
+
+  useEffect(() => {
+    setCoverAssets([]);
+    if (!gameId || tab !== "cover") return;
+    let cancelled = false;
+    void operation<{ items: CoverAsset[] }>("assets.list", { gameId }).then(result => {
+      if (!cancelled) setCoverAssets(result.data.items ?? []);
+    }).catch(cause => { if (!cancelled) setError(describeFailure(cause)); });
+    return () => { cancelled = true; };
+  }, [gameId, tab, current?.coverAssetId]);
 
   if (!current) return null;
 
@@ -231,6 +247,36 @@ export function DetailSheet({
       await load();
     });
 
+  const updateCover = async (result: { assetId: string; warning?: string }) => {
+    if (activeId.current !== current.gameId) return;
+    const url = await assetDataUrl(result.assetId);
+    if (activeId.current !== current.gameId) return;
+    setCover(url);
+    await load();
+    await onChanged();
+    if (result.warning) setError(result.warning);
+  };
+
+  const pasteCover = (event: ClipboardEvent<HTMLButtonElement>) => {
+    const file = Array.from(event.clipboardData.items).find(item => item.kind === "file" && item.type.startsWith("image/"))?.getAsFile();
+    if (!file || busy) return;
+    event.preventDefault();
+    void run(async () => {
+      if (file.size > 5 * 1024 * 1024) throw new Error(t("图片超过 5 MiB 上限"));
+      const imageBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(",")[1]);
+        reader.onerror = () => reject(new Error(t("无法读取粘贴图片")));
+        reader.readAsDataURL(file);
+      });
+      if (activeId.current !== current.gameId) return;
+      const result = await operation<{ assetId: string; warning?: string }>("assets.import",
+        { gameId: current.gameId, imageBase64, mimeType: file.type },
+        `assets.import:${current.gameId}:paste:${imageBase64}`);
+      await updateCover(result.data);
+    });
+  };
+
   const importCover = () =>
     run(async () => {
       const defaultPath = await screenshotsDirectory().catch(() => undefined);
@@ -242,15 +288,13 @@ export function DetailSheet({
         filters: [{ name: t("封面图片"), extensions: ["png", "jpg", "jpeg", "webp", "gif"] }],
       });
       if (!selected) return;
+      if (activeId.current !== current.gameId) return;
       const result = await operation<{ assetId: string; warning?: string }>(
         "assets.import",
         { gameId: current.gameId, sourcePath: String(selected) },
         `assets.import:${current.gameId}:${String(selected)}`,
       );
-      setCover(await assetDataUrl(result.data.assetId));
-      await load();
-      await onChanged();
-      if (result.data.warning) setError(result.data.warning);
+      await updateCover(result.data);
     });
 
   const addProfile = () =>
@@ -328,7 +372,9 @@ export function DetailSheet({
         description={current.rootPath}
       >
         <div className="space-y-5">
-          <div className="relative aspect-16/9 overflow-hidden rounded-lg bg-surface-elevated">
+          <button type="button" aria-label={t("封面：点击后按 Ctrl+V 粘贴图片")} disabled={busy}
+            onClick={event => { event.currentTarget.focus(); setTab("cover"); }} onPaste={pasteCover}
+            className="relative block aspect-16/9 w-full cursor-pointer overflow-hidden rounded-lg bg-surface-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             {cover ? (
               // object-contain：完整显示图片，不再像 v1.1.5 的 object-cover 那样固定裁掉一部分。
               <img src={cover} alt="" className="absolute inset-0 h-full w-full object-contain" />
@@ -340,7 +386,7 @@ export function DetailSheet({
                 {initials}
               </div>
             )}
-          </div>
+          </button>
 
           {error && (
             <p role="alert" className="rounded-md border border-danger/40 bg-danger/10 p-3 text-sm break-words text-danger">
@@ -439,6 +485,14 @@ export function DetailSheet({
             </TabsContent>
 
             <TabsContent value="launch" className="space-y-3">
+              {current.engine === "Unity" && onUnityTranslation && <div className="space-y-2 rounded-md border border-border p-3">
+                <h3 className="text-sm font-semibold">{t("Unity 游戏内翻译")}</h3>
+                <p className="text-xs text-text-secondary">{t("先添加未翻译标签，程序将自动配置插件。配置失败或需要再次测试时可在这里重试。")}</p>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" disabled={busy} onClick={() => onUnityTranslation(current.gameId, "configure")}>{t("配置或重试翻译插件")}</Button>
+                  <Button variant="outline" disabled={busy} onClick={() => onUnityTranslation(current.gameId, "restore")}>{t("恢复安装前状态")}</Button>
+                </div>
+              </div>}
               {supportsSuggestions && <>
                 <p className="text-xs text-text-secondary">{t("建议入口持续运行30秒后自动验证；明确失败的入口会废弃，其他情况保留待确认。")}</p>
                 <Button variant="outline" disabled={busy} onClick={() => void run(async () => { await discoverLaunchProfiles(current.gameId); await load(); })}>{t("识别建议启动方式")}</Button>
@@ -533,14 +587,9 @@ export function DetailSheet({
                                     ? "border-steam bg-steam-soft text-steam"
                                     : "border-border text-text-secondary hover:border-steam",
                                 )}
+                                style={tagStyle(tag)}
                               >
-                                {tag.color && (
-                                  <span
-                                    aria-hidden="true"
-                                    className="size-2 shrink-0 rounded-full"
-                                    style={{ backgroundColor: tag.color }}
-                                  />
-                                )}
+                                <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-current" />
                                 {tagLabel(tag)}
                               </button>
                             );
@@ -554,8 +603,20 @@ export function DetailSheet({
 
             <TabsContent value="cover" className="space-y-3">
               <p className="text-xs text-text-secondary">{t("最大支持 5 MB 的图片文件")}</p>
+              <p className="text-xs text-text-secondary">{t("点击上方封面后按 Ctrl+V 粘贴本地图片。")}</p>
               <Button variant="outline" className="w-full" disabled={busy} onClick={() => void importCover()}>
                 <ImagePlus size={15} />{t("导入封面图片")}</Button>
+              {coverAssets.some(asset => !asset.isCurrent) && <div className="space-y-2">
+                <p className="text-xs text-text-secondary">{t("历史封面")}</p>
+                {coverAssets.filter(asset => !asset.isCurrent).map((asset, index) => (
+                  <Button key={asset.assetId} variant="outline" className="w-full" disabled={busy} onClick={() => void run(async () => {
+                    const result = await operation<{ assetId: string; warning?: string }>("assets.choose",
+                      { gameId: current.gameId, assetId: asset.assetId, expectedRevision: current.revision },
+                      `assets.choose:${current.gameId}:${asset.assetId}:${current.revision}`);
+                    await updateCover(result.data);
+                  })}>{t("恢复封面 {0}", index + 1)}{asset.importedUtc ? ` · ${formatTime(asset.importedUtc)}` : ""}</Button>
+                ))}
+              </div>}
             </TabsContent>
           </Tabs>
         </div>

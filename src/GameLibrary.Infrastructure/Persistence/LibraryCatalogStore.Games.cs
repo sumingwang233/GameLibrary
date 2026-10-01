@@ -369,7 +369,8 @@ public static partial class LibraryCatalogStore
         return result;
     }
 
-    public static GameCard? TryGetGameByRootPath(SqliteConnection connection, string rootPath, SqliteTransaction? transaction = null)
+    public static GameCard? TryGetGameByRootPath(SqliteConnection connection, string rootPath, SqliteTransaction? transaction = null,
+        bool includeRemoved = false)
     {
         using var command = connection.CreateCommand();
         if (transaction is not null)
@@ -378,9 +379,11 @@ public static partial class LibraryCatalogStore
         }
         command.CommandText = """
             SELECT game_id, title, root_path, kind, engine, entry_path, membership, favorite, revision, accepted_utc, updated_utc, translation_inherited, translation_override, availability, missing_since_utc
-            FROM games WHERE root_path = $root AND membership = 'active'
+            FROM games WHERE root_path = $root AND ($includeRemoved = 1 OR membership = 'active')
+            ORDER BY CASE membership WHEN 'active' THEN 0 ELSE 1 END, updated_utc DESC, game_id LIMIT 1
             """;
         command.Parameters.AddWithValue("$root", rootPath);
+        command.Parameters.AddWithValue("$includeRemoved", includeRemoved ? 1 : 0);
         using var reader = command.ExecuteReader();
         return reader.Read() ? ReadGame(reader) : null;
     }

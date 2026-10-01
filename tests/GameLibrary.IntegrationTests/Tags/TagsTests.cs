@@ -16,6 +16,44 @@ public sealed class TagsTests : IClassFixture<PipeServerFixture>
 {
     private readonly PipeServerFixture _fixture;
 
+    [Fact]
+    public async Task TagColor_NullClears_OmittedPreserves_AndWhiteIsAccepted()
+    {
+        var seed = await InvokeAsync("tags.create", new { name = $"color-{Guid.NewGuid():N}", color = "#ffffff", idempotencyKey = Guid.NewGuid().ToString() });
+        Assert.True(seed.Ok, seed.Error?.Message);
+        var tagId = seed.Data.GetProperty("tagId").GetString();
+        var revision = seed.Data.GetProperty("revision").GetInt32();
+        var kept = await InvokeAsync("tags.update", new { tagId, expectedRevision = revision, starred = 1, idempotencyKey = Guid.NewGuid().ToString() });
+        Assert.True(kept.Ok, kept.Error?.Message);
+        Assert.Equal("#ffffff", kept.Data.GetProperty("color").GetString());
+        var cleared = await InvokeAsync("tags.update", new { tagId, expectedRevision = kept.Data.GetProperty("revision").GetInt32(), color = (string?)null, idempotencyKey = Guid.NewGuid().ToString() });
+        Assert.True(cleared.Ok, cleared.Error?.Message);
+        Assert.Equal(JsonValueKind.Null, cleared.Data.GetProperty("color").ValueKind);
+        Assert.Null(_fixture.State.Library.Store!.TryGetTag(tagId!)!.Color);
+        var invalid = await InvokeAsync("tags.update", new { tagId, expectedRevision = cleared.Data.GetProperty("revision").GetInt32(), color = 123, idempotencyKey = Guid.NewGuid().ToString() });
+        Assert.False(invalid.Ok);
+        Assert.Equal(ErrorCodes.InvalidArgument, invalid.Error!.Code);
+    }
+
+    [Fact]
+    public async Task AssignmentHook_RunsOnlyAfterAChangedAssignment()
+    {
+        var (gameId, revision) = await CreateGameAsync("assignment-hook");
+        var created = await InvokeAsync("tags.create", new { name = $"hook-{Guid.NewGuid():N}", idempotencyKey = Guid.NewGuid().ToString() });
+        Assert.True(created.Ok, created.Error?.Message);
+        var tagId = created.Data.GetProperty("tagId").GetString();
+        var calls = new List<string>();
+        var handler = new GameLibrary.Host.Hosting.TagsHandler(() => _fixture.State.Library.Store, _fixture.State.Events, id =>
+        {
+            Assert.Contains(_fixture.State.Library.Store!.ListGameTags(id), tag => tag.Name == created.Data.GetProperty("name").GetString());
+            calls.Add(id);
+        });
+        var request = new IpcRequest { RequestId = "hook", OperationId = "tags.assign", Parameters = JsonSerializer.SerializeToElement(new { gameId, tagId, expectedRevision = revision }) };
+        Assert.True(handler.TagsAssign(request).Ok);
+        Assert.True(handler.TagsAssign(request).Ok);
+        Assert.Equal(new[] { gameId }, calls);
+    }
+
     public TagsTests(PipeServerFixture fixture)
     {
         _fixture = fixture;

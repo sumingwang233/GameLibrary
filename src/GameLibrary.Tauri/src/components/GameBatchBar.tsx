@@ -2,7 +2,7 @@ import { t } from "../lib/i18n";
 import { useState } from "react";
 import { Tag } from "lucide-react";
 import { describeFailure, operation } from "../lib/api";
-import { groupTagsByCategory, tagLabel } from "../lib/tags";
+import { groupTagsByCategory, tagLabel, tagStyle } from "../lib/tags";
 import type { GameItem, TagItem } from "../lib/types";
 import { Button } from "./ui/button";
 import { ConfirmDialog } from "./ui/confirm-dialog";
@@ -97,10 +97,10 @@ export function GameBatchBar({ games, tags, onComplete, onBusy, titleTranslation
                             className="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-text-primary transition hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                             onClick={() => applyTag(tag.tagId)}
                           >
-                            {tag.color && (
-                              <span aria-hidden="true" className="size-2 shrink-0 rounded-full" style={{ backgroundColor: tag.color }} />
-                            )}
-                            <span className="min-w-0 flex-1 truncate">{tagLabel(tag)}</span>
+                            <span className="flex min-w-0 flex-1 items-center gap-2 rounded px-1" style={tagStyle(tag)}>
+                              <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-current" />
+                              <span className="truncate">{tagLabel(tag)}</span>
+                            </span>
                             {tag.gameCount ? <span className="shrink-0 text-xs text-text-secondary">{tag.gameCount.toLocaleString()}</span> : null}
                           </button>
                         </li>

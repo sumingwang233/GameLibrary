@@ -55,7 +55,7 @@ internal static class Program
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "scan.status" or "scan.cancel" or "scan.coverage" or "jobs.get" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
-                "candidates.list" or "candidates.get" =>
+                "candidates.list" or "candidates.get" or "candidates.inspect" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "candidates.accept" or "candidates.defer" or "candidates.ignore" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
@@ -86,6 +86,10 @@ internal static class Program
                 "notifications.list" or "notifications.get" or "notifications.acknowledge" or "notifications.defer" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "settings.get" or "settings.update" or "settings.reset" =>
+                    await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
+                "unity_translation.settings.get" or "unity_translation.settings.set" or "unity_translation.settings.import"
+                    or "unity_translation.configure" or "unity_translation.status" or "unity_translation.pending"
+                    or "unity_translation.confirm" or "unity_translation.restore" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "host.stop" => await HostStopAsync(parse),
                 "launch.plan" or "launch.execute" or "launch.status" or "launch.history" =>
@@ -177,7 +181,7 @@ internal static class Program
             return ExitArgumentError;
         }
 
-        if (operationId == "candidates.get" && cli.CandidateId is null)
+        if (operationId is "candidates.get" or "candidates.inspect" && cli.CandidateId is null)
         {
             Console.Error.WriteLine("candidates get 需要 --candidate-id");
             return ExitArgumentError;
@@ -425,7 +429,14 @@ internal static class Program
                 limit = cli.Limit,
                 offset = cli.Offset,
             },
-            "candidates.get" => new { candidateId = cli.CandidateId },
+            "candidates.get" or "candidates.inspect" => new { candidateId = cli.CandidateId },
+            "unity_translation.settings.get" => new { },
+            "unity_translation.settings.set" => ReadUnitySettingsInput(cli),
+            "unity_translation.settings.import" => new { configPath = cli.SourcePath, idempotencyKey = cli.IdempotencyKey ?? Guid.NewGuid().ToString("N") },
+            "unity_translation.status" or "unity_translation.pending" => new { gameId = cli.GameId },
+            "unity_translation.configure" => new { gameIds = cli.ItemsJson is null ? new[] { cli.GameId } : JsonSerializer.Deserialize<string[]>(cli.ItemsJson), idempotencyKey = cli.IdempotencyKey ?? Guid.NewGuid().ToString("N") },
+            "unity_translation.confirm" => new { gameId = cli.GameId, attemptId = cli.AttemptId, success = bool.TryParse(cli.Value, out var success) ? (bool?)success : null, idempotencyKey = cli.IdempotencyKey ?? Guid.NewGuid().ToString("N") },
+            "unity_translation.restore" => new { gameId = cli.GameId, idempotencyKey = cli.IdempotencyKey ?? Guid.NewGuid().ToString("N") },
             "candidates.accept" or "candidates.defer" or "candidates.ignore" => new
             {
                 idempotencyKey = cli.IdempotencyKey,
@@ -696,6 +707,18 @@ internal static class Program
             CancellationToken.None);
         WriteEnvelope(envelope);
         return EnvelopeExitCode(envelope);
+    }
+
+    private static Dictionary<string, JsonElement> ReadUnitySettingsInput(CommandLine cli)
+    {
+        // Read credentials from a local file; never introduce an API-key command-line argument.
+        if (cli.SourcePath is null || !File.Exists(cli.SourcePath) || new FileInfo(cli.SourcePath).Length > 65536)
+            throw new JsonException("Unity settings set 需要 --source-path 指定本机供应商参数 JSON 文件（最多 64 KiB）");
+        Dictionary<string, JsonElement> parameters;
+        try { parameters = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(File.ReadAllBytes(cli.SourcePath)) ?? throw new JsonException(); }
+        catch (JsonException) { throw new JsonException("供应商参数文件必须为 JSON 对象，拒绝输出原文"); }
+        parameters["idempotencyKey"] = JsonSerializer.SerializeToElement(cli.IdempotencyKey ?? Guid.NewGuid().ToString("N"));
+        return parameters;
     }
 
     private static System.Text.Json.JsonElement? ToParameters(object? parameters)

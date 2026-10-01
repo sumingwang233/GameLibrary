@@ -87,14 +87,16 @@ public sealed class OperationDispatcher
     /// 经 setter 委托读写，jobs 为 init-only 引用，dataDirectory/appVersion 为不可变值直传。</summary>
     private readonly BackupsHandler _backups;
     private readonly TitlesHandler _titles;
+    private readonly UnityTranslationService _unityTranslations;
 
     public OperationDispatcher(HostRuntimeState state)
     {
         _state = state;
+        _unityTranslations = state.UnityTranslations ??= new UnityTranslationService(state);
         _titles = new TitlesHandler(state);
         _candidateReview = new CandidateReviewHandler(() => state.Library.Store, state.Events);
         _ignoreRules = new IgnoreRulesHandler(() => state.Library.Store, state.Roots);
-        _tags = new TagsHandler(() => state.Library.Store, state.Events);
+        _tags = new TagsHandler(() => state.Library.Store, state.Events, _unityTranslations.RequestForTaggedGame);
         _verification = new VerificationHandler(() => state.Library.Store);
         _viewSettings = new ViewSettingsHandler(
             () => state.Library.Store,
@@ -124,6 +126,8 @@ public sealed class OperationDispatcher
     /// scan.start 的作业收据随 T16（作业/收据同事务）接入，内存态作业先行。</summary>
     private static readonly HashSet<string> ReceiptOperations = new(StringComparer.Ordinal)
     {
+        "unity_translation.settings.set", "unity_translation.settings.import", "unity_translation.configure",
+        "unity_translation.confirm", "unity_translation.restore",
         "launch.execute",
         "profiles.create",
         "profiles.update",
@@ -199,6 +203,7 @@ public sealed class OperationDispatcher
     {
         "host.status", "capabilities.get", "schema.get", "events.read", "events.wait",
         "games.list", "games.get", "candidates.list", "candidates.get", "tags.list", "roots.list",
+        "candidates.inspect", "unity_translation.settings.get", "unity_translation.status", "unity_translation.pending",
         "views.list", "views.get", "notifications.list", "notifications.get", "settings.get",
         "profiles.list", "profiles.get", "translation.get", "verification.get", "verification.list",
         "ignores.list", "assets.get", "assets.list", "metadata.preview", "scan.inspect",
@@ -750,6 +755,7 @@ public sealed class OperationDispatcher
         "roots.remove" => _cataloging.RootsRemove(request),
         "candidates.list" => _cataloging.CandidatesList(request),
         "candidates.get" => _cataloging.CandidatesGet(request),
+        "candidates.inspect" => _candidateReview.Inspect(request),
         "candidates.review_batch" => _candidateReview.ReviewBatch(request),
         "tags.reorder" => _tags.Reorder(request),
         "candidates.accept" => _candidateReview.CandidateReview(request, "accept"),
@@ -824,6 +830,9 @@ public sealed class OperationDispatcher
         "notifications.acknowledge" => _viewSettings.NotificationTransition(request, "acknowledged"),
         "notifications.defer" => _viewSettings.NotificationTransition(request, "deferred"),
         "settings.get" => _viewSettings.SettingsGet(request),
+        "unity_translation.settings.get" or "unity_translation.settings.set" or "unity_translation.settings.import"
+            or "unity_translation.configure" or "unity_translation.status" or "unity_translation.pending"
+            or "unity_translation.confirm" or "unity_translation.restore" => _unityTranslations.Handle(request),
         "settings.update" => _viewSettings.SettingsUpdate(request),
         "settings.reset" => _viewSettings.SettingsReset(request),
         "host.stop" => HostStop(request),

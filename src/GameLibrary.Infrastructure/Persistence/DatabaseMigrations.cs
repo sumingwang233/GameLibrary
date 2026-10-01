@@ -507,5 +507,34 @@ public static class DatabaseMigrations
                 UPDATE game_title_translations SET display_mode = 'original' WHERE game_id = NEW.game_id;
             END;
             """),
+        // 27：仅一次重开旧过滤结果；UpgradeAsync 在执行本迁移前已生成一致快照。
+        // app_settings marker 与 schema 双重限定：后续新建 ignore 不会被再次清空。
+        new DatabaseMigration(27, """
+            CREATE TABLE flash_directory_rules (
+                directory_path TEXT PRIMARY KEY COLLATE NOCASE,
+                kind TEXT NOT NULL CHECK(kind IN ('project', 'collection', 'resources')),
+                entry_paths_json TEXT NOT NULL,
+                inventory_json TEXT NOT NULL,
+                revision INTEGER NOT NULL DEFAULT 1,
+                updated_utc TEXT NOT NULL
+            );
+            UPDATE candidates SET review_state = 'pendingReview', revision = revision + 1,
+                updated_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE (review_state = 'ignored' OR game_id IN (SELECT game_id FROM games WHERE membership = 'removed'))
+                AND NOT EXISTS (SELECT 1 FROM app_settings WHERE key = 'v1.7.2.ignoreReset');
+            INSERT INTO candidates (candidate_id, job_id, kind, relative_path, physical_path, payload_json,
+                review_state, revision, game_id, observed_utc, updated_utc)
+            SELECT 'reset-' || game_id, NULL, kind, '', root_path,
+                json_object('engines', json_array(json_object('engine', coalesce(engine, ''))),
+                    'entryCandidates', json_array(json_object('relativePath', coalesce(entry_path, root_path)))),
+                'pendingReview', 1, game_id, updated_utc, updated_utc
+            FROM games WHERE membership = 'removed'
+                AND NOT EXISTS (SELECT 1 FROM candidates WHERE physical_path = games.root_path)
+                AND NOT EXISTS (SELECT 1 FROM app_settings WHERE key = 'v1.7.2.ignoreReset');
+            DELETE FROM ignore_rules WHERE NOT EXISTS (SELECT 1 FROM app_settings WHERE key = 'v1.7.2.ignoreReset');
+            INSERT OR IGNORE INTO app_settings (key, value, updated_utc)
+                VALUES ('v1.7.2.ignoreReset', 'completed', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+            UPDATE schema_info SET data_epoch = lower(hex(randomblob(16))) WHERE id = 1;
+            """),
 ];
 }

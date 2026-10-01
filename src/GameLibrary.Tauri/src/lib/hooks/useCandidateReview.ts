@@ -8,7 +8,9 @@ export function useCandidateReview(supports: (name: string) => boolean, refresh:
     const failures: string[] = [];
     const accepted: Array<{ candidate: CandidateItem; similarTo: SimilarGameSuggestion[] }> = [];
     if (supports("candidates.review_batch")) {
-      const input = items.map(candidate => ({ candidateId: candidate.candidateId, expectedRevision: candidate.revision }));
+      const input = items.map(candidate => ({ candidateId: candidate.candidateId, expectedRevision: candidate.revision,
+        ...(action === "accept" && candidate.flashReview ? { flashKind: candidate.flashReview.kind,
+          entryPaths: candidate.flashReview.entryPaths, adjustments: candidate.flashReview.adjustments } : {}) }));
       const result = await operation<{ items: Array<{ candidateId: string; result: Envelope<CandidateReviewResult> }> }>(
         "candidates.review_batch", { action, items: input }, `candidates.review_batch:${action}:${JSON.stringify(input)}`);
       for (let i = 0; i < items.length; i++) {
@@ -20,8 +22,10 @@ export function useCandidateReview(supports: (name: string) => boolean, refresh:
       for (const candidate of items) {
         try {
           const result = await operation<CandidateReviewResult>(`candidates.${action}`,
-            { candidateId: candidate.candidateId, expectedRevision: candidate.revision },
-            `candidates.${action}:${candidate.candidateId}:${candidate.revision}`);
+            { candidateId: candidate.candidateId, expectedRevision: candidate.revision,
+              ...(action === "accept" && candidate.flashReview ? { flashKind: candidate.flashReview.kind,
+                entryPaths: candidate.flashReview.entryPaths, adjustments: candidate.flashReview.adjustments } : {}) },
+            `candidates.${action}:${candidate.candidateId}:${candidate.revision}:${JSON.stringify(candidate.flashReview ?? null)}`);
           if (action === "accept") accepted.push({ candidate, similarTo: result.data.similarTo ?? [] });
         } catch (cause) { failures.push(`${candidate.relativePath || candidate.physicalPath}: ${describeFailure(cause)}`); }
       }

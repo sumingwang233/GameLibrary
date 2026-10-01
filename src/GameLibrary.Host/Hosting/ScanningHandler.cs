@@ -102,7 +102,8 @@ internal sealed class ScanningHandler
                 _coordinator().ManualScanRunning = true;
                 try
                 {
-                    var collector = new ScanCandidateCollector(rootPath, context.JobId, _candidates);
+                    var collector = new ScanCandidateCollector(rootPath, context.JobId, _candidates,
+                        flashRules: _storeAccessor()?.ListFlashDirectoryRules());
                     // 规则在作业启动时快照：扫描期间的 ignores 变更自下一次扫描生效。
                     var rules = ScanIgnoreRuleSet.FromStore(_storeAccessor());
                     ScanCoverageData? completedCoverage = null;

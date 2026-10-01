@@ -180,7 +180,9 @@ public sealed class BackupsTests : IClassFixture<PipeServerFixture>
         var gameId = InsertGame("恢复演练游戏");
         var originalImage = Path.Combine(_fixture.State.DataDirectory, "assets", gameId, "cover.png");
         Directory.CreateDirectory(Path.GetDirectoryName(originalImage)!);
-        await File.WriteAllTextAsync(originalImage, "original-cover");
+        // Pillow 生成的有效 2×2 PNG；导入会校验真实图片内容。
+        await File.WriteAllBytesAsync(originalImage, Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFUlEQVR4nGOUSFjwn4GBgYEJRIAwAB8gAhvkRXUbAAAAAElFTkSuQmCC"));
         var import = await InvokeAsync("assets.import", new
         {
             idempotencyKey = $"bk-{Guid.NewGuid():N}",

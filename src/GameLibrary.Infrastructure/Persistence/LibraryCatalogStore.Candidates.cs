@@ -13,7 +13,12 @@ public static partial class LibraryCatalogStore
         command.CommandText = existed
             ? """
                 UPDATE candidates
-                SET payload_json = $payload, job_id = $job, updated_utc = $observed
+                SET review_state = CASE WHEN json_extract($payload, '$.flash.requiresReview') = 1
+                        AND coalesce(json_extract(payload_json, '$.flash.inventory'), '') <> json_extract($payload, '$.flash.inventory')
+                        AND review_state NOT IN ('ignored', 'unavailable') THEN 'pendingReview' ELSE review_state END,
+                    revision = revision + CASE WHEN json_extract($payload, '$.flash.requiresReview') = 1
+                        AND coalesce(json_extract(payload_json, '$.flash.inventory'), '') <> json_extract($payload, '$.flash.inventory') THEN 1 ELSE 0 END,
+                    payload_json = $payload, job_id = $job, updated_utc = $observed
                 WHERE physical_path = $phys
                 """
             : """
@@ -290,10 +295,20 @@ public static partial class LibraryCatalogStore
         }
 
         string gameId;
-        var existing = TryGetGameByRootPath(connection, current.PhysicalPath, transaction);
+        var existing = TryGetGameByRootPath(connection, current.PhysicalPath, transaction, includeRemoved: true);
         if (existing is not null)
         {
             gameId = existing.GameId;
+            // 移除后的游戏只有再次明确接受候选才复活，沿用 ID 与所有元数据。
+            if (existing.Membership == "removed")
+            {
+                using var restore = connection.CreateCommand();
+                restore.Transaction = transaction;
+                restore.CommandText = "UPDATE games SET membership='active', revision=revision+1, updated_utc=$now WHERE game_id=$id";
+                restore.Parameters.AddWithValue("$id", gameId);
+                restore.Parameters.AddWithValue("$now", utcNow.ToString("O", CultureInfo.InvariantCulture));
+                restore.ExecuteNonQuery();
+            }
         }
         else
         {

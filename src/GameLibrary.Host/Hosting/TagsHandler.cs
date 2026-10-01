@@ -21,11 +21,13 @@ internal sealed class TagsHandler
 {
     private readonly Func<SqliteLibraryStore?> _storeAccessor;
     private readonly EventStream _events;
+    private readonly Action<string>? _onAssignment;
 
-    public TagsHandler(Func<SqliteLibraryStore?> storeAccessor, EventStream events)
+    public TagsHandler(Func<SqliteLibraryStore?> storeAccessor, EventStream events, Action<string>? onAssignment = null)
     {
         _storeAccessor = storeAccessor;
         _events = events;
+        _onAssignment = onAssignment;
     }
 
     private sealed class ReorderConflict(string tagId) : Exception(tagId);
@@ -296,9 +298,17 @@ internal sealed class TagsHandler
             }
         }
 
+        var clearColor = request.Parameters is { ValueKind: JsonValueKind.Object } colorParameters
+            && colorParameters.TryGetProperty("color", out var colorElement)
+            && colorElement.ValueKind == JsonValueKind.Null;
+        if (request.Parameters is { ValueKind: JsonValueKind.Object } providedParameters
+            && providedParameters.TryGetProperty("color", out var providedColor)
+            && providedColor.ValueKind is not (JsonValueKind.String or JsonValueKind.Null))
+            return IpcRequests.InvalidArgument(request, "color 必须是 #RRGGBB 字符串或 null");
+
         var newRevision = store.UpdateTag(
             tagId, name, color, category, sortOrder, starred, displayName, clearDisplayName,
-            expectedRevision.Value, DateTime.UtcNow);
+            expectedRevision.Value, DateTime.UtcNow, clearColor);
         if (newRevision is null)
         {
             return new Envelope<object>
@@ -449,6 +459,7 @@ internal sealed class TagsHandler
         }
 
         var changed = store.AssignTag(gameId, tag.TagId, DateTime.UtcNow);
+        if (changed) _onAssignment?.Invoke(gameId);
         _events.Publish("tag.assigned", $"game:{gameId}", new { gameId, tagId = tag.TagId }, DateTime.UtcNow);
         return new Envelope<object>
         {

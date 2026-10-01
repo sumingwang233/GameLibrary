@@ -111,3 +111,42 @@ it("refreshes profile status without overwriting an unsaved game title", async (
   await waitFor(() => expect(operation.mock.calls.filter(call => call[0] === "profiles.list").length).toBeGreaterThan(2));
   expect(screen.getByRole("textbox", { name: "游戏标题" })).toHaveValue("Unsaved title");
 });
+
+it("imports pasted images only at the focused cover and leaves text inputs alone", async () => {
+  respond([]);
+  render(<DetailSheet game={game} tags={[]} onClose={vi.fn()} onPlay={vi.fn()} onChanged={vi.fn()} />);
+  const input = await screen.findByRole("textbox", { name: "游戏标题" });
+  const file = new File([new Uint8Array([1, 2, 3])], "cover.png", { type: "image/png" });
+  const clipboardData = { items: [{ kind: "file", type: "image/png", getAsFile: () => file }] };
+  fireEvent.paste(input, { clipboardData });
+  expect(operation.mock.calls.some(([name]) => name === "assets.import")).toBe(false);
+  const cover = screen.getByRole("button", { name: "封面：点击后按 Ctrl+V 粘贴图片" });
+  fireEvent.click(cover);
+  expect(cover).toHaveFocus();
+  fireEvent.paste(cover, { clipboardData });
+  await waitFor(() => expect(operation).toHaveBeenCalledWith("assets.import",
+    { gameId: "game", imageBase64: "AQID", mimeType: "image/png" }, "assets.import:game:paste:AQID"));
+});
+
+it("rejects an oversized clipboard image before reading or importing it", async () => {
+  respond([]);
+  render(<DetailSheet game={game} tags={[]} onClose={vi.fn()} onPlay={vi.fn()} onChanged={vi.fn()} />);
+  const cover = screen.getByRole("button", { name: "封面：点击后按 Ctrl+V 粘贴图片" });
+  const file = new File([new Uint8Array(5 * 1024 * 1024 + 1)], "cover.png", { type: "image/png" });
+  await waitFor(() => expect(screen.getByRole("textbox", { name: "游戏标题" })).toHaveValue(game.title));
+  fireEvent.paste(cover, { clipboardData: { items: [{ kind: "file", type: "image/png", getAsFile: () => file }] } });
+  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("图片超过 5 MiB 上限"));
+  expect(operation.mock.calls.some(([name]) => name === "assets.import")).toBe(false);
+});
+
+it("restores a historical cover using assets.choose and the game revision", async () => {
+  operation.mockImplementation(async name => ({ data: name === "games.get" ? { ...game, coverAssetId: "current" }
+    : name === "profiles.list" ? { items: [] }
+    : name === "assets.list" ? { items: [{ assetId: "old", isCurrent: false }, { assetId: "current", isCurrent: true }] }
+    : name === "assets.choose" ? { assetId: "old", warning: "同步失败，原图已保留" } : {} }));
+  render(<DetailSheet game={game} tags={[]} onClose={vi.fn()} onPlay={vi.fn()} onChanged={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "封面：点击后按 Ctrl+V 粘贴图片" }));
+  fireEvent.click(await screen.findByRole("button", { name: "恢复封面 1" }));
+  await waitFor(() => expect(operation).toHaveBeenCalledWith("assets.choose", { gameId: "game", assetId: "old", expectedRevision: 1 }, "assets.choose:game:old:1"));
+  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("同步失败，原图已保留"));
+});

@@ -148,6 +148,7 @@ public static class TagStore
     /// 受限 patch 更新（feat-3）：仅拼接显式提供的字段；期望修订乐观校验，
     /// 返回新修订，冲突返回 null。display_name 特殊——值非 null 即写入、
     /// <paramref name="clearDisplayName"/> 为 true 时置 NULL（回落 name）。
+    /// <paramref name="clearColor"/> 为 true 时清除自定义色；color=null 且未指定清除则保持原值。
     /// name 仅允许 user 标签传值（engine 身份键不可变由 Handler 层把关）。
     /// 空 patch 与旧行为一致：修订对齐即递增修订，不做其他改动。
     /// </summary>
@@ -162,7 +163,8 @@ public static class TagStore
         string? displayName,
         bool clearDisplayName,
         int expectedRevision,
-        DateTime utcNow)
+        DateTime utcNow,
+        bool clearColor = false)
     {
         var sets = new List<string>();
         if (name is not null)
@@ -170,7 +172,11 @@ public static class TagStore
             sets.Add("name = $name");
         }
 
-        if (color is not null)
+        if (clearColor)
+        {
+            sets.Add("color = NULL");
+        }
+        else if (color is not null)
         {
             sets.Add("color = $color");
         }

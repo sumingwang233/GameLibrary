@@ -212,10 +212,10 @@ public sealed class KirikiriDetector : IEngineDetector
     }
 }
 
-/// <summary>Flash 检测：SWF 头 FWS/CWS/ZWS（读取前 3 字节）；损坏头为负向证据，不是入口。</summary>
+/// <summary>SWF 格式证据；有效头不能证明文件是独立、完整的游戏，目录解释交审核。</summary>
 public sealed class FlashDetector : IEngineDetector
 {
-    private const int Version = 1;
+    private const int Version = 2;
 
     public EngineId Engine => EngineId.Flash;
 
@@ -247,8 +247,7 @@ public sealed class FlashDetector : IEngineDetector
             {
                 validCount++;
                 evidence.Add(new DetectionEvidence("flash.swf-header", swf, EvidenceObservation.Present, EvidencePolarity.Positive, $"头 {signature}"));
-                // 每个 SWF 是独立的文件型游戏入口（策划案 5.3）。
-                candidates.Add(new EntryCandidate(swf, EntryScoring.EngineStructureBonus, ["有效 SWF 头 +30"]));
+                candidates.Add(new EntryCandidate(swf, EntryScoring.EngineStructureBonus, ["有效 SWF 格式；独立游戏身份待目录审核"]));
             }
             else if (probe.Kind == FileProbeKind.Unreadable)
             {

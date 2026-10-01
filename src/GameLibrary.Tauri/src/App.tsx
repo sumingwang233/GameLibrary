@@ -13,6 +13,7 @@ import { DetailSheet } from "./components/DetailSheet";
 import { GameGrid } from "./components/GameGrid";
 import { TitleTranslationStatus } from "./components/TitleTranslationStatus";
 import { useTitleTranslation } from "./lib/hooks/useTitleTranslation";
+import { UnityTranslationDialog, type UnityTranslationRequest } from "./components/UnityTranslationDialog";
 import { LibraryToolbar } from "./components/LibraryToolbar";
 import { ReviewList, type ReviewAction } from "./components/ReviewList";
 import { RootsPanel } from "./components/RootsPanel";
@@ -36,6 +37,8 @@ function App() {
   const [selected, setSelected] = useState<GameItem | null>(null);
   const [launchSelectionGameId, setLaunchSelectionGameId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [unitySettingsOpen, setUnitySettingsOpen] = useState(false);
+  const [unityRequest, setUnityRequest] = useState<UnityTranslationRequest | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [reviewBusy, setReviewBusy] = useState(false);
   const [prompt, setPrompt] = useState<PromptKind>(null);
@@ -360,6 +363,7 @@ function App() {
           tags={library.tags}
           refreshToken={library.changeToken}
           supportsSuggestions={library.supports("profiles.discover")}
+          onUnityTranslation={library.supports("unity_translation.status") ? (gameId, action) => setUnityRequest({ gameId, action }) : undefined}
           titleTranslation={library.supports("titles.translate") ? titleTranslation : undefined}
           onClose={() => setSelected(null)}
           onPlay={(gameId, profileId) => preserveLibraryScroll(() => library.launch(gameId, profileId))}
@@ -372,7 +376,11 @@ function App() {
           onNavigate={openGameById}
         />
 
-        <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} supportsTitleTranslation={library.supports("titles.translate")} />
+        <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} supportsTitleTranslation={library.supports("titles.translate")}
+          onUnitySettings={library.supports("unity_translation.status") ? () => { setSettingsOpen(false); setUnitySettingsOpen(true); } : undefined} />
+        <UnityTranslationDialog enabled={library.supports("unity_translation.status")} settingsOpen={unitySettingsOpen} onCloseSettings={() => setUnitySettingsOpen(false)}
+          request={unityRequest} onRequestHandled={() => setUnityRequest(null)} onPlay={(gameId, profileId) => library.launch(gameId, profileId)}
+          onChanged={async () => { await library.refreshMeta(); await games.reload(); }} onNavigate={openGameById} />
 
         <PromptDialog
           open={prompt === "tag"}

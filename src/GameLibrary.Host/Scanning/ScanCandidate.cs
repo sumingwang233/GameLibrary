@@ -42,6 +42,8 @@ public sealed record ScanCandidate
 
     public required IReadOnlyList<EntryCandidate> EntryCandidates { get; init; }
 
+    public FlashDirectoryGroup? Flash { get; init; }
+
     public required FolderClassification Classification { get; init; }
 
     /// <summary>内存观察态；持久层按扫描触发类型决定 observed 或 pendingReview。</summary>
@@ -58,6 +60,7 @@ public sealed record ScanCandidate
         engines = Engines.Select(e => new { engine = e.Engine, confidence = e.Confidence }).ToArray(),
         engineConflict = EngineConflict,
         confidence = Confidence,
+        flash = Flash,
         reviewState = ReviewState,
         observedUtc = ObservedUtc.ToString("O"),
     };
@@ -79,6 +82,7 @@ public sealed record ScanCandidate
         engineConflict = EngineConflict,
         directGameRootChildren = DirectGameRootChildren,
         confidence = Confidence,
+        flash = Flash,
         evidence = Evidence.Select(e => new
         {
             ruleId = e.RuleId,
@@ -151,6 +155,9 @@ public sealed class ScanCandidateCollector
     private readonly Dictionary<string, ScanCandidate> _byPath = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int> _gameRootChildren = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<ScanCandidate> _candidates = [];
+    private readonly IReadOnlyList<FlashDirectoryRule> _flashRules;
+    private readonly HashSet<string> _flashBoundaries = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _flashCollections = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>本次作业发现的全部候选（落库与查询用）。</summary>
     public IReadOnlyList<ScanCandidate> Candidates => _candidates;
@@ -158,15 +165,18 @@ public sealed class ScanCandidateCollector
     public int CandidateCount => _candidates.Count;
 
     public bool ShouldDescend(string directoryPath) =>
-        !_byPath.TryGetValue(directoryPath, out var candidate)
+        !_flashBoundaries.Contains(directoryPath) && (!_byPath.TryGetValue(directoryPath, out var candidate)
+        || candidate.Flash is { IncludeDescendants: false }
         || candidate.EntryCandidates.Count == 0
-        || candidate.Kind is not (CandidateKind.GameRoot or CandidateKind.Unknown or CandidateKind.NestedCandidate);
+        || candidate.Kind is not (CandidateKind.GameRoot or CandidateKind.Unknown or CandidateKind.NestedCandidate));
 
-    public ScanCandidateCollector(GamePath root, string jobId, CandidateRegistry registry)
+    public ScanCandidateCollector(GamePath root, string jobId, CandidateRegistry registry,
+        IReadOnlyList<FlashDirectoryRule>? flashRules = null)
     {
         _root = root;
         _jobId = jobId;
         _registry = registry;
+        _flashRules = flashRules ?? [];
     }
 
     /// <summary>复用 Walker 已完成的直属枚举做只读识别，避免每个检测器重新枚举目录。</summary>
@@ -178,26 +188,68 @@ public sealed class ScanCandidateCollector
         {
             return;
         }
+        if (GenericGameCandidateDetector.IsExcludedDirectory(directory.PhysicalPath))
+        {
+            _flashBoundaries.Add(directory.PhysicalPath);
+            return;
+        }
 
         var snapshot = new FileSystemDirectorySnapshot(validation.Path!, directory.Directories, directory.Files);
         var report = Detectors.DetectAll(snapshot);
         var confirmed = report.Results
             .Where(r => r.Confidence >= DetectionConfidence.Medium && r.LikelyRootRelativePaths.Count > 0)
             .ToArray();
+        // 合集中的 SWF 已按用户选定入口处理；仍让其他引擎的独立安装根走原扫描流程。
+        if (_flashCollections.Any(parent => directory.PhysicalPath.StartsWith(parent + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            && !confirmed.Any(item => item.Engine != EngineId.Flash)) return;
+        // 直属 SWF 或 EXE+资源 SWF 才开展目录审核；子资源可多层嵌套，复用 Walker 预算。
+        if (confirmed.Any(item => item.Engine == EngineId.Flash) || !confirmed.Any(item => item.Engine != EngineId.Flash))
+        {
+            var hasFlash = confirmed.Any(item => item.Engine == EngineId.Flash);
+            var hasExe = GenericGameCandidateDetector.Inspect(snapshot).EntryCandidates
+                .Any(item => LaunchSuggestionDetector.IsGameEntryName(item.RelativePath));
+            if (hasFlash || hasExe)
+            {
+                // 直属 SWF 不能证明整个目录树是项目：先只审直属入口，子项目/合集分别扫描。
+                // 用户明确确认 project/resources 后才把子树作为其资源边界。
+                var includeDescendants = !hasFlash || _flashRules.Any(rule =>
+                    string.Equals(rule.DirectoryPath, directory.PhysicalPath, StringComparison.OrdinalIgnoreCase)
+                    && rule.Kind is "project" or "resources");
+                var (flash, complete) = FlashDirectoryInspector.Inspect(validation.Path!, ct, includeDescendants);
+                if (flash is not null)
+                {
+                    var group = FlashDirectoryInspector.Group(directory.PhysicalPath, flash, complete, _flashRules)
+                        with
+                    { IncludeDescendants = includeDescendants };
+                    if (!group.RequiresReview && group.Kind == "collection")
+                    {
+                        if (includeDescendants) _flashCollections.Add(directory.PhysicalPath);
+                    }
+                    else if (includeDescendants) _flashBoundaries.Add(directory.PhysicalPath);
+                    if (!group.RequiresReview && group.Kind == "resources") return;
+                    if (!group.RequiresReview && group.Kind == "collection")
+                    {
+                        foreach (var entry in flash.EntryCandidates.Where(item => group.EntryPaths.Contains(item.RelativePath, StringComparer.Ordinal)))
+                            AddCandidate(BuildFileCandidate(validation.Path!, entry, [flash], flash.Evidence) with { Flash = group });
+                    }
+                    else
+                    {
+                        var entries = group.RequiresReview ? flash.EntryCandidates
+                            : flash.EntryCandidates.Where(item => group.EntryPaths.Contains(item.RelativePath, StringComparer.Ordinal)).ToArray();
+                        var engines = group.RequiresReview
+                            ? confirmed.Where(item => item.Engine != EngineId.Flash).Append(flash).ToArray() : [flash];
+                        AddCandidate(BuildCandidate(validation.Path!, group.RequiresReview ? CandidateKind.Unknown : CandidateKind.GameRoot,
+                            engines, group.RequiresReview && report.Conflict is not null, entriesOverride: entries) with
+                        { Flash = group });
+                    }
+                    return;
+                }
+            }
+            // 原始格式探测可能读到被目录审核排除的链接文件；不退回逐文件/自动 GameRoot。
+            if (confirmed.All(item => item.Engine == EngineId.Flash)) confirmed = [];
+        }
         if (confirmed.Length > 0)
         {
-            if (confirmed.Length == 1
-                && confirmed[0].Engine == EngineId.Flash
-                && confirmed[0].EntryCandidates.Count > 0)
-            {
-                foreach (var entry in confirmed[0].EntryCandidates)
-                {
-                    AddCandidate(BuildFileCandidate(validation.Path!, entry, confirmed, confirmed[0].Evidence));
-                }
-
-                return;
-            }
-
             var kind = IsInsideConfirmedRoot(directory.PhysicalPath)
                 ? CandidateKind.NestedCandidate
                 : CandidateKind.GameRoot;
@@ -351,6 +403,7 @@ public sealed class ScanCandidateCollector
     private bool IsInsidePlayableRoot(string directoryPhysicalPath) =>
         _byPath.Values.Any(candidate =>
             (candidate.Kind is CandidateKind.GameRoot or CandidateKind.Unknown)
+            && candidate.Flash is not { IncludeDescendants: false }
             && directoryPhysicalPath.Length > candidate.PhysicalPath.Length
             && directoryPhysicalPath.StartsWith(
                 candidate.PhysicalPath + Path.DirectorySeparatorChar,

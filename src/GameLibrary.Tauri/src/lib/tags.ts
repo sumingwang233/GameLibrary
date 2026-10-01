@@ -1,5 +1,6 @@
 import { t } from "./i18n";
 import type { TagItem } from "./types";
+import type { CSSProperties } from "react";
 
 /**
  * feat-3 标签四分类：后端 tags.category CHECK（迁移 v22 / TagsHandler.cs:85）
@@ -61,10 +62,20 @@ export function isHexColor(value: string): boolean {
   return /^#[0-9a-fA-F]{6}$/.test(value);
 }
 
+/** 保留自定义文字色，以 WCAG 亮度选对比底色；默认色随主题。圆点继承同一文字色。 */
+export function tagStyle(tag: Pick<TagItem, "color">): CSSProperties {
+  if (!tag.color || !isHexColor(tag.color)) return { color: "var(--color-text-primary)" };
+  const channels = [1, 3, 5].map(index => parseInt(tag.color!.slice(index, index + 2), 16) / 255)
+    .map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+  const luminance = channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+  return { color: tag.color, backgroundColor: luminance > 0.179 ? "#000000" : "#ffffff" };
+}
+
 /** 预设色板（feat-3 颜色编辑）：深色主题下可辨识的中饱和度色。 */
 export const TAG_PALETTE: readonly string[] = [
   "#f87171", "#fb923c", "#facc15", "#4ade80", "#2dd4bf",
   "#38bdf8", "#818cf8", "#c084fc", "#f472b6", "#94a3b8",
+  "#ffffff",
 ];
 
 /** 按 TAG_CATEGORIES 固定顺序分组并组内排序；空分组保留（调用方决定是否渲染）。 */

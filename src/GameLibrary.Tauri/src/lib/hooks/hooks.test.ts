@@ -184,3 +184,13 @@ it("reports atomic tag reorder failure and refreshes revisions", async () => {
   expect(call.mock.calls[0][0]).toBe("tags.reorder");
   expect(refresh).toHaveBeenCalledOnce();
 });
+
+it("preserves explicit null color patches and omits untouched colors", async () => {
+  call.mockResolvedValue(envelope({}));
+  const hook = renderHook(() => useTagActions(() => true, vi.fn(async () => {}), () => {}));
+  const tag = { tagId: "white", name: "white", kind: "user", revision: 1, color: "#ffffff" };
+  await hook.result.current.updateTag(tag, { color: null });
+  expect(call.mock.calls[0][1]).toEqual({ tagId: "white", expectedRevision: 1, color: null });
+  await hook.result.current.updateTag(tag, { starred: 1 });
+  expect(call.mock.calls[1][1]).toEqual({ tagId: "white", expectedRevision: 1, starred: 1 });
+});

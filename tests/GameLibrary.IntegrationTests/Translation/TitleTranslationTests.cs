@@ -279,7 +279,8 @@ public sealed class TitleTranslationTests
         var oldOptions = Options with { Migrations = DatabaseMigrations.All.Take(25).ToArray() };
         var old = await SqliteLibraryStore.InitializeAsync(data, oldOptions, CancellationToken.None);
         old.Store!.InsertGame(Game("a")); await old.Store.DisposeAsync();
-        var upgraded = await SqliteLibraryStore.TryOpenAsync(data, Options, CancellationToken.None);
+        var titleUpgradeOptions = Options with { Migrations = DatabaseMigrations.All.Take(26).ToArray() };
+        var upgraded = await SqliteLibraryStore.TryOpenAsync(data, titleUpgradeOptions, CancellationToken.None);
         await using var store = upgraded.Store!;
         Assert.Equal(26, store.Info.SchemaVersion);
         Assert.Equal("Summer memories", store.TryGetGame("a")!.Title);

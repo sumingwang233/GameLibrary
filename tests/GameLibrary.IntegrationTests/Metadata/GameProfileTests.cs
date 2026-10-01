@@ -165,7 +165,7 @@ public sealed class GameProfileTests : IClassFixture<PipeServerFixture>
             var game = await InvokeAsync("games.get", new { gameId });
             Assert.Equal(assetId, game.Data.GetProperty("coverAssetId").GetString());
             var portableCover = Path.Combine(game.Data.GetProperty("rootPath").GetString()!, "cover.png");
-            Assert.Equal(await File.ReadAllBytesAsync(pngPath), await File.ReadAllBytesAsync(portableCover));
+            Assert.Equal(GameLibrary.Host.Scanning.GameCoverService.PrepareImage(await File.ReadAllBytesAsync(pngPath)).Bytes, await File.ReadAllBytesAsync(portableCover));
 
             var missing = await InvokeAsync("assets.import", new
             {
@@ -198,7 +198,7 @@ public sealed class GameProfileTests : IClassFixture<PipeServerFixture>
     }
 
     [Fact]
-    public async Task AssetsImport_FiveMiB_RoundTripsEvenWhenPreviewCannotDecode()
+    public async Task AssetsGet_HistoricalFiveMiB_RoundTripsEvenWhenPreviewCannotDecode()
     {
         var (gameId, _) = await CreateGameAsync("profile-five-mib");
         var sourcePath = Path.Combine(@"D:\Official\GameLibrary\artifacts\test-runs", $"five-{Guid.NewGuid():N}.webp");
@@ -207,9 +207,9 @@ public sealed class GameProfileTests : IClassFixture<PipeServerFixture>
         await File.WriteAllBytesAsync(sourcePath, bytes);
         try
         {
-            var imported = await InvokeAsync("assets.import", new { gameId, sourcePath, idempotencyKey = Guid.NewGuid().ToString() });
-            Assert.True(imported.Ok, imported.Error?.Message);
-            var get = await InvokeAsync("assets.get", new { assetId = imported.Data.GetProperty("assetId").GetString() });
+            // 历史资产仍可读取；新导入必须通过安全解码，不再接受任意字节。
+            var imported = _fixture.State.Library.Store!.ImportAsset(gameId, sourcePath, DateTime.UtcNow);
+            var get = await InvokeAsync("assets.get", new { assetId = imported.AssetId });
             Assert.True(get.Ok, get.Error?.Message);
             Assert.Equal(bytes, Convert.FromBase64String(get.Data.GetProperty("dataBase64").GetString()!));
             Assert.True((await InvokeAsync("games.get", new { gameId })).Ok);
@@ -247,5 +247,126 @@ public sealed class GameProfileTests : IClassFixture<PipeServerFixture>
             {
             }
         }
+    }
+
+    private static byte[] CoverBytes(System.Drawing.Color color)
+    {
+        using var image = new System.Drawing.Bitmap(2, 2);
+        using (var graphics = System.Drawing.Graphics.FromImage(image)) graphics.Clear(color);
+        using var output = new MemoryStream();
+        image.Save(output, System.Drawing.Imaging.ImageFormat.Png);
+        return output.ToArray();
+    }
+
+    [Fact]
+    public async Task ClipboardImport_OverwritesPortableCover_AndChooseRestoresHistory()
+    {
+        var (gameId, revision) = await CreateGameAsync("clipboard-cover");
+        var firstBytes = CoverBytes(System.Drawing.Color.Red);
+        var secondBytes = CoverBytes(System.Drawing.Color.Blue);
+        var first = await InvokeAsync("assets.import", new { gameId, imageBase64 = Convert.ToBase64String(firstBytes), mimeType = "image/png", idempotencyKey = Guid.NewGuid().ToString() });
+        Assert.True(first.Ok, first.Error?.Message);
+        var firstId = first.Data.GetProperty("assetId").GetString();
+        var second = await InvokeAsync("assets.import", new { gameId, imageBase64 = Convert.ToBase64String(secondBytes), mimeType = "image/png", idempotencyKey = Guid.NewGuid().ToString() });
+        Assert.True(second.Ok, second.Error?.Message);
+        var game = _fixture.State.Library.Store!.TryGetGame(gameId)!;
+        var portable = Path.Combine(game.RootPath, "cover.png");
+        Assert.Equal(GameLibrary.Host.Scanning.GameCoverService.PrepareImage(secondBytes).Bytes, File.ReadAllBytes(portable));
+        var restored = await InvokeAsync("assets.choose", new { gameId, assetId = firstId, expectedRevision = revision, idempotencyKey = Guid.NewGuid().ToString() });
+        Assert.True(restored.Ok, restored.Error?.Message);
+        Assert.Equal(GameLibrary.Host.Scanning.GameCoverService.PrepareImage(firstBytes).Bytes, File.ReadAllBytes(portable));
+        Assert.Contains(_fixture.State.Library.Store.ListAssets(gameId), asset => !asset.IsCurrent && File.ReadAllBytes(asset.FilePath).SequenceEqual(GameLibrary.Host.Scanning.GameCoverService.PrepareImage(secondBytes).Bytes));
+    }
+
+    [Fact]
+    public async Task ClipboardImport_RejectsAmbiguousInvalidAndOversizedInputs_WithoutChangingAssets()
+    {
+        var (gameId, _) = await CreateGameAsync("invalid-clipboard-cover");
+        object[] inputs = [
+            new { gameId, sourcePath = "cover.png", imageBase64 = "AQID", mimeType = "image/png", idempotencyKey = Guid.NewGuid().ToString() },
+            new { gameId, imageBase64 = "AQID", idempotencyKey = Guid.NewGuid().ToString() },
+            new { gameId, imageBase64 = "%%%", mimeType = "image/png", idempotencyKey = Guid.NewGuid().ToString() },
+            new { gameId, imageBase64 = "AQID", mimeType = "image/png", idempotencyKey = Guid.NewGuid().ToString() },
+            new { gameId, imageBase64 = "AQID", mimeType = "text/html", idempotencyKey = Guid.NewGuid().ToString() },
+        ];
+        foreach (var input in inputs)
+        {
+            var result = await InvokeAsync("assets.import", input);
+            Assert.False(result.Ok);
+            Assert.Equal(ErrorCodes.InvalidArgument, result.Error!.Code);
+        }
+        var oversized = await InvokeAsync("assets.import", new { gameId, imageBase64 = Convert.ToBase64String(new byte[5 * 1024 * 1024 + 1]), mimeType = "image/png", idempotencyKey = Guid.NewGuid().ToString() });
+        Assert.False(oversized.Ok);
+        Assert.Equal(ErrorCodes.ResourceTooLarge, oversized.Error!.Code);
+        Assert.Empty(_fixture.State.Library.Store!.ListAssets(gameId));
+    }
+
+    [Fact]
+    public async Task ClipboardImport_ExactlyFiveMiB_IsAccepted()
+    {
+        var (gameId, _) = await CreateGameAsync("clipboard-five-mib");
+        var bytes = CoverBytes(System.Drawing.Color.Red);
+        Array.Resize(ref bytes, 5 * 1024 * 1024);
+        var result = await InvokeAsync("assets.import", new { gameId, imageBase64 = Convert.ToBase64String(bytes), mimeType = "image/png", idempotencyKey = Guid.NewGuid().ToString() });
+        Assert.True(result.Ok, result.Error?.Message);
+    }
+
+    [Fact]
+    public async Task WebP_PathAndClipboardImport_KeepOriginalFormat_AndChooseRestoresIt()
+    {
+        var (gameId, revision) = await CreateGameAsync("webp-import");
+        var bytes = Convert.FromBase64String(GameCoverTests.WebPBase64);
+        var source = Path.Combine(Path.GetTempPath(), $"cover-{Guid.NewGuid():N}.webp");
+        File.WriteAllBytes(source, bytes);
+        try
+        {
+            var imported = await InvokeAsync("assets.import", new { gameId, sourcePath = source, idempotencyKey = Guid.NewGuid().ToString() });
+            Assert.True(imported.Ok, imported.Error?.Message);
+            var assetId = imported.Data.GetProperty("assetId").GetString()!;
+            var store = _fixture.State.Library.Store!;
+            var asset = store.TryGetAsset(assetId)!;
+            Assert.EndsWith(".webp", asset.FilePath);
+            Assert.Equal(bytes, File.ReadAllBytes(asset.FilePath));
+            var portable = Path.Combine(store.TryGetGame(gameId)!.RootPath, "cover.webp");
+            Assert.Equal(bytes, File.ReadAllBytes(portable));
+            var read = await InvokeAsync("assets.get", new { assetId });
+            Assert.True(read.Ok, read.Error?.Message);
+            Assert.Equal("image/webp", read.Data.GetProperty("mimeType").GetString());
+            Assert.Equal(bytes, Convert.FromBase64String(read.Data.GetProperty("dataBase64").GetString()!));
+            var png = await InvokeAsync("assets.import", new { gameId, imageBase64 = Convert.ToBase64String(CoverBytes(System.Drawing.Color.Blue)), mimeType = "image/png", idempotencyKey = Guid.NewGuid().ToString() });
+            Assert.True(png.Ok, png.Error?.Message);
+            Assert.False(File.Exists(portable));
+            var restored = await InvokeAsync("assets.choose", new { gameId, assetId, expectedRevision = revision, idempotencyKey = Guid.NewGuid().ToString() });
+            Assert.True(restored.Ok, restored.Error?.Message);
+            Assert.Equal(bytes, File.ReadAllBytes(portable));
+            Assert.False(File.Exists(Path.ChangeExtension(portable, ".png")));
+            var pasted = await InvokeAsync("assets.import", new { gameId, imageBase64 = GameCoverTests.WebPBase64, mimeType = "image/webp", idempotencyKey = Guid.NewGuid().ToString() });
+            Assert.True(pasted.Ok, pasted.Error?.Message);
+            Assert.EndsWith(".webp", store.TryGetAsset(pasted.Data.GetProperty("assetId").GetString()!)!.FilePath);
+        }
+        finally { File.Delete(source); }
+    }
+
+    [Fact]
+    public async Task CandidatesListAndGet_ReturnFlashPayloadFields()
+    {
+        var id = $"candidate-{Guid.NewGuid():N}";
+        var flash = new { mode = "directory", entryCount = 3, entries = new[] { "a.swf", "b.swf" } };
+        _fixture.State.Library.Store!.UpsertCandidate(new GameLibrary.Domain.Catalog.PersistedCandidate
+        {
+            CandidateId = id,
+            Kind = "gameRoot",
+            RelativePath = "flash-test",
+            PhysicalPath = Path.GetTempPath(),
+            PayloadJson = JsonSerializer.Serialize(new { flash }),
+            ReviewState = "pendingReview",
+            ObservedUtc = DateTime.UtcNow,
+            UpdatedUtc = DateTime.UtcNow,
+        });
+        var list = await InvokeAsync("candidates.list", new { });
+        var listed = list.Data.GetProperty("items").EnumerateArray().Single(item => item.GetProperty("candidateId").GetString() == id);
+        var detail = await InvokeAsync("candidates.get", new { candidateId = id });
+        Assert.Equal(JsonSerializer.Serialize(flash), listed.GetProperty("flash").GetRawText());
+        Assert.Equal(JsonSerializer.Serialize(flash), detail.Data.GetProperty("flash").GetRawText());
     }
 }

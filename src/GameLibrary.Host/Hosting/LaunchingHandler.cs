@@ -534,6 +534,10 @@ internal sealed class LaunchingHandler
                     return inactive;
                 }
 
+                if (_storeAccessor() is { } store && UnityTranslationService.IsConfiguring(store, resolvedGameId))
+                    return IpcRequests.Failure(request, ErrorCodes.MaintenanceMode,
+                        "该游戏的 Unity 翻译配置或恢复正在进行，请等待完成或取消翻译作业后再启动", retryable: true);
+
                 var resolution = ResolveTranslationRoute(resolvedGameId, resolvedProfileId);
                 var block = TranslationRouteBlock(request, resolvedGameId, resolvedProfileId);
                 if (block is not null)

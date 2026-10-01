@@ -41,6 +41,7 @@ public static class OperationIds
     public const string ScanInspect = "scan.inspect";
     public const string CandidatesList = "candidates.list";
     public const string CandidatesGet = "candidates.get";
+    public const string CandidatesInspect = "candidates.inspect";
     public const string CandidatesAccept = "candidates.accept";
     public const string CandidatesDefer = "candidates.defer";
     public const string CandidatesIgnore = "candidates.ignore";
@@ -110,6 +111,14 @@ public static class OperationIds
     public const string NotificationsAcknowledge = "notifications.acknowledge";
     public const string NotificationsDefer = "notifications.defer";
     public const string SettingsGet = "settings.get";
+    public const string UnityTranslationSettingsGet = "unity_translation.settings.get";
+    public const string UnityTranslationSettingsSet = "unity_translation.settings.set";
+    public const string UnityTranslationSettingsImport = "unity_translation.settings.import";
+    public const string UnityTranslationStatus = "unity_translation.status";
+    public const string UnityTranslationPending = "unity_translation.pending";
+    public const string UnityTranslationConfigure = "unity_translation.configure";
+    public const string UnityTranslationConfirm = "unity_translation.confirm";
+    public const string UnityTranslationRestore = "unity_translation.restore";
     public const string SettingsUpdate = "settings.update";
     public const string SettingsReset = "settings.reset";
     public const string ViewsList = "views.list";
@@ -169,6 +178,7 @@ internal static class GeneratedOperations
         OperationIds.ScanInspect,
         OperationIds.CandidatesList,
         OperationIds.CandidatesGet,
+        OperationIds.CandidatesInspect,
         OperationIds.CandidatesAccept,
         OperationIds.CandidatesDefer,
         OperationIds.CandidatesIgnore,
@@ -228,6 +238,14 @@ internal static class GeneratedOperations
         OperationIds.NotificationsAcknowledge,
         OperationIds.NotificationsDefer,
         OperationIds.SettingsGet,
+        OperationIds.UnityTranslationSettingsGet,
+        OperationIds.UnityTranslationSettingsSet,
+        OperationIds.UnityTranslationSettingsImport,
+        OperationIds.UnityTranslationStatus,
+        OperationIds.UnityTranslationPending,
+        OperationIds.UnityTranslationConfigure,
+        OperationIds.UnityTranslationConfirm,
+        OperationIds.UnityTranslationRestore,
         OperationIds.SettingsUpdate,
         OperationIds.SettingsReset,
         OperationIds.ViewsList,
@@ -272,7 +290,8 @@ internal static class GeneratedOperations
             [OperationIds.ScanInspect] = [new("path", "string", true, "待识别目录（须在已注册库根内）")],
             [OperationIds.CandidatesList] = [new("jobId", "string", false, "按扫描作业 ID 过滤"), new("state", "string", false, "按审核状态过滤"), new("limit", "integer", false, "分页大小（1–1000）"), new("offset", "integer", false, "分页偏移")],
             [OperationIds.CandidatesGet] = [new("candidateId", "string", true, "候选 ID")],
-            [OperationIds.CandidatesAccept] = [new("candidateId", "string", true, "候选 ID"), new("expectedRevision", "integer", true, "期望修订"), new("idempotencyKey", "string", true, "幂等键")],
+            [OperationIds.CandidatesInspect] = [new("candidateId", "string", true, "候选 ID"), new("flashKind", "string", false, "预览 Flash project/collection/resources 判断"), new("entryPaths", "array", false, "预览所选游戏入口")],
+            [OperationIds.CandidatesAccept] = [new("candidateId", "string", true, "候选 ID"), new("expectedRevision", "integer", true, "期望修订"), new("idempotencyKey", "string", true, "幂等键"), new("flashKind", "string", false, "Flash 目录判断 project/collection/resources"), new("entryPaths", "array", false, "所选完整游戏入口"), new("adjustments", "array", false, "inspect 返回的整份已有游戏调整清单，包含 gameId 和 expectedRevision")],
             [OperationIds.CandidatesDefer] = [new("candidateId", "string", true, "候选 ID"), new("expectedRevision", "integer", true, "期望修订"), new("idempotencyKey", "string", true, "幂等键")],
             [OperationIds.CandidatesIgnore] = [new("candidateId", "string", true, "候选 ID"), new("expectedRevision", "integer", true, "期望修订"), new("idempotencyKey", "string", true, "幂等键")],
             [OperationIds.IgnoresList] = [],
@@ -289,7 +308,7 @@ internal static class GeneratedOperations
             [OperationIds.FieldsReset] = [new("gameId", "string", true, "游戏 ID"), new("field", "string", true, "字段名"), new("expectedRevision", "integer", true, "期望修订"), new("idempotencyKey", "string", true, "幂等键")],
             [OperationIds.TagsList] = [],
             [OperationIds.TagsCreate] = [new("name", "string", true, "标签名（1–100 字符）"), new("color", "string", false, "颜色 #RRGGBB（可选）"), new("category", "string", false, "分类 engine/gameplay/social/special（缺省按 kind 推断：user 标签为 special）"), new("sortOrder", "integer", false, "排序权重（缺省 0）"), new("starred", "integer", false, "星级评分 0–5（0=无评分，缺省 0）"), new("displayName", "string", false, "显示名（缺省同 name）"), new("idempotencyKey", "string", true, "幂等键")],
-            [OperationIds.TagsUpdate] = [new("tagId", "string", true, "标签 ID"), new("name", "string", false, "新名称（可选；engine 标签 name 是身份键不可改，改名用 displayName）"), new("color", "string", false, "新颜色 #RRGGBB（可选，engine 标签同样允许）"), new("category", "string", false, "新分类 engine/gameplay/social/special（可选，engine 标签同样允许）"), new("sortOrder", "integer", false, "新排序权重（可选）"), new("starred", "integer", false, "新星级评分 0–5（可选，0=清除评分）"), new("displayName", "string", false, "新显示名（可选；传 null 清除，回落 name）"), new("expectedRevision", "integer", true, "期望标签修订"), new("idempotencyKey", "string", true, "幂等键")],
+            [OperationIds.TagsUpdate] = [new("tagId", "string", true, "标签 ID"), new("name", "string", false, "新名称（可选；engine 标签 name 是身份键不可改，改名用 displayName）"), new("color", "string", false, "颜色 #RRGGBB；显式 null 清除为主题默认色，省略保持原值"), new("category", "string", false, "新分类 engine/gameplay/social/special（可选，engine 标签同样允许）"), new("sortOrder", "integer", false, "新排序权重（可选）"), new("starred", "integer", false, "新星级评分 0–5（可选，0=清除评分）"), new("displayName", "string", false, "新显示名（可选；传 null 清除，回落 name）"), new("expectedRevision", "integer", true, "期望标签修订"), new("idempotencyKey", "string", true, "幂等键")],
             [OperationIds.TagsRemove] = [new("tagId", "string", true, "标签 ID"), new("expectedRevision", "integer", true, "期望标签修订"), new("idempotencyKey", "string", true, "幂等键")],
             [OperationIds.TagsAssign] = [new("gameId", "string", true, "游戏 ID"), new("tagId", "string", true, "标签 ID"), new("expectedRevision", "integer", true, "期望游戏修订"), new("idempotencyKey", "string", true, "幂等键")],
             [OperationIds.TagsUnassign] = [new("gameId", "string", true, "游戏 ID"), new("tagId", "string", true, "标签 ID"), new("expectedRevision", "integer", true, "期望游戏修订"), new("idempotencyKey", "string", true, "幂等键")],
@@ -299,7 +318,7 @@ internal static class GeneratedOperations
             [OperationIds.MetadataRefresh] = [new("gameId", "string", true, "游戏 ID"), new("idempotencyKey", "string", true, "幂等键")],
             [OperationIds.AssetsList] = [new("gameId", "string", true, "游戏 ID")],
             [OperationIds.AssetsGet] = [new("assetId", "string", true, "资产 ID")],
-            [OperationIds.AssetsImport] = [new("gameId", "string", true, "游戏 ID"), new("sourcePath", "string", true, "图片绝对路径（复制入应用目录）"), new("idempotencyKey", "string", true, "幂等键")],
+            [OperationIds.AssetsImport] = [new("gameId", "string", true, "游戏 ID"), new("sourcePath", "string", false, "图片绝对路径（复制入应用目录）"), new("imageBase64", "string", false, "图片 Base64，解码后最多 5 MiB；与 sourcePath 二选一"), new("mimeType", "string", false, "剪贴板图片 MIME 类型"), new("idempotencyKey", "string", true, "幂等键")],
             [OperationIds.AssetsChoose] = [new("gameId", "string", true, "游戏 ID"), new("assetId", "string", true, "资产 ID"), new("expectedRevision", "integer", true, "期望修订"), new("idempotencyKey", "string", true, "幂等键")],
             [OperationIds.AssetsCrop] = [new("gameId", "string", true, "游戏 ID"), new("assetId", "string", true, "资产 ID"), new("expectedRevision", "integer", true, "期望修订"), new("idempotencyKey", "string", true, "幂等键")],
             [OperationIds.AssetsReset] = [new("gameId", "string", true, "游戏 ID"), new("expectedRevision", "integer", true, "期望修订"), new("idempotencyKey", "string", true, "幂等键")],
@@ -331,6 +350,14 @@ internal static class GeneratedOperations
             [OperationIds.NotificationsAcknowledge] = [new("notificationId", "string", true, "通知 ID"), new("idempotencyKey", "string", true, "幂等键")],
             [OperationIds.NotificationsDefer] = [new("notificationId", "string", true, "通知 ID"), new("idempotencyKey", "string", true, "幂等键")],
             [OperationIds.SettingsGet] = [],
+            [OperationIds.UnityTranslationSettingsGet] = [],
+            [OperationIds.UnityTranslationSettingsSet] = [new("provider", "string", false, "deepseek 或 openai"), new("endpoint", "string", false, "HTTPS 服务地址；本机允许 HTTP"), new("model", "string", false, "模型名称"), new("apiKey", "string", false, "本机密钥；省略保留同供应商和同来源的已保存密钥"), new("boundTagId", "string", false, "触发自动配置的用户标签 ID"), new("enabled", "boolean", false, "启用自动配置"), new("idempotencyKey", "string", true, "幂等键")],
+            [OperationIds.UnityTranslationSettingsImport] = [new("configPath", "string", false, "本机 Config.ini；省略时尝试发现已有 Unity 配置"), new("idempotencyKey", "string", true, "幂等键")],
+            [OperationIds.UnityTranslationStatus] = [new("gameId", "string", false, "仅查询该游戏")],
+            [OperationIds.UnityTranslationPending] = [new("gameId", "string", false, "仅查询该游戏")],
+            [OperationIds.UnityTranslationConfigure] = [new("gameIds", "array", true, "1–1000 个唯一游戏 ID；实际入口必须为 Unity Mono 且带绑定标签"), new("idempotencyKey", "string", true, "幂等键")],
+            [OperationIds.UnityTranslationConfirm] = [new("gameId", "string", true, "游戏 ID"), new("attemptId", "string", true, "当前配置尝试 ID"), new("success", "boolean", true, "用户实际运行后是否确认成功；false 保留配置和标签"), new("idempotencyKey", "string", true, "幂等键")],
+            [OperationIds.UnityTranslationRestore] = [new("gameId", "string", true, "恢复该游戏的本机原始备份"), new("idempotencyKey", "string", true, "幂等键")],
             [OperationIds.SettingsUpdate] = [new("titleTranslationEngine", "string", false, "titleTranslationEngine"), new("activeViewId", "string", false, "激活视图（字符串或 null）"), new("autostartEnabled", "boolean", false, "开机启动"), new("scanIntervalMinutes", "integer", false, "核对周期（1–10080 分钟）"), new("theme", "string", false, "dark / light / system"), new("closeToTray", "boolean", false, "关闭即缩托盘"), new("uiFontScale", "number", false, "界面缩放（0.85–1.6）"), new("uiLanguage", "string", false, "zh-CN / zh-TW / en / ja"), new("uiFontFamily", "string", false, "已安装字体的名称"), new("cacheParentDirectory", "string", false, "缓存存放位置的父目录；null 恢复默认"), new("expectedRevision", "integer", true, "期望设置修订"), new("idempotencyKey", "string", true, "幂等键")],
             [OperationIds.SettingsReset] = [new("idempotencyKey", "string", true, "幂等键")],
             [OperationIds.ViewsList] = [],
@@ -349,7 +376,7 @@ internal static class GeneratedOperations
             [OperationIds.DiagnosticsCacheRebuild] = [new("idempotencyKey", "string", true, "幂等键")],
             [OperationIds.EventsWait] = [new("cursor", "integer", false, "增量游标"), new("limit", "integer", false, "批次上限"), new("timeoutMs", "integer", false, "等待毫秒，默认25000，最大30000")],
             [OperationIds.BackupsRestoreStart] = [new("backupId", "string", true, "备份 ID"), new("planId", "string", true, "restore_plan 返回的计划 ID"), new("idempotencyKey", "string", true, "幂等键")],
-            [OperationIds.CandidatesReviewBatch] = [new("action", "string", true, "accept/defer/ignore"), new("items", "array", true, "最多1000个唯一ID与expectedRevision；标签项包含sortOrder"), new("idempotencyKey", "string", true, "幂等键")],
+            [OperationIds.CandidatesReviewBatch] = [new("action", "string", true, "accept/defer/ignore"), new("items", "array", true, "最多1000个candidateId/expectedRevision；Flash项可包含flashKind、entryPaths和确认的adjustments"), new("idempotencyKey", "string", true, "幂等键")],
             [OperationIds.TagsReorder] = [new("items", "array", true, "最多1000个唯一ID与expectedRevision；标签项包含sortOrder"), new("idempotencyKey", "string", true, "幂等键")],
         };
 }

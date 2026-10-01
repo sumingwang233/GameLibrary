@@ -25,7 +25,7 @@ namespace GameLibrary.Host.Hosting;
 internal sealed class CatalogingHandler
 {
     private static readonly string[] ImageExtensions = [".png", ".jpg", ".jpeg", ".webp", ".gif"];
-    private const long MaxAssetBytes = 5 * 1024 * 1024;
+    private const long MaxAssetBytes = GameCoverService.MaxBytes;
 
     private readonly Func<SqliteLibraryStore?> _storeAccessor;
     private readonly RootRegistry _roots;
@@ -286,6 +286,7 @@ internal sealed class CatalogingHandler
                     reviewState = c.ReviewState,
                     revision = c.Revision,
                     gameId = c.GameId,
+                    flash = CandidateFlash(c.PayloadJson),
                     observedUtc = c.ObservedUtc.ToString("O"),
                 })
                 .ToArray();
@@ -350,6 +351,7 @@ internal sealed class CatalogingHandler
                     reviewState = persisted.ReviewState,
                     revision = persisted.Revision,
                     gameId = persisted.GameId,
+                    flash = CandidateFlash(persisted.PayloadJson),
                     detail = JsonSerializer.Deserialize<JsonElement>(persisted.PayloadJson, ContractJson.Options).Clone(),
                     observedUtc = persisted.ObservedUtc.ToString("O"),
                     updatedUtc = persisted.UpdatedUtc.ToString("O"),
@@ -511,7 +513,14 @@ internal sealed class CatalogingHandler
         };
     }
 
-    /// <summary>封面导入：应用保留副本，同时补齐游戏目录中缺失的 cover 文件。</summary>
+    private static JsonElement? CandidateFlash(string payloadJson)
+    {
+        using var payload = JsonDocument.Parse(payloadJson);
+        return payload.RootElement.ValueKind == JsonValueKind.Object
+            && payload.RootElement.TryGetProperty("flash", out var flash) ? flash.Clone() : null;
+    }
+
+    /// <summary>导入路径或粘贴图片：保留独立资产与历史，同步替换游戏目录封面。</summary>
     public Envelope<object> AssetsImport(IpcRequest request)
     {
         var store = _storeAccessor();
@@ -521,9 +530,9 @@ internal sealed class CatalogingHandler
         }
 
         if (!IpcRequests.TryGetStringParameter(request, "gameId", out var gameId)
-            || !IpcRequests.TryGetStringParameter(request, "sourcePath", out var sourcePath))
+            || request.Parameters is not { ValueKind: JsonValueKind.Object } parameters)
         {
-            return IpcRequests.InvalidArgument(request, "assets.import 需要 gameId、sourcePath 参数");
+            return IpcRequests.InvalidArgument(request, "assets.import 需要 gameId 参数");
         }
 
         if (store.TryGetGame(gameId) is null)
@@ -531,51 +540,61 @@ internal sealed class CatalogingHandler
             return IpcRequests.NotFound(request, $"游戏不存在：{gameId}");
         }
 
-        var extension = Path.GetExtension(sourcePath).ToLowerInvariant();
-        if (!ImageExtensions.Contains(extension))
+        var hasPath = parameters.TryGetProperty("sourcePath", out var sourceElement);
+        var hasImage = parameters.TryGetProperty("imageBase64", out var imageElement);
+        if (hasPath == hasImage || (hasPath && parameters.TryGetProperty("mimeType", out _)))
+            return IpcRequests.InvalidArgument(request, "sourcePath 与 imageBase64/mimeType 必须二选一");
+
+        byte[] bytes;
+        string extension;
+        if (hasImage)
         {
-            return IpcRequests.InvalidArgument(request, $"不支持的图片格式：{extension}（支持 {string.Join("/", ImageExtensions)}）");
+            if (imageElement.ValueKind != JsonValueKind.String
+                || !IpcRequests.TryGetStringParameter(request, "mimeType", out var mimeType))
+                return IpcRequests.InvalidArgument(request, "粘贴图片需要 imageBase64 与 mimeType 字符串");
+            extension = mimeType.ToLowerInvariant() switch
+            {
+                "image/png" => ".png",
+                "image/jpeg" => ".jpg",
+                "image/gif" => ".gif",
+                "image/webp" => ".webp",
+                _ => "",
+            };
+            if (extension.Length == 0) return IpcRequests.InvalidArgument(request, "不支持的图片 MIME 类型");
+            var encoded = imageElement.GetString()!;
+            if (encoded.Length > ((MaxAssetBytes + 2) / 3) * 4)
+                return IpcRequests.Failure(request, ErrorCodes.ResourceTooLarge, "图片超过 5 MiB 上限");
+            try { bytes = Convert.FromBase64String(encoded); }
+            catch (FormatException) { return IpcRequests.InvalidArgument(request, "imageBase64 不是有效 Base64"); }
+        }
+        else
+        {
+            if (sourceElement.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(sourceElement.GetString()))
+                return IpcRequests.InvalidArgument(request, "sourcePath 必须是非空字符串");
+            var sourcePath = sourceElement.GetString()!;
+            extension = Path.GetExtension(sourcePath).ToLowerInvariant();
+            if (!ImageExtensions.Contains(extension))
+                return IpcRequests.InvalidArgument(request, $"不支持的图片格式：{extension}（支持 {string.Join("/", ImageExtensions)}）");
+            if (!File.Exists(sourcePath)) return IpcRequests.NotFound(request, "源图片不存在");
+            if (new FileInfo(sourcePath).Length > MaxAssetBytes)
+                return IpcRequests.Failure(request, ErrorCodes.ResourceTooLarge, "图片超过 5 MiB 上限");
+            bytes = File.ReadAllBytes(sourcePath);
         }
 
-        if (!File.Exists(sourcePath))
-        {
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ErrorCodes.NotFound,
-                    Message = $"源图片不存在：{sourcePath}",
-                    Retryable = false,
-                },
-            };
-        }
-
-        if (new FileInfo(sourcePath).Length > MaxAssetBytes)
-        {
-            return new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ErrorCodes.ResourceTooLarge,
-                    Message = $"图片超过 5 MiB 上限：{sourcePath}",
-                    Retryable = false,
-                },
-            };
-        }
+        if (bytes.Length > MaxAssetBytes)
+            return IpcRequests.Failure(request, ErrorCodes.ResourceTooLarge, "图片超过 5 MiB 上限");
+        (byte[] Bytes, string Extension) prepared;
+        try { prepared = GameCoverService.PrepareImage(bytes); }
+        catch (Exception ex) when (ex is ArgumentException or System.Runtime.InteropServices.ExternalException or OutOfMemoryException)
+        { return IpcRequests.InvalidArgument(request, $"图片无法安全解码：{ex.Message}"); }
 
         var assetDirectory = Path.Combine(_dataDirectory, "assets", gameId);
         Directory.CreateDirectory(assetDirectory);
-        var importedPath = Path.Combine(assetDirectory, $"{Guid.NewGuid():N}{extension}");
-        File.Copy(sourcePath, importedPath, overwrite: false);
+        var importedPath = Path.Combine(assetDirectory, $"{Guid.NewGuid():N}{prepared.Extension}");
+        File.WriteAllBytes(importedPath, prepared.Bytes);
 
         var asset = store.ImportAsset(gameId, importedPath, DateTime.UtcNow);
-        var coverWarning = GameCoverService.Synchronize(store, store.TryGetGame(gameId)!);
+        var coverWarning = GameCoverService.Synchronize(store, store.TryGetGame(gameId)!, replaceExisting: true);
         return new Envelope<object>
         {
             RequestId = request.RequestId,
@@ -734,13 +753,20 @@ internal sealed class CatalogingHandler
             return IpcRequests.NotFound(request, $"资产不存在或不属于该游戏：{assetId}");
         }
 
+        if (!File.Exists(asset.FilePath)) return IpcRequests.NotFound(request, "封面资产文件缺失");
+        if (new FileInfo(asset.FilePath).Length > MaxAssetBytes)
+            return IpcRequests.Failure(request, ErrorCodes.ResourceTooLarge, "图片超过 5 MiB 上限");
+        try { _ = GameCoverService.PrepareImage(File.ReadAllBytes(asset.FilePath)); }
+        catch (Exception ex) when (ex is ArgumentException or System.Runtime.InteropServices.ExternalException or OutOfMemoryException)
+        { return IpcRequests.InvalidArgument(request, $"图片无法安全解码：{ex.Message}"); }
         store.ChooseAsset(gameId, assetId);
+        var coverWarning = GameCoverService.Synchronize(store, card, replaceExisting: true);
         return new Envelope<object>
         {
             RequestId = request.RequestId,
             Ok = true,
             Status = OperationStatus.Completed,
-            Data = new { gameId, assetId, isCurrent = true },
+            Data = new { gameId, assetId, isCurrent = true, warning = coverWarning },
         };
     }
 
@@ -779,6 +805,7 @@ internal sealed class CatalogingHandler
             var croppedPath = ImageCropper.Crop(
                 asset.FilePath, destDirectory, x.Value, y.Value, width.Value, height.Value);
             var newAsset = store.ImportAsset(asset.GameId, croppedPath, DateTime.UtcNow);
+            var coverWarning = GameCoverService.Synchronize(store, store.TryGetGame(asset.GameId)!, replaceExisting: true);
             return new Envelope<object>
             {
                 RequestId = request.RequestId,
@@ -793,6 +820,7 @@ internal sealed class CatalogingHandler
                     y = y.Value,
                     width = width.Value,
                     height = height.Value,
+                    warning = coverWarning,
                 },
             };
         }

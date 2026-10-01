@@ -81,6 +81,27 @@ export interface CandidateItem {
   kind: string;
   reviewState: string;
   revision: number;
+  flash?: FlashDirectoryGroup | null;
+  flashReview?: { kind: "project" | "collection" | "resources"; entryPaths: string[]; adjustments: Array<{ gameId: string; expectedRevision: number }> };
+}
+
+export interface FlashDirectoryGroup {
+  directoryPath: string;
+  kind: "unknown" | "project" | "collection" | "resources";
+  requiresReview: boolean;
+  entryPaths: string[];
+  inventory: string[];
+  complete: boolean;
+  reasons: string[];
+  includeDescendants?: boolean;
+}
+
+export interface FlashCandidateInspection {
+  candidateId: string;
+  revision: number;
+  flash: FlashDirectoryGroup | null;
+  entryCandidates: Array<{ relativePath: string; score: number; reasons: string[] }>;
+  adjustments: Array<{ gameId: string; expectedRevision: number; title: string; rootPath: string; entryPath: string | null; proposedAction: "setEntry" | "removeFromLibrary" }>;
 }
 
 /**

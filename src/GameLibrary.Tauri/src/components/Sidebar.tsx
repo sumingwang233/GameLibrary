@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { TagItem, ViewItem } from "../lib/types";
-import { groupTagsByCategory, tagLabel } from "../lib/tags";
+import { groupTagsByCategory, tagLabel, tagStyle } from "../lib/tags";
 import { cn } from "../lib/utils";
 import { ScrollArea } from "./ui/scroll-area";
 import { Separator } from "./ui/separator";
@@ -174,11 +174,11 @@ export function Sidebar(props: SidebarProps) {
                     onTagChange(tagId === tag.tagId ? "" : tag.tagId);
                   }}
                 >
-                  <span className="flex min-w-0 items-center gap-2">
+                  <span className="flex min-w-0 items-center gap-2 rounded px-1" style={tagStyle(tag)}>
                     <span
                       aria-hidden="true"
                       className="size-2 shrink-0 rounded-full border border-border"
-                      style={{ backgroundColor: tag.color ?? "transparent" }}
+                      style={{ backgroundColor: "currentColor" }}
                     />
                     <span className="truncate">{tagLabel(tag)}</span>
                   </span>

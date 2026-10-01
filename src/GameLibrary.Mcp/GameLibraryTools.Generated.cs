@@ -41,10 +41,15 @@ public static partial class GameLibraryTools
     public static Task<CallToolResult> CandidatesGet([Description("候选 ID")] string candidateId) =>
         InvokeOperationAsync(OperationIds.CandidatesGet, new { candidateId });
 
+    [McpServerTool(Name = "candidates_inspect")]
+    [Description("检查候选目录中的 Flash 入口、资源和已有游戏调整清单，不修改库或游戏文件。")]
+    public static Task<CallToolResult> CandidatesInspect([Description("候选 ID")] string candidateId, [Description("Flash 目录判断")] string? flashKind = null, [Description("所选入口")] string[]? entryPaths = null) =>
+        InvokeOperationAsync(OperationIds.CandidatesInspect, new { candidateId, flashKind, entryPaths });
+
     [McpServerTool(Name = "candidates_accept")]
     [Description("接受候选入库（仅 pendingReview）：创建游戏卡片并返回 gameId；同候选重试幂等返回已有 gameId。参数：idempotencyKey、candidateId、expectedRevision。")]
-    public static Task<CallToolResult> CandidatesAccept([Description("幂等键")] string idempotencyKey, [Description("候选 ID")] string candidateId, [Description("期望 Revision")] int expectedRevision) =>
-        InvokeOperationAsync(OperationIds.CandidatesAccept, new { idempotencyKey, candidateId, expectedRevision });
+    public static Task<CallToolResult> CandidatesAccept([Description("幂等键")] string idempotencyKey, [Description("候选 ID")] string candidateId, [Description("期望 Revision")] int expectedRevision, [Description("Flash 目录判断")] string? flashKind = null, [Description("所选入口")] string[]? entryPaths = null, [Description("已确认调整清单")] JsonElement? adjustments = null) =>
+        InvokeOperationAsync(OperationIds.CandidatesAccept, new { idempotencyKey, candidateId, expectedRevision, flashKind, entryPaths, adjustments });
 
     [McpServerTool(Name = "candidates_defer")]
     [Description("暂缓候选（仅 pendingReview）；deferred 需人工重新查看，不周期重弹。参数：idempotencyKey、candidateId、expectedRevision。")]
@@ -157,9 +162,9 @@ public static partial class GameLibraryTools
         InvokeOperationAsync(OperationIds.AssetsGet, new { assetId });
 
     [McpServerTool(Name = "assets_import")]
-    [Description("导入封面图（≤5 MiB，png/jpg/webp/gif），复制入应用自有目录并设为当前封面；游戏目录没有 cover 时补拷贝 cover.原扩展名，已有文件不覆盖。参数：idempotencyKey、gameId、sourcePath。")]
-    public static Task<CallToolResult> AssetsImport([Description("幂等键")] string idempotencyKey, [Description("游戏 ID")] string gameId, [Description("源图片绝对路径")] string sourcePath) =>
-        InvokeOperationAsync(OperationIds.AssetsImport, new { idempotencyKey, gameId, sourcePath });
+    [Description("导入封面图片，保留历史并同步游戏目录封面；自动扫描补全仍不覆盖。")]
+    public static Task<CallToolResult> AssetsImport([Description("幂等键")] string idempotencyKey, [Description("游戏 ID")] string gameId, [Description("图片路径，与 imageBase64 二选一")] string? sourcePath = null, [Description("剪贴板图片 Base64")] string? imageBase64 = null, [Description("图片 MIME 类型")] string? mimeType = null) =>
+        InvokeOperationAsync(OperationIds.AssetsImport, new { idempotencyKey, gameId, sourcePath, imageBase64, mimeType });
 
     [McpServerTool(Name = "assets_choose")]
     [Description("选择某资产为当前封面。参数：idempotencyKey、gameId、assetId、expectedRevision。")]
@@ -245,6 +250,46 @@ public static partial class GameLibraryTools
     [Description("读取应用设置快照：激活视图、开机启动、核对周期、主题、字体、界面缩放、缓存位置、托盘行为与 Revision。")]
     public static Task<CallToolResult> SettingsGet() =>
         InvokeOperationAsync(OperationIds.SettingsGet, new {  });
+
+    [McpServerTool(Name = "unity_translation_settings_get")]
+    [Description("Unity 游戏内翻译：settings.get；密钥仅存本机，读取操作不返回密钥。")]
+    public static Task<CallToolResult> UnityTranslationSettingsGet() =>
+        InvokeOperationAsync(OperationIds.UnityTranslationSettingsGet, new {  });
+
+    [McpServerTool(Name = "unity_translation_settings_set")]
+    [Description("Unity 游戏内翻译：settings.set；密钥仅存本机，读取操作不返回密钥。")]
+    public static Task<CallToolResult> UnityTranslationSettingsSet([Description("幂等键")] string idempotencyKey, [Description("供应商")] string? provider = null, [Description("服务地址")] string? endpoint = null, [Description("模型名称")] string? model = null, [Description("密钥，仅存本机，不返回")] string? apiKey = null, [Description("用户标签 ID")] string? boundTagId = null, [Description("启用自动配置")] bool? enabled = null) =>
+        InvokeOperationAsync(OperationIds.UnityTranslationSettingsSet, new { idempotencyKey, provider, endpoint, model, apiKey, boundTagId, enabled });
+
+    [McpServerTool(Name = "unity_translation_settings_import")]
+    [Description("Unity 游戏内翻译：settings.import；密钥仅存本机，读取操作不返回密钥。")]
+    public static Task<CallToolResult> UnityTranslationSettingsImport([Description("幂等键")] string idempotencyKey, [Description("本机 Config.ini 路径")] string? configPath = null) =>
+        InvokeOperationAsync(OperationIds.UnityTranslationSettingsImport, new { idempotencyKey, configPath });
+
+    [McpServerTool(Name = "unity_translation_status")]
+    [Description("Unity 游戏内翻译：status；密钥仅存本机，读取操作不返回密钥。")]
+    public static Task<CallToolResult> UnityTranslationStatus([Description("游戏 ID")] string? gameId = null) =>
+        InvokeOperationAsync(OperationIds.UnityTranslationStatus, new { gameId });
+
+    [McpServerTool(Name = "unity_translation_pending")]
+    [Description("Unity 游戏内翻译：pending；密钥仅存本机，读取操作不返回密钥。")]
+    public static Task<CallToolResult> UnityTranslationPending([Description("游戏 ID")] string? gameId = null) =>
+        InvokeOperationAsync(OperationIds.UnityTranslationPending, new { gameId });
+
+    [McpServerTool(Name = "unity_translation_configure")]
+    [Description("Unity 游戏内翻译：configure；密钥仅存本机，读取操作不返回密钥。")]
+    public static Task<CallToolResult> UnityTranslationConfigure([Description("幂等键")] string idempotencyKey, [Description("游戏 ID")] string[] gameIds) =>
+        InvokeOperationAsync(OperationIds.UnityTranslationConfigure, new { idempotencyKey, gameIds });
+
+    [McpServerTool(Name = "unity_translation_confirm")]
+    [Description("Unity 游戏内翻译：confirm；密钥仅存本机，读取操作不返回密钥。")]
+    public static Task<CallToolResult> UnityTranslationConfirm([Description("幂等键")] string idempotencyKey, [Description("游戏 ID")] string gameId, [Description("配置尝试 ID")] string attemptId, [Description("用户确认结果")] bool success) =>
+        InvokeOperationAsync(OperationIds.UnityTranslationConfirm, new { idempotencyKey, gameId, attemptId, success });
+
+    [McpServerTool(Name = "unity_translation_restore")]
+    [Description("Unity 游戏内翻译：restore；密钥仅存本机，读取操作不返回密钥。")]
+    public static Task<CallToolResult> UnityTranslationRestore([Description("幂等键")] string idempotencyKey, [Description("游戏 ID")] string gameId) =>
+        InvokeOperationAsync(OperationIds.UnityTranslationRestore, new { idempotencyKey, gameId });
 
     [McpServerTool(Name = "views_list")]
     [Description("列出内置与自定义视图及当前激活视图。")]

@@ -135,7 +135,7 @@ public sealed class EngineDetectorFixtureTests
     }
 
     [Fact]
-    public void FlashFixture_ValidAndCorruptSwfs_ProducePerFileCandidates()
+    public void FlashFixture_ValidAndCorruptSwfs_ProducePossibleEntriesForDirectoryReview()
     {
         var root = NewFixtureRoot();
         try

@@ -99,7 +99,7 @@ public sealed class DetectorTests
     [InlineData("FWS")]
     [InlineData("CWS")]
     [InlineData("ZWS")]
-    public void Flash_ValidHeadersAreHighWithPerFileCandidates(string header)
+    public void Flash_ValidHeadersDescribePossibleEntries_NotIndependentGames(string header)
     {
         var snapshot = new InMemorySnapshot()
             .File("a.swf", Ascii(header))
@@ -109,6 +109,8 @@ public sealed class DetectorTests
 
         Assert.Equal(DetectionConfidence.High, result!.Confidence);
         Assert.Equal(2, result.EntryCandidates.Count);
+        Assert.Equal(2, result.DetectorVersion);
+        Assert.All(result.EntryCandidates, entry => Assert.Contains(entry.Reasons, reason => reason.Contains("待目录审核", StringComparison.Ordinal)));
         Assert.Contains(result.EntryCandidates, c => c.RelativePath == "a.swf");
         Assert.Contains(result.EntryCandidates, c => c.RelativePath == "b.swf");
     }

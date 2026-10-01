@@ -62,6 +62,8 @@ export function useLibraryEvents(
         if (!batch || cancelled) return;
         if (batch.items.some(event => event.type.startsWith("settings.")))
           window.dispatchEvent(new Event("gamelibrary-settings-changed"));
+        if (batch.items.some(event => event.type.startsWith("unity_translation.")))
+          window.dispatchEvent(new Event("gamelibrary-unity-changed"));
         if (batch.items.some(event => event.type.startsWith("asset."))) invalidateAssets();
         for (const event of batch.items) {
           if (event.type !== "launch.exited") continue;

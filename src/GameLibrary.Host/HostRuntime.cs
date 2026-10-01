@@ -105,6 +105,7 @@ public sealed class HostRuntime : IAsyncDisposable
             runtimeState,
             new OperationDispatcher(runtimeState),
             logger);
+        runtimeState.UnityTranslations?.Start();
         server.Start();
 
         return new HostRuntime(guard, server, runtimeState);
@@ -279,7 +280,8 @@ public sealed class HostRuntime : IAsyncDisposable
         }
 
         var jobId = $"job-reconcile-{Guid.NewGuid():N}";
-        var collector = new Scanning.ScanCandidateCollector(validation.Path, jobId, state.Candidates);
+        var collector = new Scanning.ScanCandidateCollector(validation.Path, jobId, state.Candidates,
+            flashRules: state.Library.Store?.ListFlashDirectoryRules());
         var context = new Hosting.JobContext { JobId = jobId, Token = CancellationToken.None };
         Infrastructure.Scanning.ScanCoverageData? completedCoverage = null;
         var outcome = Scanning.ScanJobRunner.Run(
@@ -355,6 +357,7 @@ public sealed class HostRuntime : IAsyncDisposable
         _state.Suggestions?.Dispose();
         _state.Launches.CancelObservations();
         _state.Jobs.CancelKind("titleTranslation");
+        _state.Jobs.CancelKind("unityTranslation");
         if (_state.Suggestions is not null) await _state.Suggestions.Stopped;
         await _server.DisposeAsync();
         await _state.Jobs.WaitForIdleAsync();
@@ -379,6 +382,7 @@ public sealed class HostRuntimeState
     public required HostLibraryState Library { get; set; }
 
     public required JobManager Jobs { get; init; }
+    public UnityTranslationService? UnityTranslations { get; set; }
 
     internal TitleTranslationClient TitleTranslations { get; init; } = new(new HttpClient
     {
@@ -460,6 +464,7 @@ public sealed class HostRuntimeState
         HostRuntime.WirePersistence(this);
         if (store is not null) ActiveViewId = store.ReadSettings().ActiveViewId;
         Interlocked.Increment(ref ConnectionGeneration);
+        UnityTranslations?.Start();
     }
 }
 

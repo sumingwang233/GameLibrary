@@ -182,6 +182,8 @@ internal sealed class IgnoreRulesHandler
             var candidatePath = candidate.PhysicalPath.TrimEnd(Path.DirectorySeparatorChar);
             var covered = coveredPaths.Any(p =>
                 string.Equals(p.TrimEnd(Path.DirectorySeparatorChar), candidatePath, StringComparison.OrdinalIgnoreCase));
+            if (rule.Scope == "ConfirmedIdentity" && rule.GameId is not null)
+                covered = string.Equals(rule.GameId, candidate.GameId, StringComparison.Ordinal);
             if (!covered && rule.Scope == "Subtree" && rule.Path is not null)
             {
                 var rulePath = rule.Path.TrimEnd(Path.DirectorySeparatorChar);

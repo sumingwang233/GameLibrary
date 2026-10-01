@@ -1,0 +1,615 @@
+using System.Diagnostics;
+using System.IO.Compression;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using GameLibrary.Contracts;
+using GameLibrary.Contracts.Ipc;
+using GameLibrary.Domain.Catalog;
+using GameLibrary.Host;
+using GameLibrary.Host.Hosting;
+using GameLibrary.Host.Launching;
+using GameLibrary.Host.Observability;
+using GameLibrary.Host.Scanning;
+using GameLibrary.Infrastructure.Persistence;
+using Xunit;
+
+namespace GameLibrary.IntegrationTests.Translation;
+
+public sealed class UnityTranslationTests
+{
+    [Theory]
+    [InlineData("https://api.deepseek.com", "deepseek", true)]
+    [InlineData("http://127.0.0.1:8080/v1", "custom", true)]
+    [InlineData("http://remote.example/v1", "custom", false)]
+    [InlineData("https://user:password@example.com/v1", "custom", false)]
+    [InlineData("https://example.com/v1?api_key=test", "custom", false)]
+    [InlineData("https://example.com/v1", "deepseek", false)]
+    public void ProviderValidation_IsCredentialFreeAndHttpsOrLoopback(string url, string provider, bool valid)
+    {
+        var settings = new UnityTranslationSettings { Provider = provider, BaseUrl = url };
+        if (valid) Assert.EndsWith("/chat/completions", settings.Validate().BaseUrl);
+        else Assert.Throws<InvalidDataException>(() => settings.Validate());
+    }
+
+    [Fact]
+    public void Ini_PreservesUnknownValuesAndModel_DisablesProviderSpecificFlagsForCustom()
+    {
+        var ini = new UnityTranslationIni("[OtherMod]\nValue=keep\n[DeepSeek]\nModel=older-model\nDebug=True\n");
+        var key = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
+        var official = new UnityTranslationIni(Encoding.UTF8.GetString(ini.Configure(new(), key)));
+        Assert.Equal("older-model", official.Get("DeepSeek", "Model"));
+        Assert.Equal("keep", official.Get("OtherMod", "Value"));
+        Assert.Equal("False", official.Get("DeepSeek", "Debug"));
+        var custom = new UnityTranslationIni(Encoding.UTF8.GetString(official.Configure(new UnityTranslationSettings
+        { Provider = "custom", BaseUrl = "http://127.0.0.1/v1/chat/completions", Model = "local-model" }, key)));
+        Assert.Equal("False", custom.Get("DeepSeek", "DisableThinking"));
+        Assert.Equal("False", custom.Get("DeepSeek", "AddEndingAssistantPrompt"));
+        Assert.Equal("local-model", custom.Get("DeepSeek", "Model"));
+        Assert.Equal("", custom.Get("Service", "FallbackEndpoint"));
+    }
+
+    [Fact]
+    public void ArchiveExtraction_RejectsTraversalAndExtraFiles()
+    {
+        foreach (var entry in new[] { "../SetupReiPatcherAndAutoTranslator.exe", "dir/SetupReiPatcherAndAutoTranslator.exe", "untrusted.dll" })
+        {
+            using var buffer = new MemoryStream();
+            using (var zip = new ZipArchive(buffer, ZipArchiveMode.Create, leaveOpen: true)) zip.CreateEntry(entry);
+            Assert.Throws<InvalidDataException>(() => UnityTranslationPayload.ExtractSetup(buffer.ToArray()));
+        }
+    }
+
+    [Fact]
+    public async Task Transaction_EncryptsOriginalIni_RestoresOnlyOwnedFiles_RejectsLaterMods()
+    {
+        await using var fixture = await Fixture.Create();
+        var root = Path.Combine(fixture.DirectoryPath, "game");
+        Directory.CreateDirectory(root);
+        var config = Path.Combine(root, "AutoTranslator", "Config.ini");
+        Directory.CreateDirectory(Path.GetDirectoryName(config)!);
+        var original = Encoding.UTF8.GetBytes("[DeepSeek]\nApiKey=" + fixture.Key);
+        File.WriteAllBytes(config, original);
+        var save = Path.Combine(root, "save.dat");
+        File.WriteAllText(save, "player-save");
+        var vault = new UnityTranslationVault("synthetic", fixture.VaultBase);
+        var transaction = new UnityTranslationTransaction(vault, Guid.NewGuid().ToString("N"), root);
+        transaction.Capture(config);
+        transaction.Write(config, Encoding.UTF8.GetBytes("replacement"));
+        var plugin = Path.Combine(root, "plugin.dll");
+        transaction.Write(plugin, [1, 2, 3]);
+        transaction.Commit();
+        Assert.All(Directory.EnumerateFiles(vault.DirectoryPath, "*", SearchOption.AllDirectories), path =>
+            Assert.DoesNotContain(fixture.Key, Encoding.UTF8.GetString(File.ReadAllBytes(path))));
+        File.WriteAllText(plugin, "another-mod");
+        Assert.Throws<InvalidDataException>(() => transaction.Restore());
+        Assert.Equal("replacement", File.ReadAllText(config)); // Preflight prevents a partial restore.
+        File.WriteAllBytes(plugin, [1, 2, 3]);
+        transaction.Restore();
+        Assert.Equal(original, File.ReadAllBytes(config));
+        Assert.False(File.Exists(plugin));
+        Assert.Equal("player-save", File.ReadAllText(save));
+    }
+
+    [Fact]
+    public async Task Settings_ImportReturnsMetadataOnly_PreservesModel_RejectsCrossOriginKeyReuse()
+    {
+        await using var fixture = await Fixture.Create();
+        var config = Path.Combine(fixture.DirectoryPath, "Config.ini");
+        File.WriteAllText(config, "[DeepSeek]\nEndpoint=https://api.deepseek.com/chat/completions\nModel=legacy-model\nApiKey=" + fixture.Key);
+        var imported = fixture.Invoke("settings.import", new { configPath = config });
+        Assert.True(imported.Ok, imported.Error?.Message);
+        var dto = Data(imported);
+        Assert.Equal("legacy-model", dto.GetProperty("model").GetString());
+        Assert.True(dto.GetProperty("hasKey").GetBoolean());
+        Assert.DoesNotContain(fixture.Key, JsonSerializer.Serialize(imported, ContractJson.Options));
+        Assert.DoesNotContain(fixture.Key, fixture.PersistedSettings());
+        var change = fixture.Invoke("settings.set", new { provider = "openai", endpoint = "https://new-provider.example/v1", model = "next-model" });
+        Assert.False(change.Ok);
+        var model = fixture.Invoke("settings.set", new { provider = "deepseek", model = "new-model" });
+        Assert.True(model.Ok, model.Error?.Message);
+        Assert.Equal("new-model", Data(model).GetProperty("model").GetString());
+        var leak = fixture.Invoke("settings.set", new { model = fixture.Key });
+        Assert.False(leak.Ok);
+        Assert.DoesNotContain(fixture.Key, JsonSerializer.Serialize(leak, ContractJson.Options));
+        Assert.DoesNotContain(fixture.Key, fixture.PersistedSettings());
+    }
+
+    [Fact]
+    public async Task CredentialReferences_IsolateFailedMetadataWrites_AndOldSettingsRestoreOldKey()
+    {
+        await using var fixture = await Fixture.Create();
+        Assert.True(fixture.Invoke("settings.set", new { apiKey = fixture.Key }).Ok);
+        var original = UnityTranslationPersistence.Read<UnityTranslationSettings>(fixture.Store, UnityTranslationPersistence.SettingsKey)!;
+        var vault = new UnityTranslationVault(Path.GetFullPath(fixture.Host.DataDirectory).ToUpperInvariant(), fixture.VaultBase);
+        Assert.Equal(fixture.Key, vault.ReadKey(original.CredentialId));
+        fixture.Store.WriteExclusive((connection, _) =>
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "CREATE TRIGGER fail_metadata BEFORE INSERT ON app_settings WHEN NEW.key = 'unity_translation.settings' BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END";
+            command.ExecuteNonQuery();
+        });
+        var replacement = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
+        var failed = fixture.Invoke("settings.set", new { apiKey = replacement, model = "replacement-model" });
+        Assert.False(failed.Ok);
+        Assert.DoesNotContain(replacement, JsonSerializer.Serialize(failed, ContractJson.Options));
+        var stillOriginal = UnityTranslationPersistence.Read<UnityTranslationSettings>(fixture.Store, UnityTranslationPersistence.SettingsKey)!;
+        Assert.Equal(original, stillOriginal);
+        Assert.Equal(fixture.Key, vault.ReadKey(stillOriginal.CredentialId));
+        Assert.Equal(2, Directory.EnumerateFiles(vault.DirectoryPath, "*.bin").Count()); // Orphan new file cannot alter the old reference.
+        fixture.Store.WriteExclusive((connection, _) =>
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "DROP TRIGGER fail_metadata";
+            command.ExecuteNonQuery();
+        });
+        Assert.True(fixture.Invoke("settings.set", new { apiKey = replacement, model = "replacement-model" }).Ok);
+        var current = UnityTranslationPersistence.Read<UnityTranslationSettings>(fixture.Store, UnityTranslationPersistence.SettingsKey)!;
+        Assert.NotEqual(original.CredentialId, current.CredentialId);
+        Assert.Equal(replacement, vault.ReadKey(current.CredentialId));
+        UnityTranslationPersistence.Write(fixture.Store, UnityTranslationPersistence.SettingsKey, original);
+        Assert.True(fixture.Invoke("settings.set", new { model = "old-provider-new-model" }).Ok);
+        Assert.Equal(fixture.Key, vault.ReadKey(UnityTranslationPersistence.Read<UnityTranslationSettings>(fixture.Store, UnityTranslationPersistence.SettingsKey)!.CredentialId));
+        File.Delete(Path.Combine(vault.DirectoryPath, original.CredentialId + ".bin"));
+        Assert.False(Data(fixture.Invoke("settings.get", new { })).GetProperty("hasKey").GetBoolean());
+        Assert.True(Data(fixture.Invoke("pending", new { })).GetProperty("needsSettings").GetBoolean());
+    }
+
+    [Fact]
+    public async Task BindingSurvivesTagRename_AndReceiptsContainNoCredentialText()
+    {
+        await using var fixture = await Fixture.Create();
+        var dispatcher = new OperationDispatcher(fixture.Host);
+        var request = new IpcRequest
+        {
+            RequestId = "request-first",
+            OperationId = "unity_translation.settings.set",
+            Parameters = JsonSerializer.SerializeToElement(new { apiKey = fixture.Key, idempotencyKey = "setting-once" })
+        };
+        var first = dispatcher.Dispatch(request);
+        Assert.True(first.Ok, first.Error?.Message);
+        var settings = UnityTranslationPersistence.Read<UnityTranslationSettings>(fixture.Store, UnityTranslationPersistence.SettingsKey)!;
+        Assert.Equal(fixture.TagId, settings.BoundTagId);
+        var replay = dispatcher.Dispatch(request);
+        Assert.True(replay.Ok, replay.Error?.Message);
+        Assert.Equal(settings.CredentialId, UnityTranslationPersistence.Read<UnityTranslationSettings>(fixture.Store, UnityTranslationPersistence.SettingsKey)!.CredentialId);
+        var receipt = fixture.Store.TryGetReceipt("anonymous", "unity_translation.settings.set", "setting-once")!;
+        Assert.NotNull(receipt.ResultJson);
+        Assert.DoesNotContain(fixture.Key, receipt.ResultJson!);
+        Assert.DoesNotContain(fixture.Key, receipt.RequestDigest);
+        fixture.Store.UpdateTag(fixture.TagId, "等待翻译", null, null, null, null, null, false, 1, DateTime.UtcNow);
+        var game = fixture.AddGame("renamed-tag");
+        fixture.Service.RequestForTaggedGame(game.GameId);
+        await fixture.Host.Jobs.WaitForIdleAsync();
+        Assert.NotNull(fixture.ReadState(game.GameId));
+        Assert.Equal(fixture.TagId, fixture.ReadState(game.GameId)!.BoundTagId);
+    }
+
+    [Fact]
+    public async Task Startup_PersistsWizardQueue_DeclinesSurviveRestart_StaleAndWrongGameConfirmFail()
+    {
+        await using var fixture = await Fixture.Create();
+        var game = fixture.AddGame("pending");
+        fixture.Service.Start();
+        var pending = Data(fixture.Invoke("pending", new { }));
+        Assert.Single(pending.GetProperty("items").EnumerateArray());
+        Assert.Equal("needs_settings", pending.GetProperty("items")[0].GetProperty("state").GetString());
+        var state = fixture.ReadState(game.GameId)! with { State = "configured" };
+        fixture.WriteState(state);
+        Assert.False(fixture.Invoke("confirm", new { gameId = game.GameId, attemptId = "wrong", success = true }).Ok);
+        Assert.False(fixture.Invoke("confirm", new { gameId = "another-game", attemptId = state.AttemptId, success = true }).Ok);
+        var decline = fixture.Invoke("confirm", new { gameId = game.GameId, attemptId = state.AttemptId, success = false });
+        Assert.True(decline.Ok, decline.Error?.Message);
+        fixture.RestartService();
+        fixture.Service.Start();
+        Assert.Empty(Data(fixture.Invoke("pending", new { })).GetProperty("items").EnumerateArray());
+        Assert.Equal("declined", fixture.ReadState(game.GameId)!.State);
+        Assert.Contains(("user", "未翻译"), fixture.Store.ListGameTags(game.GameId));
+    }
+
+    [Fact]
+    public async Task Confirmation_RemovesOnlyBoundUserTag_RejectsChangedBindingAndEpoch()
+    {
+        await using var fixture = await Fixture.Create();
+        var game = fixture.AddGame("confirmation");
+        fixture.Store.CreateTag(new("tag-other", "user", "收藏", null, 1, 0, DateTime.UtcNow, DateTime.UtcNow));
+        fixture.Store.AssignTag(game.GameId, "tag-other", DateTime.UtcNow);
+        var state = new UnityTranslationState
+        {
+            GameId = game.GameId,
+            Title = game.Title,
+            AttemptId = Guid.NewGuid().ToString("N"),
+            DataEpoch = fixture.Store.Info.DataEpoch,
+            State = "configured",
+            BoundTagId = fixture.TagId,
+            ProfileId = "profile-test",
+            ExecutablePath = Path.Combine(game.RootPath, "Game.exe")
+        };
+        fixture.WriteState(state with { DataEpoch = "old-epoch" });
+        Assert.False(fixture.Invoke("confirm", new { gameId = game.GameId, attemptId = state.AttemptId, success = true }).Ok);
+        fixture.WriteState(state);
+        Assert.False(fixture.Invoke("confirm", new { gameId = game.GameId, attemptId = state.AttemptId, success = true }).Ok);
+        fixture.Host.Launches.RestoreAttempt(new LaunchAttempt
+        {
+            AttemptId = "launch-synthetic-record",
+            GameId = game.GameId,
+            ProfileId = state.ProfileId!,
+            ExecutablePath = state.ExecutablePath!,
+            Arguments = [],
+            WorkingDirectory = game.RootPath,
+            IdempotencyKey = "synthetic",
+            State = "exited",
+            CreatedUtc = state.UpdatedUtc.AddSeconds(1),
+            ProcessStartedUtc = state.UpdatedUtc.AddSeconds(1),
+            ProcessId = 1234
+        });
+        UnityTranslationPersistence.Write(fixture.Store, UnityTranslationPersistence.SettingsKey, new UnityTranslationSettings { BoundTagId = "tag-other" });
+        Assert.False(fixture.Invoke("confirm", new { gameId = game.GameId, attemptId = state.AttemptId, success = true }).Ok);
+        UnityTranslationPersistence.Write(fixture.Store, UnityTranslationPersistence.SettingsKey, new UnityTranslationSettings { BoundTagId = fixture.TagId });
+        Assert.True(fixture.Invoke("confirm", new { gameId = game.GameId, attemptId = state.AttemptId, success = true }).Ok);
+        Assert.DoesNotContain(("user", "未翻译"), fixture.Store.ListGameTags(game.GameId));
+        Assert.Contains(("user", "收藏"), fixture.Store.ListGameTags(game.GameId));
+    }
+
+    [Fact]
+    public async Task AutoImport_UniqueSourcesReuseKey_MultipleDifferentSourcesReturnMetadataOnly()
+    {
+        await using var fixture = await Fixture.Create();
+        var game = fixture.AddGame("existing-config");
+        var folder = Path.Combine(game.RootPath, "AutoTranslator");
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "Config.ini"), "[DeepSeek]\nModel=legacy-model\nApiKey=" + fixture.Key);
+        fixture.Service.Start();
+        var settings = Data(fixture.Invoke("settings.get", new { }));
+        Assert.True(settings.GetProperty("hasKey").GetBoolean());
+        Assert.Equal("legacy-model", settings.GetProperty("model").GetString());
+        Assert.DoesNotContain(fixture.Key, settings.GetRawText());
+        Assert.DoesNotContain(fixture.Key, fixture.PersistedSettings());
+
+        await using var ambiguous = await Fixture.Create();
+        foreach (var name in new[] { "first", "second" })
+        {
+            var source = ambiguous.AddGame(name);
+            var directory = Path.Combine(source.RootPath, "AutoTranslator");
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(Path.Combine(directory, "Config.ini"), "[DeepSeek]\nModel=" + name + "\nApiKey=" + ambiguous.Key);
+        }
+        ambiguous.Service.Start();
+        var choice = Data(ambiguous.Invoke("settings.import", new { }));
+        Assert.False(choice.GetProperty("imported").GetBoolean());
+        Assert.Equal(2, choice.GetProperty("sources").GetArrayLength());
+        Assert.DoesNotContain(ambiguous.Key, choice.GetRawText());
+        Assert.False(Data(ambiguous.Invoke("settings.get", new { })).GetProperty("hasKey").GetBoolean());
+    }
+
+    [Fact]
+    public async Task SyntheticEndpoint_ActuallyLoadsWithoutInitializing()
+    {
+        await using var fixture = await Fixture.Create();
+        var data = Path.Combine(fixture.DirectoryPath, "Game_Data");
+        await BuildSyntheticPlugins(data);
+        var managed = Path.Combine(data, "Managed");
+        var translators = Path.Combine(managed, "Translators");
+        var script = Path.Combine(fixture.DirectoryPath, "verify.ps1");
+        // This diagnostic helper only sees synthetic assemblies; it never reads any configuration or key.
+        File.WriteAllText(script, UnityTranslationPayload.VerifyScript.Replace("catch { exit 1 }", "catch { Write-Output $_.Exception.ToString(); exit 1 }"));
+        var start = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32", "WindowsPowerShell", "v1.0", "powershell.exe"))
+        { UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden, RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (var arg in new[] { "-NoProfile", "-NonInteractive", "-File", script, managed, managed, translators, Path.Combine(translators, "DeepSeekTranslate.dll") }) start.ArgumentList.Add(arg);
+        using var process = Process.Start(start)!;
+        var output = process.StandardOutput.ReadToEndAsync();
+        var error = process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(45));
+        Assert.True(process.ExitCode == 0, await output + await error);
+    }
+
+    [Fact]
+    public async Task ExistingSyntheticRei_ConfiguresOffline_PreservesVersionsAndProfile_RestoresAndRetries()
+    {
+        await using var fixture = await Fixture.Create();
+        var game = fixture.AddGame("synthetic");
+        var exe = Path.Combine(game.RootPath, "Game.exe");
+        File.WriteAllText(exe, "never execute this game");
+        var data = Path.Combine(game.RootPath, "Game_Data");
+        await BuildSyntheticPlugins(data);
+        var profile = fixture.Host.Launches.AddProfile(game.GameId, exe, [], game.RootPath, isDefault: true);
+        var core = Path.Combine(data, "Managed", "XUnity.AutoTranslator.Plugin.Core.dll");
+        var endpoint = Path.Combine(data, "Managed", "Translators", "DeepSeekTranslate.dll");
+        var coreBefore = File.ReadAllBytes(core);
+        var endpointBefore = File.ReadAllBytes(endpoint);
+        var config = Path.Combine(game.RootPath, "AutoTranslator", "Config.ini");
+        Directory.CreateDirectory(Path.GetDirectoryName(config)!);
+        File.WriteAllText(config, "[OtherMod]\nUntouched=keep\n[DeepSeek]\nModel=existing-model\n");
+        var originalConfig = File.ReadAllBytes(config);
+        Assert.True(fixture.Invoke("settings.set", new { provider = "deepseek", apiKey = fixture.Key }).Ok);
+        await fixture.Host.Jobs.WaitForIdleAsync(); // Setting up the provider queues the existing tagged batch once.
+        var state = fixture.ReadState(game.GameId)!;
+        Assert.True(state.State == "configured", state.Reason);
+        Assert.Equal(coreBefore, File.ReadAllBytes(core));
+        Assert.Equal(endpointBefore, File.ReadAllBytes(endpoint));
+        Assert.Equal(profile, fixture.Host.Launches.GetDefaultProfile(game.GameId));
+        var ini = UnityTranslationIni.Read(config);
+        Assert.Equal("existing-model", ini.Get("DeepSeek", "Model"));
+        Assert.Equal("DeepSeekTranslate", ini.Get("Service", "Endpoint"));
+        Assert.Equal("keep", ini.Get("OtherMod", "Untouched"));
+        Assert.True(TranslationLaunchRouteResolver.Resolve(game with { TranslationInherited = true }, profile).SatisfiedByEmbeddedPlugin);
+        Assert.DoesNotContain(fixture.Key, fixture.PersistedSettings());
+        Assert.DoesNotContain(fixture.Key, JsonSerializer.Serialize(fixture.Host.Jobs.TryGetProgress(state.JobId!), ContractJson.Options));
+        Assert.Empty(fixture.Host.Launches.History());
+        Assert.True(fixture.Invoke("restore", new { gameId = game.GameId }).Ok);
+        Assert.Equal(originalConfig, File.ReadAllBytes(config));
+        Assert.Equal(coreBefore, File.ReadAllBytes(core));
+        var retry = fixture.Invoke("configure", new { gameIds = new[] { game.GameId } });
+        Assert.True(retry.Ok, retry.Error?.Message);
+        await fixture.Host.Jobs.WaitForIdleAsync();
+        Assert.Equal("configured", fixture.ReadState(game.GameId)!.State);
+        Assert.NotEqual(state.AttemptId, fixture.ReadState(game.GameId)!.AttemptId);
+    }
+
+    [Fact]
+    public async Task DataDirectoryExe_DisabledOldDoorstopDoesNotConflictWithRei()
+    {
+        await using var fixture = await Fixture.Create();
+        var game = fixture.AddGame("nested");
+        var data = Path.Combine(game.RootPath, "Game_Data");
+        await BuildSyntheticPlugins(data);
+        var exe = Path.Combine(data, "Game.exe");
+        File.WriteAllText(exe, "never execute");
+        Directory.CreateDirectory(Path.Combine(data, "BepInEx"));
+        File.WriteAllText(Path.Combine(data, "winhttp.dll"), "inactive-loader");
+        File.WriteAllText(Path.Combine(data, "doorstop_config.ini"), "[UnityDoorstop]\nenabled=false\n");
+        var layout = UnityTranslationInspection.Inspect(exe);
+        Assert.Equal("rei", layout.Loader);
+        Assert.Null(layout.Reason);
+        Assert.Equal(Path.Combine(game.RootPath, "AutoTranslator", "Config.ini"), layout.Config);
+        var profile = fixture.Host.Launches.AddProfile(game.GameId, exe, [], data, isDefault: true);
+        Assert.True(TranslationLaunchRouteResolver.Resolve(game with { TranslationInherited = true }, profile).SatisfiedByEmbeddedPlugin);
+        File.WriteAllText(Path.Combine(data, "doorstop_config.ini"), "[UnityDoorstop]\nenabled=true\n");
+        Assert.Equal("conflict", UnityTranslationInspection.Inspect(exe).Loader);
+        Assert.False(TranslationLaunchRouteResolver.Resolve(game with { TranslationInherited = true }, profile).SatisfiedByEmbeddedPlugin);
+    }
+
+    [Fact]
+    public async Task TagRevokedDuringPreparation_PreventsPluginConfiguration()
+    {
+        await using var fixture = await Fixture.Create();
+        var game = fixture.AddGame("revoked-tag");
+        var exe = Path.Combine(game.RootPath, "Game.exe");
+        File.WriteAllText(exe, "never execute");
+        await BuildSyntheticPlugins(Path.Combine(game.RootPath, "Game_Data"));
+        fixture.Host.Launches.AddProfile(game.GameId, exe, [], game.RootPath, isDefault: true);
+        var config = Path.Combine(game.RootPath, "AutoTranslator", "Config.ini");
+        fixture.Host.Events.OnPublished = (_, _) =>
+        {
+            var current = fixture.ReadState(game.GameId);
+            if (current?.State == "inspecting") fixture.Store.UnassignTag(game.GameId, fixture.TagId);
+        };
+        Assert.True(fixture.Invoke("settings.set", new { apiKey = fixture.Key }).Ok);
+        await fixture.Host.Jobs.WaitForIdleAsync();
+        Assert.Equal("blocked", fixture.ReadState(game.GameId)!.State);
+        Assert.Contains("准备期间已改变", fixture.ReadState(game.GameId)!.Reason);
+        Assert.False(File.Exists(config));
+    }
+
+    [Fact]
+    public async Task FailedEndpointLoad_RollsBackBeforePublishingConfigured()
+    {
+        await using var fixture = await Fixture.Create();
+        var game = fixture.AddGame("rollback");
+        var exe = Path.Combine(game.RootPath, "Game.exe");
+        File.WriteAllText(exe, "never execute");
+        var data = Path.Combine(game.RootPath, "Game_Data");
+        await BuildSyntheticPlugins(data, invalidEndpoint: true);
+        fixture.Host.Launches.AddProfile(game.GameId, exe, [], game.RootPath, isDefault: true);
+        var config = Path.Combine(game.RootPath, "AutoTranslator", "Config.ini");
+        Directory.CreateDirectory(Path.GetDirectoryName(config)!);
+        File.WriteAllText(config, "[OtherMod]\nKeep=yes\n");
+        var original = File.ReadAllBytes(config);
+        Assert.True(fixture.Invoke("settings.set", new { apiKey = fixture.Key }).Ok);
+        await fixture.Host.Jobs.WaitForIdleAsync();
+        Assert.Equal("failed", fixture.ReadState(game.GameId)!.State);
+        Assert.Equal(original, File.ReadAllBytes(config));
+        Assert.DoesNotContain(fixture.Host.Events.ReadAfter(null, 1000)!, item => item.Type == "unity_translation.configured");
+        Assert.Contains(("user", "未翻译"), fixture.Store.ListGameTags(game.GameId));
+    }
+
+    [Fact]
+    public async Task BatchIsSerial_SecondGameInspectsOnlyAfterFirstConfigures()
+    {
+        await using var fixture = await Fixture.Create();
+        var games = new[] { fixture.AddGame("serial-first"), fixture.AddGame("serial-second") };
+        foreach (var game in games)
+        {
+            var exe = Path.Combine(game.RootPath, "Game.exe");
+            File.WriteAllText(exe, "never execute");
+            await BuildSyntheticPlugins(Path.Combine(game.RootPath, "Game_Data"));
+            fixture.Host.Launches.AddProfile(game.GameId, exe, [], game.RootPath, isDefault: true);
+        }
+        Assert.True(fixture.Invoke("settings.set", new { apiKey = fixture.Key }).Ok);
+        await fixture.Host.Jobs.WaitForIdleAsync();
+        var events = fixture.Host.Events.ReadAfter(null, 1000)!;
+        var firstConfigured = events.Single(item => item.Type == "unity_translation.configured" && item.EntityKey == "game:" + games[0].GameId);
+        var secondInspecting = events.Single(item => item.Type == "unity_translation.updated" && item.EntityKey == "game:" + games[1].GameId
+            && JsonDocument.Parse(item.PayloadJson).RootElement.GetProperty("state").GetString() == "inspecting");
+        Assert.True(firstConfigured.Sequence < secondInspecting.Sequence);
+        Assert.Equal(fixture.ReadState(games[0].GameId)!.JobId, fixture.ReadState(games[1].GameId)!.JobId);
+    }
+
+    [Fact]
+    public async Task CacheHashMismatchFailsClosedWithoutNetwork()
+    {
+        await using var fixture = await Fixture.Create();
+        var cache = Path.Combine(fixture.DirectoryPath, "bad-cache");
+        Directory.CreateDirectory(cache);
+        File.WriteAllBytes(Path.Combine(cache, "DeepSeekTranslate.dll"), [1, 2, 3]);
+        var payload = new UnityTranslationPayload(cache);
+        await Assert.ThrowsAsync<InvalidDataException>(() => payload.EndpointAsync(CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData("il2cpp", "IL2CPP")]
+    [InlineData("conflict", "同时启用")]
+    [InlineData("readonly", "只读")]
+    [InlineData("unknown-endpoint", "无法验证")]
+    public async Task UnsafeExistingGames_LeaveTagAndReasonWithoutChangingFiles(string problem, string reason)
+    {
+        await using var fixture = await Fixture.Create();
+        var game = fixture.AddGame("blocked-" + problem);
+        var exe = Path.Combine(game.RootPath, "Game.exe");
+        File.WriteAllText(exe, "never execute");
+        var data = Path.Combine(game.RootPath, "Game_Data");
+        await BuildSyntheticPlugins(data);
+        fixture.Host.Launches.AddProfile(game.GameId, exe, [], game.RootPath, isDefault: true);
+        var endpoint = Path.Combine(data, "Managed", "Translators", "DeepSeekTranslate.dll");
+        var config = Path.Combine(game.RootPath, "AutoTranslator", "Config.ini");
+        Directory.CreateDirectory(Path.GetDirectoryName(config)!);
+        File.WriteAllText(config, "[OtherMod]\nKeep=yes\n");
+        var original = File.ReadAllBytes(config);
+        if (problem == "il2cpp") File.WriteAllText(Path.Combine(game.RootPath, "GameAssembly.dll"), "il2cpp-marker");
+        if (problem == "conflict")
+        {
+            File.WriteAllText(Path.Combine(game.RootPath, "winhttp.dll"), "active-loader");
+            File.WriteAllText(Path.Combine(game.RootPath, "doorstop_config.ini"), "[General]\nenabled=true\n");
+        }
+        if (problem == "readonly") File.SetAttributes(config, FileAttributes.ReadOnly);
+        if (problem == "unknown-endpoint") File.WriteAllText(endpoint, "another-mod");
+        try
+        {
+            Assert.True(fixture.Invoke("settings.set", new { apiKey = fixture.Key }).Ok);
+            await fixture.Host.Jobs.WaitForIdleAsync();
+            var state = fixture.ReadState(game.GameId)!;
+            Assert.Equal("blocked", state.State);
+            Assert.Contains(reason, state.Reason);
+            Assert.Equal(original, File.ReadAllBytes(config));
+            Assert.Contains(("user", "未翻译"), fixture.Store.ListGameTags(game.GameId));
+        }
+        finally { File.SetAttributes(config, FileAttributes.Normal); }
+    }
+
+    [Fact]
+    public void RunningDetection_RecognizesCurrentProcessWithoutLaunchingAnything()
+    {
+        using var current = Process.GetCurrentProcess();
+        Assert.True(UnityTranslationInspection.IsRunning(current.MainModule!.FileName));
+    }
+
+    [Fact]
+    public async Task Configure_InvalidGameAndMissingKeyKeepTag_QueueRejectsDuplicateActiveAttempt()
+    {
+        await using var fixture = await Fixture.Create();
+        var game = fixture.AddGame("unknown");
+        var response = fixture.Invoke("configure", new { gameIds = new[] { game.GameId } });
+        Assert.True(response.Ok);
+        await fixture.Host.Jobs.WaitForIdleAsync();
+        Assert.Equal("blocked", fixture.ReadState(game.GameId)!.State);
+        Assert.Contains(("user", "未翻译"), fixture.Store.ListGameTags(game.GameId));
+        fixture.WriteState(fixture.ReadState(game.GameId)! with { State = "installing" });
+        Assert.False(fixture.Invoke("configure", new { gameIds = new[] { game.GameId } }).Ok);
+    }
+
+    private static JsonElement Data(Envelope<object> envelope) => JsonSerializer.SerializeToElement(envelope.Data, ContractJson.Options);
+
+    private static async Task BuildSyntheticPlugins(string data, bool invalidEndpoint = false)
+    {
+        var managed = Path.Combine(data, "Managed");
+        var translators = Path.Combine(managed, "Translators");
+        Directory.CreateDirectory(translators);
+        var script = Path.Combine(data, "synthetic.ps1");
+        var source = """
+            param($managed, $translators)
+            $ErrorActionPreference='Stop'
+            try {
+              $core=Join-Path $managed 'XUnity.AutoTranslator.Plugin.Core.dll'
+              Add-Type -TypeDefinition 'namespace XUnity.AutoTranslator.Plugin.Core { public static class PluginLoader { public static void LoadThroughBootstrapper() {} } namespace Endpoints { public interface ITranslateEndpoint { void Initialize(); void Translate(); } } }' -OutputAssembly $core
+              Add-Type -TypeDefinition 'namespace UnityEngine { public class Input { static Input() { XUnity.AutoTranslator.Plugin.Core.PluginLoader.LoadThroughBootstrapper(); } } public class Display { static Display() {} } }' -ReferencedAssemblies $core -OutputAssembly (Join-Path $managed 'UnityEngine.CoreModule.dll')
+              Add-Type -TypeDefinition 'public class DummyGame {}' -OutputAssembly (Join-Path $managed 'Assembly-CSharp.dll')
+              Add-Type -TypeDefinition 'namespace DeepSeekTranslate { public class DeepSeekTranslateEndpoint : XUnity.AutoTranslator.Plugin.Core.Endpoints.ITranslateEndpoint { public void Initialize() { throw new System.Exception("Must never run"); } public void Translate() { throw new System.Exception("Must never run"); } } }' -ReferencedAssemblies $core -OutputAssembly (Join-Path $translators 'DeepSeekTranslate.dll')
+              exit 0
+            } catch { exit 1 }
+            """;
+        if (invalidEndpoint) source = source.Replace(" : XUnity.AutoTranslator.Plugin.Core.Endpoints.ITranslateEndpoint", "");
+        File.WriteAllText(script, source);
+        var start = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32", "WindowsPowerShell", "v1.0", "powershell.exe"))
+        { UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden };
+        foreach (var arg in new[] { "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script, managed, translators }) start.ArgumentList.Add(arg);
+        using var process = Process.Start(start)!;
+        await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.Equal(0, process.ExitCode);
+    }
+
+    private sealed class Fixture : IAsyncDisposable
+    {
+        public string DirectoryPath { get; } = Path.Combine(Path.GetTempPath(), "GameLibrary-UnityTests-" + Guid.NewGuid().ToString("N"));
+        public string VaultBase => Path.Combine(DirectoryPath, "vault");
+        public string Key { get; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
+        public string TagId { get; } = "tag-untranslated";
+        public SqliteLibraryStore Store => Host.Library.Store!;
+        public HostRuntimeState Host { get; private set; } = null!;
+        public UnityTranslationService Service { get; private set; } = null!;
+        public static async Task<Fixture> Create()
+        {
+            var fixture = new Fixture();
+            Directory.CreateDirectory(fixture.DirectoryPath);
+            var data = Path.Combine(fixture.DirectoryPath, "data");
+            var opened = await SqliteLibraryStore.InitializeAsync(data, new SqliteLibraryStoreOptions { AppVersion = "test", ApiVersion = ApiConstants.ApiVersion }, CancellationToken.None);
+            Assert.True(opened.IsOpened, opened.Detail);
+            var metrics = new HostMetrics();
+            fixture.Host = new()
+            {
+                Identity = new(),
+                DataDirectory = data,
+                Library = new() { Status = LibraryOpenStatus.Opened, Store = opened.Store },
+                Jobs = new(),
+                Candidates = new(),
+                Launches = new(),
+                Roots = new(),
+                Events = new(opened.Store),
+                Metrics = metrics,
+                AuditLog = new(Path.Combine(fixture.DirectoryPath, "logs"))
+            };
+            fixture.Host.Roots.Add(fixture.DirectoryPath);
+            fixture.Store.CreateTag(new(fixture.TagId, "user", "未翻译", null, 1, 0, DateTime.UtcNow, DateTime.UtcNow));
+            fixture.RestartService();
+            return fixture;
+        }
+        public void RestartService() => Host.UnityTranslations = Service = new(Host, new UnityTranslationPayload(Path.Combine(DirectoryPath, "empty-cache")), VaultBase);
+        public GameCard AddGame(string name)
+        {
+            var root = Path.Combine(DirectoryPath, "games", name);
+            Directory.CreateDirectory(root);
+            var game = new GameCard
+            {
+                GameId = "game-" + name,
+                Title = name,
+                RootPath = root,
+                Engine = "Unity",
+                Kind = "game",
+                Membership = "active",
+                AcceptedUtc = DateTime.UtcNow,
+                UpdatedUtc = DateTime.UtcNow
+            };
+            Store.InsertGame(game);
+            Store.AssignTag(game.GameId, TagId, DateTime.UtcNow);
+            return game;
+        }
+        public UnityTranslationState? ReadState(string gameId) => UnityTranslationPersistence.Read<UnityTranslationState>(Store, UnityTranslationPersistence.StatePrefix + gameId);
+        public void WriteState(UnityTranslationState state) => UnityTranslationPersistence.Write(Store, UnityTranslationPersistence.StatePrefix + state.GameId, state);
+        public Envelope<object> Invoke(string suffix, object parameters) => Service.Handle(new IpcRequest
+        { RequestId = Guid.NewGuid().ToString("N"), OperationId = "unity_translation." + suffix, Parameters = JsonSerializer.SerializeToElement(parameters, ContractJson.Options) });
+        public string PersistedSettings() => Store.ReadExclusive((connection, _) =>
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT value FROM app_settings";
+            using var reader = command.ExecuteReader();
+            var values = new List<string>();
+            while (reader.Read()) values.Add(reader.GetString(0));
+            return string.Join("\n", values);
+        });
+        public async ValueTask DisposeAsync()
+        {
+            await Host.Jobs.WaitForIdleAsync();
+            await Store.DisposeAsync();
+            Directory.Delete(DirectoryPath, recursive: true);
+        }
+    }
+}

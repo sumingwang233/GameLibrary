@@ -7,6 +7,7 @@ import { ChevronDown, ChevronUp, Palette, Pencil, Plus, RotateCcw, Star, Trash2 
   isHexColor,
   tagCategory,
   tagLabel,
+  tagStyle,
   type TagCategoryValue,
 } from "../lib/tags";
 import type { TagItem } from "../lib/types";
@@ -109,7 +110,7 @@ export function TagsPanel({
   const setStarRating = (tag: TagItem, rating: number) =>
     void run(tag.tagId, () => onUpdate(tag, { starred: (tag.starred ?? 0) === rating ? 0 : rating }));
 
-  const applyColor = (tag: TagItem, color: string) =>
+  const applyColor = (tag: TagItem, color: string | null) =>
     void run(tag.tagId, async () => {
       await onUpdate(tag, { color });
       setColorEditing(null);
@@ -277,13 +278,9 @@ export function TagsPanel({
                       </>
                     ) : (
                       <>
-                        <span
-                          aria-hidden="true"
-                          className="size-3 shrink-0 rounded-full border border-border"
-                          style={{ backgroundColor: tag.color ?? "transparent" }}
-                        />
-                        <span className="min-w-0 flex-1 truncate text-sm text-text-primary" title={tag.name === tagLabel(tag) ? undefined : t("身份键：{0}", tag.name)}>
-                          {tagLabel(tag)}
+                        <span className="flex min-w-0 flex-1 items-center gap-2 rounded px-1" style={tagStyle(tag)}>
+                          <span aria-hidden="true" className="size-3 shrink-0 rounded-full bg-current" />
+                          <span className="truncate text-sm" title={tag.name === tagLabel(tag) ? undefined : t("身份键：{0}", tag.name)}>{tagLabel(tag)}</span>
                         </span>
                         <span className="shrink-0 text-xs text-text-secondary">
                           {tag.gameCount ? t("{0} 个游戏", tag.gameCount.toLocaleString()) : ""}
@@ -406,7 +403,7 @@ function TagColorPopover({
   tag: TagItem;
   busy: boolean;
   onClose: () => void;
-  onApply: (color: string) => void;
+  onApply: (color: string | null) => void;
 }) {
   const [draft, setDraft] = useState(tag.color ?? "#38bdf8");
   const valid = isHexColor(draft);
@@ -419,6 +416,7 @@ function TagColorPopover({
         onClick={onClose}
       />
       <div className="absolute top-full right-2 z-20 mt-1 w-64 rounded-md border border-border bg-panel p-3 shadow-2xl">
+        <Button size="sm" variant="outline" className="mb-2 w-full" disabled={busy} onClick={() => onApply(null)}>{t("默认（无自定义颜色）")}</Button>
         <div className="grid grid-cols-5 gap-2">
           {TAG_PALETTE.map((color) => (
             <button

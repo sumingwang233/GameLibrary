@@ -26,7 +26,8 @@ public static class OperationSchemas
             {
                 properties[spec.Name] = new Dictionary<string, object>
                 {
-                    ["type"] = MapType(spec.Type),
+                    ["type"] = operationId == "tags.update" && spec.Name == "color"
+                        ? new[] { "string", "null" } : (object)MapType(spec.Type),
                     ["description"] = spec.Description,
                 };
                 if (spec.Required)
@@ -35,7 +36,7 @@ public static class OperationSchemas
                 }
             }
 
-            return WriteSchema(properties, required, "操作输入参数对象");
+            return WriteSchema(properties, required, "操作输入参数对象", operationId);
         }
 
         return WriteSchema([], [], "该操作的输入 schema 尚未结构化登记；当前接受自由键值对");
@@ -72,7 +73,7 @@ public static class OperationSchemas
         _ => "string",
     };
 
-    private static JsonElement WriteSchema(Dictionary<string, object> properties, List<string> required, string description)
+    private static JsonElement WriteSchema(Dictionary<string, object> properties, List<string> required, string description, string? operationId = null)
     {
         var payload = new Dictionary<string, object>
         {
@@ -86,6 +87,8 @@ public static class OperationSchemas
         {
             payload["required"] = required;
         }
+        if (operationId == "assets.import")
+            payload["oneOf"] = new[] { new { required = new[] { "sourcePath" } }, new { required = new[] { "imageBase64" } } };
 
         return JsonSerializer.SerializeToElement(payload);
     }

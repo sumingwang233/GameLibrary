@@ -29,8 +29,9 @@ public sealed partial class SqliteLibraryStore
         string? displayName,
         bool clearDisplayName,
         int expectedRevision,
-        DateTime utcNow)
-        => Execute((c, _) => TagStore.UpdateTag(c, tagId, name, color, category, sortOrder, starred, displayName, clearDisplayName, expectedRevision, utcNow));
+        DateTime utcNow,
+        bool clearColor = false)
+        => Execute((c, _) => TagStore.UpdateTag(c, tagId, name, color, category, sortOrder, starred, displayName, clearDisplayName, expectedRevision, utcNow, clearColor));
 
     public IReadOnlyList<string> RemoveTag(string tagId)
         => Execute((c, _) => TagStore.RemoveTag(c, tagId));

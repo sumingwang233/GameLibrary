@@ -37,7 +37,7 @@ public sealed class OperationCatalogTests
             ["roots"] = ["list", "get", "add", "update", "remove", "rebind"],
             ["rules"] = ["list", "get", "create", "update", "remove", "preview"],
             ["scan"] = ["start", "status", "pause", "resume", "cancel", "coverage", "inspect"],
-            ["candidates"] = ["list", "get", "accept", "defer", "ignore"],
+            ["candidates"] = ["list", "get", "inspect", "accept", "defer", "ignore"],
             ["ignores"] = ["list", "get", "create", "update", "remove"],
             ["games"] = ["list", "get", "create", "update", "remove", "relink"],
             ["fields"] = ["set", "clear", "reset"],
@@ -46,6 +46,7 @@ public sealed class OperationCatalogTests
             ["assets"] = ["list", "get", "import", "choose", "crop", "reset", "remove"],
             ["profiles"] = ["list", "get", "create", "update", "remove", "set_default", "validate"],
             ["translation"] = ["get", "set"],
+            ["unity_translation"] = ["settings.get", "settings.set", "settings.import", "status", "pending", "configure", "confirm", "restore"],
             ["titles"] = ["translate", "set_display", "set_translated"],
             ["tools"] = ["list", "get", "discover", "register", "update", "remove", "capabilities"],
             ["verification"] = ["start", "get", "list", "report", "invalidate"],
@@ -69,7 +70,7 @@ public sealed class OperationCatalogTests
             .GroupBy(item => item.OperationId.Split('.')[0], StringComparer.Ordinal)
             .ToDictionary(
                 group => group.Key,
-                group => group.Select(item => item.OperationId.Split('.')[1]).Order().ToArray(),
+                group => group.Select(item => item.OperationId[(item.OperationId.IndexOf('.') + 1)..]).Order().ToArray(),
                 StringComparer.Ordinal);
 
         foreach (var (ns, verbs) in RequiredMatrix)
@@ -89,14 +90,14 @@ public sealed class OperationCatalogTests
         foreach (var (operationId, op) in Operations())
         {
             var parts = operationId.Split('.');
-            Assert.Equal(2, parts.Length);
+            Assert.True(parts.Length == 2 || parts.Length == 3 && parts[0] == "unity_translation" && parts[1] == "settings");
 
             Assert.Equal(operationId.Replace('.', '_'), op.GetProperty("mcpTool").GetString());
 
             var cli = op.GetProperty("cli");
             Assert.Equal(2, cli.GetArrayLength());
-            Assert.Equal(parts[0], cli[0].GetString());
-            Assert.Equal(parts[1].Replace('_', '-'), cli[1].GetString());
+            Assert.Equal(parts[0] == "unity_translation" ? "unity-translation" : parts[0], cli[0].GetString());
+            Assert.Equal(string.Join('-', parts.Skip(1)).Replace('_', '-'), cli[1].GetString());
         }
     }
 
