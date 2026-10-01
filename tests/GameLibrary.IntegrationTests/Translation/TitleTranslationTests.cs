@@ -48,6 +48,13 @@ public sealed class TitleTranslationTests
     }
 
     private static HttpResponseMessage Json(string value) => new(HttpStatusCode.OK) { Content = new StringContent(value) };
+    private static HttpResponseMessage TitleResponse(HttpRequestMessage request, string original, string translated)
+    {
+        object response = request.Method == HttpMethod.Post
+            ? new[] { new { translations = new[] { new { text = translated, to = "zh-Hans" } } } }
+            : new object[] { new object[] { new[] { translated, original } } };
+        return Json(JsonSerializer.Serialize(response));
+    }
     private const string Bing = """[{"translations":[{"text":"夏日回忆","to":"zh-Hans"}]}]""";
     private static GameCard Game(string id, string title = "Summer memories") => new()
     {
@@ -60,7 +67,7 @@ public sealed class TitleTranslationTests
         UpdatedUtc = DateTime.UtcNow,
     };
     private static string DataDir() => Path.Combine("D:/Official/GameLibrary/artifacts/test-runs", "titles-" + Guid.NewGuid().ToString("N"));
-    private static SqliteLibraryStoreOptions Options => new() { AppVersion = "1.7.0-test", ApiVersion = "1" };
+    private static SqliteLibraryStoreOptions Options => new() { AppVersion = "1.7.1-test", ApiVersion = "1" };
 
     [Fact]
     public async Task Providers_ParseSegments_Autodetect_AndSendOnlyTitle()
@@ -87,6 +94,60 @@ public sealed class TitleTranslationTests
         Assert.Equal("bing", bing.Provider);
         Assert.Equal(2, requests.Count);
         Assert.DoesNotContain(requests, uri => uri.Contains("title-test"));
+    }
+
+    [Theory]
+    [InlineData("カノジョの性癖 -盗聴×妄想-", "女友的癖好——偷听×妄想——", "女友的癖好：偷听×妄想")]
+    [InlineData("カノジョの性癖 -盗聴×妄想-", "女友的癖好 —— 偷听×妄想 ——", "女友的癖好：偷听×妄想")]
+    [InlineData("Title -Subtitle-", "主标题———副标题———", "主标题：副标题")]
+    [InlineData("-Subtitle-", "——副标题——", "副标题")]
+    [InlineData("Title -Subtitle", "主标题——副标题", "主标题：副标题")]
+    [InlineData("Title -Subtitle-", "主标题—副标题—", "主标题—副标题—")]
+    [InlineData("Title -Subtitle-", "主标题：副标题", "主标题：副标题")]
+    [InlineData("Title — Subtitle", "主标题——副标题——", "主标题——副标题——")]
+    [InlineData("-Subtitle-", "—— ——", null)]
+    public async Task Providers_NormalizeHyphenSubtitleDashes_BeforeReturning(string original, string translated, string? expected)
+    {
+        using var http = new HttpClient(new Handler((request, _) => Task.FromResult(TitleResponse(request, original, translated))));
+        var client = new TitleTranslationClient(http);
+        var result = await client.TranslateAsync(original, "google", CancellationToken.None);
+        Assert.Equal(expected, result.Title);
+        if (expected is null)
+        {
+            Assert.Equal("invalidResponse", result.Error);
+            return;
+        }
+        Assert.Equal(expected, (await client.TranslateAsync(original, "bing", CancellationToken.None)).Title);
+    }
+
+    [Fact]
+    public async Task Job_NormalizesSingleAndBatchTitles_PreservesOriginalAndManualAlias()
+    {
+        const string original = "カノジョの性癖 -盗聴×妄想-";
+        const string translated = "女友的癖好——偷听×妄想——";
+        using var http = new HttpClient(new Handler((request, _) => Task.FromResult(TitleResponse(request, original, translated))));
+        await using var fixture = new PipeServerFixture(new TitleTranslationClient(http));
+        var store = fixture.State.Library.Store!;
+        store.InsertGame(Game("a", original)); store.InsertGame(Game("b", original));
+        var dispatcher = new OperationDispatcher(fixture.State);
+        Assert.True(Invoke(dispatcher, "titles.translate", new { gameIds = new[] { "a" }, idempotencyKey = "dash-single" }).Ok);
+        await fixture.State.Jobs.WaitForIdleAsync();
+        Assert.True(Invoke(dispatcher, "titles.translate", new { gameIds = new[] { "a", "b" }, idempotencyKey = "dash-batch" }).Ok);
+        await fixture.State.Jobs.WaitForIdleAsync();
+        foreach (var id in new[] { "a", "b" })
+        {
+            var game = Data(Invoke(dispatcher, "games.get", new { gameId = id }));
+            Assert.Equal(original, game.GetProperty("originalTitle").GetString());
+            Assert.Equal("女友的癖好：偷听×妄想", game.GetProperty("title").GetString());
+        }
+        Assert.True(Invoke(dispatcher, "titles.set_translated", new
+        {
+            gameId = "a",
+            title = translated,
+            expectedRevision = 2,
+            idempotencyKey = "dash-manual",
+        }).Ok);
+        Assert.Equal(translated, store.ReadTitleTranslation("a")!.TranslatedTitle);
     }
 
     [Fact]

@@ -1,6 +1,6 @@
 # GameLibrary 关键流程
 
-## 名称翻译 — v1.7.0 未发布
+## 名称翻译 — v1.7.1 待验收预发布
 
 ```mermaid
 flowchart TD
@@ -8,7 +8,8 @@ flowchart TD
     Gate --> Job[JobManager titleTranslation / 库会话租约]
     Job --> Read[读取原文及 revision / 默认跳过已有译名]
     Read --> HTTP[Google / Bing 共享限速与故障切换]
-    HTTP --> CAS[active + revision + 原文一致时保存]
+    HTTP --> Normalize[原文含连字符时 / 连续长破折号收为冒号 / 移除首尾包围符]
+    Normalize --> CAS[active + revision + 原文一致时保存]
     CAS --> Alias[(schema 26 译名表 / 原文不变)]
     Alias --> Progress[jobs.get 进度及逐 ID patch]
     Progress --> Cards[更新显示名称 / 保持勾选与已加载页]
@@ -18,6 +19,8 @@ flowchart TD
 ```
 
 新流程独立于启动工具 `translation.*`。详情未保存输入保持编辑目标；原文与译名同时可搜，按显示名称排序；HTTP 期间不持 SQLite 锁。实现边界、失败分类及回滚见 [名称翻译](../title-translation.md)。现有维护门仍拒绝活动作业，用户取消翻译完成后可恢复备份。
+
+v1.7.1 在两个提供商共享的 `TitleTranslationClient.TranslateAsync` 成功路径处理标点，位于校验和保存之前；单个 / 批量作业、CLI / MCP 同时生效。手动 `titles.set_translated` 不经过此清理，原文不改，schema 仍为26。旧译名默认跳过，用户重新翻译时应用新规则。
 
 2026-09-30 更新。以下流程结合当前源码、code-review-graph 和回归验证；详细检查见 [优化实施记录](optimization-implementation.md)。
 

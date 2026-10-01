@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace GameLibrary.Host.Hosting;
 
@@ -64,6 +65,11 @@ public sealed class TitleTranslationClient(HttpClient http, TimeProvider? timePr
                     using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(linked.Token));
                     var translated = ParseResponse(json.RootElement, provider).Trim();
                     if (translated.Length is < 1 or > 4000) throw new JsonException("Invalid translated title");
+                    if (title.Contains('-') && translated.Contains("——", StringComparison.Ordinal))
+                    {
+                        translated = string.Join('：', Regex.Split(translated, @"\s*—{2,}\s*").Where(part => part.Length > 0));
+                        if (translated.Length == 0) throw new JsonException("Invalid translated title");
+                    }
                     return new(translated, provider == 0 ? "google" : "bing", null);
                 }
                 catch (OperationCanceledException) when (!token.IsCancellationRequested)

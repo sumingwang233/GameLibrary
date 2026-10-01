@@ -6,9 +6,9 @@
 
 | 项目 | 结果 |
 |---|---|
-| 图谱基线 | `49fc57d` + v1.7.0 工作区，2026-10-01 |
+| 图谱基线 | `d38c403` + v1.7.1 工作区，2026-10-01 |
 | 源码文件 | 341 |
-| 节点 / 边 | 3,118 / 25,471 |
+| 节点 / 边 | 3,121 / 25,510 |
 | 执行流 | 175 |
 | 解析错误 | 0 |
 | 验证环境 | .NET SDK 10.0.401；global.json 未修改 |
@@ -22,6 +22,8 @@ v1.7.0 待验收预发布新增 [名称翻译](../title-translation.md)；本次
 - [architecture.md](architecture.md)：社区、依赖边界、架构图和高耦合告警。
 - [flows.md](flows.md)：Host 启动、桌面连接、扫描、事件轮询和启动游戏流程图。
 - `.code-review-graph/wiki/index.md`：插件生成的社区 Wiki（本机生成目录，默认被 `.code-review-graph/.gitignore` 忽略）。
+
+v1.7.1 修改前查询最小上下文，修改后增量重建及影响复核，解析错误 0。公共 `TitleTranslationClient` 校验 Google/Bing 结果后收紧由 ASCII 连字符生成的连续长破折号，再交给原有 CAS 保存；手工译名路径不变。翻译专项22项通过，正式打包检查与发布证据见 [v1.7.1 验证记录](../releases/v1.7.1-validation.md)。
 
 ## 刷新流程
 

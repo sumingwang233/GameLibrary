@@ -87,11 +87,13 @@ The installer provides a wizard, Start menu entries and uninstallation registrat
 </details>
 
 <details>
-<summary><strong>Current source: v1.7.0, acceptance pre-release</strong></summary>
+<summary><strong>Current source: v1.7.1, unreleased</strong></summary>
 
 v1.6.1 adds suggested launch profiles, Chinese entry preference, automatic default promotion after trial verification, and manual recovery of clearly failed entries. It also updates card playtime, the titlebar theme shortcut and Windows taskbar icon. These changes are not in the stable v1.5.5 downloads above. See the [v1.6.1 notes](docs/releases/v1.6.1.md) for changes and acceptance status.
 
 v1.7.0 adds [game title translation](docs/title-translation.md) with free Google/Bing engines requiring no key, batch progress and cancellation, and persistent original/Chinese title switching. It also fixes playtime below titles in both layouts. Try these features with the [v1.7.0 pre-release packages](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.0); the [validation record](docs/releases/v1.7.0-validation.md) lists pending manual acceptance. Stable downloads above remain at v1.5.5.
+
+v1.7.1 fixes subtitle punctuation in translations: when the original contains `-`, repeated em dashes become `：` and surrounding dashes are removed. Retranslate existing titles in details to apply the fix; original and manually edited titles are preserved.
 </details>
 
 <details>
