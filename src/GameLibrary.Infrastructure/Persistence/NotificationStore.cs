@@ -37,13 +37,39 @@ public static class NotificationStore
         SqliteConnection connection, DateTime utcNow)
     {
         var pendingCandidateIds = ListCandidatesInReview(connection);
+        var pendingSet = pendingCandidateIds.ToHashSet(StringComparer.Ordinal);
+        var batches = ListBatches(connection, state: null).ToList();
+        NotificationBatch? refreshed = null;
+        for (var index = 0; index < batches.Count; index++)
+        {
+            var currentBatch = batches[index];
+            if (currentBatch.State != "pending" || currentBatch.Kind != "candidatesReady") continue;
+            var remaining = currentBatch.CandidateIds.Where(pendingSet.Contains).ToArray();
+            if (remaining.Length == currentBatch.CandidateIds.Count) continue;
+            if (remaining.Length == 0)
+            {
+                // 自动关闭空提醒，保留已关闭批的历史详情。
+                using var close = connection.CreateCommand();
+                close.CommandText = "UPDATE notification_batches SET state='acknowledged', updated_utc=$now WHERE notification_id=$id AND state='pending'";
+                close.Parameters.AddWithValue("$id", currentBatch.NotificationId);
+                close.Parameters.AddWithValue("$now", utcNow.ToString("O", CultureInfo.InvariantCulture));
+                close.ExecuteNonQuery();
+                batches[index] = currentBatch with { State = "acknowledged", UpdatedUtc = utcNow };
+            }
+            else
+            {
+                var title = $"发现 {remaining.Length} 个新游戏候选";
+                UpdateBatch(connection, currentBatch.NotificationId, remaining, title, utcNow);
+                refreshed = batches[index] = currentBatch with { CandidateIds = remaining, Title = title, UpdatedUtc = utcNow };
+            }
+        }
         if (pendingCandidateIds.Count == 0)
         {
             return null;
         }
 
         var covered = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var existing in ListBatches(connection, state: null))
+        foreach (var existing in batches)
         {
             foreach (var id in existing.CandidateIds)
             {
@@ -54,11 +80,10 @@ public static class NotificationStore
         var newIds = pendingCandidateIds.Where(id => !covered.Contains(id)).ToList();
         if (newIds.Count == 0)
         {
-            return null;
+            return refreshed is null ? null : (refreshed, false);
         }
 
-        var existingPending = ListBatches(connection, "pending")
-            .FirstOrDefault(b => b.Kind == "candidatesReady");
+        var existingPending = batches.FirstOrDefault(b => b.State == "pending" && b.Kind == "candidatesReady");
         if (existingPending is not null)
         {
             var merged = existingPending.CandidateIds.Concat(newIds).Distinct().ToList();

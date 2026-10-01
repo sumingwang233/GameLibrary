@@ -33,82 +33,111 @@ public static class ScanCandidatePersistence
         }
 
         var utcNow = DateTime.UtcNow;
-        foreach (var candidate in collector.Candidates)
+        var publications = new List<(string Type, string Key, object Payload)>();
+        void Publish(string type, string key, object payload) => publications.Add((type, key, payload));
+        store.InTransaction(() =>
         {
-            // 合集是目录结构信息，不是可启动的游戏，不能进入待添加列表。
-            if (candidate.Kind == GameLibrary.Domain.States.CandidateKind.Container
-                || GameLibrary.Infrastructure.Scanning.DirectoryWalker.IsSystemDirectory(candidate.PhysicalPath))
+            var regroupRoots = store.ListLegacyFlashScanRoots();
+            var existingGames = store.ListGames();
+            var candidateLookup = store.ListCandidates().ToLookup(item => item.PhysicalPath, StringComparer.OrdinalIgnoreCase);
+            var storedFlashDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var candidate in collector.Candidates)
             {
-                continue;
-            }
-
-            if (store.IsSuppressedByIgnoreRule(candidate.PhysicalPath, null))
-            {
-                continue;
-            }
-
-            var payloadJson = WithHints(
-                store,
-                JsonSerializer.Serialize(candidate.ToDetail(), GameLibrary.Contracts.ContractJson.Options),
-                candidate.PhysicalPath);
-
-            var persisted = new PersistedCandidate
-            {
-                CandidateId = candidate.CandidateId,
-                JobId = jobId,
-                Kind = ToCamel(candidate.Kind.ToString()),
-                RelativePath = candidate.RelativePath,
-                PhysicalPath = candidate.PhysicalPath,
-                PayloadJson = payloadJson,
-                ReviewState = readyForReview ? "pendingReview" : "observed",
-                ObservedUtc = candidate.ObservedUtc,
-                UpdatedUtc = utcNow,
-            };
-            var stored = requireRegisteredRoot
-                ? store.UpsertRegisteredCandidate(persisted)
-                : (Stored: true, Existed: store.UpsertCandidate(persisted));
-            if (!stored.Stored)
-            {
-                continue;
-            }
-
-            var existed = stored.Existed;
-            if (existed)
-            {
-                store.PromoteRescannedCandidate(candidate.PhysicalPath, utcNow);
-                events?.Publish("candidate.promoted", $"candidate:{candidate.PhysicalPath}", new
+                // 合集是目录结构信息，不是可启动的游戏，不能进入待添加列表。
+                if (candidate.Kind == GameLibrary.Domain.States.CandidateKind.Container
+                    || GameLibrary.Infrastructure.Scanning.DirectoryWalker.IsSystemDirectory(candidate.PhysicalPath))
                 {
-                    jobId,
-                    candidateId = candidate.CandidateId,
-                    relativePath = candidate.RelativePath,
-                    from = "observed",
-                    to = "pendingReview",
-                }, utcNow);
-            }
-            else
-            {
-                events?.Publish("candidate.discovered", $"candidate:{candidate.PhysicalPath}", new
-                {
-                    jobId,
-                    candidateId = candidate.CandidateId,
-                    relativePath = candidate.RelativePath,
-                    kind = ToCamel(candidate.Kind.ToString()),
-                    reviewState = readyForReview ? "pendingReview" : "observed",
-                }, utcNow);
-            }
-        }
+                    continue;
+                }
 
-        // T18：候选进入 pendingReview 后汇总为通知批（新候选才触发；ack/defer 的旧批不复活）。
-        var notification = store.EnsureCandidateBatch(utcNow);
-        if (notification is not null)
-        {
-            var (batch, created) = notification.Value;
-            events?.Publish(
-                created ? "notification.created" : "notification.updated",
-                $"notification:{batch.NotificationId}",
-                new { notificationId = batch.NotificationId, title = batch.Title, count = batch.CandidateIds.Count },
-                utcNow);
-        }
+                if (store.IsSuppressedByIgnoreRule(candidate.PhysicalPath, null))
+                {
+                    continue;
+                }
+
+                var payloadJson = WithHints(
+                    existingGames,
+                    JsonSerializer.Serialize(candidate.ToDetail(), GameLibrary.Contracts.ContractJson.Options),
+                    candidate.PhysicalPath);
+
+                var persisted = new PersistedCandidate
+                {
+                    CandidateId = candidate.CandidateId,
+                    JobId = jobId,
+                    Kind = ToCamel(candidate.Kind.ToString()),
+                    RelativePath = candidate.RelativePath,
+                    PhysicalPath = candidate.PhysicalPath,
+                    PayloadJson = payloadJson,
+                    ReviewState = readyForReview || candidate.Flash is { RequiresReview: true }
+                        && regroupRoots.Contains(candidate.ScanRoot, StringComparer.OrdinalIgnoreCase)
+                        ? "pendingReview" : "observed",
+                    ObservedUtc = candidate.ObservedUtc,
+                    UpdatedUtc = utcNow,
+                };
+                var stored = requireRegisteredRoot
+                    ? store.UpsertRegisteredCandidate(persisted)
+                    : (Stored: true, Existed: store.UpsertCandidate(persisted));
+                if (!stored.Stored)
+                {
+                    continue;
+                }
+
+                if (candidate.Flash is { } flash) storedFlashDirectories.Add(flash.DirectoryPath);
+
+                var existed = stored.Existed;
+                if (existed)
+                {
+                    store.PromoteRescannedCandidate(candidate.PhysicalPath, utcNow);
+                    Publish("candidate.promoted", $"candidate:{candidate.PhysicalPath}", new
+                    {
+                        jobId,
+                        candidateId = candidate.CandidateId,
+                        relativePath = candidate.RelativePath,
+                        from = "observed",
+                        to = "pendingReview",
+                    });
+                }
+                else
+                {
+                    Publish("candidate.discovered", $"candidate:{candidate.PhysicalPath}", new
+                    {
+                        jobId,
+                        candidateId = candidate.CandidateId,
+                        relativePath = candidate.RelativePath,
+                        kind = ToCamel(candidate.Kind.ToString()),
+                        reviewState = persisted.ReviewState,
+                    });
+                }
+            }
+
+            var roots = requireRegisteredRoot ? store.ReadRoots() : [];
+            foreach (var group in collector.FlashGroups.Where(group => group.Complete
+                && (storedFlashDirectories.Contains(group.DirectoryPath) || !group.RequiresReview && group.Kind == "resources")))
+            {
+                if (store.IsSuppressedByIgnoreRule(group.DirectoryPath, null)
+                    || requireRegisteredRoot && (!roots.Any(root => root.Kind == "library"
+                        && RuntimeStateStore.ContainsPath(root.PhysicalPath, group.DirectoryPath))
+                        || roots.Any(root => root.Kind == "manual"
+                            && RuntimeStateStore.ContainsPath(root.PhysicalPath, group.DirectoryPath)))) continue;
+                var retired = store.SupersedeLegacyFlashCandidates(group, utcNow, candidateLookup);
+                if (retired > 0) Publish("candidate.updated", $"flash:{group.DirectoryPath}", new
+                { jobId, directoryPath = group.DirectoryPath, supersededCount = retired });
+            }
+
+            // T18：候选进入 pendingReview 后汇总为通知批（新候选才触发；ack/defer 的旧批不复活）。
+            var notification = store.EnsureCandidateBatch(utcNow);
+            if (notification is not null)
+            {
+                var (batch, created) = notification.Value;
+                Publish(
+                    created ? "notification.created" : "notification.updated",
+                    $"notification:{batch.NotificationId}",
+                    new { notificationId = batch.NotificationId, title = batch.Title, count = batch.CandidateIds.Count });
+            }
+            return true;
+        });
+        foreach (var publication in publications)
+            events?.Publish(publication.Type, publication.Key, publication.Payload, utcNow);
     }
 
     /// <summary>
@@ -116,7 +145,7 @@ public static class ScanCandidatePersistence
     /// - BackupHint：目录名含 backup/copy/副本/备份/旧版 标记；
     /// - DuplicateHint：存在同名标题、不同路径的活动游戏（ID-01/ID-03：是提示，不合并不排除）。
     /// </summary>
-    private static string WithHints(SqliteLibraryStore store, string payloadJson, string physicalPath)
+    private static string WithHints(IReadOnlyList<GameLibrary.Domain.Catalog.GameCard> games, string payloadJson, string physicalPath)
     {
         var hints = new List<string>();
         var title = TitleFromPath(physicalPath);
@@ -126,7 +155,7 @@ public static class ScanCandidatePersistence
             hints.Add("BackupHint");
         }
 
-        var duplicate = store.ListGames()
+        var duplicate = games
             .Any(g => string.Equals(g.Membership, "active", StringComparison.Ordinal)
                 && !string.Equals(g.RootPath, physicalPath, StringComparison.OrdinalIgnoreCase)
                 && string.Equals(g.Title, title, StringComparison.OrdinalIgnoreCase));

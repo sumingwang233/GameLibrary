@@ -107,6 +107,8 @@ public sealed class HostRuntime : IAsyncDisposable
             logger);
         runtimeState.UnityTranslations?.Start();
         server.Start();
+        // 旧版本逐 SWF 候选必须先重新按目录分组，不等待默认一小时核对周期。
+        runtimeState.Coordinator.RequestInitialScan(library.Store?.ListLegacyFlashScanRoots() ?? []);
 
         return new HostRuntime(guard, server, runtimeState);
     }

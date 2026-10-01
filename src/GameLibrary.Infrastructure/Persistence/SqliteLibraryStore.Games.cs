@@ -32,8 +32,10 @@ public sealed partial class SqliteLibraryStore
         IReadOnlyCollection<string> gameIds)
         => ReadExclusive((c, _) => LibraryCatalogStore.QueryPlaytimeStats(c, gameIds));
 
-    public GameCard? TryGetGameByRootPath(string rootPath)
-        => ReadExclusive((c, _) => LibraryCatalogStore.TryGetGameByRootPath(c, rootPath));
+    public GameCard? TryGetGameByRootPath(string rootPath) => TryGetGameByRootPath(rootPath, includeRemoved: false);
+
+    public GameCard? TryGetGameByRootPath(string rootPath, bool includeRemoved)
+        => ReadExclusive((c, _) => LibraryCatalogStore.TryGetGameByRootPath(c, rootPath, includeRemoved: includeRemoved));
 
     public void InsertIgnoreRule(IgnoreRule rule)
         => Execute((c, _) => LibraryCatalogStore.InsertIgnoreRule(c, rule));

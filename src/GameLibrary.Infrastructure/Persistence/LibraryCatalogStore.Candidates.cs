@@ -295,7 +295,9 @@ public static partial class LibraryCatalogStore
         }
 
         string gameId;
-        var existing = TryGetGameByRootPath(connection, current.PhysicalPath, transaction, includeRemoved: true);
+        var bound = current.GameId is null ? null : TryGetGame(connection, current.GameId);
+        var existing = bound is not null && string.Equals(bound.RootPath, current.PhysicalPath, StringComparison.OrdinalIgnoreCase)
+            ? bound : TryGetGameByRootPath(connection, current.PhysicalPath, transaction, includeRemoved: true);
         if (existing is not null)
         {
             gameId = existing.GameId;

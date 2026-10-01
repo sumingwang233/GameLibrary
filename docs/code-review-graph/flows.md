@@ -1,5 +1,21 @@
 # GameLibrary 关键流程
 
+## Flash 历史候选归并 — v1.7.3
+
+```mermaid
+flowchart TD
+    Start[Host 启动 / 找到旧 SWF 待处理候选] --> Roots[排除手动根与已删除路径 / 注册扫描根]
+    Roots --> Rescan[既有协调器即时核对 / FlashGroups]
+    Rescan --> Complete[完整 inventory / 成功注册门控]
+    Complete --> Transaction[同一事务保存可审核目录组并归并旧候选]
+    Transaction --> Queue[更新有效候选通知 / 保留原游戏与文件]
+    Queue --> Review[用户明确用途与入口 / 完整调整预览]
+    Review --> Check[原候选版本与所属组 / 主入口与实际复用身份忽略校验]
+    Check --> Accept[原游戏 ID 与元数据复用 / 审核失败回滚]
+```
+
+归并标记 `flashSupersededBy` 区分算法归并与用户暂缓；仅同组显式选中入口可恢复，未选中的资源不复活。候选预载 lookup 使用 OrdinalIgnoreCase，避免 SQLite ASCII lower 与 Unicode 文件名不同步。不完整、离线、未注册和手动范围不自动退休旧候选；不重新执行 schema27 的过滤重置。
+
 ## Flash 与封面 — v1.7.2 待验收预发布
 
 ```mermaid

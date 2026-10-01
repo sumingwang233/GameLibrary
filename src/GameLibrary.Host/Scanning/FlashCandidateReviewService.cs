@@ -89,19 +89,17 @@ public sealed class FlashCandidateReviewService(SqliteLibraryStore store, ICatal
                     store.ApplyFlashGameAdjustment(adjustment.GameId, adjustment.ExpectedRevision,
                         adjustment.ProposedAction == "removeFromLibrary" ? "removed" : "active",
                         adjustment.ProposedAction == "setEntry" ? games[0].EntryPath : null, now);
-                // 明确选中的入口覆盖已移除记录的旧入口；复用其 ID 与元数据，仍只在本次 accept 生效。
-                var existingGames = store.ListGames().ToLookup(item => item.RootPath, StringComparer.OrdinalIgnoreCase);
-                foreach (var game in games)
-                {
-                    var removed = existingGames[game.RootPath].FirstOrDefault(item => item.Membership == "removed");
-                    if (removed is not null)
-                        store.ApplyFlashGameAdjustment(removed.GameId, removed.Revision, "active", game.EntryPath, now);
-                }
                 CandidateReviewOutcome result;
                 if (selection.Kind == "project")
                 {
+                    var entryCandidate = store.ListCandidates().FirstOrDefault(item =>
+                        string.Equals(item.PhysicalPath, games[0].EntryPath, StringComparison.OrdinalIgnoreCase));
+                    if (IsEntrySuppressed(games[0].RootPath, current)
+                        || IsEntrySuppressed(games[0].EntryPath!, entryCandidate))
+                        throw new InvalidOperationException("选中入口仍被忽略，请先撤销忽略");
                     var outcome = store.AcceptCandidate(candidateId, revision, games[0], "flash", now, fingerprints[0]);
                     if (outcome.Status == "conflict") throw new InvalidOperationException("候选已变更");
+                    UpdateSelectedEntry(outcome.GameId, games[0].EntryPath!, now);
                     result = new(candidateId, outcome.Candidate.ReviewState, outcome.Candidate.Revision, outcome.GameId,
                         Fingerprint: fingerprints[0], Created: outcome.Status == "accepted");
                 }
@@ -112,8 +110,13 @@ public sealed class FlashCandidateReviewService(SqliteLibraryStore store, ICatal
                     {
                         var game = games[index];
                         var child = children[game.RootPath].FirstOrDefault();
+                        if (IsEntrySuppressed(game.RootPath, child))
+                            throw new InvalidOperationException("选中入口仍被忽略，请先撤销忽略");
                         if (child?.ReviewState == "accepted" && child.GameId is not null
                             && store.TryGetGame(child.GameId)?.Membership == "active") continue;
+                        if (child?.ReviewState == "deferred")
+                            child = store.RestoreSupersededFlashCandidate(child, group.DirectoryPath, current.PayloadJson, now)
+                                ?? throw new InvalidOperationException("选中入口已由用户暂缓或不属于本目录分组");
                         if (child is not null && child.ReviewState != "pendingReview")
                             throw new InvalidOperationException("选中入口已有未完成审核状态，请先重新扫描或撤销忽略");
                         if (child is null)
@@ -134,6 +137,7 @@ public sealed class FlashCandidateReviewService(SqliteLibraryStore store, ICatal
                         }
                         var accepted = store.AcceptCandidate(child.CandidateId, child.Revision, game, "flash", now, fingerprints[index]);
                         if (accepted.Status == "conflict") throw new InvalidOperationException("合集入口已变更");
+                        UpdateSelectedEntry(accepted.GameId, game.EntryPath!, now);
                     }
                     var updated = store.TransitionCandidate(candidateId, "pendingReview", "deferred", revision, null, now)
                         ?? throw new InvalidOperationException("目录候选已变更");
@@ -151,6 +155,21 @@ public sealed class FlashCandidateReviewService(SqliteLibraryStore store, ICatal
         catch (ArgumentException ex) { return new(candidateId, ErrorCode: "InvalidArgument", ErrorMessage: ex.Message); }
         catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException)
         { return new(candidateId, ErrorCode: "RevisionConflict", ErrorMessage: ex.Message); }
+    }
+
+    private void UpdateSelectedEntry(string gameId, string entryPath, DateTime now)
+    {
+        var game = store.TryGetGame(gameId)!;
+        if (game.Engine != "flash" || !string.Equals(game.EntryPath, entryPath, StringComparison.OrdinalIgnoreCase))
+            store.ApplyFlashGameAdjustment(gameId, game.Revision, "active", entryPath, now);
+    }
+
+    private bool IsEntrySuppressed(string path, PersistedCandidate? candidate)
+    {
+        var bound = candidate?.GameId is null ? null : store.TryGetGame(candidate.GameId);
+        var target = bound is not null && string.Equals(bound.RootPath, path, StringComparison.OrdinalIgnoreCase)
+            ? bound : store.TryGetGameByRootPath(path, includeRemoved: true);
+        return store.IsSuppressedByIgnoreRule(path, target?.GameId ?? candidate?.GameId);
     }
 
     private static GameCard NewGame(string directory, string entry, string kind, PersistedCandidate candidate)

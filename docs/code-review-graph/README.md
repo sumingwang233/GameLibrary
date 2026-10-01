@@ -1,5 +1,7 @@
 # GameLibrary 代码预览框架
 
+v1.7.3 修改前调用最小上下文，修改后增量刷新包含 FlashLegacyRegroupTests，解析错误0。新增旧逐文件 SWF 候选所属根查询、协调器即时核对及忙时重试、完整 inventory 内版本匹配归并、同组显式恢复和通知有效集合更新。无需新 schema 或 operation；流程见 [flows.md](flows.md)，真实数据库副本及发布验证见 [v1.7.3 验证记录](../releases/v1.7.3-validation.md)。
+
 本文档是 `code-review-graph` 的可重复入口。它把源码结构、社区边界和执行流固定成一套低成本的预览流程，适合接手项目、代码评审和重构前审计。
 
 ## 当前快照

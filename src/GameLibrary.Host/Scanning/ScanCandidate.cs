@@ -155,12 +155,15 @@ public sealed class ScanCandidateCollector
     private readonly Dictionary<string, ScanCandidate> _byPath = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int> _gameRootChildren = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<ScanCandidate> _candidates = [];
+    private readonly List<FlashDirectoryGroup> _flashGroups = [];
     private readonly IReadOnlyList<FlashDirectoryRule> _flashRules;
     private readonly HashSet<string> _flashBoundaries = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _flashCollections = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>本次作业发现的全部候选（落库与查询用）。</summary>
     public IReadOnlyList<ScanCandidate> Candidates => _candidates;
+
+    public IReadOnlyList<FlashDirectoryGroup> FlashGroups => _flashGroups;
 
     public int CandidateCount => _candidates.Count;
 
@@ -221,6 +224,7 @@ public sealed class ScanCandidateCollector
                     var group = FlashDirectoryInspector.Group(directory.PhysicalPath, flash, complete, _flashRules)
                         with
                     { IncludeDescendants = includeDescendants };
+                    _flashGroups.Add(group);
                     if (!group.RequiresReview && group.Kind == "collection")
                     {
                         if (includeDescendants) _flashCollections.Add(directory.PhysicalPath);

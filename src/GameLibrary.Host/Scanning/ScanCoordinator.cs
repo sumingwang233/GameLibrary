@@ -20,6 +20,7 @@ public sealed class ScanCoordinator : IDisposable
     public Action? ReconcileMetadata { get; set; }
     public Action<Exception>? OnBackgroundError { get; set; }
     private int _busy; // 0=空闲 1=核对中（Interlocked）
+    private IReadOnlyList<string>? _initialRoots;
 
     public Func<IDisposable?>? AcquireLibraryLease { get; set; }
     public bool IsRunning => Volatile.Read(ref _busy) != 0;
@@ -52,12 +53,20 @@ public sealed class ScanCoordinator : IDisposable
         catch (Exception ex) { OnBackgroundError?.Invoke(ex); }
     }
 
+    public void RequestInitialScan(IReadOnlyList<string> roots)
+    {
+        if (roots.Count == 0) return;
+        Interlocked.Exchange(ref _initialRoots, roots);
+        _timer.Change(TimeSpan.Zero, _interval);
+    }
+
     /// <summary>周期核对触发：手动扫描进行中或上一轮未结束时跳过（互斥）。</summary>
     public void Tick()
     {
         if (ManualScanRunning || Interlocked.CompareExchange(ref _busy, 1, 0) != 0)
         {
             Interlocked.Increment(ref SkippedCount);
+            if (Volatile.Read(ref _initialRoots) is not null) _timer.Change(TimeSpan.FromSeconds(1), _interval);
             return;
         }
 
@@ -68,7 +77,9 @@ public sealed class ScanCoordinator : IDisposable
             Interlocked.Increment(ref TriggeredCount);
             // v23（bug-5）：只核对 library 根——manual 根是手动添加游戏的包含边界，
             // 不参与扫描枚举（manual 根下的游戏不产生候选）。
-            foreach (var root in _roots.ListScannable())
+            var initialRoots = Interlocked.Exchange(ref _initialRoots, null);
+            foreach (var root in _roots.ListScannable().Where(root => initialRoots is null
+                || initialRoots.Contains(root.Path.PhysicalPath, StringComparer.OrdinalIgnoreCase)))
             {
                 var outcome = _runReconcileScan(root.Path.PhysicalPath);
                 _events.Publish(
@@ -88,6 +99,7 @@ public sealed class ScanCoordinator : IDisposable
         finally
         {
             Interlocked.Exchange(ref _busy, 0);
+            if (Volatile.Read(ref _initialRoots) is not null) _timer.Change(TimeSpan.FromSeconds(1), _interval);
         }
     }
 
