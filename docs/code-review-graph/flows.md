@@ -81,3 +81,21 @@ flowchart LR
 `GameCard.tsx` 移除原 `engine ?? kind` 副标题与底栏重复时长，复用既有格式化和翻译。组件接口、路由、状态、后端与详情页不变；回滚只需恢复卡片 JSX。`GameCard.test.tsx` 覆盖分钟、小时、零及缺省时长，并核验引擎不显示、底栏保留收藏。
 
 修改后 `build_or_update_graph_tool(postprocess="minimal")` 增量更新成功、解析错误为空，依赖复核包含 `GameGrid.tsx` 与 `App.tsx`。前端 typecheck、20 项测试及生产构建通过；Tauri 实机视觉待确认。
+
+## 标题栏主题快捷切换 — 2026-10-01
+
+基于 `97d6980` 源码和 `code-review-graph` 审计，`main.tsx` 的 `SettingsProvider` 包含 `App → TitleBar`，设置页与标题栏可直接共享主题。改动限于 `TitleBar.tsx`、对应回归测试及 `Localization/ui.json`；不新增设置状态源。
+
+```mermaid
+flowchart LR
+    Root[html.light / 当前实际主题] --> Icon[TitleBar / 浅色 Sun、深色 Moon]
+    Click[最小化按钮左侧主题按钮] --> Update[useSettings.update / 相反主题]
+    Update --> Host[settings.update / expectedRevision]
+    Host -->|成功| Apply[applySettings / 设置与 html.light 同步]
+    Apply --> Icon
+    Host -->|失败| Error[标题栏错误提示 / 保留当前主题]
+```
+
+图标复用 `lucide-react`，通过现有 `html.light` CSS 条件显示，系统主题变化也会同步；点击保存为明确的 light/dark。按钮位于拖动区域外，读取设置及保存期间禁用，复用既有按钮焦点样式；提示文字提供四语言翻译。回滚恢复标题栏 JSX 并移除新增翻译即可，路由、设置接口和后端不变。
+
+修改后图谱增量更新成功、解析错误为空。`npm run typecheck`、`npm test`（25/25）与 `npm run build` 通过；新测试覆盖 light/dark、system 的两种实际主题、保存后重载、重复点击禁用及保存失败。编译 CSS 确认浅色显示太阳并隐藏月亮。构建保留 JS 分包超过 500 kB 提示；Tauri/WebView2 实机视觉待确认。
