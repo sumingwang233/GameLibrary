@@ -16,6 +16,8 @@ def resolve_dotnet() -> str:
 
 
 DOTNET = resolve_dotnet()
+revision = subprocess.run(["git", "rev-parse", "HEAD"], cwd=WORKSPACE, capture_output=True, text=True)
+REVISION_PROPERTIES = [f"-p:SourceRevisionId={revision.stdout.strip()}"] if revision.returncode == 0 else []
 
 
 def publish(project: str, executable: str, properties: list[str] | None = None) -> None:
@@ -36,6 +38,7 @@ def publish(project: str, executable: str, properties: list[str] | None = None) 
             "-p:PublishSingleFile=true",
             "-p:IncludeNativeLibrariesForSelfExtract=true",
             "-p:DebugType=None",
+            *REVISION_PROPERTIES,
             *(properties or []),
             "-o",
             output,

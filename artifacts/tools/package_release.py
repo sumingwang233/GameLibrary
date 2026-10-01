@@ -54,6 +54,8 @@ COMPONENTS = [
     ("GameLibrary.Mcp", "GameLibrary.Mcp.exe", False, True),
 ]
 CHECK_RESULTS = []
+SOURCE_COMMIT = None
+SOURCE_DIRTY = None
 
 
 def npm_command():
@@ -149,6 +151,7 @@ def publish_all(log, desktop_smoke_skip_reason=None):
             "-p:IncludeNativeLibrariesForSelfExtract=true",
             "-p:EnableCompressionInSingleFile=true",
             "-p:DebugType=None",
+            f"-p:SourceRevisionId={SOURCE_COMMIT}",
         ]
         rc, output = sh(command)
         log.append(f"publish {project}: rc={rc}")
@@ -439,9 +442,7 @@ def write_checklist(version, signed, log):
 """
     with open(os.path.join(DIST, "RELEASE-CHECKLIST.md"), "w", encoding="utf-8", newline="\n") as target:
         target.write(body)
-    rc = subprocess.run(["git", "rev-parse", "HEAD"], cwd=WORKSPACE, capture_output=True, text=True)
-    dirty = subprocess.run(["git", "status", "--porcelain"], cwd=WORKSPACE, capture_output=True, text=True)
-    report = {"version": version, "sourceCommit": rc.stdout.strip(), "sourceDirty": bool(dirty.stdout.strip()),
+    report = {"version": version, "sourceCommit": SOURCE_COMMIT, "sourceDirty": SOURCE_DIRTY,
               "builtAt": datetime.now(timezone.utc).isoformat(), "signed": signed,
               "checks": CHECK_RESULTS, "manualAcceptance": "not-run", "stableReady": False}
     Path(DIST, "release-validation.json").write_text(
@@ -527,12 +528,15 @@ def parse_args():
 
 
 def main():
+    global SOURCE_COMMIT, SOURCE_DIRTY
     args = parse_args()
     version = read_version()
     assert_version_sync(version)
     if args.check:
         print(f"Version declarations agree: {version}")
         return
+    SOURCE_COMMIT = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=WORKSPACE, text=True).strip()
+    SOURCE_DIRTY = bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=WORKSPACE, text=True).strip())
     os.makedirs(DIST, exist_ok=True)
     log = [f"version={version}"]
     signed = False
