@@ -64,3 +64,20 @@
 ```
 
 恢复作业在 control 保存，不依赖将被换掉的业务数据库；启动时补全提交后尚未写完的最终作业结果。会话重绑不会捕获旧 Store，宿主停机先排空作业/租约再释放连接。
+
+## 游戏卡片游玩时长 — 2026-10-01
+
+基于 `d7e2fb0` 源码和 `code-review-graph.get_review_context_tool` 审计，卡片布局调整风险为 low；实际调用由 `GameGrid.tsx` 导入并渲染 `GameCard` 确认。
+
+```mermaid
+flowchart LR
+    Grid[GameGrid / GameItem] --> Card[GameCard]
+    Card --> Format[formatPlaytime / playtimeMinutes]
+    Format -->|大于零| Subtitle[封面标题下方 / 时钟与累计时长]
+    Format -->|零或缺省| Hidden[不显示时长副标题]
+    Card --> Footer[底栏 / availabilityLabel 与收藏星标]
+```
+
+`GameCard.tsx` 移除原 `engine ?? kind` 副标题与底栏重复时长，复用既有格式化和翻译。组件接口、路由、状态、后端与详情页不变；回滚只需恢复卡片 JSX。`GameCard.test.tsx` 覆盖分钟、小时、零及缺省时长，并核验引擎不显示、底栏保留收藏。
+
+修改后 `build_or_update_graph_tool(postprocess="minimal")` 增量更新成功、解析错误为空，依赖复核包含 `GameGrid.tsx` 与 `App.tsx`。前端 typecheck、20 项测试及生产构建通过；Tauri 实机视觉待确认。

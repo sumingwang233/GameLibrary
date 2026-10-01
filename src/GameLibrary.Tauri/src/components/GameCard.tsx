@@ -116,23 +116,19 @@ function GameCardImpl({ game, selected, checked, selectionDisabled, onToggle, on
           <h3 className="line-clamp-2 text-sm leading-tight font-semibold text-white">
             {game.title}
           </h3>
-          <p className="mt-1 truncate text-[11px] text-white/60">{game.engine ?? game.kind}</p>
+          {playtime && (
+            <p title={t("累计游玩 {0}", playtime)} className="mt-1 flex items-center gap-1 text-[11px] text-white/60">
+              <Clock3 size={12} aria-hidden="true" className="shrink-0" />
+              {playtime}
+            </p>
+          )}
         </div>
       </div>
       <div className="flex items-center justify-between gap-2 px-3 py-2 text-[11px] text-text-secondary">
         <span className="truncate">{availabilityLabel(game.availability)}</span>
-        {/* feat-1：卡面底部累计时长（Steam 卡片样式）；0 分钟不显示（formatPlaytime 返回空串）。 */}
-        <span className="flex min-w-0 shrink-0 items-center gap-1.5">
-          {playtime && (
-            <span title={t("累计游玩 {0}", playtime)} className="inline-flex items-center gap-1 whitespace-nowrap">
-              <Clock3 size={12} aria-hidden="true" />
-              {playtime}
-            </span>
-          )}
-          {game.favorite && (
-            <Star size={13} aria-label={t("已收藏")} className="shrink-0 fill-favorite text-favorite" />
-          )}
-        </span>
+        {game.favorite && (
+          <Star size={13} aria-label={t("已收藏")} className="shrink-0 fill-favorite text-favorite" />
+        )}
       </div>
     </article>
   );
