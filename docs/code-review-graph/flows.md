@@ -153,3 +153,9 @@ Schema 25 添加可选元数据，旧手动配置不晋升也不重排默认。�
 同路径自动配置转为手动配置时，`AddProfile` 同时保留该项已有的默认标记；不能把 `profiles.create` 的可选 false 默认值当作用户主动取消默认。新增隔离注册表回归覆盖此情况。前一候选包保留在 `artifacts/dist/v1.6.1-attempt2`，最终交付以重新构建的 `artifacts/dist/v1.6.1` 为准。
 
 最终打包回归发现既有 `JobManager` 先发布终态再落盘，导致恢复作业查询成功后立即重启管理器偶尔找不到结果。终态改为先持久化完整快照、再发布 volatile State；所有 Get/进度/活动作业计数共享该发布顺序。确定性阻塞落盘回归验证落盘完成前仍为 running，原恢复重启测试继续覆盖真实控制区文件。
+
+## v1.6.1 任务栏旧图标复核 — 2026-10-01
+
+用户升级到 v1.6.1 后仍见旧任务栏图标。修改前刷新 code-review-graph 并审计 `taskbar_icon.rs`、Tauri setup、NSIS 快捷方式；当前运行 EXE 版本为1.6.1，开始菜单指向同一文件，无匹配的固定/隐式任务栏快捷方式。直接提取 EXE 图标、读取当前窗口 ICON_BIG/ICON_SMALL、调用 SHGetFileInfo 查询 Shell 图标，图像均为新版。因此不能把旧显示直接认定为 EXE 资源或窗口设置失败。
+
+针对 EXE 和开始菜单快捷方式发送 SHCNE_UPDATEITEM，随后发送 SHCNE_ASSOCCHANGED 刷新 Shell 图标缓存，并重新发送当前已有的窗口图标句柄。未删除缓存文件、未重启 Explorer 或应用。用户随后明确确认「已经变成新版」，本次为本地 Shell/任务栏缓存显示问题；未新增产品代码、未修改版本或已发布资产。诊断脚本与提取图片仅保留在本机 artifacts，未提交个人安装路径。Windows 通知语义见 [SHChangeNotify](https://learn.microsoft.com/en-us/windows/win32/api/shlobj_core/nf-shlobj_core-shchangenotify)。
