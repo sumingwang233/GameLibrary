@@ -99,3 +99,20 @@ flowchart LR
 图标复用 `lucide-react`，通过现有 `html.light` CSS 条件显示，系统主题变化也会同步；点击保存为明确的 light/dark。按钮位于拖动区域外，读取设置及保存期间禁用，复用既有按钮焦点样式；提示文字提供四语言翻译。回滚恢复标题栏 JSX 并移除新增翻译即可，路由、设置接口和后端不变。
 
 修改后图谱增量更新成功、解析错误为空。`npm run typecheck`、`npm test`（25/25）与 `npm run build` 通过；新测试覆盖 light/dark、system 的两种实际主题、保存后重载、重复点击禁用及保存失败。编译 CSS 确认浅色显示太阳并隐藏月亮。构建保留 JS 分包超过 500 kB 提示；Tauri/WebView2 实机视觉待确认。
+
+## Windows 任务栏图标 — 2026-10-01
+
+基于 `ae3d9b6` 审计：运行中的 `D:/1/GameLibrary/GameLibrary.Desktop.exe` 已内嵌新版 ICO 的 6 个尺寸，旧版帧均未出现；`WM_GETICON(ICON_SMALL)` 为新版 32×32，像素差为 0，但 `ICON_BIG` 和窗口类大图标为空。已安装的 Tao 0.35.3 将窗口图标与任务栏图标分别设置为 Small/Big；Tauri 2.11.4 的 runtime 仅调用窗口图标设置。任务栏因没有显式大图标而沿用 Shell 图标，是依据这些事实作出的推断。
+
+```mermaid
+flowchart LR
+    Setup[Tauri setup / main HWND] --> Resource[当前 EXE / 图标资源 32512]
+    Resource --> Load[LoadImageW / LR_DEFAULTSIZE 与 LR_SHARED]
+    Load --> Set[WM_SETICON / ICON_BIG]
+    Set --> Taskbar[Windows 任务栏新版图标]
+    Setup --> Tray[既有 build_tray / 默认窗口图标]
+```
+
+`taskbar_icon.rs` 在 Windows 启动时从当前 EXE 读取共享图标并绑定 ICON_BIG，`lib.rs` 在 setup 调用；不新增依赖，不改图标素材。LR_SHARED 句柄由系统管理，避免窗口生命周期中的图标悬空。API 依据：[LoadImageW](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-loadimagew)。回滚删除模块和 setup 调用即可。
+
+当前运行实例已通过 WM_SETICON 补上新版 ICON_BIG，读回与小图标句柄一致，并发送定向 SHChangeNotify；未关闭程序或重启 Explorer。源码验证：cargo fmt --check、cargo check --locked、cargo test --locked --lib（2/2）、cargo build --locked 通过；新 EXE 的资源 32512 与认可 32×32 图片逐像素相同。单元测试使用隐藏 STATIC 窗口和 Windows 系统图标测试大图标绑定，因 Cargo 测试 EXE 不含应用资源；实际应用资源由构建后检查覆盖。任务栏最终视觉、不同 DPI 和正式包验收待确认，未打包或发布。

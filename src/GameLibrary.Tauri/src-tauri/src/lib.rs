@@ -10,6 +10,9 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::{AppHandle, Manager, RunEvent, State, WindowEvent};
 use tauri_plugin_opener::OpenerExt;
 
+#[cfg(target_os = "windows")]
+mod taskbar_icon;
+
 // 只允许已有目录；不向前端开放可执行文件或任意 URL 的本地打开权限。
 fn validate_game_directory(path: &str) -> Result<PathBuf, String> {
     let directory = PathBuf::from(path);
@@ -386,6 +389,10 @@ pub fn run() {
 
     builder
         .setup(|app| {
+            #[cfg(target_os = "windows")]
+            if let Some(window) = app.get_webview_window("main") {
+                taskbar_icon::set_taskbar_icon(window.hwnd()?.0)?;
+            }
             build_tray(app.handle())?;
             Ok(())
         })
