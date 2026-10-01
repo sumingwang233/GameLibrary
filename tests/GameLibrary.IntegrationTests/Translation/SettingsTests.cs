@@ -42,6 +42,7 @@ public sealed class SettingsTests : IClassFixture<PipeServerFixture>
         Assert.True(envelope.Ok, envelope.Error?.Message);
         var data = envelope.Data;
         Assert.True(data.GetProperty("revision").GetInt32() >= 0);
+        Assert.Contains(data.GetProperty("uiLanguage").GetString(), new[] { "zh-CN", "zh-TW", "en", "ja" });
         Assert.Equal(JsonValueKind.False, data.GetProperty("autostartEnabled").ValueKind == JsonValueKind.True ? JsonValueKind.True : JsonValueKind.False);
         Assert.True(data.GetProperty("scanIntervalMinutes").GetInt32() > 0);
         Assert.Contains(data.GetProperty("theme").GetString(), new[] { "dark", "light", "system" });
@@ -104,6 +105,18 @@ public sealed class SettingsTests : IClassFixture<PipeServerFixture>
             idempotencyKey = $"st-reset-{Guid.NewGuid():N}",
         });
         var revision = baseline.Data.GetProperty("revision").GetInt32();
+        Assert.Equal("zh-CN", baseline.Data.GetProperty("uiLanguage").GetString());
+        foreach (var invalid in new object?[] { "fr", "", null, 2052 })
+        {
+            var rejected = await InvokeAsync("settings.update", new
+            {
+                expectedRevision = revision,
+                idempotencyKey = $"language-invalid-{Guid.NewGuid():N}",
+                uiLanguage = invalid,
+            });
+            Assert.False(rejected.Ok);
+            Assert.Equal(ErrorCodes.InvalidArgument, rejected.Error!.Code);
+        }
 
         var badInterval = await InvokeAsync("settings.update", new
         {
@@ -310,5 +323,32 @@ public sealed class SettingsTests : IClassFixture<PipeServerFixture>
 
         var settings = await InvokeAsync("settings.get");
         Assert.Equal("favorites", settings.Data.GetProperty("activeViewId").GetString());
+    }
+
+    [Fact]
+    public async Task UiLanguage_PersistsAcrossConnections_ReplaysAndResets()
+    {
+        var snapshot = await InvokeAsync("settings.reset", new { idempotencyKey = Guid.NewGuid().ToString() });
+        Assert.Equal("zh-CN", snapshot.Data.GetProperty("uiLanguage").GetString());
+        foreach (var language in new[] { "zh-TW", "en", "ja", "zh-CN" })
+        {
+            var patch = new
+            {
+                idempotencyKey = $"language-{Guid.NewGuid():N}",
+                expectedRevision = snapshot.Data.GetProperty("revision").GetInt32(),
+                uiLanguage = language,
+            };
+            var updated = await InvokeAsync("settings.update", patch);
+            Assert.True(updated.Ok, updated.Error?.Message);
+            var replay = await InvokeAsync("settings.update", patch);
+            Assert.True(replay.Ok, replay.Error?.Message);
+            Assert.Equal(updated.Data.GetProperty("revision").GetInt32(), replay.Data.GetProperty("revision").GetInt32());
+            snapshot = await InvokeAsync("settings.get");
+            Assert.Equal(language, snapshot.Data.GetProperty("uiLanguage").GetString());
+        }
+
+        var reset = await InvokeAsync("settings.reset", new { idempotencyKey = Guid.NewGuid().ToString() });
+        Assert.Equal("zh-CN", reset.Data.GetProperty("uiLanguage").GetString());
+        Assert.Equal("ja", GameLibrary.Cli.CommandLine.Parse(["settings", "update", "--language", "ja", "--expected-revision", "1"]).UiLanguage);
     }
 }

@@ -37,8 +37,8 @@ public partial class MainWindow : Window
             entries.Add(new Entry(
                 "candidate",
                 candidate.GetProperty("candidateId").GetString() ?? "",
-                string.IsNullOrEmpty(relativePath) ? "(游戏库)" : relativePath!,
-                "待审核",
+                string.IsNullOrEmpty(relativePath) ? L10n.T("(游戏库)") : relativePath!,
+                L10n.T("待审核"),
                 candidate.GetProperty("physicalPath").GetString() ?? "",
                 false,
                 candidate));
@@ -55,8 +55,8 @@ public partial class MainWindow : Window
     private static Entry GameEntry(JsonElement game) => new(
         "game",
         game.GetProperty("gameId").GetString() ?? "",
-        game.GetProperty("title").GetString() ?? "(未命名)",
-        game.GetProperty("engine").GetString() ?? "未识别",
+        game.GetProperty("title").GetString() ?? L10n.T("(未命名)"),
+        game.GetProperty("engine").GetString() ?? L10n.T("未识别"),
         game.GetProperty("rootPath").GetString() ?? "",
         game.GetProperty("favorite").GetBoolean(),
         game.Clone());
@@ -67,7 +67,7 @@ public partial class MainWindow : Window
         LoadMoreButton.Visibility = remaining > 0 && SelectedViewId != "pending"
             ? Visibility.Visible
             : Visibility.Collapsed;
-        LoadMoreButton.Content = $"加载更多游戏（已显示 {_loadedGamesCount}/{_loadedGamesTotal}）";
+        LoadMoreButton.Content = L10n.F($"加载更多游戏（已显示 {_loadedGamesCount}/{_loadedGamesTotal}）");
     }
 
     private async void OnLoadMoreClick(object sender, RoutedEventArgs e)
@@ -85,7 +85,7 @@ public partial class MainWindow : Window
             var page = await InvokeAsync("games.list", BuildGameQuery(_loadedGamesCount));
             if (!page.Ok)
             {
-                ShowError($"加载更多游戏失败：{page.Error?.Message}");
+                ShowError(L10n.F($"加载更多游戏失败：{page.Error?.Message}"));
                 return;
             }
 
@@ -110,7 +110,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            ShowError($"加载更多游戏失败：{ex.Message}");
+            ShowError(L10n.F($"加载更多游戏失败：{ex.Message}"));
         }
         finally
         {
@@ -172,7 +172,7 @@ public partial class MainWindow : Window
                 {
                     LibraryList.Items.Add(new TextBlock
                     {
-                        Text = "游戏库是空的。先点顶部「添加游戏库」，再点「扫描」；扫描结果会出现在「待确认游戏」里。",
+                        Text = L10n.T("游戏库是空的。先点顶部「添加游戏库」，再点「扫描」；扫描结果会出现在「待确认游戏」里。"),
                         FontSize = 11,
                         Foreground = TryFindResource<SolidColorBrush>("TextMuted"),
                         TextWrapping = TextWrapping.Wrap,
@@ -184,8 +184,8 @@ public partial class MainWindow : Window
                     LibraryList.Items.Add(new TextBlock
                     {
                         Text = _searchText.Length > 0
-                            ? $"没有匹配「{_searchText}」的条目。"
-                            : "此视图暂无条目。",
+                            ? L10n.F($"没有匹配「{_searchText}」的条目。")
+                            : L10n.T("此视图暂无条目。"),
                         FontSize = 11,
                         Foreground = TryFindResource<SolidColorBrush>("TextMuted"),
                         TextWrapping = TextWrapping.Wrap,
@@ -274,22 +274,22 @@ public partial class MainWindow : Window
         var candidate = entry.Raw;
         DetailPanel.Children.Add(new TextBlock
         {
-            Text = entry.Title.Length == 0 ? "(游戏库)" : entry.Title,
+            Text = entry.Title.Length == 0 ? L10n.T("(游戏库)") : entry.Title,
             FontSize = 26,
             FontWeight = FontWeights.Bold,
             Foreground = TryFindResource<SolidColorBrush>("TextPrimary"),
         });
         DetailPanel.Children.Add(new TextBlock
         {
-            Text = $"等待确认 · {CandidateKindLabel(candidate.GetProperty("kind").GetString())}",
+            Text = L10n.F($"等待确认 · {CandidateKindLabel(candidate.GetProperty("kind").GetString())}"),
             FontSize = 13,
             Foreground = TryFindResource<SolidColorBrush>("Green"),
             Margin = new Thickness(0, 4, 0, 12),
         });
-        DetailPanel.Children.Add(MetaLine("路径", entry.PhysicalPath));
+        DetailPanel.Children.Add(MetaLine(L10n.T("路径"), entry.PhysicalPath));
         DetailPanel.Children.Add(new TextBlock
         {
-            Text = "加入后会出现在游戏库中；选择“不再提示”后，此位置不会再次出现在扫描结果里。",
+            Text = L10n.T("加入后会出现在游戏库中；选择“不再提示”后，此位置不会再次出现在扫描结果里。"),
             FontSize = 12,
             Foreground = TryFindResource<SolidColorBrush>("TextMuted"),
             Margin = new Thickness(0, 10, 0, 4),
@@ -298,9 +298,9 @@ public partial class MainWindow : Window
 
         var revision = candidate.GetProperty("revision").GetInt32();
         DetailPanel.Children.Add(ButtonRow(
-            ("加入游戏库", () => ReviewAsync(entry.Id, revision, "candidates.accept"), "SteamGreenButton"),
-            ("稍后处理", () => ReviewAsync(entry.Id, revision, "candidates.defer"), "SteamButton"),
-            ("不再提示", () => ReviewAsync(entry.Id, revision, "candidates.ignore"), "SteamButton")));
+            (L10n.T("加入游戏库"), () => ReviewAsync(entry.Id, revision, "candidates.accept"), "SteamGreenButton"),
+            (L10n.T("稍后处理"), () => ReviewAsync(entry.Id, revision, "candidates.defer"), "SteamButton"),
+            (L10n.T("不再提示"), () => ReviewAsync(entry.Id, revision, "candidates.ignore"), "SteamButton")));
     }
 
     /// <summary>游戏详情：封面 + 标题 + 启动区 + 收藏/编辑 + meta + 操作按钮排（审查意见：能从 GUI 启动游戏）。</summary>
@@ -316,14 +316,14 @@ public partial class MainWindow : Window
         // 启动区：状态行 + 开始游戏 + 配置启动方式。
         var launchStatus = new TextBlock
         {
-            Text = "启动方式：加载中…",
+            Text = L10n.T("启动方式：加载中…"),
             FontSize = 13,
             Foreground = TryFindResource<SolidColorBrush>("TextBody"),
             Margin = new Thickness(0, 0, 0, 8),
         };
         var playButton = new Button
         {
-            Content = "▶ 开始游戏",
+            Content = L10n.T("▶ 开始游戏"),
             Style = (Style)TryFindResource("SteamGreenButton"),
             FontSize = 15,
             Padding = new Thickness(24, 9, 24, 9),
@@ -331,7 +331,7 @@ public partial class MainWindow : Window
         };
         var configureLaunchButton = new Button
         {
-            Content = "配置启动方式",
+            Content = L10n.T("配置启动方式"),
             Style = (Style)TryFindResource("SteamButton"),
             Margin = new Thickness(10, 0, 0, 0),
         };
@@ -370,7 +370,7 @@ public partial class MainWindow : Window
                 Background = new SolidColorBrush(Color.FromRgb(0x22, 0x30, 0x3c)),
                 Child = new TextBlock
                 {
-                    Text = "暂无封面",
+                    Text = L10n.T("暂无封面"),
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center,
                     Foreground = TryFindResource<SolidColorBrush>("TextMuted"),
@@ -390,7 +390,7 @@ public partial class MainWindow : Window
         });
         var favoriteButton = new Button
         {
-            Content = entry.Favorite ? "★ 已收藏" : "☆ 收藏",
+            Content = entry.Favorite ? L10n.T("★ 已收藏") : L10n.T("☆ 收藏"),
             Style = (Style)TryFindResource("SteamButton"),
             Margin = new Thickness(12, 0, 0, 0),
             VerticalAlignment = VerticalAlignment.Center,
@@ -409,7 +409,7 @@ public partial class MainWindow : Window
         titleRow.Children.Add(favoriteButton);
         var editButton = new Button
         {
-            Content = "编辑标题",
+            Content = L10n.T("编辑标题"),
             Style = (Style)TryFindResource("SteamButton"),
             Margin = new Thickness(6, 0, 0, 0),
             VerticalAlignment = VerticalAlignment.Center,
@@ -419,8 +419,8 @@ public partial class MainWindow : Window
 
         var editRow = new StackPanel { Orientation = Orientation.Horizontal, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 6, 0, 0) };
         var editBox = new TextBox { Width = 320, Text = title };
-        var saveButton = new Button { Content = "保存", Style = (Style)TryFindResource("SteamGreenButton"), Margin = new Thickness(8, 0, 0, 0) };
-        var cancelButton = new Button { Content = "取消", Style = (Style)TryFindResource("SteamButton"), Margin = new Thickness(6, 0, 0, 0) };
+        var saveButton = new Button { Content = L10n.T("保存"), Style = (Style)TryFindResource("SteamGreenButton"), Margin = new Thickness(8, 0, 0, 0) };
+        var cancelButton = new Button { Content = L10n.T("取消"), Style = (Style)TryFindResource("SteamButton"), Margin = new Thickness(6, 0, 0, 0) };
         editRow.Children.Add(editBox);
         editRow.Children.Add(saveButton);
         editRow.Children.Add(cancelButton);
@@ -463,31 +463,31 @@ public partial class MainWindow : Window
             });
         }
 
-        DetailPanel.Children.Add(MetaLine("路径", raw.GetProperty("rootPath").GetString() ?? ""));
-        DetailPanel.Children.Add(MetaLine("入库时间", FormatLocalTimestamp(raw.GetProperty("acceptedUtc").GetString())));
+        DetailPanel.Children.Add(MetaLine(L10n.T("路径"), raw.GetProperty("rootPath").GetString() ?? ""));
+        DetailPanel.Children.Add(MetaLine(L10n.T("入库时间"), FormatLocalTimestamp(raw.GetProperty("acceptedUtc").GetString())));
         if (raw.TryGetProperty("updatedUtc", out var updatedUtc))
         {
-            DetailPanel.Children.Add(MetaLine("修改时间", FormatLocalTimestamp(updatedUtc.GetString())));
+            DetailPanel.Children.Add(MetaLine(L10n.T("修改时间"), FormatLocalTimestamp(updatedUtc.GetString())));
         }
         var tagText = raw.TryGetProperty("tags", out var tagsElement) && tagsElement.ValueKind == JsonValueKind.Array
             ? string.Join("；", tagsElement.EnumerateArray()
-                .Select(t => (t.GetProperty("kind").GetString() == "engine" ? "[自动] " : "") + t.GetProperty("name").GetString()))
+                .Select(t => (t.GetProperty("kind").GetString() == "engine" ? L10n.T("[自动] ") : "") + t.GetProperty("name").GetString()))
             : "";
-        DetailPanel.Children.Add(MetaLine("标签", tagText.Length > 0 ? tagText : "（无）"));
+        DetailPanel.Children.Add(MetaLine(L10n.T("标签"), tagText.Length > 0 ? tagText : L10n.T("（无）")));
         DetailPanel.Children.Add(ButtonRow(
-            ("设置标签", () => EditGameCollectionsAsync(gameId, revision, raw), "SteamButton")));
+            (L10n.T("设置标签"), () => EditGameCollectionsAsync(gameId, revision, raw), "SteamButton")));
 
         // 翻译策略显示与循环切换：Auto 是继承并自动路由，不是失效状态。
         var translationText = new TextBlock
         {
-            Text = "翻译策略：加载中…",
+            Text = L10n.T("翻译策略：加载中…"),
             FontSize = 13,
             Foreground = TryFindResource<SolidColorBrush>("TextPrimary"),
             VerticalAlignment = VerticalAlignment.Center,
         };
         var translationButton = new Button
         {
-            Content = "切换策略",
+            Content = L10n.T("切换策略"),
             Style = (Style)TryFindResource("SteamButton"),
             Margin = new Thickness(10, 0, 0, 0),
             VerticalAlignment = VerticalAlignment.Center,
@@ -504,11 +504,11 @@ public partial class MainWindow : Window
         };
 
         DetailPanel.Children.Add(ButtonRow(
-            ("导入封面", () => ImportCoverAsync(gameId), "SteamButton"),
-            ("打开目录", () => OpenDirectoryAsync(entry.PhysicalPath), "SteamButton")));
+            (L10n.T("导入封面"), () => ImportCoverAsync(gameId), "SteamButton"),
+            (L10n.T("打开目录"), () => OpenDirectoryAsync(entry.PhysicalPath), "SteamButton")));
         var removeButton = new Button
         {
-            Content = "从库中移除（不删除文件）",
+            Content = L10n.T("从库中移除（不删除文件）"),
             Style = (Style)TryFindResource("SteamButton"),
             Foreground = TryFindResource<SolidColorBrush>("Danger"),
             Margin = new Thickness(0, 16, 0, 0),
@@ -521,8 +521,8 @@ public partial class MainWindow : Window
     private async Task RemoveGameAsync(string gameId, int revision, string title)
     {
         var answer = MessageBox.Show(this,
-            $"从游戏库中移除「{title}」？\n\n这不会删除或移动游戏文件；程序也会记住此位置，避免下次扫描自动加回来。",
-            "确认从库中移除", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            L10n.F($"从游戏库中移除「{title}」？\n\n这不会删除或移动游戏文件；程序也会记住此位置，避免下次扫描自动加回来。"),
+            L10n.T("确认从库中移除"), MessageBoxButton.YesNo, MessageBoxImage.Question);
         if (answer != MessageBoxResult.Yes)
         {
             return;
@@ -538,17 +538,17 @@ public partial class MainWindow : Window
             });
             if (!removed.Ok)
             {
-                ShowError($"移除游戏失败：{removed.Error?.Message}");
+                ShowError(L10n.F($"移除游戏失败：{removed.Error?.Message}"));
                 return;
             }
 
             await RefreshAsync();
             ShowError(null);
-            SetStatus("游戏已从库中移除；磁盘文件未删除");
+            SetStatus(L10n.T("游戏已从库中移除；磁盘文件未删除"));
         }
         catch (Exception ex)
         {
-            ShowError($"移除游戏失败：{ex.Message}");
+            ShowError(L10n.F($"移除游戏失败：{ex.Message}"));
         }
     }
 
@@ -560,7 +560,7 @@ public partial class MainWindow : Window
             var envelope = await InvokeAsync("profiles.list", new { gameId });
             if (!envelope.Ok)
             {
-                statusText.Text = "启动方式：未配置（点「配置启动方式」选择游戏主程序）";
+                statusText.Text = L10n.T("启动方式：未配置（点「配置启动方式」选择游戏主程序）");
                 playButton.IsEnabled = false;
                 return;
             }
@@ -582,20 +582,20 @@ public partial class MainWindow : Window
             if (defaultProfileId is null)
             {
                 statusText.Text = count > 0
-                    ? "启动方式：未设置默认；点「配置启动方式」选择主程序并设为默认"
-                    : "启动方式：未配置（点「配置启动方式」选择游戏主程序）";
+                    ? L10n.T("启动方式：未设置默认；点「配置启动方式」选择主程序并设为默认")
+                    : L10n.T("启动方式：未配置（点「配置启动方式」选择游戏主程序）");
                 playButton.IsEnabled = false;
                 playButton.Tag = null;
                 return;
             }
 
-            statusText.Text = $"启动方式：已就绪（{Path.GetFileName(defaultExe)}）";
+            statusText.Text = L10n.F($"启动方式：已就绪（{Path.GetFileName(defaultExe)}）");
             playButton.IsEnabled = true;
             playButton.Tag = defaultProfileId;
         }
         catch (Exception ex) when (ex is InvalidOperationException or HostClientException or KeyNotFoundException)
         {
-            statusText.Text = "启动方式：状态未知（后台暂不可用）";
+            statusText.Text = L10n.T("启动方式：状态未知（后台暂不可用）");
         }
     }
 
@@ -606,7 +606,7 @@ public partial class MainWindow : Window
         var profileId = playButton.Tag as string;
         if (string.IsNullOrEmpty(profileId))
         {
-            ShowError("尚未配置启动方式。");
+            ShowError(L10n.T("尚未配置启动方式。"));
             return;
         }
 
@@ -619,17 +619,17 @@ public partial class MainWindow : Window
             });
             if (!envelope.Ok)
             {
-                ShowError($"启动失败：{envelope.Error?.Code} {envelope.Error?.Message}");
+                ShowError(L10n.F($"启动失败：{envelope.Error?.Code} {envelope.Error?.Message}"));
                 return;
             }
 
             var state = envelope.Data.TryGetProperty("state", out var s) ? s.GetString() : null;
-            SetStatus(state == "processCreated" ? "游戏已启动" : $"启动状态：{state}");
+            SetStatus(state == "processCreated" ? L10n.T("游戏已启动") : L10n.F($"启动状态：{state}"));
             ShowError(null);
         }
         catch (Exception ex)
         {
-            ShowError($"启动失败：{ex.Message}");
+            ShowError(L10n.F($"启动失败：{ex.Message}"));
         }
     }
 
@@ -638,9 +638,9 @@ public partial class MainWindow : Window
     {
         var dialog = new Microsoft.Win32.OpenFileDialog
         {
-            Title = "选择游戏启动文件（EXE / SWF）",
+            Title = L10n.T("选择游戏启动文件（EXE / SWF）"),
             // LNK 在手动入库时解析为真实目标；Profile 本身只保存可验证的 EXE/SWF。
-            Filter = "游戏启动文件|*.exe;*.swf|Windows 程序|*.exe|Flash 游戏|*.swf",
+            Filter = L10n.T("游戏启动文件|*.exe;*.swf|Windows 程序|*.exe|Flash 游戏|*.swf"),
             CheckFileExists = true,
         };
         if (Directory.Exists(gameRootPath))
@@ -686,17 +686,17 @@ public partial class MainWindow : Window
             });
             if (!create.Ok)
             {
-                ShowError($"保存启动方式失败：{create.Error?.Message}");
+                ShowError(L10n.F($"保存启动方式失败：{create.Error?.Message}"));
                 return;
             }
 
-            SetStatus("启动方式已保存");
+            SetStatus(L10n.T("启动方式已保存"));
             ShowError(null);
             await LoadLaunchStatusAsync(gameId, statusText, playButton);
         }
         catch (Exception ex)
         {
-            ShowError($"保存启动方式失败：{ex.Message}");
+            ShowError(L10n.F($"保存启动方式失败：{ex.Message}"));
         }
     }
 
@@ -715,10 +715,10 @@ public partial class MainWindow : Window
             var userOverride = data.GetProperty("userOverride").GetString();
             var effective = data.GetProperty("effective").GetString();
             var display = userOverride == "Auto"
-                ? $"Auto（继承 {inherited}）"
-                : $"{userOverride}（用户覆盖）";
+                ? L10n.F($"Auto（继承 {inherited}）")
+                : L10n.F($"{userOverride}（用户覆盖）");
             target.Tag = new TranslationUiState(userOverride ?? "Auto", effective ?? "Auto");
-            target.Text = $"翻译策略：{display}";
+            target.Text = L10n.F($"翻译策略：{display}");
         }
         catch (InvalidOperationException)
         {
@@ -744,7 +744,7 @@ public partial class MainWindow : Window
         });
         if (!envelope.Ok)
         {
-            ShowError($"translation.set 失败：{envelope.Error?.Code} {envelope.Error?.Message}");
+            ShowError(L10n.F($"translation.set 失败：{envelope.Error?.Code} {envelope.Error?.Message}"));
             return;
         }
 
@@ -804,8 +804,8 @@ public partial class MainWindow : Window
     {
         var dialog = new Microsoft.Win32.OpenFileDialog
         {
-            Title = "选择封面图片",
-            Filter = "图片|*.png;*.jpg;*.jpeg;*.webp;*.gif",
+            Title = L10n.T("选择封面图片"),
+            Filter = L10n.T("图片|*.png;*.jpg;*.jpeg;*.webp;*.gif"),
         };
         if (dialog.ShowDialog(this) != true)
         {
@@ -822,12 +822,12 @@ public partial class MainWindow : Window
             });
             if (!envelope.Ok)
             {
-                ShowError($"导入封面失败：{envelope.Error?.Message}");
+                ShowError(L10n.F($"导入封面失败：{envelope.Error?.Message}"));
             }
         }
         catch (Exception ex)
         {
-            ShowError($"导入封面失败：{ex.Message}");
+            ShowError(L10n.F($"导入封面失败：{ex.Message}"));
         }
 
         await RefreshAsync();
@@ -837,7 +837,7 @@ public partial class MainWindow : Window
     {
         if (newTitle.Length == 0)
         {
-            ShowError("标题不能为空（清空语义随 fields.clear 提供）。");
+            ShowError(L10n.T("标题不能为空（清空语义随 fields.clear 提供）。"));
             return;
         }
 
@@ -853,12 +853,12 @@ public partial class MainWindow : Window
             });
             if (!envelope.Ok)
             {
-                ShowError($"保存失败：{envelope.Error?.Message}");
+                ShowError(L10n.F($"保存失败：{envelope.Error?.Message}"));
             }
         }
         catch (Exception ex)
         {
-            ShowError($"保存失败：{ex.Message}");
+            ShowError(L10n.F($"保存失败：{ex.Message}"));
         }
 
         await RefreshAsync();
@@ -871,8 +871,8 @@ public partial class MainWindow : Window
         var pendingCount = _allEntries.Count(e => e.Kind == "candidate");
         var gameCount = _allEntries.Count(e => e.Kind == "game");
         var text = pendingCount > 0 && gameCount == 0 && ViewSelector.SelectedItem is ComboBoxItem v && (string?)v.Tag == "all"
-            ? $"扫描发现了 {pendingCount} 个项目需要确认。切到「待确认游戏」，确认后点「加入游戏库」。"
-            : "选择左侧条目查看详情";
+            ? L10n.F($"扫描发现了 {pendingCount} 个项目需要确认。切到「待确认游戏」，确认后点「加入游戏库」。")
+            : L10n.T("选择左侧条目查看详情");
         DetailPanel.Children.Add(new TextBlock
         {
             Text = text,
@@ -884,24 +884,24 @@ public partial class MainWindow : Window
 
     private static string CandidateKindLabel(string? kind) => kind switch
     {
-        "gameRoot" => "游戏库",
-        "nestedCandidate" => "文件夹内的游戏",
-        "container" => "包含多个游戏的文件夹",
-        _ => "扫描发现的项目",
+        "gameRoot" => L10n.T("游戏库"),
+        "nestedCandidate" => L10n.T("文件夹内的游戏"),
+        "container" => L10n.T("包含多个游戏的文件夹"),
+        _ => L10n.T("扫描发现的项目"),
     };
 
     private static string GameKindSummary(string? kind, string? engine)
     {
         var source = kind switch
         {
-            "manualFile" => "手动添加的游戏程序",
-            "manualShortcut" => "手动添加的快捷方式",
-            "manualDirectory" => "手动添加的游戏库",
-            "nestedCandidate" => "从游戏库中发现",
-            "container" => "包含多个游戏的文件夹",
-            _ => "扫描发现的游戏",
+            "manualFile" => L10n.T("手动添加的游戏程序"),
+            "manualShortcut" => L10n.T("手动添加的快捷方式"),
+            "manualDirectory" => L10n.T("手动添加的游戏库"),
+            "nestedCandidate" => L10n.T("从游戏库中发现"),
+            "container" => L10n.T("包含多个游戏的文件夹"),
+            _ => L10n.T("扫描发现的游戏"),
         };
-        return string.IsNullOrWhiteSpace(engine) ? source : $"{source} · 识别为 {engine}";
+        return string.IsNullOrWhiteSpace(engine) ? source : L10n.F($"{source} · 识别为 {engine}");
     }
 
     private static TextBlock MetaLine(string label, string value) => new()
@@ -967,12 +967,12 @@ public partial class MainWindow : Window
                     });
                     if (!activated.Ok)
                     {
-                        ShowError($"切换视图失败：{activated.Error?.Message}");
+                        ShowError(L10n.F($"切换视图失败：{activated.Error?.Message}"));
                     }
                 }
                 catch (Exception ex)
                 {
-                    ShowError($"切换视图失败：{ex.Message}");
+                    ShowError(L10n.F($"切换视图失败：{ex.Message}"));
                 }
             }
         }
@@ -1010,19 +1010,19 @@ public partial class MainWindow : Window
             });
             if (!envelope.Ok)
             {
-                ShowError($"{action}失败：{envelope.Error?.Message}");
+                ShowError(L10n.F($"{action}失败：{envelope.Error?.Message}"));
             }
             else if (operationId == "candidates.accept")
             {
                 var gameId = envelope.Data.TryGetProperty("gameId", out var gid) ? gid.GetString() : null;
                 SetStatus(gameId is null
-                    ? "已加入游戏库；切到「全部游戏」查看"
-                    : "已加入游戏库；其余项目确认完后可在「全部游戏」中查看");
+                    ? L10n.T("已加入游戏库；切到「全部游戏」查看")
+                    : L10n.T("已加入游戏库；其余项目确认完后可在「全部游戏」中查看"));
             }
         }
         catch (Exception ex)
         {
-            ShowError($"{action}失败：{ex.Message}");
+            ShowError(L10n.F($"{action}失败：{ex.Message}"));
         }
 
         await RefreshAsync();
@@ -1038,12 +1038,12 @@ public partial class MainWindow : Window
             }
             else
             {
-                ShowError($"目录不存在：{path}");
+                ShowError(L10n.F($"目录不存在：{path}"));
             }
         }
         catch (Exception ex)
         {
-            ShowError($"打开目录失败：{ex.Message}");
+            ShowError(L10n.F($"打开目录失败：{ex.Message}"));
         }
 
         await Task.CompletedTask;

@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { useMemo, useState, type DragEvent } from "react";
 import { ChevronDown, ChevronUp, Palette, Pencil, Plus, RotateCcw, Star, Trash2 } from "lucide-react";import {
   TAG_CATEGORIES,
@@ -27,7 +28,7 @@ import {
  * feat-3 重构后分组标题统一走 TAG_CATEGORIES.label，故在此处覆盖，不动 lib/tags.ts）。
  */
 const groupHeadingLabel = (group: { value: TagCategoryValue; label: string }) =>
-  group.value === "engine" ? "自动识别标签" : group.label;
+  group.value === "engine" ? t("自动识别标签") : t(group.label);
 
 /**
  * 标签管理（feat-3 + v1.5.2）：按四分类（引擎/玩法/社团/特殊）分组展示与筛选；
@@ -75,7 +76,7 @@ export function TagsPanel({
       await work();
       return true;
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "操作失败");
+      setError(cause instanceof Error ? cause.message : t("操作失败"));
       return false;
     } finally {
       setBusyTagId(null);
@@ -156,37 +157,34 @@ export function TagsPanel({
           onKeyDown={(event) => {
             if (event.key === "Enter") void create();
           }}
-          placeholder="新标签名称"
-          aria-label="新标签名称"
+          placeholder={t("新标签名称")}
+          aria-label={t("新标签名称")}
           className="max-w-xs"
         />
         <Select value={newCategory} onValueChange={(value) => setNewCategory(value as TagCategoryValue)}>
-          <SelectTrigger className="w-[130px]" aria-label="新标签分类">
+          <SelectTrigger className="w-[130px]" aria-label={t("新标签分类")}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             {TAG_CATEGORIES.map((category) => (
               <SelectItem key={category.value} value={category.value}>
-                {category.label}
+                {t(category.label)}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
         <Button onClick={() => void create()} disabled={!newName.trim()}>
-          <Plus size={16} />
-          新建标签
-        </Button>
+          <Plus size={16} />{t("新建标签")}</Button>
       </div>
 
       {/* 分类筛选：默认全部；点某一分类只看该组。 */}
-      <div role="group" aria-label="分类筛选" className="flex flex-wrap gap-2">
+      <div role="group" aria-label={t("分类筛选")} className="flex flex-wrap gap-2">
         <Button
           size="sm"
           variant={filter === "all" ? "default" : "outline"}
           aria-pressed={filter === "all"}
           onClick={() => setFilter("all")}
-        >
-          全部 · {tags.length}
+        >{t("全部 ·")}{tags.length}
         </Button>
         {groups.map((group) => (
           <Button
@@ -196,7 +194,7 @@ export function TagsPanel({
             aria-pressed={filter === group.value}
             onClick={() => setFilter(filter === group.value ? "all" : group.value)}
           >
-            {group.label} · {group.items.length}
+            {t(group.label)} · {group.items.length}
           </Button>
         ))}
       </div>
@@ -207,7 +205,7 @@ export function TagsPanel({
         </p>
       )}
 
-      <p className="text-xs text-text-secondary">拖动标签行到其他分类分组即可移动；点击星星评分（1–5 星，再点一次清除），高分标签在组内置顶。</p>
+      <p className="text-xs text-text-secondary">{t("拖动标签行到其他分类分组即可移动；点击星星评分（1–5 星，再点一次清除），高分标签在组内置顶。")}</p>
 
       {visibleGroups.map((group) => (
         <div
@@ -232,7 +230,7 @@ export function TagsPanel({
           </h2>
           {group.items.length === 0 ? (
             <p className={cn("text-sm text-text-secondary", dragOverCategory === group.value && "text-steam")}>
-              {dragOverCategory === group.value ? "松开鼠标移入此分类" : "无（可把标签拖到这里）"}
+              {dragOverCategory === group.value ? t("松开鼠标移入此分类") : t("无（可把标签拖到这里）")}
             </p>
           ) : (
             <ul className="space-y-1">
@@ -259,28 +257,22 @@ export function TagsPanel({
                             if (event.key === "Enter") void commitRename(tag);
                             if (event.key === "Escape") setEditing(null);
                           }}
-                          aria-label={`重命名标签 ${tagLabel(tag)}`}
+                          aria-label={t("重命名标签 {0}", tagLabel(tag))}
                           className="h-8 max-w-xs"
                           autoFocus
                         />
-                        <Button size="sm" disabled={busy || !editName.trim()} onClick={() => void commitRename(tag)}>
-                          保存
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => setEditing(null)}>
-                          取消
-                        </Button>
+                        <Button size="sm" disabled={busy || !editName.trim()} onClick={() => void commitRename(tag)}>{t("保存")}</Button>
+                        <Button size="sm" variant="ghost" onClick={() => setEditing(null)}>{t("取消")}</Button>
                         {tag.kind === "engine" && tag.displayName && (
                           <Button
                             size="sm"
                             variant="ghost"
                             disabled={busy}
-                            aria-label={`恢复本名 ${tag.name}`}
-                            title={`恢复本名 ${tag.name}`}
+                            aria-label={t("恢复本名 {0}", tag.name)}
+                            title={t("恢复本名 {0}", tag.name)}
                             onClick={() => clearDisplayName(tag)}
                           >
-                            <RotateCcw size={14} />
-                            恢复本名
-                          </Button>
+                            <RotateCcw size={14} />{t("恢复本名")}</Button>
                         )}
                       </>
                     ) : (
@@ -290,21 +282,21 @@ export function TagsPanel({
                           className="size-3 shrink-0 rounded-full border border-border"
                           style={{ backgroundColor: tag.color ?? "transparent" }}
                         />
-                        <span className="min-w-0 flex-1 truncate text-sm text-text-primary" title={tag.name === tagLabel(tag) ? undefined : `身份键：${tag.name}`}>
+                        <span className="min-w-0 flex-1 truncate text-sm text-text-primary" title={tag.name === tagLabel(tag) ? undefined : t("身份键：{0}", tag.name)}>
                           {tagLabel(tag)}
                         </span>
                         <span className="shrink-0 text-xs text-text-secondary">
-                          {tag.gameCount ? `${tag.gameCount.toLocaleString()} 个游戏` : ""}
+                          {tag.gameCount ? t("{0} 个游戏", tag.gameCount.toLocaleString()) : ""}
                         </span>
-                        <span className="flex shrink-0 items-center" role="group" aria-label={`星级评分 ${tagLabel(tag)}（当前 ${rating} 星）`}>
+                        <span className="flex shrink-0 items-center" role="group" aria-label={t("星级评分 {0}（当前 {1} 星）", tagLabel(tag), rating)}>
                           {[1, 2, 3, 4, 5].map((star) => (
                             <Button
                               key={star}
                               size="icon"
                               variant="ghost"
                               disabled={busy}
-                              aria-label={`${star === rating ? "清除" : "评为"} ${star} 星`}
-                              title={star === rating ? "清除评分" : `评为 ${star} 星`}
+                              aria-label={t("{0} {1} 星", star === rating ? "清除" : "评为", star)}
+                              title={star === rating ? t("清除评分") : t("评为 {0} 星", star)}
                               className={cn("size-7", star <= rating && "text-favorite")}
                               onClick={() => setStarRating(tag, star)}
                             >
@@ -316,8 +308,8 @@ export function TagsPanel({
                           size="icon"
                           variant="ghost"
                           disabled={busy}
-                          aria-label={`上移 ${tagLabel(tag)}`}
-                          title="组内上移"
+                          aria-label={t("上移 {0}", tagLabel(tag))}
+                          title={t("组内上移")}
                           onClick={() => moveTag(tag, -1)}
                         >
                           <ChevronUp size={14} />
@@ -326,8 +318,8 @@ export function TagsPanel({
                           size="icon"
                           variant="ghost"
                           disabled={busy}
-                          aria-label={`下移 ${tagLabel(tag)}`}
-                          title="组内下移"
+                          aria-label={t("下移 {0}", tagLabel(tag))}
+                          title={t("组内下移")}
                           onClick={() => moveTag(tag, 1)}
                         >
                           <ChevronDown size={14} />
@@ -336,8 +328,8 @@ export function TagsPanel({
                           size="icon"
                           variant="ghost"
                           disabled={busy}
-                          aria-label={`编辑颜色 ${tagLabel(tag)}`}
-                          title="编辑颜色"
+                          aria-label={t("编辑颜色 {0}", tagLabel(tag))}
+                          title={t("编辑颜色")}
                           onClick={() => setColorEditing(colorEditing?.tagId === tag.tagId ? null : tag)}
                         >
                           <Palette size={14} />
@@ -346,8 +338,8 @@ export function TagsPanel({
                           size="icon"
                           variant="ghost"
                           disabled={busy}
-                          aria-label={`重命名 ${tagLabel(tag)}`}
-                          title="重命名"
+                          aria-label={t("重命名 {0}", tagLabel(tag))}
+                          title={t("重命名")}
                           onClick={() => {
                             setEditing(tag);
                             setEditName(tagLabel(tag));
@@ -359,8 +351,8 @@ export function TagsPanel({
                           size="icon"
                           variant="ghost"
                           disabled={busy}
-                          aria-label={`删除 ${tagLabel(tag)}`}
-                          title="删除"
+                          aria-label={t("删除 {0}", tagLabel(tag))}
+                          title={t("删除")}
                           onClick={() => setRemoving(tag)}
                         >
                           <Trash2 size={14} />
@@ -385,13 +377,13 @@ export function TagsPanel({
 
       <ConfirmDialog
         open={removing !== null}
-        title={`删除标签「${removing ? tagLabel(removing) : ""}」`}
+        title={t("删除标签「{0}」", removing ? tagLabel(removing) : "")}
         description={
           removing?.kind === "engine"
-            ? "引擎标签删除后会登记 suppress 覆盖，避免下次扫描又把它加回来。"
-            : "该标签会从所有游戏上解除关联。此操作不可撤销。"
+            ? t("引擎标签删除后会登记 suppress 覆盖，避免下次扫描又把它加回来。")
+            : t("该标签会从所有游戏上解除关联。此操作不可撤销。")
         }
-        confirmLabel="删除"
+        confirmLabel={t("删除")}
         destructive
         onCancel={() => setRemoving(null)}
         onConfirm={() => {
@@ -422,7 +414,7 @@ function TagColorPopover({
     <>
       <button
         type="button"
-        aria-label="关闭颜色选择"
+        aria-label={t("关闭颜色选择")}
         className={cn("fixed inset-0 z-10 cursor-default", busy && "hidden")}
         onClick={onClose}
       />
@@ -433,7 +425,7 @@ function TagColorPopover({
               key={color}
               type="button"
               disabled={busy}
-              aria-label={`使用颜色 ${color}`}
+              aria-label={t("使用颜色 {0}", color)}
               title={color}
               className="size-6 cursor-pointer rounded-md border border-border transition hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               style={{ backgroundColor: color }}
@@ -444,7 +436,7 @@ function TagColorPopover({
         <div className="mt-3 flex items-center gap-2">
           <input
             type="color"
-            aria-label="自定义颜色"
+            aria-label={t("自定义颜色")}
             value={valid ? draft : "#38bdf8"}
             disabled={busy}
             onChange={(event) => setDraft(event.currentTarget.value)}
@@ -454,14 +446,12 @@ function TagColorPopover({
             value={draft}
             disabled={busy}
             onChange={(event) => setDraft(event.currentTarget.value)}
-            aria-label="自定义颜色（#RRGGBB）"
+            aria-label={t("自定义颜色（#RRGGBB）")}
             className="h-8 flex-1"
           />
-          <Button size="sm" disabled={busy || !valid} onClick={() => onApply(draft.toLowerCase())}>
-            应用
-          </Button>
+          <Button size="sm" disabled={busy || !valid} onClick={() => onApply(draft.toLowerCase())}>{t("应用")}</Button>
         </div>
-        {!valid && <p className="mt-2 text-xs text-danger">颜色须为 #RRGGBB 格式</p>}
+        {!valid && <p className="mt-2 text-xs text-danger">{t("颜色须为 #RRGGBB 格式")}</p>}
       </div>
     </>
   );

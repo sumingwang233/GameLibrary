@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { useEffect, useRef, useState } from "react";
 import { FolderOpen } from "lucide-react";
 import type { GameItem, TagItem } from "../lib/types";
@@ -69,8 +70,8 @@ export function GameGrid({
     return (
       <EmptyState
         icon={<FolderOpen size={44} strokeWidth={1.25} />}
-        title="这里还没有游戏"
-        message={emptyHint ?? "添加游戏库目录并扫描，游戏会出现在这里。"}
+        title={t("这里还没有游戏")}
+        message={emptyHint ?? t("添加游戏库目录并扫描，游戏会出现在这里。")}
       />
     );
   }
@@ -79,8 +80,8 @@ export function GameGrid({
     <div>
       <div className="mb-4 rounded-lg border border-border bg-surface p-3">
         <div className="mb-2 flex gap-2">
-          <Button size="sm" variant="outline" disabled={busy} onClick={() => setChecked(new Set(games.map(game => game.gameId)))}>全选</Button>
-          <Button size="sm" variant="ghost" disabled={busy || !chosen.length} onClick={() => setChecked(new Set())}>清空选择</Button>
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => setChecked(new Set(games.map(game => game.gameId)))}>{t("全选")}</Button>
+          <Button size="sm" variant="ghost" disabled={busy || !chosen.length} onClick={() => setChecked(new Set())}>{t("清空选择")}</Button>
         </div>
         <GameBatchBar games={chosen} tags={tags} onBusy={setBusy} onComplete={async failedIds => {
           setChecked(new Set(failedIds));
@@ -99,7 +100,7 @@ export function GameGrid({
                 aria-current={game.gameId === selectedId}
                 className="flex w-full cursor-pointer items-center gap-4 rounded-md border border-border bg-surface px-4 py-3 text-left transition hover:border-steam focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <input type="checkbox" aria-label={`选择 ${game.title}`} checked={checked.has(game.gameId)} disabled={busy}
+                <input type="checkbox" aria-label={t("选择 {0}", game.title)} checked={checked.has(game.gameId)} disabled={busy}
                   className="size-5 accent-steam" onClick={event => event.stopPropagation()} onChange={() => toggle(game.gameId)} />
                 <span
                   aria-hidden="true"
@@ -123,10 +124,8 @@ export function GameGrid({
                     event.stopPropagation();
                     onPlay(game.gameId);
                   }}
-                  aria-label={`启动 ${game.title}`}
-                >
-                  启动
-                </Button>
+                  aria-label={t("启动 {0}", game.title)}
+                >{t("启动")}</Button>
               </div>
             </li>
           ))}
@@ -149,9 +148,9 @@ export function GameGrid({
       )}
 
       <div ref={sentinel} className="flex h-16 items-center justify-center">
-        {loadingMore && <span className="text-xs text-text-secondary">正在加载更多…</span>}
+        {loadingMore && <span className="text-xs text-text-secondary">{t("正在加载更多…")}</span>}
         {!hasMore && games.length > 0 && (
-          <span className="text-xs text-text-secondary">已显示全部 {games.length.toLocaleString()} 个</span>
+          <span className="text-xs text-text-secondary">{t("已显示全部")}{games.length.toLocaleString()}{t("个")}</span>
         )}
       </div>
     </div>

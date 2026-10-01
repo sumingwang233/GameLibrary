@@ -23,6 +23,7 @@
     <!-- UIA 冒烟测试抓到的启动崩溃修复：Icon="App.ico" 走 pack URI，必须以 Resource 嵌入程序集
          （ApplicationIcon 只设置 EXE 文件图标，不进 WPF 资源清单）。 -->
     <Resource Include="App.ico" />
+    <EmbeddedResource Include="..\GameLibrary.Contracts\Localization\ui.json" LogicalName="GameLibrary.UiTranslations" />
   </ItemGroup>
 
   <ItemGroup>

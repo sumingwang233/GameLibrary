@@ -16,7 +16,13 @@ public sealed class ScanCoordinator : IDisposable
     private readonly Func<string, JobOutcome> _runReconcileScan;
     private readonly TimeSpan _interval;
     private readonly Timer _timer;
+    private readonly Timer _metadataTimer;
+    public Action? ReconcileMetadata { get; set; }
+    public Action<Exception>? OnBackgroundError { get; set; }
     private int _busy; // 0=空闲 1=核对中（Interlocked）
+
+    public Func<IDisposable?>? AcquireLibraryLease { get; set; }
+    public bool IsRunning => Volatile.Read(ref _busy) != 0;
 
     /// <summary>手动扫描进行中标志（scan.start 作业置位）：置位期间周期核对跳过（手动/后台互斥）。</summary>
     public volatile bool ManualScanRunning;
@@ -36,7 +42,14 @@ public sealed class ScanCoordinator : IDisposable
         _events = events;
         _runReconcileScan = runReconcileScan;
         _interval = interval ?? DefaultInterval;
-        _timer = new Timer(_ => Tick(), null, _interval, _interval);
+        _timer = new Timer(_ => RunTimer(Tick), null, _interval, _interval);
+        _metadataTimer = new Timer(_ => RunTimer(TickMetadata), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+    }
+
+    private void RunTimer(Action action)
+    {
+        try { action(); }
+        catch (Exception ex) { OnBackgroundError?.Invoke(ex); }
     }
 
     /// <summary>周期核对触发：手动扫描进行中或上一轮未结束时跳过（互斥）。</summary>
@@ -50,6 +63,8 @@ public sealed class ScanCoordinator : IDisposable
 
         try
         {
+            using var lease = AcquireLibraryLease?.Invoke();
+            if (AcquireLibraryLease is not null && lease is null) return;
             Interlocked.Increment(ref TriggeredCount);
             // v23（bug-5）：只核对 library 根——manual 根是手动添加游戏的包含边界，
             // 不参与扫描枚举（manual 根下的游戏不产生候选）。
@@ -80,5 +95,17 @@ public sealed class ScanCoordinator : IDisposable
     public void Publish(string type, string entityKey, object payload) =>
         _events.Publish(type, entityKey, payload, DateTime.UtcNow);
 
-    public void Dispose() => _timer.Dispose();
+    private void TickMetadata()
+    {
+        if (ManualScanRunning || Interlocked.CompareExchange(ref _busy, 1, 0) != 0) return;
+        try
+        {
+            using var lease = AcquireLibraryLease?.Invoke();
+            if (AcquireLibraryLease is not null && lease is null) return;
+            ReconcileMetadata?.Invoke();
+        }
+        finally { Interlocked.Exchange(ref _busy, 0); }
+    }
+
+    public void Dispose() { _timer.Dispose(); _metadataTimer.Dispose(); }
 }

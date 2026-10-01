@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import type { TagItem } from "./types";
 
 /**
@@ -17,7 +18,7 @@ export type TagCategoryValue = (typeof TAG_CATEGORIES)[number]["value"];
 /** 分类显示名；未知名原样回显（后端不可能产生，防御性兜底）。 */
 export function categoryLabel(category?: string | null): string {
   const hit = TAG_CATEGORIES.find((item) => item.value === category);
-  return hit?.label ?? category ?? "特殊";
+  return t(hit?.label ?? category ?? "特殊");
 }
 
 /**

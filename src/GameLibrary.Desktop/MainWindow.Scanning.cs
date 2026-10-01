@@ -24,7 +24,7 @@ public partial class MainWindow : Window
     {
         var choice = new Window
         {
-            Title = "手动添加游戏",
+            Title = L10n.T("手动添加游戏"),
             Width = 470,
             Height = 230,
             Owner = this,
@@ -36,20 +36,20 @@ public partial class MainWindow : Window
         var panel = new StackPanel { Margin = new Thickness(20) };
         panel.Children.Add(new TextBlock
         {
-            Text = "扫描没有找到游戏？可以手动指定主程序，或先把游戏目录加入库。",
+            Text = L10n.T("扫描没有找到游戏？可以手动指定主程序，或先把游戏目录加入库。"),
             TextWrapping = TextWrapping.Wrap,
             Foreground = TryFindResource<SolidColorBrush>("TextBody"),
             Margin = new Thickness(0, 0, 0, 15),
         });
         var fileButton = new Button
         {
-            Content = "选择游戏主程序或快捷方式（EXE / SWF / LNK）",
+            Content = L10n.T("选择游戏主程序或快捷方式（EXE / SWF / LNK）"),
             Style = (Style)TryFindResource("SteamBlueButton"),
             Margin = new Thickness(0, 0, 0, 8),
         };
         var folderButton = new Button
         {
-            Content = "选择游戏目录（稍后配置启动方式）",
+            Content = L10n.T("选择游戏目录（稍后配置启动方式）"),
             Style = (Style)TryFindResource("SteamButton"),
         };
         string? selectionKind = null;
@@ -68,8 +68,8 @@ public partial class MainWindow : Window
         {
             var picker = new Microsoft.Win32.OpenFileDialog
             {
-                Title = "选择游戏主程序",
-                Filter = "游戏主程序或快捷方式|*.exe;*.swf;*.lnk",
+                Title = L10n.T("选择游戏主程序"),
+                Filter = L10n.T("游戏主程序或快捷方式|*.exe;*.swf;*.lnk"),
                 CheckFileExists = true,
                 InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
             };
@@ -79,7 +79,7 @@ public partial class MainWindow : Window
         {
             var picker = new Microsoft.Win32.OpenFolderDialog
             {
-                Title = "选择游戏目录",
+                Title = L10n.T("选择游戏目录"),
                 InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
             };
             sourcePath = picker.ShowDialog(this) == true ? picker.FolderName : null;
@@ -95,7 +95,7 @@ public partial class MainWindow : Window
             var roots = await InvokeAsync("roots.list");
             if (!roots.Ok)
             {
-                ShowError($"读取游戏库失败：{roots.Error?.Message}");
+                ShowError(L10n.F($"读取游戏库失败：{roots.Error?.Message}"));
                 return;
             }
 
@@ -107,8 +107,8 @@ public partial class MainWindow : Window
                     ? Path.GetDirectoryName(sourcePath)!
                     : sourcePath;
                 var answer = MessageBox.Show(this,
-                    $"为了保存这个游戏，需要授权以下文件夹作为游戏库范围：\n{folderToAuthorize}\n\n授权后，后台扫描也可能检查此文件夹。是否继续？",
-                    "确认游戏库范围", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                    L10n.F($"为了保存这个游戏，需要授权以下文件夹作为游戏库范围：\n{folderToAuthorize}\n\n授权后，后台扫描也可能检查此文件夹。是否继续？"),
+                    L10n.T("确认游戏库范围"), MessageBoxButton.YesNo, MessageBoxImage.Question);
                 if (answer != MessageBoxResult.Yes)
                 {
                     return;
@@ -117,7 +117,7 @@ public partial class MainWindow : Window
                 var added = await InvokeAsync("roots.add", new { root = folderToAuthorize });
                 if (!added.Ok)
                 {
-                    ShowError($"授权游戏库失败：{added.Error?.Message}");
+                    ShowError(L10n.F($"授权游戏库失败：{added.Error?.Message}"));
                     return;
                 }
             }
@@ -129,7 +129,7 @@ public partial class MainWindow : Window
             });
             if (!created.Ok)
             {
-                ShowError($"手动添加游戏失败：{created.Error?.Message}");
+                ShowError(L10n.F($"手动添加游戏失败：{created.Error?.Message}"));
                 return;
             }
 
@@ -150,7 +150,7 @@ public partial class MainWindow : Window
                 });
                 if (!profile.Ok)
                 {
-                    ShowError($"游戏已入库，但启动方式未保存：{profile.Error?.Message}。可在详情页重试配置。");
+                    ShowError(L10n.F($"游戏已入库，但启动方式未保存：{profile.Error?.Message}。可在详情页重试配置。"));
                 }
                 else
                 {
@@ -179,12 +179,12 @@ public partial class MainWindow : Window
             _preferredGameId = gameId;
             await RefreshAsync();
             SetStatus(selectionKind == "file"
-                ? "游戏已手动加入库；可在右侧查看启动方式"
-                : "游戏目录已入库；请在右侧配置启动方式");
+                ? L10n.T("游戏已手动加入库；可在右侧查看启动方式")
+                : L10n.T("游戏目录已入库；请在右侧配置启动方式"));
         }
         catch (Exception ex)
         {
-            ShowError($"手动添加游戏失败：{ex.Message}");
+            ShowError(L10n.F($"手动添加游戏失败：{ex.Message}"));
         }
     }
 
@@ -206,7 +206,7 @@ public partial class MainWindow : Window
     {
         var dialog = new Microsoft.Win32.OpenFolderDialog
         {
-            Title = "选择游戏库（扫描范围；不要选择应用数据目录）",
+            Title = L10n.T("选择游戏库（扫描范围；不要选择应用数据目录）"),
         };
         if (dialog.ShowDialog(this) != true)
         {
@@ -218,17 +218,17 @@ public partial class MainWindow : Window
             var envelope = await InvokeAsync("roots.add", new { root = dialog.FolderName });
             if (!envelope.Ok)
             {
-                ShowError($"添加游戏库失败：{envelope.Error?.Message}");
+                ShowError(L10n.F($"添加游戏库失败：{envelope.Error?.Message}"));
                 return;
             }
 
-            SetStatus("游戏库已添加（显式授权扫描边界）");
+            SetStatus(L10n.T("游戏库已添加（显式授权扫描边界）"));
             ShowError(null);
             await RefreshAsync();
         }
         catch (Exception ex)
         {
-            ShowError($"添加游戏库失败：{ex.Message}");
+            ShowError(L10n.F($"添加游戏库失败：{ex.Message}"));
         }
     }
 
@@ -240,13 +240,13 @@ public partial class MainWindow : Window
             var envelope = await InvokeAsync("roots.list");
             if (!envelope.Ok)
             {
-                ShowError($"读取游戏库失败：{envelope.Error?.Message}");
+                ShowError(L10n.F($"读取游戏库失败：{envelope.Error?.Message}"));
                 return;
             }
 
             var dialog = new Window
             {
-                Title = "游戏库",
+                Title = L10n.T("游戏库"),
                 Width = 560,
                 Height = 320,
                 Owner = this,
@@ -260,7 +260,7 @@ public partial class MainWindow : Window
             {
                 list.Children.Add(new TextBlock
                 {
-                    Text = "还没有游戏库。点主窗口顶部「添加游戏库」开始。",
+                    Text = L10n.T("还没有游戏库。点主窗口顶部「添加游戏库」开始。"),
                     Foreground = TryFindResource<SolidColorBrush>("TextMuted"),
                 });
             }
@@ -273,7 +273,7 @@ public partial class MainWindow : Window
                 var row = new DockPanel { Margin = new Thickness(0, 4, 0, 4) };
                 var removeButton = new Button
                 {
-                    Content = "移除",
+                    Content = L10n.T("移除"),
                     Style = (Style)TryFindResource("SteamButton"),
                 };
                 DockPanel.SetDock(removeButton, Dock.Right);
@@ -295,12 +295,12 @@ public partial class MainWindow : Window
                     });
                     if (!result.Ok)
                     {
-                        ShowError($"移除失败：{result.Error?.Message}");
+                        ShowError(L10n.F($"移除失败：{result.Error?.Message}"));
                         return;
                     }
 
                     row.Visibility = Visibility.Collapsed;
-                    SetStatus("游戏库已移除（库内游戏保留）");
+                    SetStatus(L10n.T("游戏库已移除（库内游戏保留）"));
                     await RefreshAsync();
                 };
                 list.Children.Add(row);
@@ -311,7 +311,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            ShowError($"打开游戏库管理失败：{ex.Message}");
+            ShowError(L10n.F($"打开游戏库管理失败：{ex.Message}"));
         }
     }
 
@@ -324,7 +324,7 @@ public partial class MainWindow : Window
             var envelope = await InvokeAsync("roots.list");
             if (!envelope.Ok)
             {
-                ShowError($"读取游戏库失败：{envelope.Error?.Message}");
+                ShowError(L10n.F($"读取游戏库失败：{envelope.Error?.Message}"));
                 return;
             }
 
@@ -335,13 +335,13 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            ShowError($"扫描失败：{ex.Message}");
+            ShowError(L10n.F($"扫描失败：{ex.Message}"));
             return;
         }
 
         if (roots.Count == 0)
         {
-            ShowError("还没有游戏库；先点「添加游戏库」。");
+            ShowError(L10n.T("还没有游戏库；先点「添加游戏库」。"));
             return;
         }
 
@@ -363,23 +363,23 @@ public partial class MainWindow : Window
                 }
 
                 var root = roots[i];
-                ScanProgressText.Text = $"准备扫描（根 {i + 1}/{roots.Count}）";
+                ScanProgressText.Text = L10n.F($"准备扫描（根 {i + 1}/{roots.Count}）");
                 var start = await InvokeAsync("scan.start", new { root });
                 if (!start.Ok)
                 {
-                    ShowError($"扫描启动失败（{root}）：{start.Error?.Code} {start.Error?.Message}");
+                    ShowError(L10n.F($"扫描启动失败（{root}）：{start.Error?.Code} {start.Error?.Message}"));
                     scanFailed = true;
                     break;
                 }
 
-                var jobId = start.JobId ?? throw new InvalidOperationException("后台未返回扫描任务编号");
+                var jobId = start.JobId ?? throw new InvalidOperationException(L10n.T("后台未返回扫描任务编号"));
                 _currentScanJobId = jobId;
                 while (true)
                 {
                     var progress = await InvokeAsync("scan.coverage", new { jobId });
                     if (!progress.Ok)
                     {
-                        throw new InvalidOperationException($"查询扫描进度失败：{progress.Error?.Message}");
+                        throw new InvalidOperationException(L10n.F($"查询扫描进度失败：{progress.Error?.Message}"));
                     }
 
                     var stateName = progress.Data.GetProperty("state").GetString();
@@ -408,7 +408,7 @@ public partial class MainWindow : Window
 
                         if (stateName == "failed")
                         {
-                            ShowError($"扫描失败（{root}）；请检查游戏库后重试。");
+                            ShowError(L10n.F($"扫描失败（{root}）；请检查游戏库后重试。"));
                             scanFailed = true;
                         }
                         else if (stateName == "cancelled")
@@ -427,11 +427,11 @@ public partial class MainWindow : Window
 
             if (_scanCancellationRequested)
             {
-                SetStatus("扫描已取消；其余游戏库未继续扫描");
+                SetStatus(L10n.T("扫描已取消；其余游戏库未继续扫描"));
             }
             else if (scanFailed)
             {
-                SetStatus("扫描未完成；请查看右侧错误提示");
+                SetStatus(L10n.T("扫描未完成；请查看右侧错误提示"));
             }
             else
             {
@@ -440,11 +440,11 @@ public partial class MainWindow : Window
                     new { state = "pendingReview", limit = 1, offset = 0 });
                 if (!candidates.Ok)
                 {
-                    throw new InvalidOperationException($"读取待确认项目失败：{candidates.Error?.Message}");
+                    throw new InvalidOperationException(L10n.F($"读取待确认项目失败：{candidates.Error?.Message}"));
                 }
 
                 var pending = candidates.Data.GetProperty("total").GetInt32();
-                ScanProgressText.Text = "扫描完成";
+                ScanProgressText.Text = L10n.T("扫描完成");
                 if (pending > 0)
                 {
                     // 有新候选时自动切到待审核视图（用户核心诉求是审核入库）。
@@ -456,22 +456,22 @@ public partial class MainWindow : Window
                     }
 
                     SetStatus(scanPartial
-                        ? $"扫描完成但部分分支无法访问：本次识别 {candidatesFound} 个候选，当前有 {pending} 个待确认"
-                        : $"扫描完成：本次识别 {candidatesFound} 个候选，当前有 {pending} 个待确认，已切到「待确认游戏」");
+                        ? L10n.F($"扫描完成但部分分支无法访问：本次识别 {candidatesFound} 个候选，当前有 {pending} 个待确认")
+                        : L10n.F($"扫描完成：本次识别 {candidatesFound} 个候选，当前有 {pending} 个待确认，已切到「待确认游戏」"));
                 }
                 else
                 {
                     SetStatus(scanPartial
-                        ? $"扫描完成但部分分支无法访问：本次识别 {candidatesFound} 个候选"
+                        ? L10n.F($"扫描完成但部分分支无法访问：本次识别 {candidatesFound} 个候选")
                         : candidatesFound > 0
-                            ? $"扫描完成：本次识别 {candidatesFound} 个候选，暂无待确认项目"
-                            : "扫描完成：未发现可审核的游戏");
+                            ? L10n.F($"扫描完成：本次识别 {candidatesFound} 个候选，暂无待确认项目")
+                            : L10n.T("扫描完成：未发现可审核的游戏"));
                 }
             }
         }
         catch (Exception ex)
         {
-            ShowError($"扫描失败：{ex.Message}");
+            ShowError(L10n.F($"扫描失败：{ex.Message}"));
         }
         finally
         {
@@ -500,15 +500,15 @@ public partial class MainWindow : Window
             var cancellation = await InvokeAsync("scan.cancel", new { jobId = _currentScanJobId });
             if (!cancellation.Ok)
             {
-                ShowError($"取消扫描失败：{cancellation.Error?.Message}；当前任务完成后仍会停止后续文件夹。");
+                ShowError(L10n.F($"取消扫描失败：{cancellation.Error?.Message}；当前任务完成后仍会停止后续文件夹。"));
                 return;
             }
 
-            SetStatus("已请求取消扫描（检查点生效）");
+            SetStatus(L10n.T("已请求取消扫描（检查点生效）"));
         }
         catch (Exception ex)
         {
-            ShowError($"取消失败：{ex.Message}");
+            ShowError(L10n.F($"取消失败：{ex.Message}"));
         }
     }
 
@@ -522,7 +522,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            ShowError($"打开设置失败：{ex.Message}");
+            ShowError(L10n.F($"打开设置失败：{ex.Message}"));
         }
     }
 }

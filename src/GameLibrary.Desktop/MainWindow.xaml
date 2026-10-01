@@ -8,7 +8,7 @@
         MinHeight="600"
         Background="{DynamicResource BgMain}"
         WindowStartupLocation="CenterScreen"
-        AutomationProperties.Name="GameLibrary 主窗口">
+        AutomationProperties.Name="{DynamicResource L10n.GameLibrary_主窗口}">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="48" />
@@ -26,16 +26,16 @@
                            FontSize="16" FontWeight="Bold"
                            Foreground="{DynamicResource TextPrimary}"
                            VerticalAlignment="Center" Margin="0,0,18,0" />
-                <Button Name="SettingsButton" Content="设置" Style="{DynamicResource SteamButton}"
+                <Button Name="SettingsButton" Content="{DynamicResource L10n.设置}" Style="{DynamicResource SteamButton}"
                         Click="OnSettingsClick" DockPanel.Dock="Right" Margin="6,0,0,0" VerticalAlignment="Center" />
-                <Button Name="RootsButton" Content="游戏库" Style="{DynamicResource SteamButton}"
+                <Button Name="RootsButton" Content="{DynamicResource L10n.游戏库}" Style="{DynamicResource SteamButton}"
                         Click="OnRootsClick" DockPanel.Dock="Right" Margin="6,0,0,0" VerticalAlignment="Center" />
-                <Button Name="ScanButton" Content="扫描" Style="{DynamicResource SteamBlueButton}"
+                <Button Name="ScanButton" Content="{DynamicResource L10n.扫描}" Style="{DynamicResource SteamBlueButton}"
                         Click="OnScanClick" DockPanel.Dock="Right" Margin="6,0,0,0" VerticalAlignment="Center" />
-                <Button Name="ManualAddButton" Content="手动添加游戏" Style="{DynamicResource SteamButton}"
+                <Button Name="ManualAddButton" Content="{DynamicResource L10n.手动添加游戏}" Style="{DynamicResource SteamButton}"
                         Click="OnManualAddClick" DockPanel.Dock="Right" Margin="6,0,0,0" VerticalAlignment="Center"
-                        AutomationProperties.Name="手动添加游戏" />
-                <Button Name="AddGameFolderButton" Content="添加游戏库" Style="{DynamicResource SteamButton}"
+                        AutomationProperties.Name="{DynamicResource L10n.手动添加游戏}" />
+                <Button Name="AddGameFolderButton" Content="{DynamicResource L10n.添加游戏库}" Style="{DynamicResource SteamButton}"
                         Click="OnAddGameFolderClick" DockPanel.Dock="Right" Margin="6,0,0,0" VerticalAlignment="Center" />
             </DockPanel>
         </Border>
@@ -53,120 +53,120 @@
                 <DockPanel>
                     <ComboBox Name="ViewSelector" DockPanel.Dock="Top" Margin="8,10,8,4"
                               Background="{DynamicResource BgPanel}" Foreground="{DynamicResource TextBody}"
-                              AutomationProperties.Name="视图切换"
+                              AutomationProperties.Name="{DynamicResource L10n.视图切换}"
                               SelectionChanged="OnViewSelectorChanged" />
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="8,0,8,4">
-                        <Button Content="新建标签" Style="{DynamicResource SteamButton}"
-                                Click="OnCreateCollectionClick" AutomationProperties.Name="新建标签" />
-                        <Button Content="管理标签" Style="{DynamicResource SteamButton}" Margin="6,0,0,0"
-                                Click="OnManageCollectionsClick" AutomationProperties.Name="管理标签" />
+                        <Button Content="{DynamicResource L10n.新建标签}" Style="{DynamicResource SteamButton}"
+                                Click="OnCreateCollectionClick" AutomationProperties.Name="{DynamicResource L10n.新建标签}" />
+                        <Button Content="{DynamicResource L10n.管理标签}" Style="{DynamicResource SteamButton}" Margin="6,0,0,0"
+                                Click="OnManageCollectionsClick" AutomationProperties.Name="{DynamicResource L10n.管理标签}" />
                     </StackPanel>
-                    <Label DockPanel.Dock="Top" Content="搜索游戏 (_F)" Target="{Binding ElementName=SearchBox}"
+                    <Label DockPanel.Dock="Top" Content="{DynamicResource L10n.搜索游戏_(_F)}" Target="{Binding ElementName=SearchBox}"
                            FontSize="11" Foreground="{DynamicResource TextMuted}" Margin="10,4,0,0" />
                     <TextBox Name="SearchBox" DockPanel.Dock="Top" Margin="8,0,8,6"
-                             AutomationProperties.Name="搜索游戏"
-                             ToolTip="搜索游戏标题（Ctrl+F 聚焦，300ms 防抖）" />
+                             AutomationProperties.Name="{DynamicResource L10n.搜索游戏}"
+                             ToolTip="{DynamicResource L10n.搜索游戏标题（Ctrl+F_聚焦，300ms_防抖）}" />
                     <Grid DockPanel.Dock="Top" Margin="8,0,8,6">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" Margin="0,0,4,0">
-                            <TextBlock Text="排序" FontSize="11" Foreground="{DynamicResource TextMuted}"
+                            <TextBlock Text="{DynamicResource L10n.排序}" FontSize="11" Foreground="{DynamicResource TextMuted}"
                                        Margin="2,0,0,3" />
                             <ComboBox Name="SortSelector" SelectionChanged="OnSortSelectorChanged"
-                                      AutomationProperties.Name="游戏排序方式" />
+                                      AutomationProperties.Name="{DynamicResource L10n.游戏排序方式}" />
                         </StackPanel>
                         <StackPanel Grid.Column="1" Margin="4,0,0,0">
-                            <TextBlock Text="标签" FontSize="11" Foreground="{DynamicResource TextMuted}"
+                            <TextBlock Text="{DynamicResource L10n.标签}" FontSize="11" Foreground="{DynamicResource TextMuted}"
                                        Margin="2,0,0,3" />
                             <ComboBox Name="TagFilterSelector" SelectionChanged="OnTagFilterChanged"
-                                      AutomationProperties.Name="标签筛选" />
+                                      AutomationProperties.Name="{DynamicResource L10n.标签筛选}" />
                         </StackPanel>
                     </Grid>
                     <Border Name="CandidateBatchBar" DockPanel.Dock="Top" Visibility="Collapsed"
                             BorderBrush="{DynamicResource Sep}" BorderThickness="0,1,0,1"
                             Padding="8,8" Margin="0,2,0,6"
-                            AutomationProperties.Name="待确认游戏批量操作">
+                            AutomationProperties.Name="{DynamicResource L10n.待确认游戏批量操作}">
                         <StackPanel>
                             <Grid Margin="0,0,0,8">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <CheckBox Name="SelectAllCandidatesCheckBox" Content="全选当前结果"
+                                <CheckBox Name="SelectAllCandidatesCheckBox" Content="{DynamicResource L10n.全选当前结果}"
                                           Checked="OnSelectAllCandidatesChanged"
                                           Unchecked="OnSelectAllCandidatesChanged"
                                           MinHeight="24" VerticalAlignment="Center"
-                                          AutomationProperties.Name="全选当前待确认游戏" />
-                                <TextBlock Name="CandidateBatchSelectionText" Text="已选择 0 项"
+                                          AutomationProperties.Name="{DynamicResource L10n.全选当前待确认游戏}" />
+                                <TextBlock Name="CandidateBatchSelectionText" Text="{DynamicResource L10n.已选择_0_项}"
                                            Grid.Column="1" FontSize="11" Margin="10,0,0,0"
                                            Foreground="{DynamicResource TextMuted}"
                                            VerticalAlignment="Center" />
                             </Grid>
                             <UniformGrid Columns="3">
-                                <Button Name="BatchAcceptButton" Content="加入"
+                                <Button Name="BatchAcceptButton" Content="{DynamicResource L10n.加入}"
                                         Style="{DynamicResource SteamGreenButton}" Padding="6,4"
                                         Margin="0,0,4,0" Click="OnBatchAcceptClick"
-                                        AutomationProperties.Name="批量加入游戏库" />
-                                <Button Name="BatchDeferButton" Content="暂不处理"
+                                        AutomationProperties.Name="{DynamicResource L10n.批量加入游戏库}" />
+                                <Button Name="BatchDeferButton" Content="{DynamicResource L10n.暂不处理}"
                                         Style="{DynamicResource SteamButton}" Padding="6,4"
                                         Margin="2,0" Click="OnBatchDeferClick"
-                                        AutomationProperties.Name="批量暂不处理" />
-                                <Button Name="BatchIgnoreButton" Content="忽略"
+                                        AutomationProperties.Name="{DynamicResource L10n.批量暂不处理}" />
+                                <Button Name="BatchIgnoreButton" Content="{DynamicResource L10n.忽略}"
                                         Style="{DynamicResource SteamButton}" Padding="6,4"
                                         Margin="4,0,0,0" Click="OnBatchIgnoreClick"
-                                        AutomationProperties.Name="批量忽略扫描结果" />
+                                        AutomationProperties.Name="{DynamicResource L10n.批量忽略扫描结果}" />
                             </UniformGrid>
                         </StackPanel>
                     </Border>
                     <Border Name="GameBatchBar" DockPanel.Dock="Top" Visibility="Collapsed"
                             BorderBrush="{DynamicResource Sep}" BorderThickness="0,1,0,1"
                             Padding="8,8" Margin="0,2,0,6"
-                            AutomationProperties.Name="游戏批量操作">
+                            AutomationProperties.Name="{DynamicResource L10n.游戏批量操作}">
                         <StackPanel>
                             <Grid Margin="0,0,0,8">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <CheckBox Name="SelectAllGamesCheckBox" Content="全选当前结果"
+                                <CheckBox Name="SelectAllGamesCheckBox" Content="{DynamicResource L10n.全选当前结果}"
                                           Checked="OnSelectAllGamesChanged"
                                           Unchecked="OnSelectAllGamesChanged"
                                           MinHeight="24" VerticalAlignment="Center"
-                                          AutomationProperties.Name="全选当前游戏" />
-                                <TextBlock Name="GameBatchSelectionText" Grid.Column="1" Text="已选择 0 项"
+                                          AutomationProperties.Name="{DynamicResource L10n.全选当前游戏}" />
+                                <TextBlock Name="GameBatchSelectionText" Grid.Column="1" Text="{DynamicResource L10n.已选择_0_项}"
                                            FontSize="11" Margin="10,0,0,0"
                                            Foreground="{DynamicResource TextMuted}"
                                            VerticalAlignment="Center" />
                             </Grid>
                             <UniformGrid Columns="2" Rows="2">
-                                <Button Name="BatchFavoriteButton" Content="收藏"
+                                <Button Name="BatchFavoriteButton" Content="{DynamicResource L10n.收藏}"
                                         Style="{DynamicResource SteamButton}" Padding="6,4"
                                         Margin="0,0,3,3" Click="OnBatchFavoriteClick" />
-                                <Button Name="BatchUnfavoriteButton" Content="取消收藏"
+                                <Button Name="BatchUnfavoriteButton" Content="{DynamicResource L10n.取消收藏}"
                                         Style="{DynamicResource SteamButton}" Padding="6,4"
                                         Margin="3,0,0,3" Click="OnBatchUnfavoriteClick" />
-                                <Button Name="BatchTagsButton" Content="设置标签"
+                                <Button Name="BatchTagsButton" Content="{DynamicResource L10n.设置标签}"
                                         Style="{DynamicResource SteamButton}" Padding="6,4"
                                         Margin="0,3,3,0" Click="OnBatchTagsClick" />
-                                <Button Name="BatchRemoveGamesButton" Content="移出游戏库"
+                                <Button Name="BatchRemoveGamesButton" Content="{DynamicResource L10n.移出游戏库}"
                                         Style="{DynamicResource SteamButton}" Padding="6,4"
                                         Margin="3,3,0,0" Click="OnBatchRemoveGamesClick" />
                             </UniformGrid>
                         </StackPanel>
                     </Border>
-                    <TextBlock DockPanel.Dock="Top" Text="库" FontSize="13" FontWeight="SemiBold"
+                    <TextBlock DockPanel.Dock="Top" Text="{DynamicResource L10n.库}" FontSize="13" FontWeight="SemiBold"
                                Foreground="{DynamicResource TextMuted}" Margin="12,4,0,6" />
                     <Button Name="LoadMoreButton" DockPanel.Dock="Bottom" Visibility="Collapsed"
                             Style="{DynamicResource SteamButton}" Margin="8,4,8,8"
-                            Click="OnLoadMoreClick" AutomationProperties.Name="加载更多游戏" />
+                            Click="OnLoadMoreClick" AutomationProperties.Name="{DynamicResource L10n.加载更多游戏}" />
                     <ListBox Name="LibraryList"
                              Background="Transparent"
                              BorderThickness="0"
                              ItemContainerStyle="{DynamicResource SidebarItem}"
                              SelectionMode="Single"
-                             AutomationProperties.Name="游戏列表"
+                             AutomationProperties.Name="{DynamicResource L10n.游戏列表}"
                              SelectionChanged="OnLibrarySelectionChanged"
                              VirtualizingPanel.IsVirtualizing="True"
                              VirtualizingPanel.VirtualizationMode="Recycling"
@@ -191,13 +191,13 @@
             <DockPanel>
                 <TextBlock Name="ErrorText" DockPanel.Dock="Right" Foreground="{DynamicResource Danger}"
                            FontSize="12" VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
-                <Button Name="CancelScanButton" Content="取消扫描" Style="{DynamicResource SteamButton}"
+                <Button Name="CancelScanButton" Content="{DynamicResource L10n.取消扫描}" Style="{DynamicResource SteamButton}"
                         Click="OnCancelScanClick" DockPanel.Dock="Right" Margin="8,0,0,0"
                         Padding="6,1" FontSize="11" Visibility="Collapsed" />
                 <TextBlock Name="ScanProgressText" DockPanel.Dock="Right" Foreground="{DynamicResource TextMuted}"
                            FontSize="12" VerticalAlignment="Center" Margin="0,0,10,0" Visibility="Collapsed"
                            MaxWidth="620" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
-                <TextBlock Name="StatusText" Text="正在启动…" Foreground="{DynamicResource TextMuted}"
+                <TextBlock Name="StatusText" Text="{DynamicResource L10n.正在启动…}" Foreground="{DynamicResource TextMuted}"
                            FontSize="12" VerticalAlignment="Center" />
             </DockPanel>
         </Border>

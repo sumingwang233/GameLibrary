@@ -11,7 +11,7 @@ internal static class DesktopRequestParameters
         var node = JsonSerializer.SerializeToNode(parameters ?? new { });
         if (node is not JsonObject parameterObject)
         {
-            throw new InvalidOperationException("Desktop 请求参数必须是 JSON 对象");
+            throw new InvalidOperationException(L10n.T("Desktop 请求参数必须是 JSON 对象"));
         }
 
         var operation = OperationCatalog.Catalog.Find(operationId);

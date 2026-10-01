@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { memo, useEffect, useRef, useState } from "react";
 import { Clock3, Play, Star } from "lucide-react";
 import { assetDataUrl } from "../lib/api";
@@ -58,7 +59,7 @@ function GameCardImpl({ game, selected, checked, selectionDisabled, onToggle, on
       ref={cardRef}
       role="button"
       tabIndex={0}
-      aria-label={`${game.title}，查看详情`}
+      aria-label={t("{0}，查看详情", game.title)}
       aria-pressed={selected}
       onClick={() => onSelect(game.gameId)}
       onKeyDown={(event) => {
@@ -77,7 +78,7 @@ function GameCardImpl({ game, selected, checked, selectionDisabled, onToggle, on
       )}
     >
       <div className="relative aspect-3/4 overflow-hidden bg-linear-to-br from-steam-soft via-surface-elevated to-gradient-deep">
-        <input type="checkbox" aria-label={`选择 ${game.title}`} checked={checked} disabled={selectionDisabled}
+        <input type="checkbox" aria-label={t("选择 {0}", game.title)} checked={checked} disabled={selectionDisabled}
           className="absolute top-3 left-3 z-10 size-5 cursor-pointer accent-steam"
           onClick={event => event.stopPropagation()} onChange={() => onToggle(game.gameId)} />
         {cover ? (
@@ -107,7 +108,7 @@ function GameCardImpl({ game, selected, checked, selectionDisabled, onToggle, on
             event.stopPropagation();
             onPlay(game.gameId);
           }}
-          aria-label={`启动 ${game.title}`}
+          aria-label={t("启动 {0}", game.title)}
         >
           <Play size={16} fill="currentColor" />
         </button>
@@ -123,13 +124,13 @@ function GameCardImpl({ game, selected, checked, selectionDisabled, onToggle, on
         {/* feat-1：卡面底部累计时长（Steam 卡片样式）；0 分钟不显示（formatPlaytime 返回空串）。 */}
         <span className="flex min-w-0 shrink-0 items-center gap-1.5">
           {playtime && (
-            <span title={`累计游玩 ${playtime}`} className="inline-flex items-center gap-1 whitespace-nowrap">
+            <span title={t("累计游玩 {0}", playtime)} className="inline-flex items-center gap-1 whitespace-nowrap">
               <Clock3 size={12} aria-hidden="true" />
               {playtime}
             </span>
           )}
           {game.favorite && (
-            <Star size={13} aria-label="已收藏" className="shrink-0 fill-favorite text-favorite" />
+            <Star size={13} aria-label={t("已收藏")} className="shrink-0 fill-favorite text-favorite" />
           )}
         </span>
       </div>
@@ -140,19 +141,19 @@ function GameCardImpl({ game, selected, checked, selectionDisabled, onToggle, on
 function availabilityLabel(value?: string) {
   switch (value) {
     case "available":
-      return "可启动";
+      return t("可启动");
     case "suspectedMissing":
-      return "疑似缺失";
+      return t("疑似缺失");
     case "missing":
-      return "已缺失";
+      return t("已缺失");
     case "offline":
-      return "磁盘离线";
+      return t("磁盘离线");
     case "accessError":
-      return "无法访问";
+      return t("无法访问");
     case "rootUnbound":
-      return "未绑定目录";
+      return t("未绑定目录");
     default:
-      return "已入库";
+      return t("已入库");
   }
 }
 

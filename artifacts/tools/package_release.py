@@ -12,19 +12,26 @@ Outputs:
 import argparse
 import glob
 import hashlib
+import json
 import os
 import shutil
 import subprocess
 import uuid
 import zipfile
+from datetime import datetime, timezone
+from pathlib import Path
+import sys
+import re
+import tomllib
+import xml.etree.ElementTree as ET
 
 
-DOTNET = os.path.expanduser(r"~\.dotnet-sdk-10.0\dotnet.exe")
+DOTNET = shutil.which("dotnet") or "dotnet"
 NPM = shutil.which("npm.cmd") or shutil.which("npm") or "npm.cmd"
 NODE = shutil.which("node.exe") or shutil.which("node") or "node.exe"
-WORKSPACE = r"D:\Official\GameLibrary"
+WORKSPACE = str(Path(__file__).resolve().parents[2])
 DIST = os.path.join(WORKSPACE, "artifacts", "dist")
-STAGING_ROOT = os.path.join(DIST, "staging")
+STAGING_ROOT = os.path.join(DIST, "staging", uuid.uuid4().hex)
 USER_PAYLOAD = os.path.join(STAGING_ROOT, "GameLibrary")
 TOOLS_PAYLOAD = os.path.join(STAGING_ROOT, "GameLibrary-Tools")
 SYMBOLS = os.path.join(STAGING_ROOT, "symbols")
@@ -46,61 +53,64 @@ COMPONENTS = [
     ("GameLibrary.Cli", "gamelibrary.exe", False, True),
     ("GameLibrary.Mcp", "GameLibrary.Mcp.exe", False, True),
 ]
+CHECK_RESULTS = []
 
 
-def read_version():
+def npm_command():
+    cli = Path(NODE).resolve().parent / "node_modules/npm/bin/npm-cli.js"
+    return [NODE, str(cli)] if cli.is_file() else [NPM]
+
+
+def read_version(workspace=None):
     """单一真源：Directory.Build.props 的 <Version>（R38）。缺失即失败，不做静默回退。"""
-    props = os.path.join(WORKSPACE, "Directory.Build.props")
-    with open(props, encoding="utf-8") as source:
-        text = source.read()
-    start = text.find("<Version>")
-    if start >= 0:
-        start += len("<Version>")
-        end = text.find("</Version>", start)
-        if end > start:
-            return text[start:end].strip()
-    raise SystemExit(f"Directory.Build.props 缺少 <Version> 声明：{props}")
+    props = Path(workspace or WORKSPACE) / "Directory.Build.props"
+    version = ET.parse(props).findtext(".//Version", "").strip()
+    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
+        raise RuntimeError(f"Invalid or missing product Version: {props}")
+    return version
 
 
-def assert_version_sync(version):
+def assert_version_sync(version, workspace=None):
     """Tauri 三件套必须与单一真源一致；tauri.conf.json 不声明版本（继承 Cargo.toml）。"""
-    expectations = []
-
-    cargo = os.path.join(WORKSPACE, "src", "GameLibrary.Tauri", "src-tauri", "Cargo.toml")
-    with open(cargo, encoding="utf-8") as source:
-        for line in source:
-            if line.startswith("version ="):
-                expectations.append(("Cargo.toml", line.split("=", 1)[1].strip().strip('"')))
-                break
-
-    package_json = os.path.join(WORKSPACE, "src", "GameLibrary.Tauri", "package.json")
-    with open(package_json, encoding="utf-8") as source:
-        for line in source:
-            if '"version"' in line:
-                expectations.append(("package.json", line.split(":", 1)[1].strip().strip('",')))
-                break
-
-    tauri_conf = os.path.join(WORKSPACE, "src", "GameLibrary.Tauri", "src-tauri", "tauri.conf.json")
-    with open(tauri_conf, encoding="utf-8") as source:
-        if '"version"' in source.read():
-            raise SystemExit("tauri.conf.json 不应声明 version（已改为继承 Cargo.toml，单一真源在 Directory.Build.props）")
-
+    project = Path(workspace or WORKSPACE) / "src/GameLibrary.Tauri"
+    load_json = lambda name: json.loads((project / name).read_text(encoding="utf-8"))
+    cargo = tomllib.loads((project / "src-tauri/Cargo.toml").read_text(encoding="utf-8"))
+    lock = tomllib.loads((project / "src-tauri/Cargo.lock").read_text(encoding="utf-8"))
+    products = [entry for entry in lock["package"] if entry["name"] == cargo["package"]["name"]]
+    if len(products) != 1:
+        raise RuntimeError("Cargo.lock must contain exactly one product entry")
+    expectations = [
+        ("Cargo.toml", cargo["package"]["version"]),
+        ("Cargo.lock", products[0]["version"]),
+        ("package.json", load_json("package.json")["version"]),
+        ("package-lock.json", load_json("package-lock.json")["version"]),
+        ("package-lock.json root", load_json("package-lock.json")["packages"][""]["version"]),
+    ]
+    if "version" in load_json("src-tauri/tauri.conf.json"):
+        raise RuntimeError("tauri.conf.json must inherit its version from Cargo.toml")
     mismatched = [f"{name}={found}" for name, found in expectations if found != version]
     if mismatched:
         raise SystemExit(f"版本声明与单一真源 {version} 不一致：{'; '.join(mismatched)}")
 
 
-def sh(cmd, cwd=WORKSPACE, timeout=1200):
-    proc = subprocess.run(
-        cmd,
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=timeout,
-    )
-    return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
+def sh(cmd, cwd=WORKSPACE, timeout=1200, label=None):
+    name = label or " ".join(os.path.basename(str(value)) for value in cmd[:2])
+    evidence = Path(DIST) / "evidence"
+    evidence.mkdir(parents=True, exist_ok=True)
+    path = evidence / f"check-{len(CHECK_RESULTS) + 1:02d}.log"
+    try:
+        proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", timeout=timeout)
+        output = (proc.stdout or "") + (proc.stderr or "")
+        path.write_text(output, encoding="utf-8")
+        CHECK_RESULTS.append({"name": name, "status": "passed" if proc.returncode == 0 else "failed",
+                              "exitCode": proc.returncode, "evidence": str(path.relative_to(DIST))})
+        return proc.returncode, output
+    except (OSError, subprocess.TimeoutExpired) as error:
+        path.write_text(str(error), encoding="utf-8")
+        CHECK_RESULTS.append({"name": name, "status": "failed", "exitCode": None,
+                              "evidence": str(path.relative_to(DIST))})
+        raise
 
 
 def sha256(path):
@@ -112,16 +122,14 @@ def sha256(path):
 
 
 def clean_staging(log):
-    if os.path.isdir(STAGING_ROOT):
-        shutil.rmtree(STAGING_ROOT)
     os.makedirs(USER_PAYLOAD, exist_ok=True)
     os.makedirs(TOOLS_PAYLOAD, exist_ok=True)
     os.makedirs(SYMBOLS, exist_ok=True)
     os.makedirs(COMPONENT_OUTPUTS, exist_ok=True)
-    log.append("staging cleaned")
+    log.append(f"fresh staging: {STAGING_ROOT}")
 
 
-def publish_all(log):
+def publish_all(log, desktop_smoke_skip_reason=None):
     for project, executable, include_in_user, include_in_tools in COMPONENTS:
         component_output = os.path.join(COMPONENT_OUTPUTS, project)
         command = [
@@ -156,13 +164,14 @@ def publish_all(log):
         if include_in_tools:
             shutil.copy2(source, os.path.join(TOOLS_PAYLOAD, executable))
     shutil.rmtree(COMPONENT_OUTPUTS)
-    publish_tauri_desktop(log)
+    publish_tauri_desktop(log, desktop_smoke_skip_reason)
     log.append("single-file payloads: user=3 executables, tools=3 executables")
 
 
-def publish_tauri_desktop(log):
+def publish_tauri_desktop(log, desktop_smoke_skip_reason=None):
     project = os.path.join(WORKSPACE, "src", "GameLibrary.Tauri")
-    rc, output = sh([NPM, "run", "tauri", "build", "--", "--no-bundle"], cwd=project, timeout=3600)
+    rc, output = sh([*npm_command(), "run", "tauri", "build", "--", "--no-bundle"],
+                    cwd=project, timeout=3600, label="Tauri production build")
     log.append(f"publish GameLibrary.Tauri: rc={rc}")
     if rc != 0:
         log.append(output[-8000:])
@@ -177,7 +186,12 @@ def publish_tauri_desktop(log):
         if not os.path.isfile(source):
             raise RuntimeError(f"Tauri sidecar is missing: {source}")
         shutil.copy2(source, os.path.join(USER_PAYLOAD, sidecar))
-    verify_tauri_desktop(staged_executable, log)
+    if desktop_smoke_skip_reason:
+        CHECK_RESULTS.append({"name": "desktop WebView smoke", "status": "not-run",
+                              "exitCode": None, "evidence": desktop_smoke_skip_reason})
+        log.append(f"desktop smoke not-run: {desktop_smoke_skip_reason}; candidate only")
+    else:
+        verify_tauri_desktop(staged_executable, log)
 
 
 def verify_tauri_desktop(executable, log):
@@ -202,7 +216,7 @@ def verify_tauri_desktop(executable, log):
     try:
         rc, output = sh(
             [NODE, script, executable, data_directory, screenshot],
-            timeout=120,
+            timeout=120, label="desktop WebView smoke",
         )
         log.append(f"Tauri release WebView smoke: rc={rc}")
         if output.strip():
@@ -357,8 +371,8 @@ def windows_file_version(version):
     return ".".join(parts + ["0"] * (4 - len(parts)))
 
 
-def make_installer(version, log):
-    makensis = find_makensis()
+def make_installer(version, log, compiler=None):
+    makensis = compiler or find_makensis()
     if not makensis:
         raise RuntimeError(
             "NSIS makensis.exe was not found; set GAMELIBRARY_MAKENSIS or extract "
@@ -372,7 +386,8 @@ def make_installer(version, log):
         os.remove(target)
     command = [
         makensis,
-        "/V2",
+        "/V3",
+        "/WX",
         "/INPUTCHARSET",
         "UTF8",
         f"/DVERSION={version}",
@@ -395,7 +410,7 @@ def write_checklist(version, signed, log):
     signing = (
         "程序文件与安装器均已使用受信任 Authenticode 证书签名并完成签名验证。"
         if signed
-        else "本项目未取得受信任 Authenticode 证书（SignPath Foundation 申请已被拒绝）；本次发布未签名，下载者应核对同版本 SHA-256 清单。"
+        else "本次发布未签名，下载者应核对同版本 SHA-256 清单。"
     )
     body = f"""# GameLibrary v{version} 发布校验清单
 
@@ -408,23 +423,29 @@ def write_checklist(version, signed, log):
 
 安装器生成安装目录内的 `Uninstall.exe`，创建开始菜单中的“GameLibrary”和“卸载 GameLibrary”快捷方式，并在当前用户 HKCU 卸载项登记，因而显示在 Windows“已安装的应用”中。卸载只删除已知程序文件、快捷方式和该卸载项，保留默认 `%LOCALAPPDATA%\\GameLibrary` 数据及安装目录中的未知文件。安装器不修改环境变量、不安装 Windows 服务。
 
-## 已自动验证
+## 本次执行结果
 
-- Release build：0 警告、0 错误。
-- 完整自动化测试通过（精确数量与结果见同版本构建报告）。
-- 最终 Tauri EXE 实机请求 CSS/JS，校验 MIME、Tailwind 规则、背景色、布局与无控制台子进程。
-- 自包含发布目录：Desktop/Host 与 CLI/MCP 单文件布局检查。
-- NSIS 安装器：隔离自定义目录安装、当前用户卸载登记、`Uninstall.exe`、快捷方式、已知文件清理及未知文件保留。
+""" + "\n".join(f"- [{check['status']}] {check['name']} — {check['evidence']}"
+                 for check in CHECK_RESULTS) + f"""
 
 ## 仍需人工验证
 
 - 在无 .NET 的干净 Windows 10/11 x64 机器双击安装器和 Desktop。
 - Windows SmartScreen 提示与企业策略兼容性。
-- 真实 F 盘扫描数量、受保护目录提示和真实游戏启动兼容性。
+- 真实游戏的扫描、审核与启动；字体、DPI 和键盘操作。
 - {signing}
+
+未完成关键人工验收时，这些产物仅为待验收构建，不得标记稳定 Release。
 """
-    with open(os.path.join(STAGING_ROOT, "RELEASE-CHECKLIST.md"), "w", encoding="utf-8", newline="\n") as target:
+    with open(os.path.join(DIST, "RELEASE-CHECKLIST.md"), "w", encoding="utf-8", newline="\n") as target:
         target.write(body)
+    rc = subprocess.run(["git", "rev-parse", "HEAD"], cwd=WORKSPACE, capture_output=True, text=True)
+    dirty = subprocess.run(["git", "status", "--porcelain"], cwd=WORKSPACE, capture_output=True, text=True)
+    report = {"version": version, "sourceCommit": rc.stdout.strip(), "sourceDirty": bool(dirty.stdout.strip()),
+              "builtAt": datetime.now(timezone.utc).isoformat(), "signed": signed,
+              "checks": CHECK_RESULTS, "manualAcceptance": "not-run", "stableReady": False}
+    Path(DIST, "release-validation.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     log.append("release checklist written")
 
 
@@ -466,7 +487,10 @@ def make_tools_zip(version, log):
 
 def validate_zip_layout(path, required, log):
     with zipfile.ZipFile(path) as archive:
-        names = {entry.filename.replace("\\", "/") for entry in archive.infolist() if not entry.is_dir()}
+        entries = archive.infolist()
+        names = {entry.filename.replace("\\", "/") for entry in entries if not entry.is_dir()}
+        if len(entries) != len(names):
+            raise RuntimeError("ZIP contains duplicate names or directory entries")
     missing = sorted(required - names)
     scripts = sorted(name for name in names if name.lower().endswith((".ps1", ".cmd", ".bat")))
     unexpected = sorted(names - required)
@@ -495,39 +519,65 @@ def parse_args():
         action="store_true",
         help="fail unless a trusted Authenticode signing identity is configured",
     )
+    parser.add_argument("--check", action="store_true", help="check source versions without building")
+    parser.add_argument("--makensis", help="explicit path to NSIS makensis.exe")
+    parser.add_argument("--skip-desktop-smoke-reason",
+                        help="produce an acceptance candidate without native smoke; records not-run and reason")
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-    os.makedirs(DIST, exist_ok=True)
     version = read_version()
     assert_version_sync(version)
+    if args.check:
+        print(f"Version declarations agree: {version}")
+        return
+    os.makedirs(DIST, exist_ok=True)
     log = [f"version={version}"]
+    signed = False
     try:
+        project = os.path.join(WORKSPACE, "src", "GameLibrary.Tauri")
+        checks = [
+            ("operation generation", [sys.executable, "scripts/generate_operations.py", "--check"], WORKSPACE),
+            ("localization", [sys.executable, "scripts/check_localization.py"], WORKSPACE),
+            ("release documentation", [sys.executable, "scripts/check_release.py", "--self-test"], WORKSPACE),
+            ("dotnet format", [DOTNET, "format", "--verify-no-changes"], WORKSPACE),
+            ("dotnet Release build", [DOTNET, "build", "-c", "Release", "--nologo"], WORKSPACE),
+            ("dotnet full tests", [DOTNET, "test", "-c", "Release", "--no-build", "--nologo"], WORKSPACE),
+            ("frontend tests", [*npm_command(), "test"], project),
+            ("frontend typecheck", [*npm_command(), "run", "typecheck"], project),
+            ("cargo fmt", ["cargo", "fmt", "--check"], os.path.join(project, "src-tauri")),
+        ]
+        for name, command, directory in checks:
+            print(f"CHECK: {name}", flush=True)
+            rc, output = sh(command, cwd=directory, label=name)
+            if rc != 0:
+                raise RuntimeError(f"{name} failed:\n{output[-4000:]}")
         signing = signing_configuration(args.require_signing, log)
         clean_staging(log)
-        publish_all(log)
+        publish_all(log, args.skip_desktop_smoke_reason)
         separate_pdbs(log)
-        signed = sign_payload(signing, log)
+        sign_payload(signing, log)
         write_payload_checksums(USER_PAYLOAD, "user", log)
         write_payload_checksums(TOOLS_PAYLOAD, "tools", log)
-        write_checklist(version, signed, log)
-        installer = make_installer(version, log)
+        installer = make_installer(version, log, args.makensis)
         if signing is not None:
             sign_file(installer, signing, log)
+            signed = True
         portable = make_portable_zip(version, log)
         tools = make_tools_zip(version, log)
         manifest = write_asset_manifest(version, [installer, portable, tools], log)
-        legacy_portable = os.path.join(DIST, f"GameLibrary-win-x64-v{version}.zip")
-        if os.path.isfile(legacy_portable):
-            os.remove(legacy_portable)
-            log.append(f"removed legacy asset: {os.path.basename(legacy_portable)}")
+        rc, output = sh([sys.executable, "scripts/check_release.py", "--dist", DIST],
+                        label="final asset integrity")
+        if rc != 0:
+            raise RuntimeError(output)
         log.append(f"portable sha256={sha256(portable)}")
         log.append(f"tools sha256={sha256(tools)}")
         log.append(f"installer sha256={sha256(installer)}")
         log.append(f"manifest sha256={sha256(manifest)}")
     finally:
+        write_checklist(version, signed, log)
         with open(os.path.join(DIST, "package-log.txt"), "w", encoding="utf-8", newline="\n") as target:
             target.write("\n".join(log) + "\n")
     print("PACKAGED")

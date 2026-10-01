@@ -75,6 +75,9 @@ public sealed class CandidateReviewTests : IClassFixture<PipeServerFixture>
         var candidate = before.Data.GetProperty("items").EnumerateArray().Single(item => item.GetProperty("physicalPath").GetString() == oldPath);
         var id = candidate.GetProperty("candidateId").GetString()!;
         Directory.Move(oldPath, Path.Combine(root, "Houkago"));
+        var snapshot = await InvokeAsync("candidates.list", new { state = "pendingReview" });
+        Assert.Contains(snapshot.Data.GetProperty("items").EnumerateArray(), item => item.GetProperty("candidateId").GetString() == id);
+        GameLibrary.Host.Scanning.ReconcileService.CheckCandidates(_fixture.State.Library.Store!, DateTime.UtcNow, _fixture.State.Events);
         var after = await InvokeAsync("candidates.list", new { state = "pendingReview" });
         Assert.True(after.Ok, after.Error?.Message);
         Assert.DoesNotContain(after.Data.GetProperty("items").EnumerateArray(), item => item.GetProperty("candidateId").GetString() == id);
@@ -511,7 +514,7 @@ public sealed class CandidateReviewTests : IClassFixture<PipeServerFixture>
         // 直造行（无指纹游戏）：fingerprint=null、similarTo=[]。
         var bareGameId = $"game-bare-{Guid.NewGuid():N}";
         var utcNow = DateTime.UtcNow;
-        _fixture.State.Library.Store!.InsertGame(new GameLibrary.Infrastructure.Persistence.GameCard
+        _fixture.State.Library.Store!.InsertGame(new GameLibrary.Domain.Catalog.GameCard
         {
             GameId = bareGameId,
             Title = "无指纹游戏",

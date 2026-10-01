@@ -8,7 +8,7 @@ public sealed partial class SqliteLibraryStore
     // settings 转发。
 
     public AppSettingsSnapshot ReadSettings()
-        => Execute((c, _) => SettingsStore.Read(c));
+        => ReadExclusive((c, _) => SettingsStore.Read(c));
 
     public int WriteSettingsKeys(IEnumerable<(string Key, string? Value)> keys, DateTime utcNow)
         => Execute((c, _) => SettingsStore.WriteKeys(c, keys, utcNow));
@@ -22,10 +22,10 @@ public sealed partial class SqliteLibraryStore
         => Execute((c, _) => LibraryViewStore.InsertView(c, view));
 
     public LibraryView? TryGetView(string viewId)
-        => Execute((c, _) => LibraryViewStore.TryGetView(c, viewId));
+        => ReadExclusive((c, _) => LibraryViewStore.TryGetView(c, viewId));
 
     public IReadOnlyList<LibraryView> ListViews()
-        => Execute((c, _) => LibraryViewStore.ListViews(c));
+        => ReadExclusive((c, _) => LibraryViewStore.ListViews(c));
 
     public int? UpdateView(
         string viewId, string? name, string? search, bool? favoriteOnly, string? tagId, string? sort,

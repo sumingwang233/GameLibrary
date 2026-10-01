@@ -94,6 +94,64 @@ public sealed class BackupsTests : IClassFixture<PipeServerFixture>
     }
 
     [Fact]
+    public async Task RestoreStart_FinalJobResultSurvivesSessionSwitchAndManagerRestart()
+    {
+        var backupId = await CreateBackupAsync();
+        var plan = await InvokeAsync("backups.restore_plan", new { backupId });
+        var accepted = await InvokeAsync("backups.restore_start", new
+        {
+            backupId,
+            planId = plan.Data.GetProperty("planId").GetString(),
+            idempotencyKey = Guid.NewGuid().ToString("N"),
+        });
+        Assert.True(accepted.Ok, accepted.Error?.Message);
+        Assert.Equal(OperationStatus.Accepted, accepted.Status);
+        var jobId = accepted.JobId!;
+        var deadline = DateTime.UtcNow.AddSeconds(20);
+        Envelope<JsonElement> status;
+        do
+        {
+            status = await InvokeAsync("jobs.get", new { jobId });
+            if (status.Data.GetProperty("state").GetString() is "succeeded" or "failed") break;
+            await Task.Delay(25);
+        } while (DateTime.UtcNow < deadline);
+        Assert.Equal("succeeded", status.Data.GetProperty("state").GetString());
+        Assert.True(status.Data.GetProperty("result").GetProperty("data").GetProperty("restored").GetBoolean());
+        var restarted = new GameLibrary.Host.Hosting.JobManager();
+        restarted.ConfigureRestoreHistory(_fixture.State.DataDirectory);
+        Assert.Equal("succeeded", restarted.Get(jobId)!.State);
+        var result = (JsonElement)restarted.TryGetProgress(jobId)!.Value.Data!;
+        Assert.Equal(backupId, result.GetProperty("data").GetProperty("backupId").GetString());
+    }
+
+    [Fact]
+    public async Task RestoreRejectsActiveBackgroundJobWithoutCancellingIt()
+    {
+        var backupId = await CreateBackupAsync();
+        var plan = await InvokeAsync("backups.restore_plan", new { backupId });
+        var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var jobId = _fixture.State.Jobs.Create("backup", async _ =>
+        {
+            await finish.Task;
+            return GameLibrary.Host.Hosting.JobOutcome.Succeeded();
+        });
+        try
+        {
+            var result = await InvokeAsync("backups.restore", new
+            {
+                backupId,
+                planId = plan.Data.GetProperty("planId").GetString(),
+                idempotencyKey = Guid.NewGuid().ToString("N"),
+            });
+            Assert.Equal(ErrorCodes.DatabaseBusy, result.Error?.Code);
+            Assert.True(result.Error!.Retryable);
+            Assert.Equal("running", _fixture.State.Jobs.Get(jobId)!.State);
+        }
+        finally { finish.SetResult(); }
+        while (_fixture.State.Jobs.Get(jobId)!.State == "running") await Task.Delay(10);
+    }
+
+    [Fact]
     public async Task BackupLifecycle_CreateListInspect_AllGreen()
     {
         InsertGame("备份测试游戏");

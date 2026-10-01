@@ -1,3 +1,4 @@
+import { t } from "../../lib/i18n";
 import * as React from "react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { cn } from "../../lib/utils";
@@ -11,8 +12,8 @@ export function ConfirmDialog({
   open,
   title,
   description,
-  confirmLabel = "确认",
-  cancelLabel = "取消",
+  confirmLabel = t("确认"),
+  cancelLabel = t("取消"),
   destructive = false,
   busy = false,
   onConfirm,

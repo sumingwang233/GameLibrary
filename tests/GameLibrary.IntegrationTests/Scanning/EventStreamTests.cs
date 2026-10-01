@@ -37,7 +37,7 @@ public sealed class EventStreamTests
         }
     }
     [Fact]
-    public void Publish_CoalescesSameEntityWithinWindow()
+    public void Publish_SameEntityAfterConsumedCursor_RemainsVisible()
     {
         var stream = new EventStream();
         var now = DateTime.UtcNow;
@@ -45,8 +45,8 @@ public sealed class EventStreamTests
         var first = stream.Publish("candidate.discovered", "candidate:X", new { v = 1 }, now);
         var second = stream.Publish("candidate.promoted", "candidate:X", new { v = 2 }, now.AddSeconds(1));
 
-        Assert.Equal(first.Sequence, second.Sequence); // 折叠进同一槽
-        var events = stream.ReadAfter(null, 100)!;
+        Assert.True(second.Sequence > first.Sequence);
+        var events = stream.ReadAfter(first.Sequence, 100)!;
         var slot = Assert.Single(events);
         Assert.Equal("candidate.promoted", slot.Type);
     }

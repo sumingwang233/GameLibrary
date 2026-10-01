@@ -1,9 +1,11 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using GameLibrary.Application.Catalog;
 using GameLibrary.Contracts;
 using GameLibrary.Contracts.Ipc;
 using GameLibrary.Domain.Identity;
 using GameLibrary.Host.Scanning;
+using GameLibrary.Infrastructure.Catalog;
 using GameLibrary.Infrastructure.Persistence;
 using GameLibrary.Infrastructure.Scanning;
 using GameLibrary.Infrastructure.Shell;
@@ -413,15 +415,7 @@ internal sealed class GamesHandler
             AcceptedUtc = utcNow,
             UpdatedUtc = utcNow,
         };
-        store.InsertGame(game);
-        if (hasTitle)
-        {
-            var revision = store.SetGameField(game.GameId, "title", title, "user", 1, utcNow);
-            game = game with { Revision = revision ?? 1 };
-        }
-
-        // 手动建卡同计算器接入（与 accept 语义对齐）：锁外哈希，指纹为 null 不阻塞建卡。
-        UpsertFingerprint(store, game, entryPath, utcNow);
+        game = new GameCatalogService(store, new CatalogFiles()).Create(game, hasTitle);
         _ = GameCoverService.Synchronize(store, game);
 
         _events.Publish("game.created", $"game:{game.GameId}", new
@@ -753,7 +747,7 @@ internal sealed class GamesHandler
             return IpcRequests.InvalidArgument(request, $"新路径已绑定到其他游戏：{conflicting.GameId}");
         }
 
-        var newRevision = store.RelinkGame(gameId, newRoot.PhysicalPath, expectedRevision.Value, DateTime.UtcNow);
+        var newRevision = new GameCatalogService(store, new CatalogFiles()).Relink(game, newRoot.PhysicalPath, expectedRevision.Value);
         if (newRevision is null)
         {
             var latest = store.TryGetGame(gameId);
@@ -780,11 +774,6 @@ internal sealed class GamesHandler
             revision = newRevision,
         }, DateTime.UtcNow);
 
-        // relink 后重算指纹（防陈旧指纹污染建议）：入口按旧根内相对位置重映射到新根；
-        // 新根不可读 → 指纹为 null 不落写（行保留），下轮 accept/relink 再刷新。
-        var newEntry = RebaseEntry(game.RootPath, game.EntryPath, newRoot.PhysicalPath);
-        UpsertFingerprint(store, game with { RootPath = newRoot.PhysicalPath }, newEntry, DateTime.UtcNow);
-
         return new Envelope<object>
         {
             RequestId = request.RequestId,
@@ -799,46 +788,6 @@ internal sealed class GamesHandler
                 revision = newRevision.Value,
             },
         };
-    }
-
-    /// <summary>计算并落库指纹（handler 内、store 锁外哈希；计算失败静默跳过——指纹是线索不是身份）。</summary>
-    private static void UpsertFingerprint(
-        SqliteLibraryStore store, GameCard game, string? entryPath, DateTime utcNow)
-    {
-        var fingerprint = MatchFingerprintCalculator.Calculate(game.RootPath, entryPath, game.Engine);
-        if (fingerprint is null)
-        {
-            return;
-        }
-
-        store.UpsertGameFingerprint(game.GameId, new GameFingerprintData(
-            fingerprint.StrategyVersion,
-            JsonSerializer.Serialize(fingerprint.Entries, ContractJson.Options),
-            utcNow));
-    }
-
-    /// <summary>relink 的入口重映射：旧根内的入口按相对路径落到新根；不在旧根内则原样返回（按文件名回退由计算器处理）。</summary>
-    private static string? RebaseEntry(string oldRootPath, string? entryPath, string newRootPath)
-    {
-        if (entryPath is null)
-        {
-            return null;
-        }
-
-        try
-        {
-            var oldRootFull = Path.GetFullPath(oldRootPath)
-                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            var entryFull = Path.GetFullPath(entryPath);
-            var prefix = oldRootFull + Path.DirectorySeparatorChar;
-            return entryFull.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-                ? Path.GetFullPath(Path.Combine(newRootPath, Path.GetRelativePath(oldRootFull, entryFull)))
-                : entryPath;
-        }
-        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
-        {
-            return entryPath;
-        }
     }
 
     private static IReadOnlyList<MatchFingerprint.FingerprintEntry>? TryDeserializeEntries(string entriesJson)

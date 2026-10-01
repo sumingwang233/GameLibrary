@@ -33,19 +33,7 @@ public static class ReconcileService
 {
     public static ReconcileReport CheckGames(SqliteLibraryStore store, DateTime utcNow, bool synchronizeCovers = true)
     {
-        // 旧版已经产生的回收站候选也退出待确认；不移除已由用户接受的游戏。
-        foreach (var candidate in store.ListCandidates().Where(candidate =>
-            candidate.ReviewState is "observed" or "pendingReview" or "deferred"
-            && GameLibrary.Infrastructure.Scanning.DirectoryWalker.IsSystemDirectory(candidate.PhysicalPath)))
-        {
-            store.TransitionCandidate(candidate.CandidateId, candidate.ReviewState, "ignored", candidate.Revision, null, utcNow);
-        }
-        foreach (var batch in store.ListNotifications("pending"))
-        {
-            if (!batch.CandidateIds.Any(id => store.TryGetCandidate(id)?.ReviewState == "pendingReview"))
-                store.TransitionNotification(batch.NotificationId, "acknowledged", utcNow);
-        }
-
+        CheckCandidates(store, utcNow);
         int available = 0, suspected = 0, missing = 0, offline = 0;
         var transitions = new List<(string GameId, string From, string To)>();
 
@@ -109,6 +97,36 @@ public static class ReconcileService
         }
 
         return new ReconcileReport(available + suspected + missing + offline, available, suspected, missing, offline, transitions);
+    }
+
+    public static void CheckCandidates(SqliteLibraryStore store, DateTime utcNow, EventStream? events = null)
+    {
+        // 旧版系统目录候选也在后台清理，通知在所有转换完成后统一核对。
+        foreach (var candidate in store.ListCandidates().Where(candidate =>
+            candidate.ReviewState is "observed" or "pendingReview" or "deferred"
+            && GameLibrary.Infrastructure.Scanning.DirectoryWalker.IsSystemDirectory(candidate.PhysicalPath)))
+        {
+            if (store.TransitionCandidate(candidate.CandidateId, candidate.ReviewState, "ignored", candidate.Revision, null, utcNow) is not null)
+                events?.Publish("candidate.updated", $"candidate:{candidate.CandidateId}",
+                    new { candidateId = candidate.CandidateId, reviewState = "ignored" }, utcNow);
+        }
+        // Filesystem observations precede the individual write transactions.
+        foreach (var candidate in store.ListCandidates().Where(candidate =>
+            candidate.ReviewState is "pendingReview" or "deferred"
+            && LibraryCatalogStore.IsDefinitelyMissing(candidate.PhysicalPath)))
+        {
+            if (store.TransitionCandidate(candidate.CandidateId, candidate.ReviewState, "observed",
+                candidate.Revision, null, utcNow) is not null)
+                events?.Publish("candidate.updated", $"candidate:{candidate.CandidateId}",
+                    new { candidateId = candidate.CandidateId, reviewState = "observed" }, utcNow);
+        }
+        foreach (var batch in store.ListNotifications("pending"))
+        {
+            if (batch.CandidateIds.Any(id => store.TryGetCandidate(id)?.ReviewState == "pendingReview")) continue;
+            if (store.TransitionNotification(batch.NotificationId, "acknowledged", utcNow) is not null)
+                events?.Publish("notification.updated", $"notification:{batch.NotificationId}",
+                    new { notificationId = batch.NotificationId, state = "acknowledged" }, utcNow);
+        }
     }
 
     /// <summary>盘根存在性：F:\Games 缺失但 F:\ 在 → 根在线、目录缺失（可判 suspectedMissing）；F:\ 不在 → 离线。</summary>

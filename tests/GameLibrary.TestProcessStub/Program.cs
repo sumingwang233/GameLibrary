@@ -9,6 +9,7 @@ internal static class Program
 {
     private static int Main(string[] args)
     {
+        if (args.Length == 4 && args[0] == "--restore-crash") return RestoreCrash(args);
         var holdIndex = Array.FindIndex(args, a => a.Equals("--hold-ms", StringComparison.OrdinalIgnoreCase));
         if (holdIndex >= 0 && holdIndex + 1 < args.Length && int.TryParse(args[holdIndex + 1], out var holdMs))
         {
@@ -24,5 +25,22 @@ internal static class Program
         };
         Console.Out.WriteLine(System.Text.Json.JsonSerializer.Serialize(payload));
         return 0;
+    }
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static int RestoreCrash(string[] args)
+    {
+        var options = new GameLibrary.Infrastructure.Persistence.SqliteLibraryStoreOptions
+        { AppVersion = "test", ApiVersion = "1" };
+        var opened = GameLibrary.Infrastructure.Persistence.SqliteLibraryStore.TryOpenAsync(args[1],
+            options, CancellationToken.None).GetAwaiter().GetResult();
+        var manifest = GameLibrary.Infrastructure.Backups.BackupArchive.TryReadManifest(args[2])!;
+        var storage = new GameLibrary.Infrastructure.Backups.LibraryRestoreStorage(args[1], args[2],
+            manifest, opened.Store!, options, "crash-key", "digest", () => { }, _ => { }, "job-crash")
+        {
+            Checkpoint = phase => { if (phase == args[3]) Environment.Exit(86); },
+        };
+        GameLibrary.Application.Backups.BackupRestoreService.RestoreAsync(storage).GetAwaiter().GetResult();
+        return 0;
+
     }
 }

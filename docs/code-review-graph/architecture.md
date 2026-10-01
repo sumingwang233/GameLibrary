@@ -1,66 +1,41 @@
 # GameLibrary 架构预览
 
-## 1. 客户端到单一 Host
+2026-10-01：基于 `fedc7ac` 加 v1.6.0 工作区差异，图谱覆盖 321 个源码文件。验证和权限边界见 [优化实施记录](optimization-implementation.md)；本次发行构建结果见 [v1.6.0 构建记录](../releases/v1.6.0-validation.md)。
+
+## 客户端与会话
 
 ```mermaid
 flowchart LR
-    UI[Tauri + React\nGameLibrary.Tauri]
-    Bridge[.NET TauriBridge]
-    Desktop[WPF fallback\nGameLibrary.Desktop]
-    CLI[Native CLI]
-    MCP[MCP stdio server]
-    Client[HostClient]
-    Pipe[Per-library named pipe\nContracts / IpcFrame]
-    Host[GameLibrary.Host\nHostRuntime + PipeServer]
-    Dispatch[OperationDispatcher\nHosting handlers]
-    App[Application / Domain rules]
-    Infra[Infrastructure\nSQLite + filesystem + shell]
-    DB[(Local SQLite)]
-    FS[(Approved game folders)]
-
-    UI --> Bridge --> Client
-    Desktop --> Client
-    CLI --> Client
-    MCP --> Client
-    Client --> Pipe --> Host --> Dispatch --> App --> Infra
-    Infra --> DB
-    Infra --> FS
+    UI[Tauri / React hooks] --> Normal[普通请求 Bridge]
+    UI --> Events[事件等待 Bridge]
+    WPF[WPF] --> Client[HostClient]
+    CLI[CLI / MCP] --> Client
+    Normal --> Client
+    Events --> Client
+    Client --> Pipe[每库 named pipe]
+    Pipe --> Dispatch[异步 Dispatcher]
+    Dispatch --> Gate[会话租约 / 权限 / epoch]
+    Gate --> Read[独立连接 / 读快照]
+    Gate --> Write[单写准入 / 幂等收据]
+    Write --> App[Application 用例与端口]
+    App --> Infra[Infrastructure SQL / 文件]
+    App --> Domain[Domain 模型]
+    Infra --> DB[(SQLite)]
+    Read --> DB
 ```
 
-README 与图谱一致地显示了 Tauri、CLI、MCP 共用一个本地 Host；图谱进一步确认 `game-library-tauri-bridge-bridge`、`game-library-host-client-async`、`hosting-handler` 和两个 persistence 社区之间存在调用边。
+列表计数、分页与附加字段共享同一读快照；只读连接不等待宿主写连接锁。启动状态查询会惰性更新进程状态，因此不放入纯只读事务。写事务提交后发布事件，定时核对和退出回调持有背景租约。
 
-## 2. 社区结构
+## 用例与持久化
 
-| 社区 | 节点 | 语言 | 观察 |
-|---|---:|---|---|
-| `persistence-async` | 558 | C# | 最大社区，SQLite/持久化调用密集 |
-| `persistence-try` | 404 | C# | 与 `persistence-async` 有 171 条调用边 |
-| `hosting-handler` | 381 | C# | Host 操作入口；与 persistence 两侧均高耦合 |
-| `components-game` | 243 | TSX | 前端游戏组件 |
-| `tools-detector` | 166 | C# | 工具/检测器聚合点 |
-| `game-library-desktop-async` | 135 | C# | WPF 客户端异步流程 |
-| `identity-game` | 113 | C# | 游戏身份与路径相关逻辑 |
-| `game-library-mcp-list` | 102 | C# | MCP 工具入口 |
+Application 编排游戏创建/重关联、候选审核以及备份创建/恢复，Host 负责 IPC 转换、权限、作业和装配。Application 不引入 IPC/SQLite 类型；Infrastructure 实现用例实际需要的端口。
 
-其余社区包括 contracts、CLI、HostClient、Tauri bridge、E2E tests、workflow 和版本工具；完整成员列表在 `.code-review-graph/wiki/`。
+`SqliteLibraryStore` 是连接、快照和事务入口；`LibraryCatalogStore` 按 Candidates、Games、Fingerprints、Ignores 四个 partial 拆分。候选批量采用外层事务和逐项保存点；标签排序采用单事务整批冲突回滚。
 
-## 3. 高耦合告警
+## 前端与协议
 
-图谱给出的前四项是：
+Provider 消费接口保留，状态实现拆为六个 hooks。事件独立长轮询通道，按域合并 250ms 刷新；封面为 64 MiB 字符串占用 LRU，保持 data URL 接口。操作目录统一生成常量、可用目录、CLI 映射及简单 MCP 包装，特殊处理保持手写。
 
-1. `persistence-try` → `persistence-async`：171 条 `CALLS`。
-2. `hosting-handler` → `persistence-async`：132 条 `CALLS`。
-3. `tools-detector` → `identity-game`：126 条 `CALLS`。
-4. `hosting-handler` → `persistence-try`：114 条 `CALLS`。
+## 图谱使用边界
 
-这些是重构时的优先观察边界，不等同于缺陷。建议先用 `query_graph_tool` 展开目标 handler 的 callers/callees，再决定是否抽取端口或收窄依赖。
-
-## 4. 桥接节点
-
-按 betweenness 排名前列的节点是 `DispatchCore`、`DispatchInternal`、`ConnectAsync`、`DispatchGated`、`Dispatch`、`SafeDispatch`、`ServeClientAsync`、`Resolve` 和 `AcceptLoopAsync`。它们位于多个社区之间的最短路径上，修改这些节点时应优先做影响半径和端到端验证。
-
-## 5. 当前风险边界
-
-- 本次图谱基线与 `main` 一致（`5aac0b2`）；知识缺口工具报告 72 项：50 个 isolated nodes、20 个未测试高连接节点、1 个薄社区、1 个单文件社区。
-- 1,895 个函数中只有 4,341 个调用被直接解析，11,800 个调用仍是未解析或裸名匹配。
-- 因此本页用于导航和评审排序；接口契约、行为语义和安全边界仍以源码、测试和运行结果为准。当前环境没有 `global.json` 要求的 .NET SDK `10.0.401`，前端 `npm run typecheck` 已通过。
+本次重建为 2,818 个节点、21,526 条边、175 个执行流，无解析错误。审查上下文报告 245 个受影响节点、79 个文件，风险等级 high 表示修改范围大。图谱识别候选批量的事务/保存点/Apply 调用，但 Store 重绑委托未解析为直接 callers，必须人工核对装配及事件回调。测试统计和实际运行证据优先于图谱的测试节点/知识缺口估计。

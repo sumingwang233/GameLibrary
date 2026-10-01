@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { useState } from "react";
 import { Tag } from "lucide-react";
 import { describeFailure, operation } from "../lib/api";
@@ -24,7 +25,7 @@ export function GameBatchBar({ games, tags, onComplete, onBusy }: {
   const execute = async (action: "favorite" | "unfavorite" | "remove" | "tag", tagId = "") => {
     if (busy) return;
     if (games.length === 0) {
-      setResult("请先勾选游戏");
+      setResult(t("请先勾选游戏"));
       return;
     }
     if (action === "tag" && !tagId) return;
@@ -48,10 +49,10 @@ export function GameBatchBar({ games, tags, onComplete, onBusy }: {
           failures.push(`${game.title}：${describeFailure(error)}`);
         }
       }
-      setResult(`已完成 ${games.length - failures.length} 个${failures.length ? `，失败 ${failures.length} 个。${failures.slice(0, 3).join("；")}` : ""}`);
+      setResult(t("已完成 {0} 个{1}", games.length - failures.length, failures.length ? `，失败 ${failures.length} 个。${failures.slice(0, 3).join("；")}` : ""));
       await onComplete(failedIds);
     } catch (error) {
-      setResult(`操作已处理，刷新失败：${describeFailure(error)}`);
+      setResult(t("操作已处理，刷新失败：{0}", describeFailure(error)));
     } finally {
       setBusy(false);
       onBusy(false);
@@ -63,26 +64,24 @@ export function GameBatchBar({ games, tags, onComplete, onBusy }: {
   };
   const groups = groupTagsByCategory(tags).filter((group) => group.items.length > 0);
   return <>
-    <div className="flex flex-wrap items-center gap-2" aria-label="游戏批量操作">
-      <span className="text-sm">已选 {games.length} 个</span>
-      <Button size="sm" variant="outline" disabled={busy || !games.length} onClick={() => void execute("favorite")}>批量收藏</Button>
-      <Button size="sm" variant="outline" disabled={busy || !games.length} onClick={() => void execute("unfavorite")}>取消收藏</Button>
+    <div className="flex flex-wrap items-center gap-2" aria-label={t("游戏批量操作")}>
+      <span className="text-sm">{t("已选")}{games.length}{t("个")}</span>
+      <Button size="sm" variant="outline" disabled={busy || !games.length} onClick={() => void execute("favorite")}>{t("批量收藏")}</Button>
+      <Button size="sm" variant="outline" disabled={busy || !games.length} onClick={() => void execute("unfavorite")}>{t("取消收藏")}</Button>
       <span className="relative">
         <Button size="sm" variant="outline" disabled={busy} aria-haspopup="listbox" aria-expanded={pickerOpen} onClick={() => setPickerOpen(previous => !previous)}>
-          <Tag size={14} />
-          添加标签
-        </Button>
+          <Tag size={14} />{t("添加标签")}</Button>
         {pickerOpen && (
           <>
-            <button type="button" aria-label="关闭标签选择" className="fixed inset-0 z-10 cursor-default" onClick={() => setPickerOpen(false)} />
-            <div role="listbox" aria-label="选择标签" className="absolute top-full left-0 z-20 mt-1 max-h-72 w-72 overflow-y-auto rounded-md border border-border bg-panel p-3 shadow-2xl">
+            <button type="button" aria-label={t("关闭标签选择")} className="fixed inset-0 z-10 cursor-default" onClick={() => setPickerOpen(false)} />
+            <div role="listbox" aria-label={t("选择标签")} className="absolute top-full left-0 z-20 mt-1 max-h-72 w-72 overflow-y-auto rounded-md border border-border bg-panel p-3 shadow-2xl">
               {groups.length === 0 ? (
-                <p className="px-1 py-2 text-sm text-text-secondary">库里还没有标签，先到「管理标签」新建。</p>
+                <p className="px-1 py-2 text-sm text-text-secondary">{t("库里还没有标签，先到「管理标签」新建。")}</p>
               ) : (
                 groups.map((group) => (
                   <div key={group.value} className="mb-3 last:mb-0">
                     <p className="mb-1 px-1 text-[11px] font-semibold tracking-[0.14em] text-text-secondary uppercase">
-                      {group.label} · {group.items.length}
+                      {t(group.label)} · {group.items.length}
                     </p>
                     <ul>
                       {group.items.map((tag) => (
@@ -110,10 +109,10 @@ export function GameBatchBar({ games, tags, onComplete, onBusy }: {
           </>
         )}
       </span>
-      <Button size="sm" variant="danger" disabled={busy || !games.length} onClick={() => setConfirm(true)}>批量移除</Button>
-      {busy && <span role="status">正在处理…</span>}
+      <Button size="sm" variant="danger" disabled={busy || !games.length} onClick={() => setConfirm(true)}>{t("批量移除")}</Button>
+      {busy && <span role="status">{t("正在处理…")}</span>}
     </div>
     {result && <p role="status" className="mt-2 break-words text-sm">{result}</p>}
-    <ConfirmDialog open={confirm} title={`移除选中的 ${games.length} 个游戏`} description="只从游戏库移除，保留磁盘上的全部游戏文件。移除后不会在后续扫描中自动添加。" confirmLabel="移除游戏" destructive busy={busy} onCancel={() => setConfirm(false)} onConfirm={() => void execute("remove")} />
+    <ConfirmDialog open={confirm} title={t("移除选中的 {0} 个游戏", games.length)} description={t("只从游戏库移除，保留磁盘上的全部游戏文件。移除后不会在后续扫描中自动添加。")} confirmLabel={t("移除游戏")} destructive busy={busy} onCancel={() => setConfirm(false)} onConfirm={() => void execute("remove")} />
   </>;
 }

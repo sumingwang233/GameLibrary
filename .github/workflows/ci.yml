@@ -17,6 +17,19 @@ jobs:
           # global.json 锁定 10.0.401 且 rollForward=disable，必须精确安装。
           dotnet-version: "10.0.401"
 
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: operation generation check
+        run: python scripts/generate_operations.py --check
+
+      - name: localization check
+        run: python scripts/check_localization.py
+
+      - name: README and release policy check
+        run: python scripts/check_release.py --self-test
+
       - name: dotnet format
         run: dotnet format --verify-no-changes
 
@@ -58,6 +71,10 @@ jobs:
 
       - name: npm ci
         run: npm ci
+        working-directory: src/GameLibrary.Tauri
+
+      - name: frontend tests
+        run: npm test
         working-directory: src/GameLibrary.Tauri
 
       - name: typecheck

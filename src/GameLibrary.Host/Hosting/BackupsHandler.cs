@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using GameLibrary.Application.Backups;
 using GameLibrary.Contracts;
 using GameLibrary.Contracts.Ipc;
+using GameLibrary.Domain.Backups;
 using GameLibrary.Infrastructure.Backups;
 using GameLibrary.Infrastructure.Persistence;
 
@@ -39,6 +41,8 @@ internal sealed class BackupsHandler
     private readonly string _dataDirectory;
     private readonly string _appVersion;
     private readonly Action<bool> _setMaintenanceMode;
+    private readonly HostRuntimeState _state;
+    private readonly ConcurrentDictionary<string, (string JobId, Task<Envelope<object>> Result)> _restores = new(StringComparer.Ordinal);
 
     /// <summary>
     /// jobs 以 init-only 引用直传（HostRuntimeState 构造后整体不可替换）；
@@ -51,7 +55,8 @@ internal sealed class BackupsHandler
         JobManager jobs,
         string dataDirectory,
         string appVersion,
-        Action<bool> setMaintenanceMode)
+        Action<bool> setMaintenanceMode,
+        HostRuntimeState state)
     {
         _library = library;
         _bindLibraryStore = bindLibraryStore;
@@ -59,6 +64,7 @@ internal sealed class BackupsHandler
         _dataDirectory = dataDirectory;
         _appVersion = appVersion;
         _setMaintenanceMode = setMaintenanceMode;
+        _state = state;
     }
 
     private string BackupsRoot => Path.Combine(_dataDirectory, "backups");
@@ -93,32 +99,9 @@ internal sealed class BackupsHandler
                 // 让出时间片：dispatcher 先把 accepted 响应与收据写完，避免与备份
                 // 的连接使用并发（同一 SQLite 连接不允许跨线程并发操作）。
                 await Task.Delay(100, context.Token);
-                var backupDir = Infrastructure.Backups.BackupArchive.BackupDirectory(BackupsRoot, backupId);
-                Directory.CreateDirectory(backupDir);
-                var stagedDb = Path.Combine(backupDir, Infrastructure.Backups.BackupArchive.DatabaseFileName);
-
-                // 1. 一致性库快照（SQLite 备份 API）。
-                store.CreateBackupAsync(stagedDb, context.Token).GetAwaiter().GetResult();
-
-                // 2. 用户原图复制（应用目录 assets/；缓存与外部游戏不入备份）。
-                var assetsSource = Path.Combine(_dataDirectory, "assets");
-                var assetCount = Directory.Exists(assetsSource)
-                    ? Infrastructure.Backups.BackupArchive.CopyDirectory(assetsSource, Path.Combine(backupDir, "assets"))
-                    : 0;
-
-                // 3. 清单（逐文件哈希）。
-                var manifest = new Infrastructure.Backups.BackupManifest
-                {
-                    BackupId = backupId,
-                    LibraryInstanceId = store.Info.LibraryInstanceId,
-                    SourceDataEpoch = store.Info.DataEpoch,
-                    AppVersion = store.Info.AppVersion,
-                    SchemaVersion = store.Info.SchemaVersion,
-                    CreatedUtc = DateTime.UtcNow,
-                    Files = Infrastructure.Backups.BackupArchive.EnumerateFiles(backupDir),
-                };
-                Infrastructure.Backups.BackupArchive.WriteManifest(backupDir, manifest);
-                context.ReportProgress(new { backupId, assetCount, fileCount = manifest.Files.Count });
+                var result = await BackupCreateService.CreateAsync(
+                    new LibraryBackupStorage(store, _dataDirectory, backupId), context.Token);
+                context.ReportProgress(new { backupId = result.BackupId, assetCount = result.AssetCount, fileCount = result.FileCount });
                 return JobOutcome.Succeeded();
             });
 
@@ -254,7 +237,7 @@ internal sealed class BackupsHandler
     /// → 关连接 → 暂存替换 → 重开校验 → dataEpoch 续期 → 维护日志每步落盘。
     /// 同键重试返回原结果，不再覆盖。
     /// </summary>
-    public async Task<Envelope<object>> BackupsRestore(IpcRequest request)
+    public async Task<Envelope<object>> BackupsRestore(IpcRequest request, bool startOnly = false)
     {
         if (!IpcRequests.TryGetStringParameter(request, "backupId", out var backupId))
         {
@@ -319,6 +302,23 @@ internal sealed class BackupsHandler
             };
         }
 
+        if (_restores.TryGetValue(idempotencyKey, out var running))
+        {
+            if (running.Result.IsCompletedSuccessfully && running.Result.Result.Error?.Retryable == true)
+                _restores.TryRemove(idempotencyKey, out _);
+            else
+                return startOnly ? Accepted(request, running.JobId) : WithRequestId(request, await running.Result);
+        }
+        var journal = LibraryRestoreStorage.ReadJournal(_dataDirectory);
+        if (journal is { Phase: "committed", Result: not null } && journal.IdempotencyKey == idempotencyKey)
+        {
+            if (journal.RequestDigest != retryDigest)
+                return IpcRequests.Failure(request, ErrorCodes.IdempotencyConflict, "幂等键已被不同恢复请求使用");
+            var recovered = Completed(request, journal.Result);
+            control.CompleteRestoreReceipt(idempotencyKey, retryDigest, JsonSerializer.Serialize(recovered, ContractJson.Options));
+            return recovered;
+        }
+
         if (!_backupPlans.TryGetValue(planId, out var plan) || plan.ExpiresUtc < DateTime.UtcNow)
         {
             // 已有同键完成收据时按原结果重放，不会被 plan 校验打断。
@@ -362,148 +362,105 @@ internal sealed class BackupsHandler
             return IpcRequests.InvalidArgument(request, "库未初始化；恢复目标必须存在已初始化的库");
         }
 
-        // 维护模式（REC-02）：进入恢复临界区——新变更请求被拒绝，只读与恢复自身可用。
+        var drained = _state.Sessions.TryBeginMaintenance(() =>
+            _jobs.ActiveJobCount() != 0 || _state.Coordinator.IsRunning || _state.Launches.HasActiveAttempts);
+        if (drained is null) return IpcRequests.Failure(request, ErrorCodes.DatabaseBusy,
+            "扫描、备份、核对或游戏仍在运行；请结束后重试恢复", retryable: true);
         _setMaintenanceMode(true);
+        var completion = new TaskCompletionSource<Envelope<object>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        string jobId;
         try
         {
-            return RestoreCore(request, control, backupDir, manifest, backupId, planId, idempotencyKey, retryDigest)
-                .GetAwaiter().GetResult();
+            jobId = _jobs.Create("restore", async context =>
+            {
+                Envelope<object> result;
+                try
+                {
+                    await drained;
+                    result = _state.Jobs.ActiveJobCount() > 1 || _state.Launches.HasActiveAttempts
+                        ? IpcRequests.Failure(request, ErrorCodes.DatabaseBusy, "已有请求启动了后台活动，请结束后重试", retryable: true)
+                        : await RestoreCore(request, control, backupDir, manifest, idempotencyKey, retryDigest, context.JobId);
+                }
+                catch (Exception ex)
+                {
+                    result = IpcRequests.Failure(request, ErrorCodes.InternalError, ex.Message, retryable: true);
+                }
+                finally
+                {
+                    _state.Sessions.EndMaintenance();
+                    _setMaintenanceMode(false);
+                }
+                context.ReportProgress(result);
+                completion.TrySetResult(result);
+                return result.Ok ? JobOutcome.Succeeded() : JobOutcome.Failed(result.Error?.Message ?? "恢复失败");
+            }, ownsMaintenance: true);
         }
-        finally
+        catch
         {
+            _state.Sessions.EndMaintenance();
             _setMaintenanceMode(false);
+            throw;
         }
+        _restores[idempotencyKey] = (jobId, completion.Task);
+        return startOnly ? Accepted(request, jobId) : await completion.Task;
     }
 
-    private async Task<Envelope<object>> RestoreCore(
-        IpcRequest request,
-        Infrastructure.Backups.ControlAreaStore control,
-        string backupDir,
-        Infrastructure.Backups.BackupManifest manifest,
-        string backupId,
-        string planId,
-        string idempotencyKey,
-        string retryDigest)
+    private static Envelope<object> WithRequestId(IpcRequest request, Envelope<object> result) => new()
+    {
+        RequestId = request.RequestId,
+        ApiVersion = result.ApiVersion,
+        LibraryInstanceId = result.LibraryInstanceId,
+        DataEpoch = result.DataEpoch,
+        Ok = result.Ok,
+        Status = result.Status,
+        Data = result.Data,
+        JobId = result.JobId,
+        Error = result.Error,
+        Warnings = result.Warnings,
+        NextActions = result.NextActions,
+    };
+
+    private static Envelope<object> Accepted(IpcRequest request, string jobId) => new()
+    {
+        RequestId = request.RequestId,
+        Ok = true,
+        Status = OperationStatus.Accepted,
+        JobId = jobId,
+        Data = new { jobId, kind = "restore" },
+    };
+
+    private static Envelope<object> Completed(IpcRequest request, RestoreResult result) => new()
+    {
+        RequestId = request.RequestId,
+        LibraryInstanceId = result.RestoredLibraryInstanceId,
+        DataEpoch = result.DataEpoch,
+        Ok = true,
+        Status = OperationStatus.Completed,
+        Data = result,
+    };
+
+    private async Task<Envelope<object>> RestoreCore(IpcRequest request, ControlAreaStore control,
+        string backupDir, BackupManifest manifest, string key, string digest, string jobId)
     {
         try
         {
-            // 1. 恢复前先备份当前状态（原库保留语义的第一层）。
-            var safetyId = $"pre-restore-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}";
-            var safetyDir = Infrastructure.Backups.BackupArchive.BackupDirectory(BackupsRoot, safetyId);
-            Directory.CreateDirectory(safetyDir);
-            var safetyDb = Path.Combine(safetyDir, Infrastructure.Backups.BackupArchive.DatabaseFileName);
-            await _library().Store!.CreateBackupAsync(safetyDb, CancellationToken.None);
-            control.AppendMaintenanceLog($"safety backup: {safetyId}");
-
-            // 2. 校验备份完整性。
-            var problems = Infrastructure.Backups.BackupArchive.Verify(backupDir, manifest);
-            if (problems.Count > 0)
-            {
-                control.AppendMaintenanceLog($"verify failed: {string.Join("; ", problems)}");
-                return IpcRequests.InvalidArgument(request, $"备份完整性校验失败：{string.Join("; ", problems)}");
-            }
-
-            // 3. 关闭旧连接（WAL checkpoint 归属旧连接）后才能替换文件。
-            var previousStore = _library().Store!;
-            _library().Store = null;
-            await previousStore.DisposeAsync();
-            control.AppendMaintenanceLog("old connection closed");
-
-            SqliteLibraryStore? restoredStore = null;
-            try
-            {
-                // 4. 替换库文件 → 重开并走完整校验/迁移路径。
-                var stagedDb = Path.Combine(backupDir, Infrastructure.Backups.BackupArchive.DatabaseFileName);
-                File.Copy(stagedDb, Path.Combine(_dataDirectory, "library.db"), overwrite: true);
-                foreach (var residue in new[] { "library.db-wal", "library.db-shm" })
-                {
-                    var residuePath = Path.Combine(_dataDirectory, residue);
-                    if (File.Exists(residuePath))
-                    {
-                        File.Delete(residuePath);
-                    }
-                }
-
-                restoredStore = (await SqliteLibraryStore.TryOpenAsync(_dataDirectory, new SqliteLibraryStoreOptions
-                {
-                    AppVersion = _appVersion,
-                    ApiVersion = ApiConstants.ApiVersion,
-                }, CancellationToken.None)).Store;
-                if (restoredStore is null)
-                {
-                    throw new InvalidOperationException("恢复后的库无法打开");
-                }
-
-                // v1 审查修复：库会话整体切换——事件流同步重绑到新 Store（新纪元、序号从新库恢复），
-                // 不再指向已关闭的旧连接；连接代数递增使旧纪元客户端断连。
-                _bindLibraryStore(restoredStore);
-                control.AppendMaintenanceLog("database swapped");
-            }
-            catch (Exception ex)
-            {
-                // 恢复失败：从安全备份文件回退，重开旧库继续服务。
-                control.AppendMaintenanceLog($"swap failed: {ex.Message}; rolling back to safety backup");
-                File.Copy(safetyDb, Path.Combine(_dataDirectory, "library.db"), overwrite: true);
-                var rolledBack = await SqliteLibraryStore.TryOpenAsync(_dataDirectory, new SqliteLibraryStoreOptions
-                {
-                    AppVersion = _appVersion,
-                    ApiVersion = ApiConstants.ApiVersion,
-                }, CancellationToken.None);
-                if (rolledBack.IsOpened)
-                {
-                    _bindLibraryStore(rolledBack.Store);
-                }
-
-                throw;
-            }
-
-            // 5. 用户原图恢复（assets/ 覆盖回应用目录）。
-            var backupAssets = Path.Combine(backupDir, "assets");
-            if (Directory.Exists(backupAssets))
-            {
-                Infrastructure.Backups.BackupArchive.CopyDirectory(
-                    backupAssets, Path.Combine(_dataDirectory, "assets"));
-                control.AppendMaintenanceLog("assets restored");
-            }
-
-            // 6. dataEpoch 续期：旧游标/旧计划/旧 Revision 语境全部失效。
-            var newEpoch = restoredStore!.RenewDataEpochAsync(CancellationToken.None).GetAwaiter().GetResult();
-            control.AppendMaintenanceLog($"epoch renewed: {newEpoch}");
-
-            var result = new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = true,
-                Status = OperationStatus.Completed,
-                Data = new
-                {
-                    backupId,
-                    restoredLibraryInstanceId = manifest.LibraryInstanceId,
-                    dataEpoch = newEpoch,
-                    safetyBackupId = safetyId,
-                    restored = true,
-                },
-            };
-            control.AppendMaintenanceLog($"restore completed: backup={backupId}");
-            control.CompleteRestoreReceipt(idempotencyKey, retryDigest, JsonSerializer.Serialize(result, ContractJson.Options));
+            var storage = new LibraryRestoreStorage(_dataDirectory, backupDir, manifest, _library().Store!,
+                new SqliteLibraryStoreOptions { AppVersion = _appVersion, ApiVersion = ApiConstants.ApiVersion },
+                key, digest, () => _library().Store = null, _bindLibraryStore, jobId);
+            var result = Completed(request, await BackupRestoreService.RestoreAsync(storage));
+            control.CompleteRestoreReceipt(key, digest, JsonSerializer.Serialize(result, ContractJson.Options));
             return result;
         }
-        catch (Exception ex) when (ex is IOException or InvalidOperationException or Microsoft.Data.Sqlite.SqliteException)
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or Microsoft.Data.Sqlite.SqliteException or UnauthorizedAccessException)
         {
+            if (_library().Store is null)
+                _state.Library = HostLibraryState.NotInitialized(LibraryOpenStatus.RecoveryRequired, ex.Message);
             control.AppendMaintenanceLog($"restore failed: {ex.Message}");
-            var failure = new Envelope<object>
-            {
-                RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
-                {
-                    Code = ErrorCodes.InternalError,
-                    Message = $"恢复失败（原库保留；安全备份与控制日志在 backups/control 区）：{ex.Message}",
-                    Retryable = true,
-                },
-            };
-            control.CompleteRestoreReceipt(idempotencyKey, retryDigest, JsonSerializer.Serialize(failure, ContractJson.Options));
+            var failure = IpcRequests.Failure(request, ErrorCodes.InternalError, $"恢复失败，请检查安全备份与控制区：{ex.Message}", retryable: true);
+            var journal = LibraryRestoreStorage.ReadJournal(_dataDirectory);
+            if (journal is { Phase: "committed", Result: not null } && journal.IdempotencyKey == key)
+                return Completed(request, journal.Result);
+            control.CompleteRestoreReceipt(key, digest, JsonSerializer.Serialize(failure, ContractJson.Options));
             return failure;
         }
     }

@@ -9,17 +9,17 @@ internal static class DesktopScanProgress
         var phase = StringValue(coverage, "phase");
         if (phase == "queued")
         {
-            return $"准备扫描（根 {rootIndex}/{rootCount}）";
+            return L10n.F($"准备扫描（根 {rootIndex}/{rootCount}）");
         }
 
         var directories = Int64Value(coverage, "scannedDirectories");
         var files = Int64Value(coverage, "observedFileEntries");
         var candidates = Int64Value(coverage, "candidatesFound");
         var currentPath = StringValue(coverage, "currentPath");
-        var text = $"扫描（根 {rootIndex}/{rootCount}）已检查 {directories:N0} 个目录、{files:N0} 个文件，识别 {candidates:N0} 个候选（含已入库）";
+        var text = L10n.F($"扫描（根 {rootIndex}/{rootCount}）已检查 {directories:N0} 个目录、{files:N0} 个文件，识别 {candidates:N0} 个候选（含已入库）");
         return string.IsNullOrWhiteSpace(currentPath)
             ? text
-            : $"{text} · 当前：{currentPath}";
+            : L10n.F($"{text} · 当前：{currentPath}");
     }
 
     private static long Int64Value(JsonElement value, string propertyName) =>

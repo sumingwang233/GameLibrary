@@ -1,3 +1,4 @@
+import { t } from "../../lib/i18n";
 import { useEffect, useState } from "react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { Button } from "./button";
@@ -12,7 +13,7 @@ export function PromptDialog({
   title,
   label,
   placeholder,
-  confirmLabel = "确定",
+  confirmLabel = t("确定"),
   initialValue = "",
   onCancel,
   onSubmit,
@@ -62,7 +63,7 @@ export function PromptDialog({
           </label>
           <div className="mt-6 flex justify-end gap-2">
             <DialogPrimitive.Close asChild>
-              <Button variant="outline">取消</Button>
+              <Button variant="outline">{t("取消")}</Button>
             </DialogPrimitive.Close>
             <Button disabled={!trimmed} onClick={submit}>
               {confirmLabel}

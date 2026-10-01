@@ -11,6 +11,14 @@ namespace GameLibrary.Host.Hosting;
 /// </summary>
 internal static class IpcRequests
 {
+    public static Envelope<object> Failure(IpcRequest request, string code, string message, bool retryable = false) => new()
+    {
+        RequestId = request.RequestId,
+        Ok = false,
+        Status = OperationStatus.Failed,
+        Error = new RequestError { Code = code, Message = message, Retryable = retryable },
+    };
+
     /// <summary>取字符串参数：参数为非空字符串时返回 true；空字符串视为缺失。</summary>
     public static bool TryGetStringParameter(IpcRequest request, string name, out string value)
     {

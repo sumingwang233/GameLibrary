@@ -243,6 +243,18 @@ public static class BackupArchive
 /// </summary>
 public sealed class ControlAreaStore
 {
+    public static void WriteAtomic(string path, string contents, System.Text.Encoding? encoding = null)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var temporary = path + $".{Guid.NewGuid():N}.tmp";
+        using (var file = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        {
+            var bytes = (encoding ?? System.Text.Encoding.UTF8).GetBytes(contents);
+            file.Write(bytes);
+            file.Flush(flushToDisk: true);
+        }
+        if (File.Exists(path)) File.Replace(temporary, path, null); else File.Move(temporary, path);
+    }
     public ControlAreaStore(string controlDirectory)
     {
         ControlDirectory = controlDirectory;
@@ -291,7 +303,7 @@ public sealed class ControlAreaStore
             }
         }
 
-        File.WriteAllText(
+        WriteAtomic(
             path,
             JsonSerializer.Serialize(new { requestDigest, status = "prepared", createdUtc = DateTime.UtcNow.ToString("O") }),
             System.Text.Encoding.UTF8);
@@ -301,7 +313,7 @@ public sealed class ControlAreaStore
     public void CompleteRestoreReceipt(string idempotencyKey, string requestDigest, string resultJson)
     {
         var path = Path.Combine(ReceiptsDirectory, ReceiptFileName(idempotencyKey));
-        File.WriteAllText(
+        WriteAtomic(
             path,
             JsonSerializer.Serialize(new { requestDigest, status = "completed", resultJson, updatedUtc = DateTime.UtcNow.ToString("O") }),
             System.Text.Encoding.UTF8);

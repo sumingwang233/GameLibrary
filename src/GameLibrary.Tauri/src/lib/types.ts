@@ -180,6 +180,7 @@ export interface LaunchPlan {
 }
 
 export interface LibrarySettings {
+  uiLanguage?: "zh-CN" | "zh-TW" | "en" | "ja";
   revision: number;
   activeViewId?: string | null;
   autostartEnabled: boolean;

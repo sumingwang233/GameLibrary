@@ -1,0 +1,27 @@
+{
+  "name": "gamelibrary-website",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "predev": "node scripts/optimize-images.mjs",
+    "dev": "next dev --hostname 127.0.0.1 --port 4173",
+    "prebuild": "node scripts/optimize-images.mjs",
+    "build": "next build",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test scripts/theme.test.mjs"
+  },
+  "dependencies": {
+    "next": "16.3.7",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "sharp": "0.35.5",
+    "@tailwindcss/postcss": "4.3.3",
+    "tailwindcss": "4.3.3",
+    "typescript": "^6.0.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0"
+  }
+}

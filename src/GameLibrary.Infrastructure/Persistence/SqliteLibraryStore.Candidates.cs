@@ -7,7 +7,7 @@ public sealed partial class SqliteLibraryStore
 {
     /// <summary>幂等收据查询（契约 7.1）；收据属于当前库实例。</summary>
     public RequestReceipt? TryGetReceipt(string actor, string operationId, string idempotencyKey)
-        => Execute((c, info) => RequestReceiptStore.TryGet(c, info.LibraryInstanceId, actor, operationId, idempotencyKey));
+        => ReadExclusive((c, info) => RequestReceiptStore.TryGet(c, info.LibraryInstanceId, actor, operationId, idempotencyKey));
 
     public void InsertPreparedReceipt(RequestReceipt receipt)
         => Execute((c, _) => RequestReceiptStore.InsertPrepared(c, receipt));
@@ -45,35 +45,33 @@ public sealed partial class SqliteLibraryStore
         => Execute((c, _) => LibraryCatalogStore.PromoteRescannedCandidate(c, physicalPath, utcNow));
 
     public PersistedCandidate? TryGetCandidate(string candidateId)
-        => Execute((c, _) => LibraryCatalogStore.TryGetCandidate(c, candidateId));
+        => ReadExclusive((c, _) => LibraryCatalogStore.TryGetCandidate(c, candidateId));
 
     public IReadOnlyList<PersistedCandidate> ListCandidates()
-        => Execute((c, _) => LibraryCatalogStore.ListCandidates(c));
+        => ReadExclusive((c, _) => LibraryCatalogStore.ListCandidates(c));
 
-    public int IgnoreMissingCandidates(DateTime utcNow)
-        => Execute((c, _) => LibraryCatalogStore.IgnoreMissingCandidates(c, utcNow));
 
     public (int Total, IReadOnlyList<PersistedCandidate> Items) QueryCandidates(
         string? jobId,
         string? state,
         int limit,
         int offset)
-        => Execute((c, _) => LibraryCatalogStore.QueryCandidates(c, jobId, state, limit, offset));
+        => ReadExclusive((c, _) => LibraryCatalogStore.QueryCandidates(c, jobId, state, limit, offset));
 
     public PersistedCandidate? TransitionCandidate(
         string candidateId, string fromState, string toState, int expectedRevision, string? gameId, DateTime utcNow)
-        => Execute((c, _) => LibraryCatalogStore.TransitionCandidate(c, candidateId, fromState, toState, expectedRevision, gameId, utcNow));
+        => Execute((c, _) => LibraryCatalogStore.TransitionCandidate(c, candidateId, fromState, toState, expectedRevision, gameId, utcNow, _writeTransaction));
 
     /// <summary>accept 原子化（R43）：建卡/复用 + 引擎标签 + 候选转移 + 匹配指纹单事务提交，conflict 不落任何写。</summary>
     public AcceptCandidateOutcome AcceptCandidate(
         string candidateId, int expectedRevision, GameCard newGame, string engine, DateTime utcNow,
         GameFingerprintData? fingerprint = null)
-        => Execute((c, _) => LibraryCatalogStore.AcceptCandidate(c, candidateId, expectedRevision, newGame, engine, utcNow, fingerprint));
+        => Execute((c, _) => LibraryCatalogStore.AcceptCandidate(c, candidateId, expectedRevision, newGame, engine, utcNow, fingerprint, _writeTransaction));
 
     /// <summary>ignore 原子化（R48）：忽略规则 + 候选转移单事务提交，conflict 不落任何写。</summary>
     public IgnoreCandidateOutcome IgnoreCandidate(
         string candidateId, int expectedRevision, IgnoreRule rule, DateTime utcNow)
-        => Execute((c, _) => LibraryCatalogStore.IgnoreCandidate(c, candidateId, expectedRevision, rule, utcNow));
+        => Execute((c, _) => LibraryCatalogStore.IgnoreCandidate(c, candidateId, expectedRevision, rule, utcNow, _writeTransaction));
 
     // T18 通知批转发。
 
@@ -81,10 +79,10 @@ public sealed partial class SqliteLibraryStore
         => Execute((c, _) => NotificationStore.EnsureCandidateBatch(c, utcNow));
 
     public IReadOnlyList<NotificationBatch> ListNotifications(string? state)
-        => Execute((c, _) => NotificationStore.ListBatches(c, state));
+        => ReadExclusive((c, _) => NotificationStore.ListBatches(c, state));
 
     public NotificationBatch? TryGetNotification(string notificationId)
-        => Execute((c, _) => NotificationStore.TryGetBatch(c, notificationId));
+        => ReadExclusive((c, _) => NotificationStore.TryGetBatch(c, notificationId));
 
     public NotificationBatch? TransitionNotification(string notificationId, string toState, DateTime utcNow)
         => Execute((c, _) => NotificationStore.TransitionBatch(c, notificationId, toState, utcNow));

@@ -593,7 +593,7 @@ internal sealed class ViewSettingsHandler
         }
 
         var declared = new HashSet<string>(StringComparer.Ordinal)
-            { "expectedRevision", "idempotencyKey", "activeViewId", "autostartEnabled", "scanIntervalMinutes", "theme", "closeToTray", "uiFontScale", "uiFontFamily", "cacheParentDirectory" };
+            { "expectedRevision", "idempotencyKey", "activeViewId", "autostartEnabled", "scanIntervalMinutes", "theme", "closeToTray", "uiFontScale", "uiFontFamily", "cacheParentDirectory", "uiLanguage" };
         var unknown = parameters.EnumerateObject()
             .Where(p => !declared.Contains(p.Name))
             .Select(p => p.Name)
@@ -642,6 +642,19 @@ internal sealed class ViewSettingsHandler
         var cacheParentDirectory = current.CacheParentDirectory;
         var keys = new List<(string Key, string? Value)>();
 
+        var uiLanguage = current.UiLanguage;
+        if (parameters.TryGetProperty("uiLanguage", out var languageElement))
+        {
+            if (languageElement.ValueKind != JsonValueKind.String
+                || languageElement.GetString() is not ("zh-CN" or "zh-TW" or "en" or "ja"))
+            {
+                return IpcRequests.InvalidArgument(request, "uiLanguage 必须是 zh-CN / zh-TW / en / ja");
+            }
+
+            uiLanguage = languageElement.GetString()!;
+            keys.Add(("uiLanguage", uiLanguage));
+        }
+
         if (parameters.TryGetProperty("activeViewId", out var viewElement))
         {
             if (viewElement.ValueKind is JsonValueKind.Null)
@@ -652,7 +665,7 @@ internal sealed class ViewSettingsHandler
             else if (viewElement.ValueKind == JsonValueKind.String)
             {
                 var viewId = viewElement.GetString();
-                var known = GameLibrary.Infrastructure.Persistence.BuiltInViews.All.Any(v => v.ViewId == viewId)
+                var known = GameLibrary.Domain.Catalog.BuiltInViews.All.Any(v => v.ViewId == viewId)
                     || store.TryGetView(viewId!) is not null;
                 if (!known)
                 {
@@ -816,6 +829,7 @@ internal sealed class ViewSettingsHandler
             UiFontScale = uiFontScale,
             UiFontFamily = uiFontFamily,
             CacheParentDirectory = cacheParentDirectory,
+            UiLanguage = uiLanguage,
         };
         return new Envelope<object>
         {
@@ -868,7 +882,7 @@ internal sealed class ViewSettingsHandler
         };
     }
 
-    /// <summary>设置快照 DTO：九字段受限集，字段顺序即响应字段顺序。</summary>
+    /// <summary>设置快照 DTO；旧库没有 uiLanguage 时返回简体中文。</summary>
     private static object SettingsDto(AppSettingsSnapshot settings) => new
     {
         revision = settings.Revision,
@@ -880,5 +894,6 @@ internal sealed class ViewSettingsHandler
         uiFontScale = settings.UiFontScale,
         uiFontFamily = settings.UiFontFamily,
         cacheParentDirectory = settings.CacheParentDirectory,
+        uiLanguage = settings.UiLanguage,
     };
 }

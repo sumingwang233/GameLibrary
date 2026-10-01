@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { useState } from "react";
 import { Inbox } from "lucide-react";
 import type { CandidateItem } from "../lib/types";
@@ -22,8 +23,8 @@ export function ReviewList({
     return (
       <EmptyState
         icon={<Inbox size={44} strokeWidth={1.25} />}
-        title="没有待确认项目"
-        message="扫描到的新游戏会在这里等你确认。"
+        title={t("没有待确认项目")}
+        message={t("扫描到的新游戏会在这里等你确认。")}
       />
     );
   }
@@ -67,7 +68,7 @@ export function ReviewList({
               <Checkbox
                 checked={selected.has(candidate.candidateId)}
                 onCheckedChange={() => toggle(candidate.candidateId)}
-                aria-label={`选择 ${candidate.relativePath || candidate.physicalPath}`}
+                aria-label={t("选择 {0}", candidate.relativePath || candidate.physicalPath)}
               />
               <span
                 aria-hidden="true"

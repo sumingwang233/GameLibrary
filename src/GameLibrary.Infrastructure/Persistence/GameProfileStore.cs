@@ -108,9 +108,10 @@ public static class GameProfileStore
         string? value,
         string source,
         int expectedRevision,
-        DateTime utcNow)
+        DateTime utcNow, SqliteTransaction? parentTransaction = null)
     {
-        using var transaction = (SqliteTransaction)connection.BeginTransaction();
+        using var ownedTransaction = parentTransaction is null ? connection.BeginTransaction() : null;
+        var transaction = parentTransaction ?? ownedTransaction!;
         int currentRevision;
         string currentTitle;
         using (var select = connection.CreateCommand())
@@ -121,7 +122,7 @@ public static class GameProfileStore
             using var reader = select.ExecuteReader();
             if (!reader.Read())
             {
-                transaction.Rollback();
+                ownedTransaction?.Rollback();
                 return null;
             }
 
@@ -131,7 +132,7 @@ public static class GameProfileStore
 
         if (currentRevision != expectedRevision)
         {
-            transaction.Rollback();
+            ownedTransaction?.Rollback();
             return null;
         }
 
@@ -159,7 +160,7 @@ public static class GameProfileStore
             update.ExecuteNonQuery();
         }
 
-        transaction.Commit();
+        ownedTransaction?.Commit();
         return currentRevision + 1;
     }
 

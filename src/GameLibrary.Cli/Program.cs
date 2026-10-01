@@ -41,6 +41,8 @@ internal static class Program
                 "host.status" => await HostStatusAsync(parse),
                 "library.init" => await ScanHostOperationAsync(parse, "library.init", requiresRoot: false),
                 "scan.start" => await ScanHostOperationAsync(parse, "scan.start", requiresRoot: true),
+                "events.wait" or "backups.restore_start" or "candidates.review_batch" or "tags.reorder" =>
+                    await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "events.read" => await ScanHostOperationAsync(parse, "events.read", requiresRoot: false),
                 "verification.start" or "verification.report" or "verification.invalidate" or "verification.get" or "verification.list" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
@@ -89,6 +91,11 @@ internal static class Program
                 _ => UnknownCommand(parse),
             };
         }
+        catch (JsonException ex)
+        {
+            Console.Error.WriteLine($"JSON 参数无效：{ex.Message}");
+            return ExitArgumentError;
+        }
         catch (HostClientException ex)
         {
             WriteEnvelope(new Envelope<object>
@@ -128,6 +135,7 @@ internal static class Program
         if (cli.Theme is { } theme) patch["theme"] = theme;
         if (cli.CloseToTray is { } closeToTray) patch["closeToTray"] = closeToTray;
         if (cli.UiFontFamily is { } family) patch["uiFontFamily"] = family;
+        if (cli.UiLanguage is { } language) patch["uiLanguage"] = language;
         if (cli.UiFontScale is { } scale) patch["uiFontScale"] = scale;
         if (cli.ResetCacheParentDirectory) patch["cacheParentDirectory"] = null!;
         else if (cli.CacheParentDirectory is { } cacheDirectory) patch["cacheParentDirectory"] = cacheDirectory;
@@ -305,7 +313,7 @@ internal static class Program
         if (operationId is "settings.update"
             && (cli.ExpectedRevision is null
                 || cli.Autostart is null && cli.Interval is null && cli.Theme is null
-                    && cli.CloseToTray is null && cli.UiFontFamily is null && cli.UiFontScale is null
+                    && cli.CloseToTray is null && cli.UiFontFamily is null && cli.UiFontScale is null && cli.UiLanguage is null
                     && cli.CacheParentDirectory is null && !cli.ResetCacheParentDirectory))
         {
             Console.Error.WriteLine("settings update 需要 --expected-revision 与至少一个设置字段（--theme、--font-family、--cache-dir 等）");
@@ -378,6 +386,9 @@ internal static class Program
         {
             "library.init" => cli.IdempotencyKey is null ? null : new { idempotencyKey = cli.IdempotencyKey },
             "scan.start" => new { idempotencyKey = cli.IdempotencyKey ?? ("scan-" + Guid.NewGuid().ToString("N")), root = cli.RootArgument },
+            "events.wait" => new { cursor = cli.ExpectedRevision, limit = cli.Limit, timeoutMs = cli.WaitTimeoutMs ?? 25000 },
+            "candidates.review_batch" => new { action = cli.BatchAction, items = JsonSerializer.Deserialize<JsonElement>(cli.ItemsJson ?? "null"), idempotencyKey = cli.IdempotencyKey ?? Guid.NewGuid().ToString("N") },
+            "tags.reorder" => new { items = JsonSerializer.Deserialize<JsonElement>(cli.ItemsJson ?? "null"), idempotencyKey = cli.IdempotencyKey ?? Guid.NewGuid().ToString("N") },
             "events.read" => (cli.Limit is null && cli.ExpectedRevision is null) ? null : new { cursor = cli.ExpectedRevision, limit = cli.Limit },
             "scan.inspect" => new { path = cli.RootArgument },
             "roots.add" => new { root = cli.RootArgument },
@@ -460,7 +471,7 @@ internal static class Program
             "backups.create" => new { idempotencyKey = cli.IdempotencyKey ?? $"bkcreate-{Guid.NewGuid():N}" },
             "backups.inspect" => new { backupId = cli.BackupId },
             "backups.restore_plan" => new { backupId = cli.BackupId },
-            "backups.restore" => new
+            "backups.restore" or "backups.restore_start" => new
             {
                 idempotencyKey = cli.IdempotencyKey ?? $"bkrestore-{cli.BackupId}",
                 backupId = cli.BackupId,

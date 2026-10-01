@@ -6,34 +6,34 @@ namespace GameLibrary.Infrastructure.Persistence;
 public sealed partial class SqliteLibraryStore
 {
     public void InsertGame(GameCard game)
-        => Execute((c, _) => LibraryCatalogStore.InsertGame(c, game));
+        => Execute((c, _) => LibraryCatalogStore.InsertGame(c, game, _writeTransaction));
 
     public int? RemoveGame(string gameId, int expectedRevision, IgnoreRule ignore, DateTime utcNow)
         => Execute((c, _) => LibraryCatalogStore.RemoveGame(c, gameId, expectedRevision, ignore, utcNow));
 
     public GameCard? TryGetGame(string gameId)
-        => Execute((c, _) => LibraryCatalogStore.TryGetGame(c, gameId));
+        => ReadExclusive((c, _) => LibraryCatalogStore.TryGetGame(c, gameId));
 
     public IReadOnlyList<GameCard> ListGames()
-        => Execute((c, _) => LibraryCatalogStore.ListGames(c));
+        => ReadExclusive((c, _) => LibraryCatalogStore.ListGames(c));
 
     /// <summary>数据库侧检索（阶段三）：搜索/收藏/标签过滤 + 排序 + 分页；limit &lt;= 0 全量。</summary>
     public (int Total, IReadOnlyList<GameCard> Items) QueryGames(
         string? search, bool favoriteOnly, string? tagId, string? sort, int limit, int offset)
-        => Execute((c, _) => LibraryCatalogStore.QueryGames(c, search, favoriteOnly, tagId, sort, limit, offset));
+        => ReadExclusive((c, _) => LibraryCatalogStore.QueryGames(c, search, favoriteOnly, tagId, sort, limit, offset));
 
     /// <summary>列表页批量充实（R41）：单锁一次取回字段/封面/标签，取代逐游戏 4 次查询。</summary>
     public IReadOnlyDictionary<string, GameCardEnrichment> EnrichGameCards(
         IReadOnlyList<GameCard> games)
-        => Execute((c, _) => LibraryCatalogStore.EnrichGameCards(c, games));
+        => ReadExclusive((c, _) => LibraryCatalogStore.EnrichGameCards(c, games));
 
     /// <summary>游玩统计聚合（feat-1）：launch_attempts 按 game_id 聚合时长与最近游玩。</summary>
     public IReadOnlyDictionary<string, PlaytimeStats> QueryPlaytimeStats(
         IReadOnlyCollection<string> gameIds)
-        => Execute((c, _) => LibraryCatalogStore.QueryPlaytimeStats(c, gameIds));
+        => ReadExclusive((c, _) => LibraryCatalogStore.QueryPlaytimeStats(c, gameIds));
 
     public GameCard? TryGetGameByRootPath(string rootPath)
-        => Execute((c, _) => LibraryCatalogStore.TryGetGameByRootPath(c, rootPath));
+        => ReadExclusive((c, _) => LibraryCatalogStore.TryGetGameByRootPath(c, rootPath));
 
     public void InsertIgnoreRule(IgnoreRule rule)
         => Execute((c, _) => LibraryCatalogStore.InsertIgnoreRule(c, rule));
@@ -52,26 +52,26 @@ public sealed partial class SqliteLibraryStore
         => Execute((c, _) => LibraryCatalogStore.UpdateAvailability(c, gameId, availability, missingSinceUtc, utcNow));
 
     public int? RelinkGame(string gameId, string newRootPath, int expectedRevision, DateTime utcNow)
-        => Execute((c, _) => LibraryCatalogStore.RelinkGame(c, gameId, newRootPath, expectedRevision, utcNow));
+        => Execute((c, _) => LibraryCatalogStore.RelinkGame(c, gameId, newRootPath, expectedRevision, utcNow, _writeTransaction));
 
     // 匹配指纹域转发（v20 game_fingerprints）：写入仅 accept（R43 事务内）/relink/create 三处。
 
     public void UpsertGameFingerprint(string gameId, GameFingerprintData fingerprint)
-        => Execute((c, _) => LibraryCatalogStore.UpsertGameFingerprint(c, gameId, fingerprint));
+        => Execute((c, _) => LibraryCatalogStore.UpsertGameFingerprint(c, gameId, fingerprint, _writeTransaction));
 
     public GameFingerprintRow? TryGetGameFingerprint(string gameId)
-        => Execute((c, _) => LibraryCatalogStore.TryGetGameFingerprint(c, gameId));
+        => ReadExclusive((c, _) => LibraryCatalogStore.TryGetGameFingerprint(c, gameId));
 
     /// <summary>相似建议对比集合（active + 当前策略版本）；excludeGameId 防自身恒占 similarTo[0]。</summary>
     public IReadOnlyList<GameFingerprintRow> ListActiveGameFingerprints(string? excludeGameId, int strategyVersion)
-        => Execute((c, _) => LibraryCatalogStore.ListActiveGameFingerprints(c, excludeGameId, strategyVersion));
+        => ReadExclusive((c, _) => LibraryCatalogStore.ListActiveGameFingerprints(c, excludeGameId, strategyVersion));
 
     public IReadOnlyList<IgnoreRule> ListIgnoreRules()
-        => Execute((c, _) => LibraryCatalogStore.ListIgnoreRules(c));
+        => ReadExclusive((c, _) => LibraryCatalogStore.ListIgnoreRules(c));
 
     public IReadOnlyList<string> RemoveIgnoreRule(string ignoreId)
         => Execute((c, _) => LibraryCatalogStore.RemoveIgnoreRule(c, ignoreId));
 
     public bool IsSuppressedByIgnoreRule(string physicalPath, string? boundGameId)
-        => Execute((c, _) => LibraryCatalogStore.IsSuppressedByIgnoreRule(c, physicalPath, boundGameId));
+        => ReadExclusive((c, _) => LibraryCatalogStore.IsSuppressedByIgnoreRule(c, physicalPath, boundGameId));
 }

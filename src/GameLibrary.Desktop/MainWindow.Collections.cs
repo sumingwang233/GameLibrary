@@ -52,9 +52,9 @@ public partial class MainWindow
         try
         {
             ViewSelector.Items.Clear();
-            ViewSelector.Items.Add(new ComboBoxItem { Content = "全部游戏", Tag = "all" });
-            ViewSelector.Items.Add(new ComboBoxItem { Content = "收藏", Tag = "favorites" });
-            ViewSelector.Items.Add(new ComboBoxItem { Content = "待确认游戏", Tag = "pending" });
+            ViewSelector.Items.Add(new ComboBoxItem { Content = L10n.T("全部游戏"), Tag = "all" });
+            ViewSelector.Items.Add(new ComboBoxItem { Content = L10n.T("收藏"), Tag = "favorites" });
+            ViewSelector.Items.Add(new ComboBoxItem { Content = L10n.T("待确认游戏"), Tag = "pending" });
             ViewSelector.SelectedItem = ViewSelector.Items.OfType<ComboBoxItem>()
                 .FirstOrDefault(item => (string)item.Tag == selectedId)
                 ?? ViewSelector.Items[0];
@@ -68,13 +68,13 @@ public partial class MainWindow
         try
         {
             TagFilterSelector.Items.Clear();
-            TagFilterSelector.Items.Add(new ComboBoxItem { Content = "全部标签", Tag = "" });
+            TagFilterSelector.Items.Add(new ComboBoxItem { Content = L10n.T("全部标签"), Tag = "" });
             foreach (var tag in _allTags.OrderBy(tag => tag.Kind).ThenBy(tag => tag.Name, StringComparer.CurrentCultureIgnoreCase))
             {
                 TagFilterSelector.Items.Add(new ComboBoxItem
                 {
                     Content = tag.Kind == "engine"
-                        ? $"自动：{tag.Name} ({tag.GameCount})"
+                        ? L10n.F($"自动：{tag.Name} ({tag.GameCount})")
                         : $"{tag.Name} ({tag.GameCount})",
                     Tag = tag.TagId,
                 });
@@ -92,7 +92,7 @@ public partial class MainWindow
 
     private async void OnCreateCollectionClick(object sender, RoutedEventArgs e)
     {
-        var name = PromptCollectionName("新建标签", "", this);
+        var name = PromptCollectionName(L10n.T("新建标签"), "", this);
         if (name is null)
         {
             return;
@@ -107,7 +107,7 @@ public partial class MainWindow
             });
             if (!result.Ok)
             {
-                ShowError($"新建标签失败：{result.Error?.Message}");
+                ShowError(L10n.F($"新建标签失败：{result.Error?.Message}"));
                 return;
             }
 
@@ -119,7 +119,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            ShowError($"新建标签失败：{ex.Message}");
+            ShowError(L10n.F($"新建标签失败：{ex.Message}"));
         }
     }
 
@@ -127,7 +127,7 @@ public partial class MainWindow
     {
         var dialog = new Window
         {
-            Title = "管理标签",
+            Title = L10n.T("管理标签"),
             Width = 520,
             Height = 340,
             Owner = this,
@@ -139,8 +139,8 @@ public partial class MainWindow
         panel.Children.Add(new TextBlock
         {
             Text = _userCollections.Count == 0
-                ? "还没有自定义标签。可在左侧点击「新建标签」。"
-                : "自动标签由扫描生成；这里可重命名或删除自定义标签，不会删除游戏。",
+                ? L10n.T("还没有自定义标签。可在左侧点击「新建标签」。")
+                : L10n.T("自动标签由扫描生成；这里可重命名或删除自定义标签，不会删除游戏。"),
             Foreground = TryFindResource<SolidColorBrush>("TextMuted"),
             Margin = new Thickness(0, 0, 0, 12),
         });
@@ -150,13 +150,13 @@ public partial class MainWindow
             var row = new DockPanel { Margin = new Thickness(0, 4, 0, 4) };
             var deleteButton = new Button
             {
-                Content = "删除",
+                Content = L10n.T("删除"),
                 Style = (Style)TryFindResource("SteamButton"),
                 Margin = new Thickness(6, 0, 0, 0),
             };
             var renameButton = new Button
             {
-                Content = "重命名",
+                Content = L10n.T("重命名"),
                 Style = (Style)TryFindResource("SteamButton"),
             };
             DockPanel.SetDock(deleteButton, Dock.Right);
@@ -165,7 +165,7 @@ public partial class MainWindow
             row.Children.Add(renameButton);
             row.Children.Add(new TextBlock
             {
-                Text = $"{collection.Name}（{collection.GameCount} 款游戏）",
+                Text = L10n.F($"{collection.Name}（{collection.GameCount} 款游戏）"),
                 VerticalAlignment = VerticalAlignment.Center,
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 Foreground = TryFindResource<SolidColorBrush>("TextBody"),
@@ -174,7 +174,7 @@ public partial class MainWindow
 
             renameButton.Click += async (_, _) =>
             {
-                var name = PromptCollectionName("重命名标签", collection.Name, dialog);
+                var name = PromptCollectionName(L10n.T("重命名标签"), collection.Name, dialog);
                 if (name is null || name == collection.Name)
                 {
                     return;
@@ -185,8 +185,8 @@ public partial class MainWindow
             deleteButton.Click += async (_, _) =>
             {
                 if (MessageBox.Show(dialog,
-                    $"删除标签「{collection.Name}」？游戏仍会留在库中。",
-                    "确认删除标签", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+                    L10n.F($"删除标签「{collection.Name}」？游戏仍会留在库中。"),
+                    L10n.T("确认删除标签"), MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
                 {
                     return;
                 }
@@ -217,7 +217,7 @@ public partial class MainWindow
             var result = await InvokeAsync(operation, patch);
             if (!result.Ok)
             {
-                ShowError($"修改标签失败：{result.Error?.Message}");
+                ShowError(L10n.F($"修改标签失败：{result.Error?.Message}"));
                 return;
             }
 
@@ -227,7 +227,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            ShowError($"修改标签失败：{ex.Message}");
+            ShowError(L10n.F($"修改标签失败：{ex.Message}"));
         }
     }
 
@@ -235,7 +235,7 @@ public partial class MainWindow
     {
         if (_userCollections.Count == 0)
         {
-            ShowError("尚无自定义标签。先点击左侧「新建标签」，再为游戏设置标签。");
+            ShowError(L10n.T("尚无自定义标签。先点击左侧「新建标签」，再为游戏设置标签。"));
             return;
         }
 
@@ -245,7 +245,7 @@ public partial class MainWindow
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var dialog = new Window
         {
-            Title = "设置标签",
+            Title = L10n.T("设置标签"),
             Width = 400,
             Height = 380,
             Owner = this,
@@ -270,7 +270,7 @@ public partial class MainWindow
 
         var saveButton = new Button
         {
-            Content = "保存",
+            Content = L10n.T("保存"),
             Style = (Style)TryFindResource("SteamGreenButton"),
             Margin = new Thickness(0, 16, 0, 0),
             Width = 110,
@@ -299,7 +299,7 @@ public partial class MainWindow
                     });
                     if (!result.Ok)
                     {
-                        ShowError($"保存标签失败：{result.Error?.Message}");
+                        ShowError(L10n.F($"保存标签失败：{result.Error?.Message}"));
                         return;
                     }
                 }
@@ -310,7 +310,7 @@ public partial class MainWindow
             }
             catch (Exception ex)
             {
-                ShowError($"保存标签失败：{ex.Message}");
+                ShowError(L10n.F($"保存标签失败：{ex.Message}"));
             }
             finally
             {
@@ -347,12 +347,12 @@ public partial class MainWindow
             Background = System.Windows.Application.Current.TryFindResource("BgMain") as SolidColorBrush,
         };
         var panel = new StackPanel { Margin = new Thickness(16) };
-        panel.Children.Add(new TextBlock { Text = "标签名称", Margin = new Thickness(0, 0, 0, 6) });
+        panel.Children.Add(new TextBlock { Text = L10n.T("标签名称"), Margin = new Thickness(0, 0, 0, 6) });
         var input = new TextBox { Text = initial, MaxLength = 100 };
         panel.Children.Add(input);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 14, 0, 0) };
-        var ok = new Button { Content = "确定", Width = 90, IsDefault = true };
-        var cancel = new Button { Content = "取消", Width = 90, IsCancel = true, Margin = new Thickness(8, 0, 0, 0) };
+        var ok = new Button { Content = L10n.T("确定"), Width = 90, IsDefault = true };
+        var cancel = new Button { Content = L10n.T("取消"), Width = 90, IsCancel = true, Margin = new Thickness(8, 0, 0, 0) };
         ok.Click += (_, _) =>
         {
             if (string.IsNullOrWhiteSpace(input.Text))

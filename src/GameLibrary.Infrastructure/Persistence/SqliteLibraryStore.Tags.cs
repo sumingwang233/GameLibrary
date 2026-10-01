@@ -8,13 +8,13 @@ public sealed partial class SqliteLibraryStore
     // T-collections 标签转发（v18）。
 
     public IReadOnlyList<PersistedTag> ListTags()
-        => Execute((c, _) => TagStore.ListTags(c));
+        => ReadExclusive((c, _) => TagStore.ListTags(c));
 
     public PersistedTag? TryGetTag(string tagId)
-        => Execute((c, _) => TagStore.TryGetTag(c, tagId));
+        => ReadExclusive((c, _) => TagStore.TryGetTag(c, tagId));
 
     public PersistedTag? TryGetTagByName(string kind, string name)
-        => Execute((c, _) => TagStore.TryGetTagByName(c, kind, name));
+        => ReadExclusive((c, _) => TagStore.TryGetTagByName(c, kind, name));
 
     public void CreateTag(PersistedTag tag)
         => Execute((c, _) => TagStore.CreateTag(c, tag));
@@ -48,7 +48,7 @@ public sealed partial class SqliteLibraryStore
         => Execute((c, _) => TagStore.ClearOverride(c, gameId, tagKind, tagName, utcNow));
 
     public IReadOnlyList<(string Kind, string Name)> ListGameTags(string gameId)
-        => Execute((c, _) => TagStore.ListGameTags(c, gameId));
+        => ReadExclusive((c, _) => TagStore.ListGameTags(c, gameId));
 
     public bool EnsureEngineTagAssigned(string gameId, string engine, DateTime utcNow)
         => Execute((c, _) => TagStore.EnsureEngineTagAssigned(c, gameId, engine, utcNow));

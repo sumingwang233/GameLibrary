@@ -76,6 +76,27 @@ public partial class MainWindow : Window
     private string _sortMode = "title-asc";
     private bool _updatingTagFilter;
 
+    private void RefreshLocalizedSelectors()
+    {
+        var labels = new Dictionary<string, string>
+        {
+            ["all"] = L10n.T("全部游戏"),
+            ["favorites"] = L10n.T("收藏"),
+            ["pending"] = L10n.T("待确认游戏"),
+            ["title-asc"] = L10n.T("名称 A–Z"),
+            ["title-desc"] = L10n.T("名称 Z–A"),
+            ["updated-desc"] = L10n.T("最近修改"),
+            ["accepted-desc"] = L10n.T("最近入库"),
+        };
+        foreach (var selector in new[] { ViewSelector, SortSelector })
+        {
+            foreach (var item in selector.Items.OfType<ComboBoxItem>())
+            {
+                if (item.Tag is string key && labels.TryGetValue(key, out var source)) item.Content = L10n.T(source);
+            }
+        }
+    }
+
     public MainWindow()
     {
         InitializeComponent();
@@ -108,16 +129,16 @@ public partial class MainWindow : Window
             }
         }
 
-        ViewSelector.Items.Add(new ComboBoxItem { Content = "全部游戏", Tag = "all" });
-        ViewSelector.Items.Add(new ComboBoxItem { Content = "收藏", Tag = "favorites" });
-        ViewSelector.Items.Add(new ComboBoxItem { Content = "待确认游戏", Tag = "pending" });
+        ViewSelector.Items.Add(new ComboBoxItem { Content = L10n.T("全部游戏"), Tag = "all" });
+        ViewSelector.Items.Add(new ComboBoxItem { Content = L10n.T("收藏"), Tag = "favorites" });
+        ViewSelector.Items.Add(new ComboBoxItem { Content = L10n.T("待确认游戏"), Tag = "pending" });
         ViewSelector.SelectedIndex = 0;
-        SortSelector.Items.Add(new ComboBoxItem { Content = "名称 A–Z", Tag = "title-asc" });
-        SortSelector.Items.Add(new ComboBoxItem { Content = "名称 Z–A", Tag = "title-desc" });
-        SortSelector.Items.Add(new ComboBoxItem { Content = "最近修改", Tag = "updated-desc" });
-        SortSelector.Items.Add(new ComboBoxItem { Content = "最近入库", Tag = "accepted-desc" });
+        SortSelector.Items.Add(new ComboBoxItem { Content = L10n.T("名称 A–Z"), Tag = "title-asc" });
+        SortSelector.Items.Add(new ComboBoxItem { Content = L10n.T("名称 Z–A"), Tag = "title-desc" });
+        SortSelector.Items.Add(new ComboBoxItem { Content = L10n.T("最近修改"), Tag = "updated-desc" });
+        SortSelector.Items.Add(new ComboBoxItem { Content = L10n.T("最近入库"), Tag = "accepted-desc" });
         SortSelector.SelectedIndex = 0;
-        TagFilterSelector.Items.Add(new ComboBoxItem { Content = "全部标签", Tag = "" });
+        TagFilterSelector.Items.Add(new ComboBoxItem { Content = L10n.T("全部标签"), Tag = "" });
         TagFilterSelector.SelectedIndex = 0;
         _searchTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
         _searchTimer.Tick += async (_, _) =>

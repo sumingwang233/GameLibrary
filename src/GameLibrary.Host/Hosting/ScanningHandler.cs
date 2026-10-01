@@ -200,6 +200,7 @@ internal sealed class ScanningHandler
                 startedUtc = snapshot.StartedUtc?.ToString("O"),
                 finishedUtc = snapshot.FinishedUtc?.ToString("O"),
                 error = snapshot.Error,
+                result = snapshot.Kind == "restore" ? _jobs.TryGetProgress(jobId)?.Data : null,
             },
         };
     }

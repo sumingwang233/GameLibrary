@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -7,9 +8,9 @@ export function cn(...inputs: ClassValue[]) {
 
 /** 用户要求的时间格式：年-月-日 时:分:秒（本地时区）。 */
 export function formatTime(value?: string | null) {
-  if (!value) return "暂无记录";
+  if (!value) return t("暂无记录");
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "暂无记录";
+  if (Number.isNaN(date.getTime())) return t("暂无记录");
   const pad = (part: number) => String(part).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
     `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
@@ -28,6 +29,6 @@ export function formatSimilarity(value: number) {
 export function formatPlaytime(minutes?: number | null) {
   const value = Number.isFinite(minutes) ? Math.floor(minutes ?? 0) : 0;
   if (value <= 0) return "";
-  if (value < 60) return `${value} 分钟`;
-  return `${(value / 60).toFixed(1)} 小时`;
+  if (value < 60) return t("{0} 分钟", value);
+  return t("{0} 小时", (value / 60).toFixed(1));
 }

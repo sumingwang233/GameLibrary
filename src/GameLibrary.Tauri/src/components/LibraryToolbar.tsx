@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { LayoutGrid, List, RefreshCw, Search } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -56,9 +57,9 @@ export function LibraryToolbar({
           type="search"
           value={search}
           onChange={(event) => onSearch(event.currentTarget.value)}
-          placeholder="搜索游戏标题或路径"
+          placeholder={t("搜索游戏标题或路径")}
           className="pl-9"
-          aria-label="搜索游戏"
+          aria-label={t("搜索游戏")}
         />
       </div>
 
@@ -67,19 +68,19 @@ export function LibraryToolbar({
           {shown.toLocaleString()} / {total.toLocaleString()}
         </span>
         <Select value={displaySortValue(sort)} onValueChange={onSort}>
-          <SelectTrigger className="w-[130px]" aria-label="排序方式">
+          <SelectTrigger className="w-[130px]" aria-label={t("排序方式")}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             {SORT_OPTIONS.map((option) => (
               <SelectItem key={option.value} value={option.value}>
-                {option.label}
+                {t(option.label)}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
 
-        <Button variant="outline" size="icon" onClick={onRefresh} aria-label="刷新">
+        <Button variant="outline" size="icon" onClick={onRefresh} aria-label={t("刷新")}>
           <RefreshCw size={16} />
         </Button>
 
@@ -88,7 +89,7 @@ export function LibraryToolbar({
             variant={layout === "grid" ? "default" : "ghost"}
             size="icon"
             onClick={() => onLayout("grid")}
-            aria-label="网格视图"
+            aria-label={t("网格视图")}
             aria-pressed={layout === "grid"}
           >
             <LayoutGrid size={16} />
@@ -97,7 +98,7 @@ export function LibraryToolbar({
             variant={layout === "compact" ? "default" : "ghost"}
             size="icon"
             onClick={() => onLayout("compact")}
-            aria-label="紧凑视图"
+            aria-label={t("紧凑视图")}
             aria-pressed={layout === "compact"}
           >
             <List size={16} />

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using GameLibrary.Contracts;
 using GameLibrary.Contracts.Ipc;
 using GameLibrary.Host.Scanning;
@@ -25,6 +26,49 @@ internal sealed class TagsHandler
     {
         _storeAccessor = storeAccessor;
         _events = events;
+    }
+
+    private sealed class ReorderConflict(string tagId) : Exception(tagId);
+
+    public Envelope<object> Reorder(IpcRequest request)
+    {
+        var store = _storeAccessor();
+        if (store is null) return IpcRequests.InvalidArgument(request, "库未初始化");
+        if (request.Parameters is not { ValueKind: JsonValueKind.Object } parameters
+            || !parameters.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array
+            || items.GetArrayLength() is < 1 or > 1000)
+            return IpcRequests.InvalidArgument(request, "items 必须包含 1–1000 项");
+        var inputs = new List<(string Id, int Revision, int SortOrder)>();
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var item in items.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object || !item.TryGetProperty("tagId", out var id)
+                || id.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(id.GetString())
+                || !item.TryGetProperty("expectedRevision", out var revision) || revision.ValueKind != JsonValueKind.Number
+                || !revision.TryGetInt32(out var number) || number < 1 || !ids.Add(id.GetString()!)
+                || !item.TryGetProperty("sortOrder", out var sort) || sort.ValueKind != JsonValueKind.Number
+                || !sort.TryGetInt32(out var order) || order < 0)
+                return IpcRequests.InvalidArgument(request, "标签 ID 必须唯一、expectedRevision 为正整数、sortOrder 为非负整数");
+            inputs.Add((id.GetString()!, number, order));
+        }
+        object[] updated;
+        try
+        {
+            updated = store.InTransaction(() => inputs.Select(item =>
+            {
+                var revision = store.UpdateTag(item.Id, null, null, null, item.SortOrder,
+                    null, null, false, item.Revision, DateTime.UtcNow);
+                if (revision is null) throw new ReorderConflict(item.Id);
+                return (object)new { tagId = item.Id, revision, sortOrder = item.SortOrder };
+            }).ToArray());
+        }
+        catch (ReorderConflict ex)
+        {
+            return IpcRequests.Failure(request, ErrorCodes.RevisionConflict, $"标签不存在或修订冲突：{ex.Message}；整批未更改");
+        }
+        foreach (var item in inputs)
+            _events.Publish("tag.updated", $"tag:{item.Id}", new { tagId = item.Id }, DateTime.UtcNow);
+        return new() { RequestId = request.RequestId, Ok = true, Status = OperationStatus.Completed, Data = new { items = updated } };
     }
 
     /// <summary>列出全部标签：保持 store.ListTags() 返回顺序，不新增排序。</summary>

@@ -34,7 +34,7 @@ Required → 显式工具绑定／内置插件／MTool 配方 → 原程序或�
 - P1：`GameCoverService` 统一导入、扫描接受、手动建卡、周期核对的封面行为；已有文件不覆盖，不删除游戏文件；失败不阻断入库，直接导入会返回 warning。
 - P1：详情页新建并分配 user 标签，重名复用既有 user 标签，保留原引擎标签语义。
 - P2：新增 `TitleBar`，增加目录、扫描、设置按钮及窗口控制；保留旧侧栏入口。只授予最小窗口权限，按钮有键盘焦点和无障碍名称。
-- P2：可编辑 SVG 卡匣图标，使用 `npx tauri icon public/app-icon.svg --output src-tauri/icons` 生成应用尺寸；同步 WPF/NSIS 使用的 `App.ico`。
+- P2：应用图标采用明亮的青色底、彩色卡匣和白色手柄，点缀星星及像素爱心；精修版使用平面插画、清晰轮廓和少量色块阴影，去掉强反光、玻璃边缘和厚重倒角，外缘增加低对比度的蓝灰色细描边。母版为 `src/GameLibrary.Tauri/app-icon.png`；在该目录使用 `npx tauri icon app-icon.png --output ../../artifacts/logo-redesign/icons` 生成尺寸，再将现有同名图标复制到 `src-tauri/icons/`。同步 `icon.ico` 到 WPF/NSIS 使用的 `../GameLibrary.Desktop/App.ico`，同步 `128x128.png` 到 `public/app-icon.png` 和 `../../website/public/assets/icon.png`，保持标题栏、任务栏、托盘和网站一致。
 
 组件影响：`AppShell` 增加标题栏槽与纵向外壳，`App` 接入现有控制器，`DetailSheet` 自己承接启动 Promise 和错误。没有新增路由，没有改动库查询与选择状态模型。
 

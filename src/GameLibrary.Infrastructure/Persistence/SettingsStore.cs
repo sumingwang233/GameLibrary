@@ -17,7 +17,8 @@ public sealed record AppSettingsSnapshot(
     bool CloseToTray,
     double UiFontScale,
     string UiFontFamily,
-    string? CacheParentDirectory)
+    string? CacheParentDirectory,
+    string UiLanguage = "zh-CN")
 {
     public const int DefaultScanIntervalMinutes = 60;
 
@@ -75,7 +76,8 @@ public static class SettingsStore
             ReadDouble(values, "uiFontScale", AppSettingsSnapshot.DefaultUiFontScale,
                 AppSettingsSnapshot.MinUiFontScale, AppSettingsSnapshot.MaxUiFontScale),
             ReadString(values, "uiFontFamily") ?? AppSettingsSnapshot.DefaultUiFontFamily,
-            ReadString(values, "cacheParentDirectory"));
+            ReadString(values, "cacheParentDirectory"),
+            ReadString(values, "uiLanguage") is "zh-TW" or "en" or "ja" ? values["uiLanguage"] : "zh-CN");
     }
 
     /// <summary>单键写入（事务内递增 Revision）。调用方负责字段校验。</summary>

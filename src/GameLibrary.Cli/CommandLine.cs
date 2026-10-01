@@ -24,6 +24,9 @@ public sealed record CommandLine
 
     /// <summary>schema get 的 --operation 参数（操作 ID）。</summary>
     public string? OperationArgument { get; private init; }
+    public string? ItemsJson { get; private init; }
+    public string? BatchAction { get; private init; }
+    public int? WaitTimeoutMs { get; private init; }
 
     /// <summary>scan start 的 --root 参数或 scan inspect 的 --path 参数。</summary>
     public string? RootArgument { get; private init; }
@@ -132,6 +135,7 @@ public sealed record CommandLine
 
     /// <summary>settings update 的 --font-family 参数。</summary>
     public string? UiFontFamily { get; private init; }
+    public string? UiLanguage { get; private init; }
 
     /// <summary>settings update 的 --font-scale 参数。</summary>
     public double? UiFontScale { get; private init; }
@@ -186,6 +190,9 @@ public sealed record CommandLine
         var verb = args[1].ToLowerInvariant();
         string? dataDir = null;
         string? operationArg = null;
+        string? itemsJson = null;
+        string? batchAction = null;
+        int? waitTimeoutMs = null;
         string? rootArg = null;
         string? jobId = null;
         string? candidateId = null;
@@ -227,6 +234,7 @@ public sealed record CommandLine
         int? interval = null;
         string? theme = null;
         string? uiFontFamily = null;
+        string? uiLanguage = null;
         double? uiFontScale = null;
         string? cacheParentDirectory = null;
         var resetCacheParentDirectory = false;
@@ -265,6 +273,16 @@ public sealed record CommandLine
                     break;
                 case "--candidate-id" when i + 1 < args.Length:
                     candidateId = args[++i];
+                    break;
+                case "--items-json" when i + 1 < args.Length:
+                    itemsJson = args[++i];
+                    break;
+                case "--action" when i + 1 < args.Length:
+                    batchAction = args[++i];
+                    break;
+                case "--timeout-ms" when i + 1 < args.Length && int.TryParse(args[i + 1], out var waitMs):
+                    waitTimeoutMs = waitMs;
+                    i++;
                     break;
                 case "--profile-id" when i + 1 < args.Length:
                     profileId = args[++i];
@@ -385,6 +403,9 @@ public sealed record CommandLine
                 case "--font-family" when i + 1 < args.Length:
                     uiFontFamily = args[++i];
                     break;
+                case "--language" when i + 1 < args.Length:
+                    uiLanguage = args[++i];
+                    break;
                 case "--font-scale" when i + 1 < args.Length
                     && double.TryParse(args[i + 1], System.Globalization.NumberStyles.Float,
                         System.Globalization.CultureInfo.InvariantCulture, out var parsedScale):
@@ -435,39 +456,7 @@ public sealed record CommandLine
             return Invalid("--cache-dir 与 --default-cache-dir 不能同时使用");
         }
 
-        var operationId = noun switch
-        {
-            "capabilities" when verb == "get" => "capabilities.get",
-            "schema" when verb == "get" => "schema.get",
-            "host" when verb is "status" or "start" or "stop" => $"host.{verb}",
-            "library" when verb == "init" => "library.init",
-            "scan" when verb is "start" or "status" or "cancel" or "coverage" or "inspect" => $"scan.{verb}",
-            "roots" when verb is "add" or "list" or "remove" => $"roots.{verb}",
-            "candidates" when verb is "list" or "get" or "accept" or "defer" or "ignore" => $"candidates.{verb}",
-            "games" when verb is "list" or "get" or "create" or "update" or "remove" or "relink" => $"games.{verb}",
-            "translation" when verb is "get" or "set" => $"translation.{verb}",
-            "diagnostics" when verb is "status" or "logs" or "cache-rebuild" =>
-                verb == "cache-rebuild" ? "diagnostics.cache_rebuild" : $"diagnostics.{verb}",
-            "backups" when verb is "list" or "create" or "inspect" or "restore-plan" or "restore"
-                => verb == "restore-plan" ? "backups.restore_plan" : $"backups.{verb}",
-            "tools" when verb == "discover" => "tools.discover",
-            "events" when verb == "read" => "events.read",
-            "verification" when verb is "start" or "report" or "invalidate" or "get" or "list" => $"verification.{verb}",
-            "fields" when verb is "set" or "clear" or "reset" => $"fields.{verb}",
-            "assets" when verb is "import" or "list" or "get" or "choose" or "crop" or "reset" or "remove" => $"assets.{verb}",
-            "metadata" when verb is "preview" or "refresh" => $"metadata.{verb}",
-            "ignores" when verb is "list" or "create" or "remove" => $"ignores.{verb}",
-            "tags" when verb is "list" or "create" or "update" or "remove" or "assign" or "unassign" or "suppress" or "reset"
-                => $"tags.{verb}",
-            "profiles" when verb is "create" or "list" or "get" or "update" or "set-default" or "remove" or "validate"
-                => verb == "set-default" ? "profiles.set_default" : $"profiles.{verb}",
-            "views" when verb is "list" or "get" or "create" or "update" or "remove" or "activate" => $"views.{verb}",
-            "notifications" when verb is "list" or "get" or "acknowledge" or "defer" => $"notifications.{verb}",
-            "settings" when verb is "get" or "update" or "reset" => $"settings.{verb}",
-            "launch" when verb is "plan" or "execute" or "status" or "history" => $"launch.{verb}",
-            "jobs" when verb is "get" or "list" or "wait" or "cancel" => verb == "get" ? "jobs.get" : null,
-            _ => null,
-        };
+        var operationId = GeneratedCommandMap.Resolve(noun, verb);
 
         if (operationId is null)
         {
@@ -480,6 +469,9 @@ public sealed record CommandLine
             DataDir = dataDir,
             OperationId = operationId,
             OperationArgument = operationArg,
+            ItemsJson = itemsJson,
+            BatchAction = batchAction,
+            WaitTimeoutMs = waitTimeoutMs,
             RootArgument = rootArg,
             JobId = jobId,
             CandidateId = candidateId,
@@ -525,6 +517,7 @@ public sealed record CommandLine
             Interval = interval,
             Theme = theme,
             UiFontFamily = uiFontFamily,
+            UiLanguage = uiLanguage,
             UiFontScale = uiFontScale,
             CacheParentDirectory = cacheParentDirectory,
             ResetCacheParentDirectory = resetCacheParentDirectory,

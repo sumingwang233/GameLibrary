@@ -1,0 +1,63 @@
+name: Website
+
+on:
+  pull_request:
+    paths: ['website/**', 'scripts/check_website.py', '.github/workflows/website.yml']
+  push:
+    branches: [main]
+    paths: ['website/**', 'scripts/check_website.py', '.github/workflows/website.yml']
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish to Pages only after explicit deployment approval'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+      - run: npm ci
+        working-directory: website
+      - run: npm run build
+        working-directory: website
+      - run: npm run typecheck
+        working-directory: website
+      - run: npm test
+        working-directory: website
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+      - run: python scripts/check_website.py --self-test
+      - run: python scripts/check_website.py
+      - uses: actions/upload-pages-artifact@v4
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        with:
+          path: website/out
+
+  deploy:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+    steps:
+      - uses: actions/configure-pages@v5
+      - uses: actions/deploy-pages@v4
+        id: deployment

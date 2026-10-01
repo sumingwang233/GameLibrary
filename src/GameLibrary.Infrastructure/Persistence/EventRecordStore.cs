@@ -78,9 +78,8 @@ public static class EventRecordStore
         {
             // 无事件且游标非零：游标来自旧 epoch 或已清空 → 过期。
             // 有事件：游标指向的行不在当前 epoch 范围内 → 过期。
-            if (maxSequence == 0
-                || cursor < minSequence - 1
-                || cursor > maxSequence)
+            if ((maxSequence == 0 && cursor != 0)
+                || (maxSequence != 0 && (cursor < minSequence - 1 || cursor > maxSequence)))
             {
                 return null;
             }

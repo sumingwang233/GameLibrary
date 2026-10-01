@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { useEffect, useMemo, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Ban, FolderPlus, FolderTree, Trash2 } from "lucide-react";
@@ -109,7 +110,7 @@ export function RootsPanel({
   }, []);
 
   const pickDirectory = async () => {
-    const selected = await open({ directory: true, multiple: false, title: "选择要排除的目录" });
+    const selected = await open({ directory: true, multiple: false, title: t("选择要排除的目录") });
     if (selected) setPendingPath(String(selected));
   };
 
@@ -121,7 +122,7 @@ export function RootsPanel({
     try {
       await operation(
         "ignores.create",
-        { scope: pendingScope, path, reason: "用户在扫描过滤名单中手动添加" },
+        { scope: pendingScope, path, reason: t("用户在扫描过滤名单中手动添加") },
         `ignores.create:${pendingScope}:${path}`,
       );
       setPendingPath("");
@@ -150,11 +151,10 @@ export function RootsPanel({
   return (
     <section className="space-y-8">
       <div className="space-y-3">
-        <h2 className="text-xs font-semibold tracking-[0.16em] text-text-secondary uppercase">
-          已注册目录 · {roots.length}
+        <h2 className="text-xs font-semibold tracking-[0.16em] text-text-secondary uppercase">{t("已注册目录 ·")}{roots.length}
         </h2>
         {roots.length === 0 ? (
-          <p className="text-sm text-text-secondary">还没有注册任何游戏库目录。</p>
+          <p className="text-sm text-text-secondary">{t("还没有注册任何游戏库目录。")}</p>
         ) : (
           <ul className="space-y-1">
             {roots.map((root) => (
@@ -169,7 +169,7 @@ export function RootsPanel({
                 <Button
                   size="icon"
                   variant="ghost"
-                  aria-label={`移除目录 ${root.path}`}
+                  aria-label={t("移除目录 {0}", root.path)}
                   onClick={() => setRemovingRoot(root)}
                 >
                   <Trash2 size={14} />
@@ -182,51 +182,44 @@ export function RootsPanel({
           <Button
             variant="outline"
             onClick={() =>
-              void open({ directory: true, multiple: false, title: "选择游戏库目录" }).then(
+              void open({ directory: true, multiple: false, title: t("选择游戏库目录") }).then(
                 (selected) => {
                   if (selected) void onAddRoot(String(selected));
                 },
               )
             }
           >
-            <FolderPlus size={16} />
-            添加游戏库
-          </Button>
+            <FolderPlus size={16} />{t("添加游戏库")}</Button>
         </div>
       </div>
 
       <div className="space-y-3">
-        <h2 className="text-xs font-semibold tracking-[0.16em] text-text-secondary uppercase">
-          扫描过滤名单 · {ignores.length}
+        <h2 className="text-xs font-semibold tracking-[0.16em] text-text-secondary uppercase">{t("扫描过滤名单 ·")}{ignores.length}
         </h2>
 
         <div className="flex flex-wrap items-center gap-2">
           <Input
             value={pendingPath}
             onChange={(event) => setPendingPath(event.currentTarget.value)}
-            placeholder="要排除的目录或程序文件路径"
-            aria-label="要排除的路径"
+            placeholder={t("要排除的目录或程序文件路径")}
+            aria-label={t("要排除的路径")}
             className="min-w-[280px] flex-1"
           />
           <Select value={pendingScope} onValueChange={setPendingScope}>
-            <SelectTrigger className="w-[150px]" aria-label="排除范围">
+            <SelectTrigger className="w-[150px]" aria-label={t("排除范围")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               {Object.entries(SCOPE_LABELS).map(([value, label]) => (
                 <SelectItem key={value} value={value}>
-                  {label}
+                  {t(label)}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-          <Button variant="outline" onClick={() => void pickDirectory()}>
-            浏览…
-          </Button>
+          <Button variant="outline" onClick={() => void pickDirectory()}>{t("浏览…")}</Button>
           <Button onClick={() => void addIgnore()} disabled={!pendingPath.trim() || busy}>
-            <Ban size={16} />
-            加入名单
-          </Button>
+            <Ban size={16} />{t("加入名单")}</Button>
         </div>
 
         {error && (
@@ -236,11 +229,9 @@ export function RootsPanel({
         )}
 
         {loading ? (
-          <p className="text-sm text-text-secondary">正在读取过滤名单…</p>
+          <p className="text-sm text-text-secondary">{t("正在读取过滤名单…")}</p>
         ) : ignores.length === 0 ? (
-          <p className="text-sm text-text-secondary">
-            名单为空。把不想入库的目录（例如攻略、素材、工具集）加进来，扫描会跳过它们。
-          </p>
+          <p className="text-sm text-text-secondary">{t("名单为空。把不想入库的目录（例如攻略、素材、工具集）加进来，扫描会跳过它们。")}</p>
         ) : (
           <ul className="space-y-1">
             {foldedIgnores.map(({ rule, foldedCount }) => (
@@ -250,21 +241,19 @@ export function RootsPanel({
               >
                 <Ban size={14} aria-hidden="true" className="shrink-0 text-text-secondary" />
                 <span className="shrink-0 text-xs text-text-secondary">
-                  {SCOPE_LABELS[rule.scope] ?? rule.scope}
+                  {t(SCOPE_LABELS[rule.scope] ?? rule.scope)}
                 </span>
                 <span className="min-w-0 flex-1 truncate text-sm text-text-primary" title={rule.path ?? undefined}>
                   {rule.path ?? rule.gameId ?? "—"}
                 </span>
                 {/* bug-4：子路径规则折叠进母条目，数量显示为角标。 */}
                 {foldedCount > 0 && (
-                  <Badge className="shrink-0" aria-label={`含 ${foldedCount} 条子规则`}>
-                    含 {foldedCount} 条子规则
-                  </Badge>
+                  <Badge className="shrink-0" aria-label={t("含 {0} 条子规则", foldedCount)}>{t("含")}{foldedCount}{t("条子规则")}</Badge>
                 )}
                 <Button
                   size="icon"
                   variant="ghost"
-                  aria-label="从名单移除"
+                  aria-label={t("从名单移除")}
                   onClick={() => void removeIgnore(rule)}
                 >
                   <Trash2 size={14} />
@@ -277,13 +266,13 @@ export function RootsPanel({
 
       <ConfirmDialog
         open={removingRoot !== null}
-        title="移除游戏库目录"
+        title={t("移除游戏库目录")}
         description={
           removingRoot
-            ? `将停止扫描 ${removingRoot.path}，并清空其范围内的游戏库记录和待确认游戏。仍由其他游戏库目录覆盖的游戏会保留。不会删除磁盘上的游戏文件。`
+            ? t("将停止扫描 {0}，并清空其范围内的游戏库记录和待确认游戏。仍由其他游戏库目录覆盖的游戏会保留。不会删除磁盘上的游戏文件。", removingRoot.path)
             : ""
         }
-        confirmLabel="移除目录"
+        confirmLabel={t("移除目录")}
         busy={busy}
         destructive
         onCancel={() => { if (!busy) setRemovingRoot(null); }}

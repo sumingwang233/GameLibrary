@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using GameLibrary.Infrastructure.Persistence;
 
 namespace GameLibrary.Host.Scanning;
@@ -14,45 +13,53 @@ public sealed record LibraryEvent
     /// root.removed / scan.completed / scan.failed / notification.*/launch.exited（feat-2：游戏进程退出）。</summary>
     public required string Type { get; init; }
 
-    /// <summary>折叠键：同一实体的事件在抖动窗口内合并。</summary>
+    /// <summary>事件关联的实体键；每次发布分配独立序号。</summary>
     public required string EntityKey { get; init; }
 
     public required string PayloadJson { get; init; }
 }
 
 /// <summary>
-/// 库事件流（T16/T23-B）：内存环形队列折叠事件风暴（容量 4096、同实体 2 秒合并）；
-/// 每条发布事件同步落库（event_records，折叠结果为唯一事实）——重启后序号延续、事件可回放；
+/// 库事件流（T16/T23-B）：内存环形队列（容量 4096、每次发布独立序号）；
+/// 每条发布事件同步落库（event_records）——重启后序号延续、事件可回放；
 /// 库可用时 events.read 以库为准（含 CursorExpired 判定与 dataEpoch 过滤），
 /// 库未初始化时退回纯内存语义。保留策略 7 天 / 10,000 条惰性裁剪。
 /// </summary>
 public sealed class EventStream
 {
     public const int Capacity = 4096;
-    public static readonly TimeSpan CoalesceWindow = TimeSpan.FromSeconds(2);
 
     private sealed record Slot(long Sequence, DateTime TimestampUtc, string Type, string EntityKey, string PayloadJson);
 
     private readonly Slot[] _ring = new Slot[Capacity];
-    private readonly ConcurrentDictionary<string, int> _indexByEntity = new(StringComparer.Ordinal);
     private readonly object _storeLock = new();
     private SqliteLibraryStore? _store;
     private long _sequence;
     private int _head; // 下一写入位
+    private long _version;
+    private TaskCompletionSource _changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public long Version => Interlocked.Read(ref _version);
+
+    public async Task WaitForChangeAsync(long version, TimeSpan timeout, CancellationToken ct)
+    {
+        var changed = Volatile.Read(ref _changed).Task;
+        if (Version != version) return;
+        try { await changed.WaitAsync(timeout, ct); }
+        catch (TimeoutException) { }
+    }
+
+    private void NotifyChanged()
+    {
+        Interlocked.Increment(ref _version);
+        Interlocked.Exchange(ref _changed, new(TaskCreationOptions.RunContinuationsAsynchronously)).TrySetResult();
+    }
 
     /// <summary>指标计数（T24-B）：占用量与淘汰次数。</summary>
     private long _overflowed;
+    private int _occupied;
 
-    public long OccupiedSlots
-    {
-        get
-        {
-            lock (_ring)
-            {
-                return _ring.Count(s => s is not null);
-            }
-        }
-    }
+    public long OccupiedSlots => Volatile.Read(ref _occupied);
 
     public long OverflowedCount => Interlocked.Read(ref _overflowed);
 
@@ -76,15 +83,16 @@ public sealed class EventStream
             _store = store;
             _sequence = store is null
                 ? 0
-                : EventRecordStore.LatestSequence(store.DatabaseConnection, store.Info.DataEpoch);
+                : store.ReadExclusive((connection, info) => EventRecordStore.LatestSequence(connection, info.DataEpoch));
         }
 
         lock (_ring)
         {
             Array.Clear(_ring);
-            _indexByEntity.Clear();
+            Volatile.Write(ref _occupied, 0);
             _head = 0;
         }
+        NotifyChanged();
     }
 
     public LibraryEvent Publish(string type, string entityKey, object payload, DateTime utcNow)
@@ -92,40 +100,22 @@ public sealed class EventStream
         var payloadJson = System.Text.Json.JsonSerializer.Serialize(payload, GameLibrary.Contracts.ContractJson.Options);
         lock (_ring)
         {
-            // 折叠：2 秒窗口内同实体事件覆盖原槽（风暴合并；序号不变，持久层 UPSERT 同行）。
-            if (_indexByEntity.TryGetValue(entityKey, out var existingIndex))
-            {
-                var existing = _ring[existingIndex];
-                if (existing is not null && utcNow - existing.TimestampUtc <= CoalesceWindow)
-                {
-                    var merged = existing with
-                    {
-                        TimestampUtc = utcNow,
-                        Type = type,
-                        PayloadJson = payloadJson,
-                    };
-                    _ring[existingIndex] = merged;
-                    Persist(merged);
-                    OnPublished?.Invoke(true, false);
-                    return ToEvent(merged);
-                }
-            }
-
-            var next = ++_sequence;
+            var next = _sequence + 1;
             var index = _head;
             var overwritten = _ring[index];
             if (overwritten is not null)
             {
-                // 槽被复用：清除旧实体索引（最旧事件自然淘汰）。
-                _indexByEntity.TryRemove(new KeyValuePair<string, int>(overwritten.EntityKey, index));
+                // The oldest event is evicted when the ring wraps.
                 Interlocked.Increment(ref _overflowed);
             }
+            else Interlocked.Increment(ref _occupied);
 
             var slot = new Slot(next, utcNow, type, entityKey, payloadJson);
             _ring[index] = slot;
-            _indexByEntity[entityKey] = index;
             _head = (index + 1) % Capacity;
             Persist(slot);
+            Interlocked.Exchange(ref _sequence, next);
+            NotifyChanged();
             OnPublished?.Invoke(false, overwritten is not null);
             return ToEvent(slot);
         }
@@ -195,16 +185,7 @@ public sealed class EventStream
         }
     }
 
-    public long LatestSequence
-    {
-        get
-        {
-            lock (_ring)
-            {
-                return _sequence;
-            }
-        }
-    }
+    public long LatestSequence => Interlocked.Read(ref _sequence);
 
     private static LibraryEvent ToEvent(Slot slot) => new()
     {

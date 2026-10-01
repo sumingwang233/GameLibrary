@@ -1,5 +1,12 @@
+import { t } from "./i18n";
 import { invoke } from "@tauri-apps/api/core";
 import type { Envelope } from "./types";
+import { DataUrlCache } from "./assetCache";
+
+const assetCache = new DataUrlCache();
+let libraryIdentity: string | undefined;
+let libraryGeneration = 0;
+export function invalidateAssets() { assetCache.clear(); }
 
 declare global {
   interface Window {
@@ -59,6 +66,7 @@ export async function operation<T>(
   parameters?: Record<string, unknown>,
   intent?: string,
 ): Promise<Envelope<T>> {
+  const generation = libraryGeneration;
   const requestId = `tauri-${Date.now()}-${++requestCounter}`;
   const key = acquireKey(intent);
   const payload: Record<string, unknown> = { ...(parameters ?? {}) };
@@ -72,16 +80,27 @@ export async function operation<T>(
     });
   } catch (cause) {
     throw new TransportError(
-      cause instanceof Error ? cause.message : "无法连接本地后台服务",
+      cause instanceof Error ? cause.message : t("无法连接本地后台服务"),
       cause,
     );
   }
 
+  const identity = result.libraryInstanceId && result.dataEpoch
+    ? result.libraryInstanceId + ":" + result.dataEpoch : undefined;
+  if (identity && identity !== libraryIdentity) {
+    if (generation !== libraryGeneration && libraryIdentity !== undefined)
+      throw new TransportError(t("库已切换，已丢弃旧响应"));
+    libraryGeneration++;
+    if (libraryIdentity !== undefined) invalidateAssets();
+    libraryIdentity = identity;
+  }
+  if (result.ok && operationId.startsWith("assets.") && !["assets.get", "assets.list"].includes(operationId))
+    invalidateAssets();
   releaseKey(intent);
   if (!result.ok) {
     throw new OperationError(
       result.error?.code ?? "OperationFailed",
-      result.error?.message ?? "操作失败",
+      result.error?.message ?? t("操作失败"),
       result as Envelope<unknown>,
     );
   }
@@ -90,7 +109,7 @@ export async function operation<T>(
   if (operationId === "games.get") validateGame(result.data);
   if (operationId === "games.list") {
     const data = result.data as { items?: unknown[] };
-    if (!Array.isArray(data?.items)) throw new Error("游戏列表数据不完整，请刷新后重试");
+    if (!Array.isArray(data?.items)) throw new Error(t("游戏列表数据不完整，请刷新后重试"));
     data.items.forEach(validateGame);
   }
 
@@ -102,33 +121,15 @@ function validateGame(value: unknown) {
   if (!game || typeof game.gameId !== "string" || typeof game.title !== "string"
     || typeof game.rootPath !== "string" || typeof game.kind !== "string"
     || typeof game.favorite !== "boolean" || !Number.isInteger(game.revision)) {
-    throw new Error("游戏详情数据不完整，请刷新后重试");
+    throw new Error(t("游戏详情数据不完整，请刷新后重试"));
   }
 }
 
-const ASSET_CACHE_LIMIT = 48;
-const assetCache = new Map<string, string>();
-const assetPending = new Map<string, Promise<string>>();
-
-export async function assetDataUrl(assetId: string) {
-  const cached = assetCache.get(assetId);
-  if (cached) {
-    assetCache.delete(assetId);
-    assetCache.set(assetId, cached);
-    return cached;
-  }
-  const pending = assetPending.get(assetId);
-  if (pending) return pending;
-  const request = operation<{ mimeType: string; dataBase64: string }>("assets.get", { assetId })
-    .then((result) => {
-      const value = `data:${result.data.mimeType};base64,${result.data.dataBase64}`;
-      assetCache.set(assetId, value);
-      while (assetCache.size > ASSET_CACHE_LIMIT) assetCache.delete(assetCache.keys().next().value!);
-      return value;
-    })
-    .finally(() => assetPending.delete(assetId));
-  assetPending.set(assetId, request);
-  return request;
+export function assetDataUrl(assetId: string) {
+  return assetCache.load(assetId, async () => {
+    const result = await operation<{ mimeType: string; dataBase64: string }>("assets.get", { assetId });
+    return `data:${result.data.mimeType};base64,${result.data.dataBase64}`;
+  });
 }
 
 /**
@@ -149,9 +150,9 @@ export function describeFailure(cause: unknown): string {
   if (cause instanceof OperationError) {
     const next = cause.envelope.nextActions;
     if (next && next.length > 0) {
-      return `${cause.message}（建议：${next.map(action => action.reason).join("；")}）`;
+      return t("{0}（建议：{1}）", cause.message, next.map(action => action.reason).join("；"));
     }
     return cause.message;
   }
-  return cause instanceof Error ? cause.message : "操作失败";
+  return cause instanceof Error ? cause.message : t("操作失败");
 }

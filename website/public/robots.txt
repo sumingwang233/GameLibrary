@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://sumingwang233.github.io/GameLibrary/sitemap.xml

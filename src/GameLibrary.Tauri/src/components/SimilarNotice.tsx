@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { Copy, X } from "lucide-react";
 import type { SimilarGameSuggestion } from "../lib/types";
 import { formatSimilarity } from "../lib/utils";
@@ -38,8 +39,8 @@ export function SimilarNotice({
   const single = notice.addedCount === 1 && notice.groups.length === 1;
   const singleGroup = single ? notice.groups[0] : null;
   const headline = singleGroup
-    ? `《${singleGroup.sourceTitle}》已加入游戏库，疑似与《${singleGroup.entries[0].title}》重复（相似度 ${formatSimilarity(singleGroup.entries[0].similarity)}）`
-    : `本次加入 ${notice.addedCount} 个游戏，${notice.groups.length} 个疑似与库中已有游戏重复`;
+    ? t("《{0}》已加入游戏库，疑似与《{1}》重复（相似度 {2}）", singleGroup.sourceTitle, singleGroup.entries[0].title, formatSimilarity(singleGroup.entries[0].similarity))
+    : t("本次加入 {0} 个游戏，{1} 个疑似与库中已有游戏重复", notice.addedCount, notice.groups.length);
 
   // details 明细：单候选只放「其余」条目（行首那条已在正文）；批量放全部 M 组。
   const detailGroups = singleGroup
@@ -59,7 +60,7 @@ export function SimilarNotice({
         <Button
           size="sm"
           variant="ghost"
-          aria-label="关闭相似提示"
+          aria-label={t("关闭相似提示")}
           onClick={onDismiss}
           className="shrink-0"
         >
@@ -71,13 +72,13 @@ export function SimilarNotice({
         <details className="mt-2 pl-7">
           <summary className="cursor-pointer text-xs text-text-secondary select-none">
             {singleGroup
-              ? `查看其余 ${singleGroup.entries.length - 1} 个相似游戏`
-              : `查看 ${notice.groups.length} 组相似详情`}
+              ? t("查看其余 {0} 个相似游戏", singleGroup.entries.length - 1)
+              : t("查看 {0} 组相似详情", notice.groups.length)}
           </summary>
           <div className="mt-2 space-y-3">
             {detailGroups.map((group, index) => (
               <div key={`${group.sourceTitle}:${index}`}>
-                <p className="text-xs text-text-secondary">《{group.sourceTitle}》疑似与：</p>
+                <p className="text-xs text-text-secondary">{t("《{0}》疑似与：", group.sourceTitle)}</p>
                 <div className="mt-1 space-y-1">
                   <SuggestionButton item={group.entries[0]} onNavigate={onNavigate} />
                   {group.entries.length > 1 && (
@@ -112,13 +113,12 @@ function SuggestionButton({
   return (
     <button
       type="button"
-      aria-label={`查看《${item.title}》详情，相似度 ${percent}`}
+      aria-label={t("查看《{0}》详情，相似度 {1}", item.title, percent)}
       onClick={() => onNavigate(item.gameId)}
       className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-md border border-border bg-surface px-3 py-1.5 text-left text-sm transition hover:border-steam focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <span className="min-w-0 flex-1 truncate text-text-primary">《{item.title}》</span>
-      <Badge variant="steam" aria-hidden="true" className="shrink-0">
-        相似度 {percent}
+      <Badge variant="steam" aria-hidden="true" className="shrink-0">{t("相似度")} {percent}
       </Badge>
     </button>
   );

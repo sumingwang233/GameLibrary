@@ -107,7 +107,15 @@ public sealed class OperationDispatcher
         _cataloging = new CatalogingHandler(() => state.Library.Store, state.Roots, state.Events, state.Candidates, state.Jobs, state.DataDirectory);
         _observability = new ObservabilityHandler(() => state.Library.Store, () => state.Library, state.Identity, state.Jobs, state.Metrics, state.Events, state.Roots, state.AuditLog, state.DataDirectory);
         _scanning = new ScanningHandler(() => state.Library.Store, state.Jobs, () => state.Coordinator, state.Candidates, state.Events, state.Roots);
-        _backups = new BackupsHandler(() => state.Library, state.BindLibraryStore, state.Jobs, state.DataDirectory, state.Identity.AppVersion, value => state.MaintenanceMode = value);
+        state.Jobs.ConfigureRestoreHistory(state.DataDirectory);
+        if (state.Coordinator is not null)
+            state.Coordinator.ReconcileMetadata = () =>
+            {
+                if (state.Library.Store is { } store) Scanning.ReconcileService.CheckCandidates(store, DateTime.UtcNow, state.Events);
+            };
+        state.Jobs.AcquireLibraryLease = () => state.Sessions.TryEnter(background: true);
+        if (state.Coordinator is not null) state.Coordinator.AcquireLibraryLease = () => state.Sessions.TryEnter(background: true);
+        _backups = new BackupsHandler(() => state.Library, state.BindLibraryStore, state.Jobs, state.DataDirectory, state.Identity.AppVersion, value => state.MaintenanceMode = value, state);
     }
 
     /// <summary>已接入收据的操作子集：catalog 声明 requiresIdempotencyKey 的已实现操作。
@@ -135,6 +143,8 @@ public sealed class OperationDispatcher
         "settings.update",
         "settings.reset",
         "scan.start",
+        "candidates.review_batch",
+        "tags.reorder",
         "candidates.accept",
         "candidates.defer",
         "candidates.ignore",
@@ -170,18 +180,31 @@ public sealed class OperationDispatcher
     {
         "host.status", "host.stop", "capabilities.get", "schema.get",
         "jobs.get", "scan.status", "scan.coverage",
-        "diagnostics.status", "diagnostics.logs", "events.read",
-        "backups.list", "backups.inspect", "backups.restore_plan", "backups.restore",
+        "diagnostics.status", "diagnostics.logs",
+        "backups.list", "backups.inspect", "backups.restore_plan", "backups.restore", "backups.restore_start",
     };
 
-    /// <summary>宿主级请求门：所有 IPC 请求在此串行（v1 审查修复：单写队列语义——
-    /// 请求处理不并发进入，后台作业另由 Store 内部锁串行化）。</summary>
-    private readonly object _requestGate = new();
+    /// <summary>Only mutations share an admission gate; readers use independent WAL snapshots.</summary>
+    private readonly SemaphoreSlim _mutationGate = new(1, 1);
+
+    private static readonly HashSet<string> ReadOperations = new(StringComparer.Ordinal)
+    {
+        "host.status", "capabilities.get", "schema.get", "events.read", "events.wait",
+        "games.list", "games.get", "candidates.list", "candidates.get", "tags.list", "roots.list",
+        "views.list", "views.get", "notifications.list", "notifications.get", "settings.get",
+        "profiles.list", "profiles.get", "translation.get", "verification.get", "verification.list",
+        "ignores.list", "assets.get", "assets.list", "metadata.preview", "scan.inspect",
+        "scan.status", "scan.coverage", "jobs.get", "launch.status", "launch.history",
+        "diagnostics.status", "diagnostics.logs", "tools.discover", "backups.list", "backups.inspect", "backups.restore_plan",
+    };
 
     public Envelope<object> Dispatch(IpcRequest request)
+        => DispatchAsync(request).GetAwaiter().GetResult();
+
+    public async Task<Envelope<object>> DispatchAsync(IpcRequest request, CancellationToken ct = default)
     {
         var started = System.Diagnostics.Stopwatch.StartNew();
-        var result = DispatchGated(request);
+        var result = await DispatchGatedAsync(request, ct);
         started.Stop();
 
         // 业务审计（T24，补充规格 4.3）：固定字段；参数原文不写入，actor 来自握手回填。
@@ -207,7 +230,7 @@ public sealed class OperationDispatcher
         return Stamp(result);
     }
 
-    private Envelope<object> DispatchGated(IpcRequest request)
+    private async Task<Envelope<object>> DispatchGatedAsync(IpcRequest request, CancellationToken ct)
     {
         var info = OperationCatalog.Catalog.Find(request.OperationId);
         if (info is not null && !HasPermission(request, info.Permission))
@@ -233,7 +256,10 @@ public sealed class OperationDispatcher
             return DispatchInternal(request);
         }
 
-        lock (_requestGate)
+        var mutation = !ReadOperations.Contains(request.OperationId);
+        var ownsMutationGate = mutation;
+        if (mutation) await _mutationGate.WaitAsync(ct);
+        try
         {
             if (_state.MaintenanceMode && !MaintenanceAllowedOperations.Contains(request.OperationId))
             {
@@ -256,8 +282,53 @@ public sealed class OperationDispatcher
                 return epochError;
             }
 
-            return DispatchInternal(request);
+            // Restore owns the exclusive session transition and must not lease its own old store.
+            if (request.OperationId is "backups.restore" or "backups.restore_start")
+            {
+                var restoring = _backups.BackupsRestore(request, startOnly: request.OperationId == "backups.restore_start");
+                _mutationGate.Release();
+                ownsMutationGate = false;
+                return await restoring;
+            }
+            if (request.OperationId == "events.wait") return await EventsWaitAsync(request, ct);
+
+            using var lease = _state.Sessions.TryEnter();
+            if (lease is null && !MaintenanceAllowedOperations.Contains(request.OperationId))
+                return IpcRequests.Failure(request, ErrorCodes.MaintenanceMode, "库正在切换，请稍后重试", retryable: true);
+            if (ValidateEpoch(request) is { } leasedEpochError) return Stamp(leasedEpochError);
+            using var snapshot = lease is not null && !mutation && request.OperationId is not ("launch.status" or "launch.history")
+                ? _state.Library.Store?.BeginReadSnapshot() : null;
+            return Stamp(DispatchInternal(request));
         }
+        finally
+        {
+            if (ownsMutationGate) _mutationGate.Release();
+        }
+    }
+
+    private async Task<Envelope<object>> EventsWaitAsync(IpcRequest request, CancellationToken ct)
+    {
+        var timeout = 25000;
+        if (request.Parameters is { } parameters && parameters.ValueKind == JsonValueKind.Object && parameters.TryGetProperty("timeoutMs", out var value))
+        {
+            if (value.ValueKind != JsonValueKind.Number || !value.TryGetInt32(out timeout) || timeout < 0 || timeout > 30000)
+                return InvalidArgument(request, "timeoutMs 必须在 0–30000 之间");
+        }
+        var version = _state.Events.Version;
+        Envelope<object> result;
+        using (var lease = _state.Sessions.TryEnter())
+        {
+            if (lease is null) return IpcRequests.Failure(request, ErrorCodes.MaintenanceMode, "库正在切换", retryable: true);
+            result = Stamp(ValidateEpoch(request) ?? _cataloging.EventsRead(request));
+        }
+        if (!result.Ok || JsonSerializer.SerializeToElement(result.Data, ContractJson.Options).GetProperty("items").GetArrayLength() != 0)
+            return result;
+        await _state.Events.WaitForChangeAsync(version, TimeSpan.FromMilliseconds(timeout), ct);
+        using var nextLease = _state.Sessions.TryEnter();
+        if (nextLease is null) return IpcRequests.Failure(request, ErrorCodes.MaintenanceMode, "库正在切换", retryable: true);
+        if (result.LibraryInstanceId != _state.Library.LibraryInstanceId || result.DataEpoch != _state.Library.DataEpoch)
+            return Stamp(IpcRequests.Failure(request, ErrorCodes.CursorExpired, "库会话已切换，请重新建立事件游标"));
+        return Stamp(ValidateEpoch(request) ?? _cataloging.EventsRead(request));
     }
 
     /// <summary>
@@ -329,8 +400,8 @@ public sealed class OperationDispatcher
         {
             ApiVersion = result.ApiVersion,
             RequestId = result.RequestId,
-            LibraryInstanceId = library.LibraryInstanceId,
-            DataEpoch = library.DataEpoch,
+            LibraryInstanceId = result.LibraryInstanceId ?? library.LibraryInstanceId,
+            DataEpoch = result.DataEpoch ?? library.DataEpoch,
             Ok = result.Ok,
             Status = result.Status,
             Data = result.Data,
@@ -671,6 +742,8 @@ public sealed class OperationDispatcher
         "roots.remove" => _cataloging.RootsRemove(request),
         "candidates.list" => _cataloging.CandidatesList(request),
         "candidates.get" => _cataloging.CandidatesGet(request),
+        "candidates.review_batch" => _candidateReview.ReviewBatch(request),
+        "tags.reorder" => _tags.Reorder(request),
         "candidates.accept" => _candidateReview.CandidateReview(request, "accept"),
         "candidates.defer" => _candidateReview.CandidateReview(request, "defer"),
         "candidates.ignore" => _candidateReview.CandidateReview(request, "ignore"),
@@ -694,7 +767,6 @@ public sealed class OperationDispatcher
         "backups.create" => _backups.BackupsCreate(request),
         "backups.inspect" => _backups.BackupsInspect(request),
         "backups.restore_plan" => _backups.BackupsRestorePlan(request),
-        "backups.restore" => _backups.BackupsRestore(request).GetAwaiter().GetResult(),
         "tools.discover" => _observability.ToolsDiscover(request),
         "verification.start" => _verification.VerificationStart(request),
         "verification.report" => _verification.VerificationReport(request),

@@ -1,156 +1,119 @@
+<p align="center">
+  <img src="assets/readme/hero.svg" width="960" alt="GameLibrary — Windows game library">
+</p>
+
+<p align="center">
+  <a href="README.md">简体中文</a> · <a href="README.zh-TW.md">繁體中文</a> · <a href="README.en.md">English</a> · <a href="README.ja.md">日本語</a>
+</p>
+
 # GameLibrary
 
-**A local-first Windows library for games scattered across folders.**
+把散落在硬盘里的游戏放到一处。选好文件夹，确认启动项，就能从游戏库打开游戏。
 
-English · [简体中文](README.zh-CN.md)
+**[下载 Windows 安装版](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.5/GameLibrary-Setup-v1.5.5.exe)** · [所有版本](https://github.com/sumingwang233/GameLibrary/releases) · [反馈问题](https://github.com/sumingwang233/GameLibrary/issues)
 
-[![Latest release](https://img.shields.io/github/v/release/sumingwang233/GameLibrary?display_name=tag)](https://github.com/sumingwang233/GameLibrary/releases/latest)
-[![License: MIT](https://img.shields.io/github/license/sumingwang233/GameLibrary)](LICENSE)
-[![Platform: Windows](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4?logo=windows)](https://github.com/sumingwang233/GameLibrary/releases/latest)
-[![.NET 10](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
+[下载](#download) · [界面](#demo) · [开始使用](#start) · [常见问题](#faq)
 
-[Download](https://github.com/sumingwang233/GameLibrary/releases/latest) · [Report a bug](https://github.com/sumingwang233/GameLibrary/issues)
+<a id="download"></a>
+## 下载
 
-GameLibrary turns folders full of standalone Windows games into a searchable, reviewable library. It discovers likely games, shows the evidence in a review queue, and lets you organize and launch them without moving or deleting the original files.
+目前公开稳定版为 **v1.5.5**，支持 **Windows 10 / 11 x64**。这一版的桌面界面为简体中文；README 的翻译不代表该安装包已支持其他界面语言。
 
-It is designed for collections that do not fit neatly into a store client: unpacked games, older titles, visual novels, Flash games, shortcuts, and games spread across several drives.
-
-## Why GameLibrary
-
-Folder-based game collections have three recurring problems: finding the real entry file, avoiding false positives such as uninstallers, and keeping tools or launch settings consistent as the collection grows.
-
-GameLibrary addresses those problems with three rules:
-
-1. **Discovery is review-first.** A scan creates candidates. You decide what enters the library.
-2. **Library actions are non-destructive.** Adding, scanning, and removing records do not modify or delete the game files.
-3. **Every client uses the same state.** The desktop app, CLI, and MCP server all talk to one local Host instead of maintaining separate libraries.
-
-## Highlights
-
-| | Capability |
+| 文件 | 适合谁 |
 |---|---|
-| **Discover** | Scan user-approved folders with detectors for Unity, RPG Maker MV/MZ, Ren'Py, Kirikiri, and Flash, plus conservative EXE/LNK fallback discovery. |
-| **Review** | Inspect scan candidates before accepting, deferring, or ignoring them. Batch actions are available for both candidates and library games. |
-| **Organize** | Search, sort, edit covers, create custom tags, filter by user or engine tags, and mark favorites. |
-| **Launch** | Save launch profiles for EXE and SWF entries, track launch history, and choose an explicit translation policy. |
-| **Automate** | Use the native CLI or MCP server against the same operations and local library used by the desktop app. |
-| **Stay local** | Store the catalog in local SQLite, keep game folders untouched, and send no library telemetry. |
+| [`GameLibrary-Setup-v1.5.5.exe`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.5/GameLibrary-Setup-v1.5.5.exe) | 推荐。当前用户安装器，可选择安装目录。 |
+| [`GameLibrary-Portable-win-x64-v1.5.5.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.5/GameLibrary-Portable-win-x64-v1.5.5.zip) | 解压后运行 GameLibrary.Desktop.exe。 |
+| [`GameLibrary-Tools-win-x64-v1.5.5.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.5/GameLibrary-Tools-win-x64-v1.5.5.zip) | Host、CLI 和 MCP，供命令行与自动化使用。 |
+| [`GameLibrary-v1.5.5-SHA256SUMS.txt`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.5/GameLibrary-v1.5.5-SHA256SUMS.txt) | 上面三个下载包的 SHA-256 校验清单。 |
 
-## What makes it different
-
-### Evidence instead of blind EXE collection
-
-GameLibrary recognizes engine structures and scores plausible entry files while excluding common installers, redistributables, crash handlers, and uninstallers. Unknown engines can still produce conservative candidates, but they remain in the review queue until you accept them.
-
-### One library, three interfaces
-
-The Tauri desktop app, command-line client, and MCP server share a versioned operation catalog and connect to a single per-library Host over a local named pipe. The React UI reaches the existing .NET Host through a thin bundled bridge, so an action performed through one interface is immediately visible to the others.
-
-### Safe boundaries around your files
-
-Only folders you explicitly add are scanned. Removing a game removes its library record and keeps the files on disk. Cover previews and application data are stored separately from the game collection.
-
-## Download
-
-GameLibrary supports **Windows 10/11 x64**. Release packages are self-contained and do not require a system-wide .NET installation. The current desktop interface is in Simplified Chinese.
-
-| Package | Intended use |
-|---|---|
-| [GameLibrary-Setup-v1.5.5.exe](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.5/GameLibrary-Setup-v1.5.5.exe) | Recommended graphical installer. |
-| [GameLibrary-Portable-win-x64-v1.5.5.zip](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.5/GameLibrary-Portable-win-x64-v1.5.5.zip) | Portable Tauri desktop app, bridge, and Host. |
-| [GameLibrary-Tools-win-x64-v1.5.5.zip](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.5/GameLibrary-Tools-win-x64-v1.5.5.zip) | Host, CLI, and MCP tools. |
-| [SHA-256 checksums](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.5/GameLibrary-v1.5.5-SHA256SUMS.txt) | Integrity hashes for all three packages. |
-
-> [!IMPORTANT]
-> The v1.5.5 Windows binaries are unsigned. Verify the SHA-256 checksum after downloading.
-
-## Quick start
-
-1. Install GameLibrary or extract the portable ZIP.
-2. Open the desktop app and select **添加游戏库 (Add game library)**.
-3. Choose one or more folders that contain games, then start a scan.
-4. Open **待确认游戏 (Games to review)** and accept the candidates you recognize.
-5. Select a game, confirm its launch profile, and start it from the detail panel.
-
-You can also add an EXE, SWF, or Windows shortcut manually. SWF launch profiles use the player currently associated with `.swf` files in Windows.
-
-Application data is stored under `%LOCALAPPDATA%\GameLibrary` by default. Closing or uninstalling the app does not remove the catalog or your game files.
-
-## Privacy and network access
-
-- The game catalog, settings, launch history, tags, and generated cover previews stay on the local computer.
-- GameLibrary has no telemetry and does not upload scan results or usage data.
-- The desktop app reads this repository's latest public GitHub Release metadata to notify you about updates. A failed or offline check does not affect the local library.
-- Programs launched by GameLibrary may make their own network requests.
-
-## Architecture
-
-```mermaid
-flowchart LR
-    Desktop[Tauri + React Desktop] --> Bridge[.NET TauriBridge]
-    Bridge --> Client[HostClient]
-    CLI[CLI] --> Client
-    MCP[MCP server] --> Client
-    Client -->|local named pipe| Host[Single GameLibrary Host]
-    Host --> Domain[Application and Domain]
-    Host --> Infra[Infrastructure]
-    Infra --> DB[(Local SQLite)]
-    Infra --> FS[Approved game folders]
-```
-
-The Host owns writes, scanning jobs, launch coordination, and persistence. The clients remain thin, so desktop, CLI, and MCP behavior cannot silently drift apart.
-
-## Build from source
-
-### Requirements
-
-- Windows 10 or Windows 11
-- [.NET SDK 10.0.401](https://dotnet.microsoft.com/download/dotnet/10.0), pinned by `global.json`
-- Node.js 22 or later
-- Rust stable with the `x86_64-pc-windows-msvc` target
-- Git
-
-### Build and test
+程序与安装器未进行 Authenticode 签名，Windows 可能提示未知发布者。请从本仓库下载，并用同版本校验清单核对文件：
 
 ```powershell
-git clone https://github.com/sumingwang233/GameLibrary.git
-cd GameLibrary
-dotnet restore GameLibrary.slnx
-dotnet build GameLibrary.slnx -c Release --no-restore
-dotnet test GameLibrary.slnx -c Release --no-build --no-restore
-npm --prefix src/GameLibrary.Tauri install
+Get-FileHash .\GameLibrary-Setup-v1.5.5.exe -Algorithm SHA256
+```
+
+<a id="demo"></a>
+## 看看界面
+
+![游戏库：封面、搜索、收藏和侧边导航](website/public/assets/library.png)
+
+![标签管理：整理游戏的分类与标签](website/public/assets/tags.png)
+
+截图来自 v1.5.5 的隔离示例库，使用应用默认封面，不包含个人游戏目录。完整录屏尚未制作；[录屏脚本](docs/demo-recording.md)已准备好。
+
+<a id="start"></a>
+## 三步开始
+
+1. 安装后打开 GameLibrary，添加存放游戏的文件夹。
+2. 扫描结束后进入待审核列表，检查游戏名称、目录和启动文件，再确认入库。
+3. 在游戏库中选择游戏并启动。需要时补充封面、收藏和标签。
+
+扫描得到的是候选项，不会把找到的每个 EXE 都当成游戏。遇到未识别的游戏，也可以手动添加。
+
+## 平时怎么用
+
+| 事情 | 操作 |
+|---|---|
+| 找游戏 | 搜索名称，按标签筛选；常玩的游戏加收藏。 |
+| 整理收藏 | 编辑封面与标签，在封面网格和列表之间切换。 |
+| 配置启动 | 保留原始 EXE 入口，按需要设置启动参数、工具与翻译步骤。 |
+| 使用脚本 | CLI 和 MCP 连接同一个本地 Host，操作同一份游戏库。 |
+
+<a id="faq"></a>
+## 数据与常见问题
+
+<details>
+<summary><strong>扫描或移出游戏库会删除游戏文件吗？</strong></summary>
+
+添加、扫描和移出记录保留原始文件。明确选择清理文件时会单独确认，并使用 Windows 回收站；请先核对目录。
+</details>
+
+<details>
+<summary><strong>游戏库保存在哪里？卸载会清空吗？</strong></summary>
+
+默认数据目录为 `%LOCALAPPDATA%\GameLibrary`，目录记录保存在本地 SQLite 中。卸载保留游戏库数据与原游戏文件。需要迁移时先备份，勿把程序目录当作游戏库备份。
+</details>
+
+<details>
+<summary><strong>需要联网、账号或开发环境吗？</strong></summary>
+
+整理本地游戏不需要账号，不上传游戏库遥测。检查更新时会访问 GitHub Release；启动的游戏和自行配置的工具可能联网。发布包自带 .NET 运行时，使用者无需安装 .NET SDK、Node.js 或 Rust。
+</details>
+
+<details>
+<summary><strong>安装版、便携版和工具包有什么区别？如何更新？</strong></summary>
+
+安装版有安装向导、开始菜单入口和卸载登记；便携版解压即可运行；工具包提供命令行与 MCP。更新前退出程序，安装新版或替换便携版的程序文件，保留数据目录。具体变化与限制以该版本 Release 说明为准。
+</details>
+
+<details>
+<summary><strong>当前源码：v1.6.0，尚未发布</strong></summary>
+
+当前源码增加简体中文、繁體中文、English、日本語切换，更新图标与安装向导，并包含并发读取、恢复保护、批量审核和事件刷新优化。这些修改不在上方 v1.5.5 下载包中。[v1.6.0 待发布说明](docs/releases/v1.6.0.md)记录交付内容与验收状态。
+</details>
+
+<details>
+<summary><strong>开发与项目结构</strong></summary>
+
+开发需要 Windows、由 `global.json` 锁定的 .NET SDK 10.0.401、Node.js 22.12+ 和 Rust stable。安装 Rust 的 Windows MSVC 工具链及对应 C++ 构建工具。
+
+```powershell
+dotnet format --verify-no-changes
+dotnet build GameLibrary.slnx -c Release
+dotnet test GameLibrary.slnx -c Release --no-build
+npm --prefix src/GameLibrary.Tauri ci
+npm --prefix src/GameLibrary.Tauri test
 npm --prefix src/GameLibrary.Tauri run typecheck
-npm --prefix src/GameLibrary.Tauri run build
+npm --prefix src/GameLibrary.Tauri run tauri dev
 ```
 
-Run the Tauri desktop app after building the solution:
+Tauri + React 是主桌面端，WPF 保留为迁移期后备界面。桌面端、CLI 和 MCP 经统一契约连接 .NET Host；Application 负责用例，Domain 负责业务规则，Infrastructure 负责 SQLite、文件和系统集成。[架构记录](docs/code-review-graph/architecture.md) · [操作目录](contracts/operations.v1.json) · [发布原则](docs/release-policy.md)
 
-```powershell
-cd src/GameLibrary.Tauri
-npm run tauri dev
-```
+发布工具只在维护者明确要求打包时使用，不因一般代码修改自动发布。
+</details>
 
-## Repository layout
+## 参与与许可
 
-| Path | Purpose |
-|---|---|
-| `src/GameLibrary.Tauri` | Tauri v2 + React 19 desktop application |
-| `src/GameLibrary.TauriBridge` | Thin .NET sidecar that reuses HostClient and the operation contract |
-| `src/GameLibrary.Desktop` | Legacy WPF fallback retained during migration |
-| `src/GameLibrary.Host` | Local single-writer Host, scanning, launching, and operations |
-| `src/GameLibrary.Cli` | Native command-line client |
-| `src/GameLibrary.Mcp` | Native MCP stdio server |
-| `src/GameLibrary.Domain` | Detection, identity, path, and state rules |
-| `src/GameLibrary.Infrastructure` | SQLite, file-system, shell, backup, and tool adapters |
-| `contracts/operations.v1.json` | Machine-readable operation catalog shared by all interfaces |
-| `tests` | Unit, contract, architecture, integration, UI automation, and end-to-end tests |
+欢迎在 [Issues](https://github.com/sumingwang233/GameLibrary/issues) 提交复现步骤、版本和错误信息；涉及个人路径的截图请先遮挡。提交代码前运行相关检查，共享操作改动需同步契约、客户端与测试。
 
-## Contributing
-
-Bug reports and focused pull requests are welcome. Please open an issue before a large behavioral or contract change so the intended user flow and compatibility impact can be agreed first.
-
-Before submitting code, run the Release build and full test suite shown above. Changes to a shared operation should keep the Desktop, CLI, MCP mapping, and contract tests in sync.
-
-## License
-
-GameLibrary is available under the [MIT License](LICENSE).
+[MIT License](LICENSE)

@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import {
   FolderTree,
   Gamepad2,
@@ -63,11 +64,11 @@ export function Sidebar(props: SidebarProps) {
 
   return (
     <aside className="flex h-full w-[var(--sidebar-width)] shrink-0 flex-col border-r border-border bg-background p-4">
-      <SectionLabel>Library</SectionLabel>
-      <nav className="space-y-1" aria-label="游戏库导航">
+      <SectionLabel>{t("游戏库")}</SectionLabel>
+      <nav className="space-y-1" aria-label={t("游戏库导航")}>
         <NavButton
           icon={<Gamepad2 size={16} />}
-          label="全部游戏"
+          label={t("全部游戏")}
           count={gameTotal}
           active={section === "library" && !favoriteOnly && viewId === ""}
           onClick={() => {
@@ -78,7 +79,7 @@ export function Sidebar(props: SidebarProps) {
         />
         <NavButton
           icon={<Heart size={16} />}
-          label="收藏"
+          label={t("收藏")}
           active={section === "library" && favoriteOnly}
           onClick={() => {
             onSectionChange("library");
@@ -88,7 +89,7 @@ export function Sidebar(props: SidebarProps) {
         />
         <NavButton
           icon={<Inbox size={16} />}
-          label="待确认"
+          label={t("待确认")}
           count={pendingBadge}
           active={section === "pending"}
           onClick={() => onSectionChange("pending")}
@@ -98,22 +99,20 @@ export function Sidebar(props: SidebarProps) {
       <Separator />
 
       <div className="mb-2 flex items-center justify-between px-2">
-        <SectionLabel className="mb-0">收藏夹</SectionLabel>
+        <SectionLabel className="mb-0">{t("收藏夹")}</SectionLabel>
         <button
           type="button"
           onClick={onCreateView}
           className="cursor-pointer rounded p-1 text-text-secondary hover:bg-surface hover:text-steam"
-          aria-label="新建收藏夹"
+          aria-label={t("新建收藏夹")}
         >
           <Plus size={14} />
         </button>
       </div>
       {views.length === 0 ? (
-        <p className="px-2 pb-1 text-xs text-text-secondary">
-          还没有收藏夹。先把列表筛成你想要的样子，再点上面的 + 保存。
-        </p>
+        <p className="px-2 pb-1 text-xs text-text-secondary">{t("还没有收藏夹。先把列表筛成你想要的样子，再点上面的 + 保存。")}</p>
       ) : (
-        <nav className="space-y-1" aria-label="收藏夹">
+        <nav className="space-y-1" aria-label={t("收藏夹")}>
           {views.map((view) => (
             <div key={view.viewId} className="group flex items-center gap-1">
               <NavButton
@@ -131,7 +130,7 @@ export function Sidebar(props: SidebarProps) {
                 type="button"
                 onClick={() => onRemoveView(view)}
                 className="cursor-pointer rounded p-1 text-text-secondary opacity-0 group-hover:opacity-100 hover:bg-danger-soft hover:text-danger focus-visible:opacity-100"
-                aria-label={`删除收藏夹 ${view.name}`}
+                aria-label={t("删除收藏夹 {0}", view.name)}
               >
                 <Trash2 size={13} />
               </button>
@@ -148,7 +147,7 @@ export function Sidebar(props: SidebarProps) {
           type="button"
           onClick={onCreateTag}
           className="cursor-pointer rounded p-1 text-text-secondary hover:bg-surface hover:text-steam"
-          aria-label="新建标签"
+          aria-label={t("新建标签")}
         >
           <Plus size={14} />
         </button>
@@ -158,7 +157,7 @@ export function Sidebar(props: SidebarProps) {
           {tagGroups.map((group) => (
             <div key={group.value}>
               <p className="px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-text-secondary/80">
-                {group.label}
+                {t(group.label)}
               </p>
               {group.items.map((tag) => (
                 <button
@@ -191,7 +190,7 @@ export function Sidebar(props: SidebarProps) {
             </div>
           ))}
           {visibleTags.length === 0 && (
-            <p className="px-2 text-xs text-text-secondary">没有正在使用的标签</p>
+            <p className="px-2 text-xs text-text-secondary">{t("没有正在使用的标签")}</p>
           )}
         </div>
       </ScrollArea>

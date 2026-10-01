@@ -181,7 +181,7 @@ public sealed class PipeServer : IAsyncDisposable
                     break;
                 }
 
-                var envelope = SafeDispatch(request);
+                var envelope = await SafeDispatchAsync(request, ct);
                 await IpcFrame.WriteJsonAsync(pipe, envelope, ct);
 
                 // 库会话切换（init/restore）后旧连接立即失效：本轮响应已送达，主动断开。
@@ -234,11 +234,11 @@ public sealed class PipeServer : IAsyncDisposable
             .ToArray();
     }
 
-    private Contracts.Envelope<object> SafeDispatch(IpcRequest request)
+    private async Task<Contracts.Envelope<object>> SafeDispatchAsync(IpcRequest request, CancellationToken ct)
     {
         try
         {
-            return _dispatcher.Dispatch(request);
+            return await _dispatcher.DispatchAsync(request, ct);
         }
         catch (Exception ex)
         {

@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { useCallback, useEffect, useState } from "react";
 import { dirname, join, pictureDir } from "@tauri-apps/api/path";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -178,9 +179,9 @@ export function DetailSheet({
       const selected = await open({
         multiple: false,
         directory: false,
-        title: "选择封面图片",
+        title: t("选择封面图片"),
         defaultPath,
-        filters: [{ name: "封面图片", extensions: ["png", "jpg", "jpeg", "webp", "gif"] }],
+        filters: [{ name: t("封面图片"), extensions: ["png", "jpg", "jpeg", "webp", "gif"] }],
       });
       if (!selected) return;
       const result = await operation<{ assetId: string; warning?: string }>(
@@ -199,9 +200,9 @@ export function DetailSheet({
       const selected = await open({
         multiple: false,
         directory: false,
-        title: "选择游戏主程序",
+        title: t("选择游戏主程序"),
         defaultPath: await gameDirectory(current),
-        filters: [{ name: "游戏程序", extensions: ["exe", "swf"] }],
+        filters: [{ name: t("游戏程序"), extensions: ["exe", "swf"] }],
       });
       if (!selected) return;
       const executablePath = String(selected);
@@ -291,46 +292,40 @@ export function DetailSheet({
 
           <div className="grid grid-cols-2 gap-2">
             <Button className="col-span-2" size="lg" disabled={busy} onClick={() => void run(() => onPlay(current.gameId))}>
-              <Play size={17} fill="currentColor" />
-              开始游戏
-            </Button>
+              <Play size={17} fill="currentColor" />{t("开始游戏")}</Button>
             <Button variant="outline" disabled={busy} onClick={() => void toggleFavorite()}>
               <Star size={15} className={current.favorite ? "fill-favorite text-favorite" : undefined} />
-              {current.favorite ? "取消收藏" : "收藏"}
+              {current.favorite ? t("取消收藏") : t("收藏")}
             </Button>
             <Button variant="outline" disabled={busy} onClick={() => void openGameDirectory()}>
-              <ExternalLink size={15} />
-              打开目录
-            </Button>
+              <ExternalLink size={15} />{t("打开目录")}</Button>
           </div>
 
           <Tabs defaultValue="overview">
-            <TabsList aria-label="游戏详情分区">
-              <TabsTrigger value="overview">概览</TabsTrigger>
-              <TabsTrigger value="launch">启动</TabsTrigger>
-              <TabsTrigger value="tags">标签</TabsTrigger>
-              <TabsTrigger value="cover">封面</TabsTrigger>
+            <TabsList aria-label={t("游戏详情分区")}>
+              <TabsTrigger value="overview">{t("概览")}</TabsTrigger>
+              <TabsTrigger value="launch">{t("启动")}</TabsTrigger>
+              <TabsTrigger value="tags">{t("标签")}</TabsTrigger>
+              <TabsTrigger value="cover">{t("封面")}</TabsTrigger>
             </TabsList>
 
             <TabsContent value="overview" className="space-y-4">
-              <LabeledField label="标题">
+              <LabeledField label={t("标题")}>
                 <div className="flex gap-2">
                   <Input
                     value={titleDraft}
                     onChange={(event) => setTitleDraft(event.currentTarget.value)}
-                    aria-label="游戏标题"
+                    aria-label={t("游戏标题")}
                   />
                   <Button
                     variant="outline"
                     disabled={busy || titleDraft.trim() === current.title}
                     onClick={() => void saveField("title", titleDraft.trim())}
-                  >
-                    保存
-                  </Button>
+                  >{t("保存")}</Button>
                 </div>
               </LabeledField>
 
-              <LabeledField label="简介">
+              <LabeledField label={t("简介")}>
                 <Textarea
                   rows={4}
                   value={summaryDraft}
@@ -338,51 +333,46 @@ export function DetailSheet({
                   onBlur={() => {
                     if (summaryDraft !== (current.summary ?? "")) void saveField("summary", summaryDraft);
                   }}
-                  placeholder="写点什么"
-                  aria-label="游戏简介"
+                  placeholder={t("写点什么")}
+                  aria-label={t("游戏简介")}
                 />
               </LabeledField>
 
-              <LabeledField label="翻译策略">
+              <LabeledField label={t("翻译策略")}>
                 <select
                   value={translation?.userOverride ?? "Auto"}
                   onChange={(event) => void setPolicy(event.target.value)}
-                  aria-label="翻译策略"
+                  aria-label={t("翻译策略")}
                   className="h-10 w-full rounded-md border border-input bg-field px-3 text-sm text-text-primary focus-visible:border-steam focus-visible:outline-none"
                 >
-                  <option value="Auto">Auto·自动翻译</option>
-                  <option value="Required">Required·需要翻译</option>
-                  <option value="NotRequired">NotRequired·原生启动</option>
+                  <option value="Auto">{t("Auto·自动翻译")}</option>
+                  <option value="Required">{t("Required·需要翻译")}</option>
+                  <option value="NotRequired">{t("NotRequired·原生启动")}</option>
                 </select>
               </LabeledField>
 
               <dl className="space-y-2 text-sm">
-                <InfoRow label="路径" value={current.rootPath} />
+                <InfoRow label={t("路径")} value={current.rootPath} />
                 {/* feat-1：游玩统计（launch_attempts 聚合，v1.5 起 GameDto 携带）。 */}
-                <InfoRow label="游玩时长" value={formatPlaytime(current.playtimeMinutes) || "尚未游玩"} />
-                <InfoRow label="最近游玩" value={formatTime(current.lastPlayedUtc)} />
-                <InfoRow label="入库时间" value={formatTime(current.acceptedUtc)} />
-                <InfoRow label="最近修改" value={formatTime(current.updatedUtc)} />
-                <InfoRow label="可用状态" value={current.availability ?? "unknown"} />
-                <InfoRow label="默认启动程序" value={defaultProfile?.executablePath ?? "尚未配置"} />
+                <InfoRow label={t("游玩时长")} value={formatPlaytime(current.playtimeMinutes) || t("尚未游玩")} />
+                <InfoRow label={t("最近游玩")} value={formatTime(current.lastPlayedUtc)} />
+                <InfoRow label={t("入库时间")} value={formatTime(current.acceptedUtc)} />
+                <InfoRow label={t("最近修改")} value={formatTime(current.updatedUtc)} />
+                <InfoRow label={t("可用状态")} value={current.availability ?? "unknown"} />
+                <InfoRow label={t("默认启动程序")} value={defaultProfile?.executablePath ?? t("尚未配置")} />
               </dl>
 
               <SimilarGamesSection similarTo={current.similarTo} onNavigate={onNavigate} />
 
               <Button variant="danger" className="w-full" disabled={busy} onClick={() => setConfirmRemove(true)}>
-                <Trash2 size={15} />
-                从游戏库移除
-              </Button>
+                <Trash2 size={15} />{t("从游戏库移除")}</Button>
               <Button variant="danger" className="w-full border border-danger/40" disabled={busy} onClick={() => setConfirmDelete(true)}>
-                <Trash2 size={15} />删除游戏及原文件
-              </Button>
+                <Trash2 size={15} />{t("删除游戏及原文件")}</Button>
             </TabsContent>
 
             <TabsContent value="launch" className="space-y-3">
               {profiles.length === 0 ? (
-                <p className="rounded-md border border-dashed border-border p-4 text-sm text-text-secondary">
-                  还没有配置启动方式。
-                </p>
+                <p className="rounded-md border border-dashed border-border p-4 text-sm text-text-secondary">{t("还没有配置启动方式。")}</p>
               ) : (
                 <ul className="space-y-2">
                   {profiles.map((profile) => (
@@ -394,32 +384,25 @@ export function DetailSheet({
                         <span className="min-w-0 flex-1 truncate text-text-primary">
                           {profile.executablePath}
                         </span>
-                        {profile.isDefault && <Badge variant="steam">默认</Badge>}
+                        {profile.isDefault && <Badge variant="steam">{t("默认")}</Badge>}
                       </div>
-                      <div className="mt-1 truncate text-xs text-text-secondary">
-                        工作目录：{profile.cwd ?? "—"}
-                        {profile.argv && profile.argv.length > 0 ? ` · 参数：${profile.argv.join(" ")}` : ""}
+                      <div className="mt-1 truncate text-xs text-text-secondary">{t("工作目录：")}{profile.cwd ?? "—"}
+                        {profile.argv && profile.argv.length > 0 ? t(" · 参数：{0}", profile.argv.join(" ")) : ""}
                       </div>
                       <div className="mt-2 flex gap-2">
                         {!profile.isDefault && (
                           <Button size="sm" variant="outline" disabled={busy} onClick={() => void setDefaultProfile(profile)}>
-                            <Check size={13} />
-                            设为默认
-                          </Button>
+                            <Check size={13} />{t("设为默认")}</Button>
                         )}
                         <Button size="sm" variant="ghost" disabled={busy} onClick={() => void removeProfile(profile)}>
-                          <Trash2 size={13} />
-                          删除
-                        </Button>
+                          <Trash2 size={13} />{t("删除")}</Button>
                       </div>
                     </li>
                   ))}
                 </ul>
               )}
               <Button variant="outline" className="w-full" disabled={busy} onClick={() => void addProfile()}>
-                <Play size={15} />
-                添加启动方式
-              </Button>
+                <Play size={15} />{t("添加启动方式")}</Button>
             </TabsContent>
 
             <TabsContent value="tags" className="space-y-2">
@@ -441,11 +424,11 @@ export function DetailSheet({
                   await load();
                 });
               }}>
-                <Input aria-label="新标签名称" placeholder="新标签名称" value={tagDraft} onChange={(event) => setTagDraft(event.target.value)} />
-                <Button type="submit" disabled={busy || !tagDraft.trim()}>新建并添加</Button>
+                <Input aria-label={t("新标签名称")} placeholder={t("新标签名称")} value={tagDraft} onChange={(event) => setTagDraft(event.target.value)} />
+                <Button type="submit" disabled={busy || !tagDraft.trim()}>{t("新建并添加")}</Button>
               </form>
               {tags.length === 0 ? (
-                <p className="text-sm text-text-secondary">还没有标签，可以直接在上方新建。</p>
+                <p className="text-sm text-text-secondary">{t("还没有标签，可以直接在上方新建。")}</p>
               ) : (
                 // feat-3：按四个分类（引擎/玩法/社团/特殊）分组展示并勾选标注；
                 // 组内星标置顶（compareTags），空分组整段隐藏。
@@ -455,7 +438,7 @@ export function DetailSheet({
                     .map((group) => (
                       <div key={group.value}>
                         <h4 className="mb-2 text-[11px] font-semibold tracking-[0.14em] text-text-secondary uppercase">
-                          {group.label} · {group.items.length}
+                          {t(group.label)} · {group.items.length}
                         </h4>
                         <div className="flex flex-wrap gap-2">
                           {group.items.map((tag) => {
@@ -493,11 +476,9 @@ export function DetailSheet({
             </TabsContent>
 
             <TabsContent value="cover" className="space-y-3">
-              <p className="text-xs text-text-secondary">最大支持 5 MB 的图片文件</p>
+              <p className="text-xs text-text-secondary">{t("最大支持 5 MB 的图片文件")}</p>
               <Button variant="outline" className="w-full" disabled={busy} onClick={() => void importCover()}>
-                <ImagePlus size={15} />
-                导入封面图片
-              </Button>
+                <ImagePlus size={15} />{t("导入封面图片")}</Button>
             </TabsContent>
           </Tabs>
         </div>
@@ -505,9 +486,9 @@ export function DetailSheet({
 
       <ConfirmDialog
         open={confirmDelete}
-        title={`删除「${current.title}」及原文件`}
-        description={`将以下位置移入回收站并移除游戏记录：${current.rootPath}。目录型游戏包含其中的存档、补丁和全部子文件；单文件游戏只删除该文件。请确认路径。`}
-        confirmLabel="确认移入回收站"
+        title={t("删除「{0}」及原文件", current.title)}
+        description={t("将以下位置移入回收站并移除游戏记录：{0}。目录型游戏包含其中的存档、补丁和全部子文件；单文件游戏只删除该文件。请确认路径。", current.rootPath)}
+        confirmLabel={t("确认移入回收站")}
         destructive
         busy={busy}
         onCancel={() => { if (!busy) setConfirmDelete(false); }}
@@ -515,9 +496,9 @@ export function DetailSheet({
       />
       <ConfirmDialog
         open={confirmRemove}
-        title={`从游戏库移除「${current.title}」`}
-        description="只会解除游戏库中的记录，不会删除磁盘上的任何文件。该目录会被加入过滤名单，避免下次扫描又把它加回来。"
-        confirmLabel="移除"
+        title={t("从游戏库移除「{0}」", current.title)}
+        description={t("只会解除游戏库中的记录，不会删除磁盘上的任何文件。该目录会被加入过滤名单，避免下次扫描又把它加回来。")}
+        confirmLabel={t("移除")}
         destructive
         onCancel={() => setConfirmRemove(false)}
         onConfirm={() => void removeGame()}
@@ -552,7 +533,7 @@ function SimilarGamesSection({
   if (!similarTo || similarTo.length === 0) return null;
 
   return (
-    <LabeledField label="疑似重复">
+    <LabeledField label={t("疑似重复")}>
       <ul className="space-y-2">
         {similarTo.map((item) => {
           const percent = formatSimilarity(item.similarity);
@@ -560,13 +541,12 @@ function SimilarGamesSection({
             <li key={item.gameId}>
               <button
                 type="button"
-                aria-label={`查看《${item.title}》详情，相似度 ${percent}`}
+                aria-label={t("查看《{0}》详情，相似度 {1}", item.title, percent)}
                 onClick={() => onNavigate?.(item.gameId)}
                 className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-md border border-border bg-surface px-3 py-2 text-left text-sm transition hover:border-steam focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <span className="min-w-0 flex-1 truncate text-text-primary">《{item.title}》</span>
-                <Badge variant="steam" aria-hidden="true" className="shrink-0">
-                  相似度 {percent}
+                <Badge variant="steam" aria-hidden="true" className="shrink-0">{t("相似度")}{percent}
                 </Badge>
               </button>
             </li>

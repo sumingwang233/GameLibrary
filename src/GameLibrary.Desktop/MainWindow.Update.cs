@@ -29,7 +29,7 @@ public partial class MainWindow
             {
                 if (userInitiated)
                 {
-                    MessageBox.Show(owner, "GitHub 上暂时没有可用的公开版本。", "检查更新",
+                    MessageBox.Show(owner, L10n.T("GitHub 上暂时没有可用的公开版本。"), L10n.T("检查更新"),
                         MessageBoxButton.OK, MessageBoxImage.Information);
                 }
 
@@ -41,16 +41,16 @@ public partial class MainWindow
                 if (userInitiated)
                 {
                     MessageBox.Show(owner,
-                        $"当前已是最新版本 v{GitHubReleaseChecker.CurrentVersion}。",
-                        "检查更新", MessageBoxButton.OK, MessageBoxImage.Information);
+                        L10n.F($"当前已是最新版本 v{GitHubReleaseChecker.CurrentVersion}。"),
+                        L10n.T("检查更新"), MessageBoxButton.OK, MessageBoxImage.Information);
                 }
 
                 return;
             }
 
             var answer = MessageBox.Show(owner,
-                $"发现新版本 {release.TagName}（当前 v{GitHubReleaseChecker.CurrentVersion}）。\n\n是否前往 GitHub 下载？",
-                "GameLibrary 有可用更新", MessageBoxButton.YesNo, MessageBoxImage.Information,
+                L10n.F($"发现新版本 {release.TagName}（当前 v{GitHubReleaseChecker.CurrentVersion}）。\n\n是否前往 GitHub 下载？"),
+                L10n.T("GameLibrary 有可用更新"), MessageBoxButton.YesNo, MessageBoxImage.Information,
                 MessageBoxResult.Yes);
             if (answer == MessageBoxResult.Yes)
             {
@@ -62,7 +62,7 @@ public partial class MainWindow
         {
             if (userInitiated)
             {
-                MessageBox.Show(owner, $"暂时无法连接 GitHub：{ex.Message}", "检查更新",
+                MessageBox.Show(owner, L10n.F($"暂时无法连接 GitHub：{ex.Message}"), L10n.T("检查更新"),
                     MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }

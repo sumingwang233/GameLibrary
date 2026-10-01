@@ -1,4 +1,7 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
+using GameLibrary.Contracts;
+using GameLibrary.Infrastructure.Backups;
 
 namespace GameLibrary.Host.Hosting;
 
@@ -71,6 +74,8 @@ public sealed class JobManager
         public JobContext? Context;
 
         public object? FinalData;
+
+        public TaskCompletionSource Completed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
     private readonly ConcurrentDictionary<string, JobEntry> _jobs = new();
@@ -84,19 +89,72 @@ public sealed class JobManager
     /// </summary>
     public Action<JobSnapshot>? OnJobRecorded { get; set; }
 
+    public Func<IDisposable?>? AcquireLibraryLease { get; set; }
+
+    private string? _restoreHistoryDirectory;
+    private sealed record RestoreJobHistory(JobSnapshot Snapshot, object? Result);
+
+    public void ConfigureRestoreHistory(string dataDirectory)
+    {
+        _restoreHistoryDirectory = Path.Combine(dataDirectory, "control", "restore-jobs");
+        // Finalize a commit interrupted before the worker could persist its final job record.
+        try
+        {
+            var journal = LibraryRestoreStorage.ReadJournal(dataDirectory);
+            if (journal is { Phase: "committed", JobId: not null } && !_jobs.ContainsKey(journal.JobId))
+                _ = ReadRestoreHistory(journal.JobId);
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        {
+            // Host startup reports RecoveryRequired; history must not prevent its control API from starting.
+        }
+    }
+
+    private RestoreJobHistory? ReadRestoreHistory(string jobId)
+    {
+        if (_restoreHistoryDirectory is null || !jobId.StartsWith("job-", StringComparison.Ordinal)
+            || !Guid.TryParseExact(jobId[4..], "N", out _)) return null;
+        var path = Path.Combine(_restoreHistoryDirectory, jobId + ".json");
+        if (!File.Exists(path)) return null;
+        var history = JsonSerializer.Deserialize<RestoreJobHistory>(File.ReadAllText(path), ContractJson.Options);
+        if (history is null || IsTerminal(history.Snapshot.State)) return history;
+        var journal = LibraryRestoreStorage.ReadJournal(Path.GetDirectoryName(Path.GetDirectoryName(_restoreHistoryDirectory)!)!);
+        var committed = journal is { Phase: "committed", Result: not null } && journal.JobId == jobId;
+        var recovered = history with
+        {
+            Snapshot = history.Snapshot with
+            {
+                State = committed ? "succeeded" : "failed",
+                FinishedUtc = DateTime.UtcNow,
+                Error = committed ? null : "恢复被进程重启中断，未提交内容已回滚"
+            },
+            Result = committed ? new Envelope<object> { RequestId = jobId, LibraryInstanceId = journal!.Result!.RestoredLibraryInstanceId, DataEpoch = journal.Result.DataEpoch, Ok = true, Status = OperationStatus.Completed, Data = journal.Result } : null,
+        };
+        ControlAreaStore.WriteAtomic(path, JsonSerializer.Serialize(recovered, ContractJson.Options));
+        return recovered;
+    }
+
     private void Record(JobEntry entry)
     {
         lock (entry)
         {
-            OnJobRecorded?.Invoke(Snapshot(entry));
+            if (entry.Kind == "restore" && _restoreHistoryDirectory is not null)
+                ControlAreaStore.WriteAtomic(Path.Combine(_restoreHistoryDirectory, entry.Id + ".json"),
+                    JsonSerializer.Serialize(new RestoreJobHistory(Snapshot(entry),
+                        entry.FinalData ?? entry.Context?.ReadProgress()), ContractJson.Options));
+            if (entry.Kind != "restore") OnJobRecorded?.Invoke(Snapshot(entry));
         }
     }
 
     public string Create(
         string kind,
         Func<JobContext, Task<JobOutcome>> executor,
-        object? initialProgress = null)
+        object? initialProgress = null,
+        bool ownsMaintenance = false)
     {
+        var lease = ownsMaintenance ? null : AcquireLibraryLease?.Invoke();
+        if (!ownsMaintenance && AcquireLibraryLease is not null && lease is null)
+            throw new InvalidOperationException("库处于维护状态，不能启动作业");
         var entry = new JobEntry { Id = $"job-{Guid.NewGuid():N}", Kind = kind };
         _jobs[entry.Id] = entry;
         entry.Context = new JobContext { JobId = entry.Id, Token = entry.Cts.Token };
@@ -107,18 +165,24 @@ public sealed class JobManager
 
         entry.State = "running";
         entry.StartedUtc = DateTime.UtcNow;
-        Record(entry);
+        try { Record(entry); }
+        catch { _jobs.TryRemove(entry.Id, out _); lease?.Dispose(); entry.Cts.Dispose(); throw; }
 
         // Executors may perform synchronous filesystem work before returning a Task. Always
         // cross a thread-pool boundary so accepting a job never blocks the IPC request thread.
-        _ = Task.Run(() => RunAsync(entry, executor));
+        _ = Task.Run(async () =>
+        {
+            using (lease) await RunAsync(entry, executor);
+        });
         return entry.Id;
     }
+
+    public Task WaitForIdleAsync() => Task.WhenAll(_jobs.Values.Select(entry => entry.Completed.Task));
 
     public JobSnapshot? Get(string jobId) =>
         _jobs.TryGetValue(jobId, out var entry)
             ? Snapshot(entry)
-            : null;
+            : ReadRestoreHistory(jobId)?.Snapshot;
 
     /// <summary>请求取消：仅 running→cancelRequested；已进入终态返回 false。</summary>
     public bool RequestCancel(string jobId)
@@ -147,7 +211,8 @@ public sealed class JobManager
     {
         if (!_jobs.TryGetValue(jobId, out var entry))
         {
-            return null;
+            var restored = ReadRestoreHistory(jobId);
+            return restored is null ? null : (restored.Snapshot.State, restored.Result);
         }
 
         return IsTerminal(entry.State)
@@ -183,8 +248,12 @@ public sealed class JobManager
         finally
         {
             entry.FinishedUtc = DateTime.UtcNow;
-            Record(entry);
-            OnJobFinished?.Invoke(entry.State);
+            try
+            {
+                Record(entry);
+                OnJobFinished?.Invoke(entry.State);
+            }
+            finally { entry.Completed.TrySetResult(); }
         }
     }
 

@@ -149,7 +149,7 @@ public sealed class RootsKindTests : IClassFixture<PipeServerFixture>
             @"C:\solo-manual", @"C:\solo-manual\GameC\inner\file.exe"));
     }
 
-    private static GameLibrary.Infrastructure.Persistence.PersistedCandidate Candidate(string physicalPath) => new()
+    private static GameLibrary.Domain.Catalog.PersistedCandidate Candidate(string physicalPath) => new()
     {
         CandidateId = $"cand-{Guid.NewGuid():N}",
         JobId = "job-kindtest",

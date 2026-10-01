@@ -34,7 +34,7 @@ public partial class MainWindow : Window
     {
         var dialog = new Window
         {
-            Title = "使用指南",
+            Title = L10n.T("使用指南"),
             Width = 590,
             Height = 570,
             MinWidth = 430,
@@ -44,12 +44,12 @@ public partial class MainWindow : Window
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Background = TryFindResource<SolidColorBrush>("BgMain"),
         };
-        AutomationProperties.SetName(dialog, "GameLibrary 使用指南");
+        AutomationProperties.SetName(dialog, L10n.T("GameLibrary 使用指南"));
 
         var panel = new StackPanel { Margin = new Thickness(22) };
         panel.Children.Add(new TextBlock
         {
-            Text = firstUse ? "欢迎使用 GameLibrary" : "如何使用 GameLibrary",
+            Text = firstUse ? L10n.T("欢迎使用 GameLibrary") : L10n.T("如何使用 GameLibrary"),
             FontSize = 21,
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 0, 0, 10),
@@ -72,11 +72,11 @@ public partial class MainWindow : Window
             });
         }
 
-        AddStep("1 · 添加游戏", "选择游戏所在目录作为游戏库并扫描。扫描不到时，可直接选择 EXE、SWF 或 Windows 快捷方式 LNK；只添加目录时，稍后还需指定启动方式。");
-        AddStep("2 · 确认扫描结果", "扫描发现的内容先进入左侧「待确认游戏」。确认无误后点击「加入游戏库」，它就会出现在「全部游戏」中。");
-        AddStep("3 · 开始游戏", "选中游戏卡片，检查或配置启动方式，再点击「开始游戏」。加入库和移出库都不会删除原游戏文件。");
-        AddStep("4 · 整理与退出", "可新建标签、筛选、排序或批量整理游戏；在设置中切换主题、字体和文字大小。关闭主窗口默认缩到托盘。");
-        AddStep("翻译策略", "Auto：按目录标记继承策略；需要翻译的游戏会自动查找并启动受支持的翻译配方，Profile 仍配置原始游戏 EXE。Required：强制走翻译路由；NotRequired：明确直接启动原版游戏。");
+        AddStep(L10n.T("1 · 添加游戏"), L10n.T("选择游戏所在目录作为游戏库并扫描。扫描不到时，可直接选择 EXE、SWF 或 Windows 快捷方式 LNK；只添加目录时，稍后还需指定启动方式。"));
+        AddStep(L10n.T("2 · 确认扫描结果"), L10n.T("扫描发现的内容先进入左侧「待确认游戏」。确认无误后点击「加入游戏库」，它就会出现在「全部游戏」中。"));
+        AddStep(L10n.T("3 · 开始游戏"), L10n.T("选中游戏卡片，检查或配置启动方式，再点击「开始游戏」。加入库和移出库都不会删除原游戏文件。"));
+        AddStep(L10n.T("4 · 整理与退出"), L10n.T("可新建标签、筛选、排序或批量整理游戏；在设置中切换主题、字体和文字大小。关闭主窗口默认缩到托盘。"));
+        AddStep(L10n.T("翻译策略"), L10n.T("Auto：按目录标记继承策略；需要翻译的游戏会自动查找并启动受支持的翻译配方，Profile 仍配置原始游戏 EXE。Required：强制走翻译路由；NotRequired：明确直接启动原版游戏。"));
 
         var actions = new WrapPanel { Margin = new Thickness(0, 20, 0, 0) };
         string? nextAction = null;
@@ -99,12 +99,12 @@ public partial class MainWindow : Window
             return button;
         }
 
-        actions.Children.Add(Action("添加游戏库", "add-folder", primary: true));
-        actions.Children.Add(Action("手动添加游戏", "manual"));
-        actions.Children.Add(Action("查看待审核", "pending"));
+        actions.Children.Add(Action(L10n.T("添加游戏库"), "add-folder", primary: true));
+        actions.Children.Add(Action(L10n.T("手动添加游戏"), "manual"));
+        actions.Children.Add(Action(L10n.T("查看待审核"), "pending"));
         panel.Children.Add(actions);
 
-        var done = Action("我知道了", "done");
+        var done = Action(L10n.T("我知道了"), "done");
         done.IsDefault = true;
         done.IsCancel = true;
         panel.Children.Add(done);

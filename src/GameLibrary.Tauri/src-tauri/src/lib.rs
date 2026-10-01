@@ -66,7 +66,10 @@ struct BridgeProcess {
 }
 
 #[derive(Default)]
-struct BridgeState(Mutex<Option<BridgeProcess>>);
+struct BridgeState {
+    requests: Mutex<Option<BridgeProcess>>,
+    events: Mutex<Option<BridgeProcess>>,
+}
 
 /// 前端从 settings.get 读到 closeToTray 后经 set_close_to_tray 下发。
 /// Rust 不查库——业务状态一律留在 Host，这里只保存窗口行为开关。
@@ -227,7 +230,12 @@ fn bridge_request(
     app: AppHandle,
     request: Value,
 ) -> Result<Value, String> {
-    let mut bridge = state.0.lock().map_err(|_| "TauriBridge 状态锁异常")?;
+    let lane = if request.get("operationId").and_then(Value::as_str) == Some("events.wait") {
+        &state.events
+    } else {
+        &state.requests
+    };
+    let mut bridge = lane.lock().map_err(|_| "TauriBridge 状态锁异常")?;
     if bridge
         .as_mut()
         .is_some_and(|process| process.child.try_wait().ok().flatten().is_some())
@@ -253,7 +261,10 @@ fn bridge_request(
 
 #[tauri::command(async)]
 fn bridge_status(state: State<'_, BridgeState>) -> Result<Value, String> {
-    let mut bridge = state.0.lock().map_err(|_| "TauriBridge 状态锁异常")?;
+    let mut bridge = state
+        .requests
+        .lock()
+        .map_err(|_| "TauriBridge 状态锁异常")?;
     let running = bridge
         .as_mut()
         .map(|process| {
@@ -282,6 +293,26 @@ fn resolve_data_directory(requested: Option<String>) -> String {
 fn set_close_to_tray(prefs: State<'_, UiPrefs>, enabled: bool) -> Result<(), String> {
     let mut guard = prefs.0.lock().map_err(|_| "UI 偏好状态锁异常")?;
     guard.close_to_tray = enabled;
+    Ok(())
+}
+
+#[tauri::command]
+fn set_ui_language(app: AppHandle, language: &str) -> Result<(), String> {
+    let (show_text, quit_text) = match language {
+        "zh-CN" => ("显示 GameLibrary", "退出"),
+        "zh-TW" => ("顯示 GameLibrary", "結束"),
+        "en" => ("Show GameLibrary", "Quit"),
+        "ja" => ("GameLibrary を表示", "終了"),
+        _ => return Err("Unsupported UI language".into()),
+    };
+    let show = MenuItem::with_id(&app, "show", show_text, true, None::<&str>)
+        .map_err(|e| e.to_string())?;
+    let quit = MenuItem::with_id(&app, "quit", quit_text, true, None::<&str>)
+        .map_err(|e| e.to_string())?;
+    let menu = Menu::with_items(&app, &[&show, &quit]).map_err(|e| e.to_string())?;
+    if let Some(tray) = app.tray_by_id("main-tray") {
+        tray.set_menu(Some(menu)).map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 
@@ -379,6 +410,7 @@ pub fn run() {
             resolve_data_directory,
             open_game_directory,
             set_close_to_tray,
+            set_ui_language,
             show_main_window
         ])
         .build(tauri::generate_context!())
@@ -386,8 +418,10 @@ pub fn run() {
         .run(|app, event| {
             if matches!(event, RunEvent::Exit) {
                 if let Some(state) = app.try_state::<BridgeState>() {
-                    if let Ok(mut bridge) = state.0.lock() {
-                        discard_bridge(&mut bridge);
+                    for lane in [&state.requests, &state.events] {
+                        if let Ok(mut bridge) = lane.lock() {
+                            discard_bridge(&mut bridge);
+                        }
                     }
                 }
             }

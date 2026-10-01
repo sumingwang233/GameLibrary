@@ -1,101 +1,66 @@
-# GameLibrary 关键流程图
+# GameLibrary 关键流程
 
-下面的流程图来自 `code-review-graph` 的执行流快照。完整路径可用 `get_flow_tool` 按入口名称展开。
+2026-09-30 更新。以下流程结合当前源码、code-review-graph 和回归验证；详细检查见 [优化实施记录](optimization-implementation.md)。
 
-## 1. Host 启动与库打开
+## 请求与事件
 
-证据入口：`GameLibrary.Host/Program.cs::Program.Main`、`HostRuntime.StartAsync`、`SingleInstanceGuard.TryAcquire`、`HostRuntime.OpenLibraryAsync`、`HostRuntime.WirePersistence`、`PipeServer.Start`。
-
-```mermaid
-flowchart TD
-    Main[Program.Main\nHost/Program.cs:14-89]
-    Start[HostRuntime.StartAsync\nHostRuntime.cs:37-107]
-    Resolve[DataDirectory.Resolve\nContracts/Ipc/DataDirectory.cs:12-92]
-    Guard[SingleInstanceGuard.TryAcquire\nHost/Hosting/SingleInstanceGuard.cs:26-55]
-    Open[HostRuntime.OpenLibraryAsync\nHostRuntime.cs:296-327]
-    Wire[HostRuntime.WirePersistence\nHostRuntime.cs:114-206]
-    Pipe[PipeServer.Start\nHost/Ipc/PipeServer.cs:33-36]
-    Scan[RunReconcileScan / ReconcileService.CheckGames]
-    Ready[Host ready for IPC operations]
-
-    Main --> Start --> Resolve --> Guard
-    Guard -->|acquired| Open --> Wire --> Pipe --> Scan --> Ready
-    Guard -->|already running| Exit[Return single-instance result]
+```sequenceDiagram
+    participant UI as React hooks
+    participant B as 普通 Bridge
+    participant E as 事件 Bridge
+    participant H as Async Dispatcher
+    participant S as SQLite
+    UI->>E: events.wait(cursor, 25s)
+    E->>H: 独立 pipe
+    H->>S: 短租约读取事件快照
+    Note over H: 等待期间释放租约和读连接
+    UI->>B: games.list / 用户操作
+    B->>H: 普通 pipe
+    H->>S: 读快照或单写事务
+    S-->>H: 提交
+    H-->>E: 新序号事件 / 超时空批次
+    E-->>UI: 按域合并 250ms 刷新
 ```
 
-`Main` 流图谱规模为 466 个节点、深度 15；上图只显示启动阶段的稳定边界。
+每条发布事件都有新序号；等待与读取共享游标结构，会话变化作废旧等待游标。旧 Host 使用 events.read 轮询，旧 epoch 错误重建基线。
 
-## 2. 桌面连接与事件轮询
+## 候选批量
 
-证据入口：`MainWindow.ConnectAsync`（`MainWindow.Connection.cs:23-58`）、`HostProcessLauncher.EnsureStartedAsync`、`HostConnection.ConnectAsync`、`HandshakeAsync`、`IpcFrame.WriteJsonAsync`、`MainWindow.PollEventsAsync`（`MainWindow.Connection.cs:188-226`）。
-
-```mermaid
-sequenceDiagram
-    participant W as MainWindow
-    participant L as HostProcessLauncher
-    participant C as HostConnection
-    participant H as Host
-    participant F as IpcFrame
-
-    W->>L: EnsureStartedAsync
-    L->>H: Start or reuse local Host
-    W->>C: ConnectAsync
-    C->>H: named pipe connect
-    C->>F: HandshakeAsync / WriteJsonAsync
-    H-->>C: handshake + operation result
-    W->>C: LoadSettingsAsync / RefreshAsync
-    loop event polling
-        W->>C: PollEventsAsync -> InvokeAsync
-        C->>H: events.read / games.list
-        H-->>W: refresh data and status
-    end
+```flowchart TD
+    Input[输入校验 / 最多1000项 / ID唯一] --> Prepare[事务外路径观察与指纹准备]
+    Prepare --> Outer[单事务]
+    Outer --> Save[逐项保存点]
+    Save --> Recheck[重新校验修订 / 状态 / 路径 / 负载]
+    Recheck -->|业务成功| Keep[保留该项]
+    Recheck -->|业务失败| Undo[回滚该保存点 / 记录错误]
+    Keep --> Next[处理下一项]
+    Undo --> Next
+    Next --> Commit[外层提交]
+    Outer -->|数据库或准备阶段文件异常| Abort[整批失败 / 无部分提交]
+    Commit --> Notify[发布事件 / 按输入顺序返回逐项结果]
 ```
 
-`ConnectAsync` 的图谱流为 28 个节点、深度 5、criticality `0.8339`；`PollEventsAsync` 为 21 个节点、深度 6、criticality `0.8529`。
+标签排序使用一个事务，任一 Revision 冲突整批回滚。两种操作沿用收据重放，事件在提交后发布。
 
-## 3. 扫描与候选审查
+## 恢复提交与重启
 
-证据入口：桌面 `MainWindow.OnScanClick`（`MainWindow.Scanning.cs:319-487`）和 Host `ScanningHandler.ScanStart`（`Host/Hosting/ScanningHandler.cs:52-167`）。图谱直接解析到 `JobManager.Create`、`ScanIgnoreRuleSet.FromStore`、`ScanJobRunner.Run`、`ScanCandidatePersistence.Persist`、`ReconcileService.CheckGames` 和 `EventStream.Publish`。
-
-```mermaid
-flowchart LR
-    Click[Desktop OnScanClick]
-    Request[HostConnection.InvokeAsync\nscan.start]
-    Validate[ScanningHandler.ScanStart\n参数、路径、注册根校验]
-    Job[JobManager.Create]
-    Rules[ScanIgnoreRuleSet.FromStore]
-    Run[ScanJobRunner.Run]
-    Persist[ScanCandidatePersistence.Persist]
-    Reconcile[ReconcileService.CheckGames]
-    Events[EventStream.Publish]
-    Review[candidates.list / candidates.get\n用户接受、延后或忽略]
-
-    Click --> Request --> Validate
-    Validate -->|valid| Job --> Rules --> Run --> Persist --> Reconcile --> Events
-    Events --> Review
-    Validate -->|invalid/outside root| Reject[RejectPathOutsideRoots / error]
+```flowchart TD
+    Request[restore_start 或兼容 restore] --> Busy{活动扫描 / 备份 / 核对 / 游戏?}
+    Busy -->|有| Retry[可重试忙碌错误 / 保留活动]
+    Busy -->|无| Drain[禁止新业务租约 / 排空已接收请求 / 再检查活动]
+    Drain --> Stage[目标目录暂存 / 清单校验 / flush / 安全备份]
+    Stage --> Prepared[原子控制记录 prepared]
+    Prepared --> DB[File.Replace 数据库 / database-swapped]
+    DB --> Assets[完整资产目录切换 / assets-swapped]
+    Assets --> Validate[校验新库 / 新epoch / checkpoint与flush]
+    Validate --> Commit[原子 committed / 唯一提交点]
+    Commit --> Bind[重绑 Store / 回调 / 根与启动缓存 / 事件流]
+    Bind --> Result[控制区最终收据与作业结果 / 恢复接收请求]
+    Restart[启动 RecoverBeforeOpen] --> Decision{控制记录 committed?}
+    Decision -->|是| Open[打开提交后的库 / 补全作业终态]
+    Decision -->|否| Rollback[安全数据库和保留资产回滚 / 可重复执行]
+    Rollback -->|证据缺失或回滚失败| Recovery[RecoveryRequired]
+    Rollback -->|成功| Open
 ```
 
-`OnScanClick` 流为 18 个节点、深度 5、criticality `0.7833`；`ScanStart` 流为 22 个节点、深度 4、criticality `0.7695`。
-
-## 4. 启动游戏
-
-证据入口：MCP `GameLibraryTools.LaunchExecute`（`GameLibraryTools.cs:645-657`）和 Host `LaunchingHandler.LaunchExecute`（`Host/Hosting/LaunchingHandler.cs:499-562`）。图谱解析到参数校验、`LaunchRegistry.GetPlanProfileId`、`GetProfile`、`GetPlanGameId`、`ResolveTranslationRoute`、`LaunchRegistry.Execute` 和错误映射。
-
-```mermaid
-flowchart TD
-    Tool[CLI/MCP launch.execute]
-    Invoke[HostClient.InvokeAsync]
-    Handler[LaunchingHandler.LaunchExecute]
-    Params[IpcRequests 参数校验]
-    Plan[LaunchRegistry 读取 plan/profile/game]
-    Route[ResolveTranslationRoute\nTranslationRouteBlock]
-    Execute[LaunchRegistry.Execute]
-    Result[launch result / LaunchError]
-
-    Tool --> Invoke --> Handler --> Params
-    Params -->|valid| Plan --> Route --> Execute --> Result
-    Params -->|invalid| Result
-```
-
-`LaunchExecute` 流为 23 个节点、深度 5、criticality `0.7870`。启动相关并发、过期 plan、工具缺失和翻译策略行为已有图谱识别出的集成测试入口，可继续用 `query_graph_tool(pattern="tests_for", target="LaunchExecute")` 核对。
+恢复作业在 control 保存，不依赖将被换掉的业务数据库；启动时补全提交后尚未写完的最终作业结果。会话重绑不会捕获旧 Store，宿主停机先排空作业/租约再释放连接。

@@ -45,6 +45,7 @@ public partial class App : Application
         }
 
         base.OnStartup(e);
+        L10n.Apply("zh-CN");
     }
 
     protected override void OnExit(ExitEventArgs e)
@@ -133,7 +134,7 @@ public partial class App : Application
     {
         using var identity = WindowsIdentity.GetCurrent();
         return identity.User?.Value
-            ?? throw new InvalidOperationException("无法识别当前 Windows 用户");
+            ?? throw new InvalidOperationException(L10n.T("无法识别当前 Windows 用户"));
     }
 
     private static string MutexName => $"Local\\GameLibrary.Desktop.{InstanceName}";

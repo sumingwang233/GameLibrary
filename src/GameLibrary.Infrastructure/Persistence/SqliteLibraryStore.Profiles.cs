@@ -8,22 +8,22 @@ public sealed partial class SqliteLibraryStore
     // T14 资料与封面转发。
 
     public int? SetGameField(string gameId, string fieldKey, string? value, string source, int expectedRevision, DateTime utcNow)
-        => Execute((c, _) => GameProfileStore.SetGameField(c, gameId, fieldKey, value, source, expectedRevision, utcNow));
+        => Execute((c, _) => GameProfileStore.SetGameField(c, gameId, fieldKey, value, source, expectedRevision, utcNow, _writeTransaction));
 
     public int? ResetGameField(string gameId, string fieldKey, string autoValue, int expectedRevision, DateTime utcNow)
         => Execute((c, _) => GameProfileStore.ResetGameField(c, gameId, fieldKey, autoValue, expectedRevision, utcNow));
 
     public (string? Value, string Source) EffectiveField(string gameId, string fieldKey, string fallback)
-        => Execute((c, _) => GameProfileStore.EffectiveField(c, gameId, fieldKey, fallback));
+        => ReadExclusive((c, _) => GameProfileStore.EffectiveField(c, gameId, fieldKey, fallback));
 
     public GameAsset ImportAsset(string gameId, string importedFilePath, DateTime utcNow)
         => Execute((c, _) => GameProfileStore.ImportAsset(c, gameId, importedFilePath, utcNow));
 
     public IReadOnlyList<GameAsset> ListAssets(string gameId)
-        => Execute((c, _) => GameProfileStore.ListAssets(c, gameId));
+        => ReadExclusive((c, _) => GameProfileStore.ListAssets(c, gameId));
 
     public GameAsset? TryGetAsset(string assetId)
-        => Execute((c, _) => GameProfileStore.TryGetAsset(c, assetId));
+        => ReadExclusive((c, _) => GameProfileStore.TryGetAsset(c, assetId));
 
     public void ChooseAsset(string gameId, string assetId)
         => Execute((c, _) => GameProfileStore.ChooseAsset(c, gameId, assetId));

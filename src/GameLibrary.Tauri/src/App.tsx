@@ -1,4 +1,6 @@
+import { t } from "./lib/i18n";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useLanguage } from "./lib/i18n";
 import { AlertCircle, Bell } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { describeFailure, operation } from "./lib/api";
@@ -23,6 +25,7 @@ import { TooltipProvider } from "./components/ui/tooltip";
 type PromptKind = "tag" | "view" | null;
 
 function App() {
+  useLanguage();
   const library = useLibrary();
   const [section, setSection] = useState<Section>("library");
   const [filters, setFilters] = useState<GameFilters>(emptyFilters);
@@ -34,12 +37,6 @@ function App() {
   const [prompt, setPrompt] = useState<PromptKind>(null);
   const mainRef = useRef<HTMLElement | null>(null);
   const pendingScrollTop = useRef<number | null>(null);
-  useEffect(() => {
-    if (section !== "pending") return;
-    void library.refreshMeta();
-    const timer = window.setInterval(() => { void library.refreshMeta(); }, 15000);
-    return () => window.clearInterval(timer);
-  }, [section, library.refreshMeta]);
   // accept 后的相似副本提示横幅：单例不堆叠，新批（含 M=0 的批）覆盖旧批；defer/ignore 不动它。
   const [similarNotice, setSimilarNotice] = useState<SimilarNoticeData | null>(null);
 
@@ -48,9 +45,7 @@ function App() {
     [],
   );
 
-  // 扫描进行中不让事件流触发重查：后端所有请求经单一 _requestGate 串行，
-  // 扫描写入期间频繁重查会与之争锁，正是 v1.1.5「扫描时很卡」的成因之一。
-  const games = useGamesQuery(filters, library.changeToken, library.scanning);
+  const games = useGamesQuery(filters, library.changeToken, false);
 
   /** 详情操作会触发列表失效重查。记录主滚动容器的位置，等新一帧列表提交后恢复，
    * 避免启动游戏、导入封面等操作把用户从当前卡片跳回列表顶部。 */
@@ -76,7 +71,7 @@ function App() {
 
   const addRoot = () =>
     run(async () => {
-      const selectedPath = await open({ directory: true, multiple: false, title: "选择游戏库目录" });
+      const selectedPath = await open({ directory: true, multiple: false, title: t("选择游戏库目录") });
       if (!selectedPath) return;
       await library.addRoot(String(selectedPath));
     });
@@ -86,8 +81,8 @@ function App() {
       const picked = await open({
         multiple: false,
         directory: false,
-        title: "选择游戏主程序",
-        filters: [{ name: "游戏程序", extensions: ["exe", "swf", "lnk"] }],
+        title: t("选择游戏主程序"),
+        filters: [{ name: t("游戏程序"), extensions: ["exe", "swf", "lnk"] }],
       });
       if (!picked) return;
       const sourcePath = String(picked);
@@ -225,9 +220,7 @@ function App() {
           {library.notifications.length > 0 && section !== "pending" && (
             <div className="mb-4 flex items-center gap-3 rounded-lg border border-steam/40 bg-steam-soft/40 px-4 py-3 text-sm">
               <Bell size={16} aria-hidden="true" className="shrink-0 text-steam" />
-              <span className="flex-1 text-text-primary">
-                检测到 {library.notifications.length.toLocaleString()} 批新游戏等待你确认是否加入游戏库。
-              </span>
+              <span className="flex-1 text-text-primary">{t("有 {0} 批新游戏等待确认是否加入游戏库。", library.notifications.length.toLocaleString())}</span>
               <Button
                 size="sm"
                 variant="outline"
@@ -240,9 +233,7 @@ function App() {
                     }
                   });
                 }}
-              >
-                去查看
-              </Button>
+              >{t("去查看")}</Button>
             </div>
           )}
 
@@ -311,8 +302,8 @@ function App() {
                 selectedId={selected?.gameId}
                 emptyHint={
                   filters.search
-                    ? `没有匹配「${filters.search}」的游戏。`
-                    : "添加游戏库目录并扫描，游戏会出现在这里。"
+                    ? t("没有匹配「{0}」的游戏。", filters.search)
+                    : t("添加游戏库目录并扫描，游戏会出现在这里。")
                 }
                 onLoadMore={games.loadMore}
                 onSelect={(gameId) =>
@@ -351,7 +342,7 @@ function App() {
           game={selected}
           tags={library.tags}
           onClose={() => setSelected(null)}
-          onPlay={launch}
+          onPlay={(gameId) => preserveLibraryScroll(() => library.launch(gameId))}
           onChanged={() => {
             return preserveLibraryScroll(async () => {
               await library.refreshMeta();
@@ -365,10 +356,10 @@ function App() {
 
         <PromptDialog
           open={prompt === "tag"}
-          title="新建标签"
-          label="标签名称"
-          placeholder="例如：ANIM、已通关"
-          confirmLabel="创建"
+          title={t("新建标签")}
+          label={t("标签名称")}
+          placeholder={t("例如：ANIM、已通关")}
+          confirmLabel={t("创建")}
           onCancel={() => setPrompt(null)}
           onSubmit={(name) => {
             setPrompt(null);
@@ -378,10 +369,10 @@ function App() {
 
         <PromptDialog
           open={prompt === "view"}
-          title="保存为收藏夹"
-          label="收藏夹名称"
-          placeholder={`例如：待通关${filters.search ? `（搜索“${filters.search}”）` : ""}`}
-          confirmLabel="保存"
+          title={t("保存为收藏夹")}
+          label={t("收藏夹名称")}
+          placeholder={t("例如：待通关{0}", filters.search ? `（搜索“${filters.search}”）` : "")}
+          confirmLabel={t("保存")}
           onCancel={() => setPrompt(null)}
           onSubmit={(name) => {
             setPrompt(null);
@@ -395,16 +386,16 @@ function App() {
 
 /** ui-2：只保留各页大标题，副标题全部删除。 */
 function sectionHeading(section: Section, filters: GameFilters, views: ViewItem[]): string {
-  if (section === "pending") return "待确认";
-  if (section === "tags") return "管理标签";
-  if (section === "roots") return "游戏库目录";
+  if (section === "pending") return t("待确认");
+  if (section === "tags") return t("管理标签");
+  if (section === "roots") return t("游戏库目录");
   if (filters.viewId) {
     const view = views.find((item) => item.viewId === filters.viewId);
-    return view?.name ?? "收藏夹";
+    return view?.name ?? t("收藏夹");
   }
-  if (filters.favoriteOnly) return "收藏";
-  if (filters.tagId) return "按标签筛选";
-  return "游戏库";
+  if (filters.favoriteOnly) return t("收藏");
+  if (filters.tagId) return t("按标签筛选");
+  return t("游戏库");
 }
 
 export default App;

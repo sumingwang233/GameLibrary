@@ -29,21 +29,25 @@ async function freePort() {
 
 async function waitForTarget(port) {
   const deadline = Date.now() + 30_000;
+  let lastTargets = [];
+  let lastError;
   while (Date.now() < deadline) {
     try {
       const response = await fetch(`http://127.0.0.1:${port}/json`);
       const targets = await response.json();
+      lastTargets = targets.map(({ type, url }) => ({ type, url }));
       const target = targets.find((item) =>
         item.type === "page"
         && item.webSocketDebuggerUrl
         && item.url?.startsWith("http://tauri.localhost"));
       if (target) return target;
-    } catch {
+    } catch (error) {
+      lastError = String(error);
       // The WebView starts after the native window; retry until the deadline.
     }
     await sleep(200);
   }
-  throw new Error("release WebView did not expose its debug target within 30 seconds");
+  throw new Error(`release WebView target unavailable: targets=${JSON.stringify(lastTargets)}, fetch=${lastError}, exit=${desktop.exitCode}, stderr=${desktopError}`);
 }
 
 function cdp(webSocketUrl) {
@@ -127,9 +131,11 @@ const desktop = spawn(executable, [], {
     WEBVIEW2_USER_DATA_FOLDER: webViewData,
     WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}`,
   },
-  stdio: "ignore",
+  stdio: ["ignore", "ignore", "pipe"],
   windowsHide: true,
 });
+let desktopError = "";
+desktop.stderr.on("data", chunk => { desktopError = (desktopError + chunk.toString()).slice(-4096); });
 
 let client;
 try {
@@ -214,6 +220,8 @@ try {
   if (result.rootDisplay !== "flex") failures.push(`unexpected app shell display ${result.rootDisplay}`);
 
   const tree = descendants(processTree(), desktop.pid);
+  if (process.argv.includes("--batch-smoke") && tree.filter(process => process.Name?.toLowerCase().startsWith("gamelibrary.tauribridge")).length !== 2)
+    failures.push("ordinary and event bridge processes were not both active");
   const consoleHosts = tree.filter((process) => process.Name?.toLowerCase() === "conhost.exe");
   if (consoleHosts.length) {
     failures.push(`console host descendants detected: ${consoleHosts.map((item) => `${item.ProcessId}<-parent:${item.ParentProcessId}`).join(", ")}; tree=${JSON.stringify(tree.map(({ Name, ProcessId, ParentProcessId }) => ({ Name, ProcessId, ParentProcessId })))}`);
@@ -231,12 +239,15 @@ try {
   if (failures.length) throw new Error(failures.join("; "));
   console.log(JSON.stringify({ ...result, desktopPid: desktop.pid, processTree: tree.map(({ Name, ProcessId, ParentProcessId }) => ({ Name, ProcessId, ParentProcessId })), screenshotPath }));
 } finally {
+  if (client) await client.send("Runtime.evaluate", {
+    expression: "window.__TAURI__.core.invoke('bridge_request', { request: { requestId: 'release-smoke-cleanup', operationId: 'host.stop', parameters: {} } }).catch(() => null)",
+    awaitPromise: true, returnByValue: true,
+  }).catch(() => null);
   client?.close();
-  if (!desktop.killed) desktop.kill();
-  await sleep(500);
   try {
     execFileSync("taskkill.exe", ["/PID", String(desktop.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
   } catch {
     // The process tree may already have exited cleanly.
   }
+  if (!desktop.killed) desktop.kill();
 }

@@ -43,6 +43,12 @@ public sealed class RootRegistry
     private readonly ConcurrentDictionary<string, LibraryRoot> _byRootId = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, string> _rootIdByComparisonKey = new(StringComparer.OrdinalIgnoreCase);
 
+    public void Clear()
+    {
+        _byRootId.Clear();
+        _rootIdByComparisonKey.Clear();
+    }
+
     /// <summary>
     /// 注册库根；同一规范化路径幂等返回既有根。路径必须存在且不是重解析点。
     /// kind（v23，bug-5）：library（默认，常规扫描根）或 manual（手动添加游戏的

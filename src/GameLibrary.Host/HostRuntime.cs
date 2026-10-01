@@ -94,8 +94,10 @@ public sealed class HostRuntime : IAsyncDisposable
             events,
             rootPath => RunReconcileScan(runtimeState, rootPath),
             reconcileInterval);
+        runtimeState.Coordinator.AcquireLibraryLease = () => runtimeState.Sessions.TryEnter(background: true);
 
         var logger = loggerFactory.CreateLogger<PipeServer>();
+        runtimeState.Coordinator.OnBackgroundError = error => logger.LogError(error, "后台核对失败");
         var server = new PipeServer(
             ChannelNames.PipeName(resolved.ComparisonKey!),
             runtimeState,
@@ -113,6 +115,8 @@ public sealed class HostRuntime : IAsyncDisposable
     /// </summary>
     internal static void WirePersistence(HostRuntimeState state)
     {
+        state.Jobs.AcquireLibraryLease = () => state.Sessions.TryEnter(background: true);
+        state.Launches.AcquireLibraryLease = () => state.Sessions.TryEnter(background: true);
         var store = state.Library.Store;
         if (store is null)
         {
@@ -181,7 +185,7 @@ public sealed class HostRuntime : IAsyncDisposable
                 return;
             }
 
-            store.UpsertProfile(new PersistedProfile(
+            state.Library.Store?.UpsertProfile(new PersistedProfile(
                 profile.ProfileId,
                 profile.GameId,
                 profile.ExecutablePath,
@@ -193,9 +197,9 @@ public sealed class HostRuntime : IAsyncDisposable
                 DateTime.UtcNow,
                 DateTime.UtcNow), DateTime.UtcNow);
         };
-        WireAttemptPersistence(state, store);
+        WireAttemptPersistence(state);
         state.Jobs.OnJobRecorded = snapshot =>
-            store.UpsertJobRecord(new PersistedJobRecord(
+            state.Library.Store?.UpsertJobRecord(new PersistedJobRecord(
                 snapshot.JobId,
                 snapshot.Kind,
                 snapshot.State,
@@ -209,13 +213,14 @@ public sealed class HostRuntime : IAsyncDisposable
     /// 启动尝试落库 + launch.exited 事件接线（feat-1/feat-2 单一真源，集成测试夹具复用）：
     /// 每次状态迁移同步 UPSERT launch_attempts；attempt 进入 exited 时发布 launch.exited
     /// （前端经 events.read 轮询消费）。RefreshAttempt 的状态门保证同一 attempt 只发一次；
-    /// 折叠键带 attemptId，不会被同实体 2 秒窗口误合并。
+    /// 实体键带 attemptId，前端按该尝试去重退出通知。
     /// </summary>
-    internal static void WireAttemptPersistence(HostRuntimeState state, SqliteLibraryStore store)
+    internal static void WireAttemptPersistence(HostRuntimeState state)
     {
+        state.Launches.AcquireLibraryLease = () => state.Sessions.TryEnter(background: true);
         state.Launches.OnAttemptChanged = attempt =>
         {
-            store.UpsertLaunchAttempt(new PersistedLaunchAttempt(
+            state.Library.Store?.UpsertLaunchAttempt(new PersistedLaunchAttempt(
                 attempt.AttemptId,
                 attempt.IdempotencyKey,
                 attempt.GameId,
@@ -305,6 +310,11 @@ public sealed class HostRuntime : IAsyncDisposable
             ApiVersion = ApiConstants.ApiVersion,
         };
 
+        try { Infrastructure.Backups.LibraryRestoreStorage.RecoverBeforeOpen(canonicalDataDirectory); }
+        catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or UnauthorizedAccessException)
+        {
+            return HostLibraryState.NotInitialized(LibraryOpenStatus.RecoveryRequired, $"恢复控制区需要人工修复：{ex.Message}");
+        }
         var result = await SqliteLibraryStore.TryOpenAsync(canonicalDataDirectory, options, ct);
         var logger = loggerFactory.CreateLogger<HostRuntime>();
         if (result.IsOpened)
@@ -328,7 +338,11 @@ public sealed class HostRuntime : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        var drained = _state.Sessions.StopAccepting();
+        _state.Coordinator.Dispose();
         await _server.DisposeAsync();
+        await _state.Jobs.WaitForIdleAsync();
+        await drained;
         if (_state.Library.Store is not null)
         {
             await _state.Library.Store.DisposeAsync();
@@ -349,6 +363,8 @@ public sealed class HostRuntimeState
     public required HostLibraryState Library { get; set; }
 
     public required JobManager Jobs { get; init; }
+
+    public LibrarySessionGate Sessions { get; } = new();
 
     /// <summary>扫描候选注册表（宿主内存态；T11 落库后由持久层承担）。</summary>
     public required CandidateRegistry Candidates { get; init; }
@@ -408,6 +424,8 @@ public sealed class HostRuntimeState
     /// </summary>
     public void BindLibraryStore(SqliteLibraryStore? store)
     {
+        Roots.Clear();
+        Launches.Clear();
         Library = new HostLibraryState
         {
             Status = store is null ? LibraryOpenStatus.NeedsInitialization : LibraryOpenStatus.Opened,
@@ -415,6 +433,8 @@ public sealed class HostRuntimeState
             Detail = store is null ? "库已切换为未初始化" : "库已就绪",
         };
         Events.BindStore(store);
+        HostRuntime.WirePersistence(this);
+        if (store is not null) ActiveViewId = store.ReadSettings().ActiveViewId;
         Interlocked.Increment(ref ConnectionGeneration);
     }
 }

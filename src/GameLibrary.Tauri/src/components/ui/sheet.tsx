@@ -1,3 +1,4 @@
+import { t } from "../../lib/i18n";
 import * as React from "react";
 import { X } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
@@ -52,7 +53,7 @@ export function Sheet({
               )}
             </div>
             <DialogPrimitive.Close asChild>
-              <Button variant="ghost" size="icon" aria-label="关闭">
+              <Button variant="ghost" size="icon" aria-label={t("关闭")}>
                 <X size={18} />
               </Button>
             </DialogPrimitive.Close>

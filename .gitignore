@@ -19,6 +19,8 @@ LocalData/
 artifacts/
 TestResults/
 *.trx
+__pycache__/
+*.pyc
 
 # 用户笔记配置（不纳入工程版本控制）
 .obsidian/

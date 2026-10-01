@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import {
   createContext,
   createElement,
@@ -11,6 +12,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { describeFailure, operation } from "./api";
 import type { LibrarySettings } from "./types";
+import { setLanguage } from "./i18n";
 
 /**
  * settings.theme / uiFontFamily 应用到 documentElement，closeToTray 下发给 Rust
@@ -27,6 +29,8 @@ function resolveTheme(mode: LibrarySettings["theme"]): "dark" | "light" {
 }
 
 function applySettings(settings: LibrarySettings) {
+  setLanguage(settings.uiLanguage);
+  void invoke("set_ui_language", { language: settings.uiLanguage ?? "zh-CN" }).catch(() => undefined);
   const root = document.documentElement;
   root.classList.toggle("light", resolveTheme(settings.theme) === "light");
   if (settings.uiFontFamily) {
@@ -49,29 +53,38 @@ function useSettingsController(): SettingsContextValue {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const revisionRef = useRef(0);
+  const requestVersion = useRef(0);
 
   const pushCloseToTray = useCallback((value: boolean) => {
     void invoke("set_close_to_tray", { enabled: value }).catch(() => undefined);
   }, []);
 
   const reload = useCallback(async () => {
+    const version = ++requestVersion.current;
     setLoading(true);
     try {
       const result = await operation<LibrarySettings>("settings.get");
+      if (version !== requestVersion.current) return;
       revisionRef.current = result.data.revision;
       setSettings(result.data);
       applySettings(result.data);
       pushCloseToTray(result.data.closeToTray);
       setError(null);
     } catch (cause) {
-      setError(describeFailure(cause));
+      if (version === requestVersion.current) setError(describeFailure(cause));
     } finally {
-      setLoading(false);
+      if (version === requestVersion.current) setLoading(false);
     }
   }, [pushCloseToTray]);
 
   useEffect(() => {
     void reload();
+    const changed = () => { void reload(); };
+    window.addEventListener("gamelibrary-settings-changed", changed);
+    return () => {
+      ++requestVersion.current;
+      window.removeEventListener("gamelibrary-settings-changed", changed);
+    };
   }, [reload]);
 
   // theme=system 时跟随系统深色设置变化，无需重开应用。
@@ -85,6 +98,7 @@ function useSettingsController(): SettingsContextValue {
 
   const update = useCallback(
     async (patch: Partial<LibrarySettings>) => {
+      const version = ++requestVersion.current;
       setError(null);
       try {
         const result = await operation<LibrarySettings>(
@@ -92,14 +106,17 @@ function useSettingsController(): SettingsContextValue {
           { ...patch, expectedRevision: revisionRef.current },
           "settings.update",
         );
+        if (version !== requestVersion.current) return null;
         revisionRef.current = result.data.revision;
         setSettings(result.data);
         applySettings(result.data);
         pushCloseToTray(result.data.closeToTray);
         return result.data;
       } catch (cause) {
-        setError(describeFailure(cause));
+        if (version === requestVersion.current) setError(describeFailure(cause));
         return null;
+      } finally {
+        if (version === requestVersion.current) setLoading(false);
       }
     },
     [pushCloseToTray],
@@ -114,6 +131,6 @@ export function SettingsProvider({ children }: PropsWithChildren) {
 
 export function useSettings() {
   const value = useContext(SettingsContext);
-  if (!value) throw new Error("useSettings 必须在 SettingsProvider 内使用");
+  if (!value) throw new Error(t("useSettings 必须在 SettingsProvider 内使用"));
   return value;
 }

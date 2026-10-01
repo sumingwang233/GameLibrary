@@ -135,6 +135,19 @@ public sealed class LaunchRegistry
     private readonly ConcurrentDictionary<string, string> _receiptByKey = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, string> _activeByGame = new(StringComparer.Ordinal);
 
+    public void Clear()
+    {
+        _profiles.Clear();
+        _plans.Clear();
+        _attempts.Clear();
+        _receiptByKey.Clear();
+        _activeByGame.Clear();
+    }
+
+    public Func<IDisposable?>? AcquireLibraryLease { get; set; }
+
+    public bool HasActiveAttempts => History().Any(attempt => !attempt.IsTerminal);
+
     /// <summary>
     /// 尝试状态变更回调（v1 审查修复：启动历史持久化）——Profile 变更/尝试状态
     /// 每次迁移后触发，Host 接线到运行态持久层。
@@ -554,6 +567,8 @@ public sealed class LaunchRegistry
             {
                 try
                 {
+                    using var lease = AcquireLibraryLease?.Invoke();
+                    if (AcquireLibraryLease is not null && lease is null) return;
                     if (_attempts.TryGetValue(attemptId, out var current) && current.State == "processCreated")
                     {
                         RefreshAttempt(current);

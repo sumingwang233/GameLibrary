@@ -128,9 +128,9 @@ public partial class MainWindow : Window
             Visible = false,
         };
         var menu = new WinForms.ContextMenuStrip();
-        menu.Items.Add("显示主窗口", null, (_, _) => ShowFromTray());
-        menu.Items.Add("退出界面（后台继续运行）", null, (_, _) => ExitInterfaceOnly());
-        menu.Items.Add("停止后台并退出", null, (_, _) => StopHostAndExit());
+        menu.Items.Add(L10n.T("显示主窗口"), null, (_, _) => ShowFromTray());
+        menu.Items.Add(L10n.T("退出界面（后台继续运行）"), null, (_, _) => ExitInterfaceOnly());
+        menu.Items.Add(L10n.T("停止后台并退出"), null, (_, _) => StopHostAndExit());
         notifyIcon.ContextMenuStrip = menu;
         notifyIcon.DoubleClick += (_, _) => ShowFromTray();
         return notifyIcon;

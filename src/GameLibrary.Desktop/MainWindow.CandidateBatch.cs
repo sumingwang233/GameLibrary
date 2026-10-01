@@ -88,7 +88,7 @@ public partial class MainWindow
         });
         infoText.Children.Add(new TextBlock
         {
-            Text = isCandidate ? "等待确认" : LastPlayedLine(entry.Raw),
+            Text = isCandidate ? L10n.T("等待确认") : LastPlayedLine(entry.Raw),
             FontSize = 11,
             Margin = new Thickness(0, 2, 0, 0),
             Foreground = isCandidate
@@ -122,7 +122,7 @@ public partial class MainWindow
                 // 完全透明时不得拦截点击（悬停淡入时才可点）。
                 IsHitTestVisible = false,
                 Cursor = Cursors.Hand,
-                ToolTip = $"启动 {entry.Title}",
+                ToolTip = L10n.F($"启动 {entry.Title}"),
                 Tag = entry,
                 Child = new TextBlock
                 {
@@ -135,7 +135,7 @@ public partial class MainWindow
                 },
             };
             playOverlay.MouseLeftButtonUp += OnCardPlayClick;
-            System.Windows.Automation.AutomationProperties.SetName(playOverlay, $"启动 {entry.Title}");
+            System.Windows.Automation.AutomationProperties.SetName(playOverlay, L10n.F($"启动 {entry.Title}"));
         }
 
         // 选中遮罩：卡片级"背景加深"，跟随宿主 ListBoxItem.IsSelected（不改动数据绑定）。
@@ -172,9 +172,9 @@ public partial class MainWindow
                 MinWidth = 24,
                 MinHeight = 24,
                 VerticalAlignment = VerticalAlignment.Center,
-                ToolTip = $"选择 {entry.Title}",
+                ToolTip = L10n.F($"选择 {entry.Title}"),
             };
-            System.Windows.Automation.AutomationProperties.SetName(checkBox, $"选择 {entry.Title}");
+            System.Windows.Automation.AutomationProperties.SetName(checkBox, L10n.F($"选择 {entry.Title}"));
             checkBox.Checked += OnEntrySelectionChanged;
             checkBox.Unchecked += OnEntrySelectionChanged;
             layers.Children.Add(new Border
@@ -242,8 +242,8 @@ public partial class MainWindow
     /// <summary>游戏无"最后游玩时间"数据字段；预留 lastPlayedUtc，缺失时如实显示暂无记录。</summary>
     private static string LastPlayedLine(JsonElement game) =>
         game.TryGetProperty("lastPlayedUtc", out var lastPlayed) && lastPlayed.ValueKind == JsonValueKind.String
-            ? $"最后游玩：{FormatLocalTimestamp(lastPlayed.GetString())}"
-            : "最后游玩：暂无记录";
+            ? L10n.F($"最后游玩：{FormatLocalTimestamp(lastPlayed.GetString())}")
+            : L10n.T("最后游玩：暂无记录");
 
     private static void AnimateDouble(IAnimatable target, DependencyProperty property, double to) =>
         target.BeginAnimation(property, new DoubleAnimation(to, CardHoverDuration)
@@ -324,7 +324,7 @@ public partial class MainWindow
 
             if (defaultProfileId is null)
             {
-                ShowError("尚未配置启动方式。先在右侧详情页点「配置启动方式」。");
+                ShowError(L10n.T("尚未配置启动方式。先在右侧详情页点「配置启动方式」。"));
                 return;
             }
 
@@ -335,16 +335,16 @@ public partial class MainWindow
             });
             if (!launched.Ok)
             {
-                ShowError($"启动失败：{launched.Error?.Code} {launched.Error?.Message}");
+                ShowError(L10n.F($"启动失败：{launched.Error?.Code} {launched.Error?.Message}"));
                 return;
             }
 
             ShowError(null);
-            SetStatus("游戏已启动");
+            SetStatus(L10n.T("游戏已启动"));
         }
         catch (Exception ex)
         {
-            ShowError($"启动失败：{ex.Message}");
+            ShowError(L10n.F($"启动失败：{ex.Message}"));
         }
     }
 
@@ -432,7 +432,7 @@ public partial class MainWindow
     private void UpdateCandidateBatchActionState()
     {
         var selectedCount = _selectedCandidateIds.Count;
-        CandidateBatchSelectionText.Text = $"已选择 {selectedCount} 项";
+        CandidateBatchSelectionText.Text = L10n.F($"已选择 {selectedCount} 项");
         _updatingCandidateSelectionUi = true;
         try
         {
@@ -454,7 +454,7 @@ public partial class MainWindow
     private void UpdateGameBatchActionState()
     {
         var selectedCount = _selectedGameIds.Count;
-        GameBatchSelectionText.Text = $"已选择 {selectedCount} 项";
+        GameBatchSelectionText.Text = L10n.F($"已选择 {selectedCount} 项");
         _updatingGameSelectionUi = true;
         try
         {
@@ -503,8 +503,8 @@ public partial class MainWindow
         if (operationId == "candidates.ignore"
             && MessageBox.Show(
                 this,
-                $"确定忽略选中的 {selected.Length} 个扫描结果？以后扫描到这些位置时将不再提示，但不会删除任何文件。",
-                "批量忽略扫描结果",
+                L10n.F($"确定忽略选中的 {selected.Length} 个扫描结果？以后扫描到这些位置时将不再提示，但不会删除任何文件。"),
+                L10n.T("批量忽略扫描结果"),
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Warning,
                 MessageBoxResult.No) != MessageBoxResult.Yes)
@@ -537,7 +537,7 @@ public partial class MainWindow
                     }
                     else
                     {
-                        failures.Add($"{entry.Title}：{envelope.Error?.Message ?? "未知错误"}");
+                        failures.Add($"{entry.Title}：{envelope.Error?.Message ?? L10n.T("未知错误")}");
                     }
                 }
                 catch (Exception ex)
@@ -553,8 +553,8 @@ public partial class MainWindow
 
         await RefreshAsync();
         SetStatus(failures.Count == 0
-            ? $"批量{action}完成：成功 {succeeded} 项"
-            : $"批量{action}完成：成功 {succeeded} 项，失败 {failures.Count} 项");
+            ? L10n.F($"批量{action}完成：成功 {succeeded} 项")
+            : L10n.F($"批量{action}完成：成功 {succeeded} 项，失败 {failures.Count} 项"));
         ShowError(FirstBatchError(action, failures));
     }
 
@@ -599,7 +599,7 @@ public partial class MainWindow
                 }
                 else
                 {
-                    failures.Add($"{entry.Title}：{result.Error?.Message ?? "未知错误"}");
+                    failures.Add($"{entry.Title}：{result.Error?.Message ?? L10n.T("未知错误")}");
                 }
             }
         }
@@ -608,9 +608,9 @@ public partial class MainWindow
             _batchGameInProgress = false;
         }
 
-        var action = favorite ? "收藏" : "取消收藏";
+        var action = favorite ? L10n.T("收藏") : L10n.T("取消收藏");
         await RefreshAsync();
-        SetStatus($"批量{action}完成：成功 {succeeded} 项，失败 {failures.Count} 项");
+        SetStatus(L10n.F($"批量{action}完成：成功 {succeeded} 项，失败 {failures.Count} 项"));
         ShowError(FirstBatchError(action, failures));
     }
 
@@ -623,8 +623,8 @@ public partial class MainWindow
         }
 
         if (MessageBox.Show(this,
-            $"从游戏库中移出选中的 {selected.Length} 款游戏？\n\n不会删除或移动任何游戏文件。",
-            "批量移出游戏库", MessageBoxButton.YesNo, MessageBoxImage.Warning,
+            L10n.F($"从游戏库中移出选中的 {selected.Length} 款游戏？\n\n不会删除或移动任何游戏文件。"),
+            L10n.T("批量移出游戏库"), MessageBoxButton.YesNo, MessageBoxImage.Warning,
             MessageBoxResult.No) != MessageBoxResult.Yes)
         {
             return;
@@ -651,7 +651,7 @@ public partial class MainWindow
                 }
                 else
                 {
-                    failures.Add($"{entry.Title}：{result.Error?.Message ?? "未知错误"}");
+                    failures.Add($"{entry.Title}：{result.Error?.Message ?? L10n.T("未知错误")}");
                 }
             }
         }
@@ -661,8 +661,8 @@ public partial class MainWindow
         }
 
         await RefreshAsync();
-        SetStatus($"批量移出完成：成功 {succeeded} 项，失败 {failures.Count} 项；磁盘文件未删除");
-        ShowError(FirstBatchError("移出", failures));
+        SetStatus(L10n.F($"批量移出完成：成功 {succeeded} 项，失败 {failures.Count} 项；磁盘文件未删除"));
+        ShowError(FirstBatchError(L10n.T("移出"), failures));
     }
 
     private async void OnBatchTagsClick(object sender, RoutedEventArgs e)
@@ -675,13 +675,13 @@ public partial class MainWindow
 
         if (_userCollections.Count == 0)
         {
-            ShowError("尚无自定义标签。请先点击左侧「新建标签」。");
+            ShowError(L10n.T("尚无自定义标签。请先点击左侧「新建标签」。"));
             return;
         }
 
         var dialog = new Window
         {
-            Title = $"批量设置标签（{selected.Length} 款游戏）",
+            Title = L10n.F($"批量设置标签（{selected.Length} 款游戏）"),
             Width = 430,
             Height = 430,
             Owner = this,
@@ -692,7 +692,7 @@ public partial class MainWindow
         var panel = new StackPanel { Margin = new Thickness(18) };
         panel.Children.Add(new TextBlock
         {
-            Text = "勾选表示全部添加，取消表示全部移除，方块状态表示保持每款游戏现状。",
+            Text = L10n.T("勾选表示全部添加，取消表示全部移除，方块状态表示保持每款游戏现状。"),
             TextWrapping = TextWrapping.Wrap,
             Foreground = TryFindResource<SolidColorBrush>("TextMuted"),
             Margin = new Thickness(0, 0, 0, 10),
@@ -715,7 +715,7 @@ public partial class MainWindow
 
         var save = new Button
         {
-            Content = "应用",
+            Content = L10n.T("应用"),
             Style = (Style)TryFindResource("SteamGreenButton"),
             MinWidth = 100,
             HorizontalAlignment = HorizontalAlignment.Left,
@@ -760,7 +760,7 @@ public partial class MainWindow
                         }
                         else
                         {
-                            failures.Add($"{entry.Title} / {tag.Name}：{result.Error?.Message ?? "未知错误"}");
+                            failures.Add($"{entry.Title} / {tag.Name}：{result.Error?.Message ?? L10n.T("未知错误")}");
                         }
                     }
                 }
@@ -778,8 +778,8 @@ public partial class MainWindow
             }
 
             await RefreshAsync();
-            SetStatus($"批量标签操作完成：变更 {changed} 项，失败 {failures.Count} 项");
-            ShowError(FirstBatchError("设置标签", failures));
+            SetStatus(L10n.F($"批量标签操作完成：变更 {changed} 项，失败 {failures.Count} 项"));
+            ShowError(FirstBatchError(L10n.T("设置标签"), failures));
         };
 
         dialog.Content = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
@@ -799,13 +799,13 @@ public partial class MainWindow
     private static string? FirstBatchError(string action, IReadOnlyList<string> failures) =>
         failures.Count == 0
             ? null
-            : $"批量{action}失败：{failures[0]}{(failures.Count > 1 ? $"；另有 {failures.Count - 1} 项失败" : "")}";
+            : L10n.F($"批量{action}失败：{failures[0]}{(failures.Count > 1 ? L10n.F($"；另有 {failures.Count - 1} 项失败") : "")}");
 
     private static string CandidateReviewActionLabel(string operationId) => operationId switch
     {
-        "candidates.accept" => "加入游戏库",
-        "candidates.defer" => "暂不处理",
-        "candidates.ignore" => "忽略",
-        _ => "处理",
+        "candidates.accept" => L10n.T("加入游戏库"),
+        "candidates.defer" => L10n.T("暂不处理"),
+        "candidates.ignore" => L10n.T("忽略"),
+        _ => L10n.T("处理"),
     };
 }

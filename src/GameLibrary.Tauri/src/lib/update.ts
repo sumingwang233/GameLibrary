@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import { getVersion } from "@tauri-apps/api/app";
 
 const REPO = "sumingwang233/GameLibrary";
@@ -42,7 +43,7 @@ export async function checkForUpdate(): Promise<UpdateInfo> {
     headers: { Accept: "application/vnd.github+json" },
   });
   if (!response.ok) {
-    throw new Error(`GitHub 返回 ${response.status}，无法检查更新`);
+    throw new Error(t("GitHub 返回 {0}，无法检查更新", response.status));
   }
 
   const payload = (await response.json()) as {
@@ -51,7 +52,7 @@ export async function checkForUpdate(): Promise<UpdateInfo> {
     published_at?: string;
   };
   const latest = (payload.tag_name ?? "").replace(/^v/i, "");
-  if (!latest) throw new Error("GitHub 响应中没有 tag_name");
+  if (!latest) throw new Error(t("GitHub 响应中没有 tag_name"));
 
   return {
     current,

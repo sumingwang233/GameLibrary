@@ -24,7 +24,7 @@ public partial class MainWindow : Window
     {
         try
         {
-            SetStatus("正在启动后台服务…");
+            SetStatus(L10n.T("正在启动后台服务…"));
             ShowError(null);
             await DisposeConnectionAsync();
             _connection = await HostProcessLauncher.EnsureStartedAsync(
@@ -35,11 +35,11 @@ public partial class MainWindow : Window
             if (!initialized)
             {
                 // 审查意见 #2："初始化库"应自动完成，不出现在主界面按钮里。
-                SetStatus("正在准备游戏库…");
+                SetStatus(L10n.T("正在准备游戏库…"));
                 var init = await InvokeAsync("library.init", new { idempotencyKey = "desktop-auto-init" });
                 if (!init.Ok)
                 {
-                    ShowError($"准备游戏库失败：{init.Error?.Message}");
+                    ShowError(L10n.F($"准备游戏库失败：{init.Error?.Message}"));
                 }
             }
 
@@ -52,8 +52,8 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            SetStatus("暂时不可用");
-            ShowError($"后台服务暂时不可用：{ex.Message}");
+            SetStatus(L10n.T("暂时不可用"));
+            ShowError(L10n.F($"后台服务暂时不可用：{ex.Message}"));
         }
     }
 
@@ -65,6 +65,8 @@ public partial class MainWindow : Window
             if (envelope.Ok)
             {
                 _settings = envelope.Data.Clone();
+                L10n.Apply(TryGetSetting("uiLanguage", out var language) ? language.GetString() : null);
+                RefreshLocalizedSelectors();
                 var theme = TryGetSetting("theme", out var t) ? t.GetString() : null;
                 App.ApplyTheme(theme ?? "dark");
                 App.ApplyFontFamily(TryGetSetting("uiFontFamily", out var f)
@@ -106,13 +108,13 @@ public partial class MainWindow : Window
             var hostStatus = await InvokeAsync("host.status");
             if (!hostStatus.Ok)
             {
-                throw new InvalidOperationException($"读取后台状态失败：{hostStatus.Error?.Message}");
+                throw new InvalidOperationException(L10n.F($"读取后台状态失败：{hostStatus.Error?.Message}"));
             }
 
             var tags = await InvokeAsync("tags.list");
             if (!tags.Ok)
             {
-                throw new InvalidOperationException($"读取标签失败：{tags.Error?.Message}");
+                throw new InvalidOperationException(L10n.F($"读取标签失败：{tags.Error?.Message}"));
             }
 
             if (version != _refreshVersion)
@@ -127,13 +129,13 @@ public partial class MainWindow : Window
             var games = await InvokeAsync("games.list", listParameters);
             if (!games.Ok)
             {
-                throw new InvalidOperationException($"读取游戏失败：{games.Error?.Code} {games.Error?.Message}");
+                throw new InvalidOperationException(L10n.F($"读取游戏失败：{games.Error?.Code} {games.Error?.Message}"));
             }
 
             var candidates = await InvokeAsync("candidates.list", new { state = "pendingReview" });
             if (!candidates.Ok)
             {
-                throw new InvalidOperationException($"读取待确认项目失败：{candidates.Error?.Code} {candidates.Error?.Message}");
+                throw new InvalidOperationException(L10n.F($"读取待确认项目失败：{candidates.Error?.Code} {candidates.Error?.Message}"));
             }
 
             if (version != _refreshVersion)
@@ -148,14 +150,14 @@ public partial class MainWindow : Window
 
             var gameCount = games.Data.GetProperty("total").GetInt32();
             var candidateCount = candidates.Data.GetProperty("total").GetInt32();
-            var countLabel = SelectedViewId is "all" or "pending" ? "游戏" : "当前视图";
-            SetStatus($"已就绪 · {countLabel} {gameCount} · 待确认 {candidateCount}");
+            var countLabel = SelectedViewId is "all" or "pending" ? L10n.T("游戏") : L10n.T("当前视图");
+            SetStatus(L10n.F($"已就绪 · {countLabel} {gameCount} · 待确认 {candidateCount}"));
         }
         catch (Exception ex)
         {
             if (version == _refreshVersion)
             {
-                ShowError($"刷新失败：{ex.Message}");
+                ShowError(L10n.F($"刷新失败：{ex.Message}"));
             }
         }
     }
@@ -212,6 +214,12 @@ public partial class MainWindow : Window
             if (items.GetArrayLength() > 0 && next != _eventCursor)
             {
                 _eventCursor = next;
+                if (items.EnumerateArray().Any(item => item.GetProperty("type").GetString()?.StartsWith("settings.", StringComparison.Ordinal) == true))
+                {
+                    await LoadSettingsAsync();
+                    _trayIcon?.Dispose();
+                    _trayIcon = null;
+                }
                 await RefreshAsync();
             }
             else if (next != _eventCursor)
@@ -231,7 +239,7 @@ public partial class MainWindow : Window
     {
         if (_connection is null)
         {
-            throw new InvalidOperationException("后台服务尚未就绪");
+            throw new InvalidOperationException(L10n.T("后台服务尚未就绪"));
         }
 
         var preparedParameters = DesktopRequestParameters.Prepare(operationId, parameters);

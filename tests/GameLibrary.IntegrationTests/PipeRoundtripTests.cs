@@ -139,7 +139,7 @@ public sealed class PipeServerFixture : IAsyncDisposable
         // 刻意不接完整 WirePersistence：OnProfileChanged 会触发 launch_profiles 的
         // games 外键——既有启动用例允许给合成 gameId 建 Profile（不落 games 表），
         // 夹具行为保持与历史一致。
-        HostRuntime.WireAttemptPersistence(State, init.Store!);
+        HostRuntime.WireAttemptPersistence(State);
         StartupDir = System.IO.Path.Combine(dataDir.CanonicalPath!, "startup");
         State.StartupShortcuts = new GameLibrary.Infrastructure.Shell.StartupShortcutManager(StartupDir);
         Server = new PipeServer(

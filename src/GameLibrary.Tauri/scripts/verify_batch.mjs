@@ -24,10 +24,20 @@ export async function verifyBatch(client, dataDirectory) {
     await batchWait(() => document.querySelector('button[aria-label="还原窗口"]'));
     document.querySelector('button[aria-label="还原窗口"]').click();
     await batchWait(() => document.querySelector('button[aria-label="最大化"]'));
-    if (!(await batchOp('host.status')).libraryInitialized) await batchOp('library.init');
+    if (!(await batchOp('host.status')).libraryInitialized) {
+      try { await batchOp('library.init'); }
+      catch (error) { if (!(await batchOp('host.status')).libraryInitialized) throw error; }
+    }
     await batchOp('roots.add', { root: ${JSON.stringify(root)} });
     for (const sourcePath of ${JSON.stringify(files)}) await batchOp('games.create', { sourcePath });
+    const tail = (await batchOp('events.read', { limit: 1 })).latestCursor;
+    const waiting = batchOp('events.wait', { cursor: tail, timeoutMs: 1000 });
+    const started = performance.now();
+    await batchOp('games.list', { limit: 1 });
+    window.batchReadLatency = performance.now() - started;
+    if (window.batchReadLatency > 2000) throw new Error('event wait blocked ordinary requests');
     await batchOp('tags.create', { name: 'BatchTag' });
+    await waiting;
     document.querySelector('[aria-label="刷新"]').click();
     await batchWait(() => document.querySelectorAll('input[type="checkbox"]').length === 3);
   })()`);
@@ -86,11 +96,12 @@ export async function verifyBatch(client, dataDirectory) {
   })()`);
   await evaluate(`(async () => {
     [...document.querySelectorAll('input[type="checkbox"]')].forEach(e => e.click());
-    const select = document.querySelector('select[aria-label="批量添加标签"]');
-    select.value = [...select.options].find(o => o.text === 'BatchTag').value;
-    select.dispatchEvent(new Event('change', { bubbles: true }));
     await batchWait(() => !batchButton('添加标签').disabled);
     batchButton('添加标签').click();
+    await batchWait(() => document.querySelector('[role="listbox"][aria-label="选择标签"]'));
+    const option = [...document.querySelectorAll('[role="listbox"] [role="option"]')].find(item => item.textContent.includes('BatchTag'));
+    if (!option) throw new Error('BatchTag missing from tag picker');
+    option.click();
     await batchWait(() => [...document.querySelectorAll('input[type="checkbox"]')].every(e => !e.checked));
     await batchWait(() => [...document.querySelectorAll('input[type="checkbox"]')].every(e => !e.disabled));
     if ((await batchOp('tags.list')).items.find(t => t.name === 'BatchTag').gameCount !== 3) throw new Error('tag failed');
@@ -113,5 +124,5 @@ export async function verifyBatch(client, dataDirectory) {
     if ((await batchOp('roots.list')).total !== 0) throw new Error('root remains');
   })()`);
   for (const file of files) if (readFileSync(file, "utf8") !== "fixture-not-executable") throw new Error("game file changed");
-  return { windowControls: true, detailCreateTag: true, launchErrorVisible: true, favorite: true, unfavorite: true, tags: true, batchRemove: true, rootRemove: true, gameFilesPreserved: true };
+  return { separateEventChannel: true, windowControls: true, detailCreateTag: true, launchErrorVisible: true, favorite: true, unfavorite: true, tags: true, batchRemove: true, rootRemove: true, gameFilesPreserved: true };
 }

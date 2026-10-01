@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import type { ScanProgressState } from "../lib/state";
@@ -5,9 +6,9 @@ import { Button } from "./ui/button";
 
 function formatElapsed(milliseconds: number) {
   const seconds = Math.max(0, Math.floor(milliseconds / 1000));
-  if (seconds < 60) return `${seconds} 秒`;
+  if (seconds < 60) return t("{0} 秒", seconds);
   const minutes = Math.floor(seconds / 60);
-  return `${minutes} 分 ${seconds % 60} 秒`;
+  return t("{0} 分 {1} 秒", minutes, seconds % 60);
 }
 
 export function ScanProgressBar({
@@ -30,10 +31,10 @@ export function ScanProgressBar({
   const elapsed = Math.max(0, now - progress.startedAt);
   const title =
     progress.phase === "starting"
-      ? "正在准备扫描…"
+      ? t("正在准备扫描…")
       : progress.phase === "cancelling"
-        ? "正在停止扫描…"
-        : "正在扫描游戏库…";
+        ? t("正在停止扫描…")
+        : t("正在扫描游戏库…");
 
   return (
     <div
@@ -44,8 +45,7 @@ export function ScanProgressBar({
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <p className="font-medium">{title}</p>
-          <p className="mt-1 text-xs text-text-secondary">
-            已运行 {formatElapsed(elapsed)}
+          <p className="mt-1 text-xs text-text-secondary">{t("已运行")} {formatElapsed(elapsed)}
           </p>
         </div>
         <Button
@@ -54,13 +54,11 @@ export function ScanProgressBar({
           onClick={onCancel}
           disabled={progress.phase === "cancelling"}
         >
-          <X size={16} />
-          取消扫描
-        </Button>
+          <X size={16} />{t("取消扫描")}</Button>
       </div>
       <div
         role="progressbar"
-        aria-label="正在扫描游戏库"
+        aria-label={t("正在扫描游戏库")}
         className="mt-3 h-1.5 overflow-hidden rounded-full bg-steam/15"
       >
         <div className="scan-progress-indicator h-full w-1/3 rounded-full bg-steam" />
