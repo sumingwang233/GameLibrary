@@ -15,7 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 
 const FONT_CHOICES = ["Microsoft YaHei UI", "Segoe UI", "Microsoft YaHei", "Inter", "system-ui"];
 
-export function SettingsDialog({ open: isOpen, onClose }: { open: boolean; onClose: () => void }) {
+export function SettingsDialog({ open: isOpen, onClose, supportsTitleTranslation = false }: { open: boolean; onClose: () => void; supportsTitleTranslation?: boolean }) {
   const { settings, error: settingsError, update, reload } = useSettings();
   const [cacheDraft, setCacheDraft] = useState<string | null>(null);
   const [fontDraft, setFontDraft] = useState<string | null>(null);
@@ -132,6 +132,15 @@ export function SettingsDialog({ open: isOpen, onClose }: { open: boolean; onClo
             </TabsContent>
 
             <TabsContent value="library" className="space-y-5">
+              {supportsTitleTranslation && <Field label={t("名称翻译")} hint={t("仅发送游戏名称，免费且无需密钥；引擎不可用时自动切换。网络或限流可能导致翻译失败。") }>
+                <select value={settings.titleTranslationEngine ?? "balanced"} disabled={busy}
+                  onChange={event => void patch({ titleTranslationEngine: event.target.value })} aria-label={t("名称翻译引擎")}
+                  className="h-10 w-full rounded-md border border-input bg-field px-3 text-sm text-text-primary focus-visible:border-steam focus-visible:outline-none">
+                  <option value="balanced">{t("负载均衡")}</option>
+                  <option value="google">{t("Google 优先")}</option>
+                  <option value="bing">{t("Bing 优先")}</option>
+                </select>
+              </Field>}
               <Field
                 label={t("后台核对周期（分钟）")}
                 hint={t("定期检查游戏目录是否还在原位，并提示磁盘上新出现的游戏。")}

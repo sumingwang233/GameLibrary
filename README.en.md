@@ -87,9 +87,11 @@ The installer provides a wizard, Start menu entries and uninstallation registrat
 </details>
 
 <details>
-<summary><strong>Current source: v1.6.1, acceptance candidate</strong></summary>
+<summary><strong>Current source: v1.7.0, unreleased</strong></summary>
 
 v1.6.1 adds suggested launch profiles, Chinese entry preference, automatic default promotion after trial verification, and manual recovery of clearly failed entries. It also updates card playtime, the titlebar theme shortcut and Windows taskbar icon. These changes are not in the stable v1.5.5 downloads above. See the [v1.6.1 notes](docs/releases/v1.6.1.md) for changes and acceptance status.
+
+v1.7.0 source adds [game title translation](docs/title-translation.md) with free Google/Bing engines requiring no key, batch progress and cancellation, and persistent original/Chinese title switching. It also fixes playtime below titles in both layouts. Existing installers do not contain these additions; this version has not been packaged or released.
 </details>
 
 <details>

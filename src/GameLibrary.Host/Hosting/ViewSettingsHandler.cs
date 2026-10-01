@@ -593,7 +593,7 @@ internal sealed class ViewSettingsHandler
         }
 
         var declared = new HashSet<string>(StringComparer.Ordinal)
-            { "expectedRevision", "idempotencyKey", "activeViewId", "autostartEnabled", "scanIntervalMinutes", "theme", "closeToTray", "uiFontScale", "uiFontFamily", "cacheParentDirectory", "uiLanguage" };
+            { "expectedRevision", "idempotencyKey", "activeViewId", "autostartEnabled", "scanIntervalMinutes", "theme", "closeToTray", "uiFontScale", "uiFontFamily", "cacheParentDirectory", "uiLanguage", "titleTranslationEngine" };
         var unknown = parameters.EnumerateObject()
             .Where(p => !declared.Contains(p.Name))
             .Select(p => p.Name)
@@ -641,6 +641,15 @@ internal sealed class ViewSettingsHandler
         var uiFontFamily = current.UiFontFamily;
         var cacheParentDirectory = current.CacheParentDirectory;
         var keys = new List<(string Key, string? Value)>();
+
+        var titleTranslationEngine = current.TitleTranslationEngine;
+        if (parameters.TryGetProperty("titleTranslationEngine", out var engineElement))
+        {
+            if (engineElement.ValueKind != JsonValueKind.String || engineElement.GetString() is not ("balanced" or "google" or "bing"))
+                return IpcRequests.InvalidArgument(request, "titleTranslationEngine 必须是 balanced / google / bing");
+            titleTranslationEngine = engineElement.GetString()!;
+            keys.Add(("titleTranslationEngine", titleTranslationEngine));
+        }
 
         var uiLanguage = current.UiLanguage;
         if (parameters.TryGetProperty("uiLanguage", out var languageElement))
@@ -830,6 +839,7 @@ internal sealed class ViewSettingsHandler
             UiFontFamily = uiFontFamily,
             CacheParentDirectory = cacheParentDirectory,
             UiLanguage = uiLanguage,
+            TitleTranslationEngine = titleTranslationEngine,
         };
         return new Envelope<object>
         {
@@ -895,5 +905,6 @@ internal sealed class ViewSettingsHandler
         uiFontFamily = settings.UiFontFamily,
         cacheParentDirectory = settings.CacheParentDirectory,
         uiLanguage = settings.UiLanguage,
+        titleTranslationEngine = settings.TitleTranslationEngine,
     };
 }

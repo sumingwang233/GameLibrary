@@ -87,9 +87,11 @@ Get-FileHash .\GameLibrary-Setup-v1.5.5.exe -Algorithm SHA256
 </details>
 
 <details>
-<summary><strong>当前源码：v1.6.1，待验收构建</strong></summary>
+<summary><strong>当前源码：v1.7.0，未发布</strong></summary>
 
 v1.6.1 新增建议启动方式：中文入口优先、试运行验证后自动设为默认、明确失败自动废弃并支持手动恢复；同步调整卡片时长、主题快捷切换和 Windows 任务栏图标。这些修改不在上方 v1.5.5 稳定下载包中。[v1.6.1 说明](docs/releases/v1.6.1.md)记录交付内容与验收状态。
+
+v1.7.0 源码新增[游戏名称翻译](docs/title-translation.md)：Google/Bing 免费免密钥翻译、批量进度和取消、中文译名与原文切换；同时补修两种布局标题下方的游玩时长。当前安装包不包含这些新增改动，尚未打包或发布。
 </details>
 
 <details>

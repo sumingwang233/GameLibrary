@@ -63,6 +63,8 @@ internal static class Program
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "translation.get" or "translation.set" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
+                "titles.translate" or "titles.set_display" or "titles.set_translated" or "jobs.cancel" =>
+                    await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "diagnostics.status" or "diagnostics.logs" or "diagnostics.cache_rebuild" or "backups.list" or "backups.create" or "backups.inspect" or "backups.restore_plan" or "backups.restore" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "tools.discover" => await ScanHostOperationAsync(parse, "tools.discover", requiresRoot: true),
@@ -133,6 +135,7 @@ internal static class Program
         if (cli.Autostart is { } autostart) patch["autostartEnabled"] = autostart;
         if (cli.Interval is { } interval) patch["scanIntervalMinutes"] = interval;
         if (cli.Theme is { } theme) patch["theme"] = theme;
+        if (cli.TitleEngine is { } titleEngine) patch["titleTranslationEngine"] = titleEngine;
         if (cli.CloseToTray is { } closeToTray) patch["closeToTray"] = closeToTray;
         if (cli.UiFontFamily is { } family) patch["uiFontFamily"] = family;
         if (cli.UiLanguage is { } language) patch["uiLanguage"] = language;
@@ -140,6 +143,18 @@ internal static class Program
         if (cli.ResetCacheParentDirectory) patch["cacheParentDirectory"] = null!;
         else if (cli.CacheParentDirectory is { } cacheDirectory) patch["cacheParentDirectory"] = cacheDirectory;
         return patch;
+    }
+
+    private static Dictionary<string, object?> BuildTitleTranslation(CommandLine cli)
+    {
+        var parameters = new Dictionary<string, object?>
+        {
+            ["gameIds"] = cli.ItemsJson is null ? new[] { cli.GameId } : JsonSerializer.Deserialize<string[]>(cli.ItemsJson),
+            ["force"] = cli.ForceTranslation,
+            ["idempotencyKey"] = cli.IdempotencyKey ?? Guid.NewGuid().ToString("N"),
+        };
+        if (cli.TitleEngine is not null) parameters["engine"] = cli.TitleEngine;
+        return parameters;
     }
 
     /// <summary>宿主依赖的扫描/候选类操作：自动拉起宿主后单次调用。</summary>
@@ -314,7 +329,7 @@ internal static class Program
             && (cli.ExpectedRevision is null
                 || cli.Autostart is null && cli.Interval is null && cli.Theme is null
                     && cli.CloseToTray is null && cli.UiFontFamily is null && cli.UiFontScale is null && cli.UiLanguage is null
-                    && cli.CacheParentDirectory is null && !cli.ResetCacheParentDirectory))
+                    && cli.CacheParentDirectory is null && !cli.ResetCacheParentDirectory && cli.TitleEngine is null))
         {
             Console.Error.WriteLine("settings update 需要 --expected-revision 与至少一个设置字段（--theme、--font-family、--cache-dir 等）");
             return ExitArgumentError;
@@ -387,6 +402,10 @@ internal static class Program
             "library.init" => cli.IdempotencyKey is null ? null : new { idempotencyKey = cli.IdempotencyKey },
             "scan.start" => new { idempotencyKey = cli.IdempotencyKey ?? ("scan-" + Guid.NewGuid().ToString("N")), root = cli.RootArgument },
             "events.wait" => new { cursor = cli.ExpectedRevision, limit = cli.Limit, timeoutMs = cli.WaitTimeoutMs ?? 25000 },
+            "titles.translate" => BuildTitleTranslation(cli),
+            "titles.set_display" => new { gameId = cli.GameId, mode = cli.TitleMode, expectedRevision = cli.ExpectedRevision, idempotencyKey = cli.IdempotencyKey ?? Guid.NewGuid().ToString("N") },
+            "titles.set_translated" => new { gameId = cli.GameId, title = cli.Name, expectedRevision = cli.ExpectedRevision, idempotencyKey = cli.IdempotencyKey ?? Guid.NewGuid().ToString("N") },
+            "jobs.cancel" => new { jobId = cli.JobId, idempotencyKey = cli.IdempotencyKey ?? Guid.NewGuid().ToString("N") },
             "candidates.review_batch" => new { action = cli.BatchAction, items = JsonSerializer.Deserialize<JsonElement>(cli.ItemsJson ?? "null"), idempotencyKey = cli.IdempotencyKey ?? Guid.NewGuid().ToString("N") },
             "tags.reorder" => new { items = JsonSerializer.Deserialize<JsonElement>(cli.ItemsJson ?? "null"), idempotencyKey = cli.IdempotencyKey ?? Guid.NewGuid().ToString("N") },
             "events.read" => (cli.Limit is null && cli.ExpectedRevision is null) ? null : new { cursor = cli.ExpectedRevision, limit = cli.Limit },

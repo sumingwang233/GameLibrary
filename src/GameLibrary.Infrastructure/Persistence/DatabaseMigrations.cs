@@ -492,5 +492,20 @@ public static class DatabaseMigrations
             ALTER TABLE launch_profiles ADD COLUMN suggestion_score INTEGER NOT NULL DEFAULT 0;
             ALTER TABLE launch_profiles ADD COLUMN suggestion_reasons_json TEXT NOT NULL DEFAULT '[]';
             """),
-    ];
+        new DatabaseMigration(26, """
+            CREATE TABLE game_title_translations (
+                game_id TEXT PRIMARY KEY REFERENCES games(game_id) ON DELETE CASCADE,
+                translated_title TEXT NOT NULL,
+                source_title TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                translated_utc TEXT NOT NULL,
+                manually_edited INTEGER NOT NULL DEFAULT 0,
+                display_mode TEXT NOT NULL DEFAULT 'translated' CHECK(display_mode IN ('original', 'translated'))
+            );
+            CREATE TRIGGER original_title_changed AFTER UPDATE OF title ON games
+            BEGIN
+                UPDATE game_title_translations SET display_mode = 'original' WHERE game_id = NEW.game_id;
+            END;
+            """),
+];
 }

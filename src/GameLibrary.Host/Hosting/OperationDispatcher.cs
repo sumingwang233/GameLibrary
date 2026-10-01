@@ -86,10 +86,12 @@ public sealed class OperationDispatcher
     /// 整体替换 Library），BindLibraryStore 经委托走 HostRuntimeState 单源，MaintenanceMode
     /// 经 setter 委托读写，jobs 为 init-only 引用，dataDirectory/appVersion 为不可变值直传。</summary>
     private readonly BackupsHandler _backups;
+    private readonly TitlesHandler _titles;
 
     public OperationDispatcher(HostRuntimeState state)
     {
         _state = state;
+        _titles = new TitlesHandler(state);
         _candidateReview = new CandidateReviewHandler(() => state.Library.Store, state.Events);
         _ignoreRules = new IgnoreRulesHandler(() => state.Library.Store, state.Roots);
         _tags = new TagsHandler(() => state.Library.Store, state.Events);
@@ -151,6 +153,10 @@ public sealed class OperationDispatcher
         "candidates.defer",
         "candidates.ignore",
         "fields.set",
+        "titles.translate",
+        "jobs.cancel",
+        "titles.set_display",
+        "titles.set_translated",
         "verification.start",
         "verification.report",
         "verification.invalidate",
@@ -181,7 +187,7 @@ public sealed class OperationDispatcher
     private static readonly HashSet<string> MaintenanceAllowedOperations = new(StringComparer.Ordinal)
     {
         "host.status", "host.stop", "capabilities.get", "schema.get",
-        "jobs.get", "scan.status", "scan.coverage",
+        "jobs.get", "jobs.cancel", "scan.status", "scan.coverage",
         "diagnostics.status", "diagnostics.logs",
         "backups.list", "backups.inspect", "backups.restore_plan", "backups.restore", "backups.restore_start",
     };
@@ -776,6 +782,10 @@ public sealed class OperationDispatcher
         "verification.get" => _verification.VerificationGet(request),
         "verification.list" => _verification.VerificationList(request),
         "fields.set" => _cataloging.FieldsSet(request),
+        "titles.translate" => _titles.Translate(request),
+        "jobs.cancel" => _titles.Cancel(request),
+        "titles.set_display" => _titles.Edit(request, display: true),
+        "titles.set_translated" => _titles.Edit(request, display: false),
         "fields.clear" => _cataloging.FieldsClear(request),
         "fields.reset" => _cataloging.FieldsReset(request),
         "assets.import" => _cataloging.AssetsImport(request),

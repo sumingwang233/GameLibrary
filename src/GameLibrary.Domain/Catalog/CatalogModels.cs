@@ -97,6 +97,8 @@ public sealed record IgnoreRule
 /// <summary>列表页充实数据（games.list 批量取回，等价于逐游戏 EffectiveField×2 + ListAssets + ListGameTags）。</summary>
 public sealed record GameCardEnrichment
 {
+    public GameTitleTranslation? TitleTranslation { get; init; }
+
     public required string? Title { get; init; }
 
     public required string TitleSource { get; init; }
@@ -109,6 +111,9 @@ public sealed record GameCardEnrichment
 
     public required IReadOnlyList<(string Kind, string Name)> Tags { get; init; }
 }
+
+public sealed record GameTitleTranslation(string TranslatedTitle, string SourceTitle, string Provider,
+    string TranslatedUtc, bool ManuallyEdited, string DisplayMode);
 
 /// <summary>
 /// 游玩统计（feat-1）：由 launch_attempts 聚合。PlaytimeMinutes 为

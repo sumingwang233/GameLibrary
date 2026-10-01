@@ -25,6 +25,9 @@ public sealed record CommandLine
     /// <summary>schema get 的 --operation 参数（操作 ID）。</summary>
     public string? OperationArgument { get; private init; }
     public string? ItemsJson { get; private init; }
+    public string? TitleEngine { get; private init; }
+    public string? TitleMode { get; private init; }
+    public bool ForceTranslation { get; private init; }
     public string? BatchAction { get; private init; }
     public int? WaitTimeoutMs { get; private init; }
 
@@ -233,6 +236,9 @@ public sealed record CommandLine
         bool? autostart = null;
         int? interval = null;
         string? theme = null;
+        string? titleEngine = null;
+        string? titleMode = null;
+        var forceTranslation = false;
         string? uiFontFamily = null;
         string? uiLanguage = null;
         double? uiFontScale = null;
@@ -250,6 +256,15 @@ public sealed record CommandLine
         {
             switch (args[i].ToLowerInvariant())
             {
+                case "--engine" when i + 1 < args.Length:
+                    titleEngine = args[++i];
+                    break;
+                case "--mode" when i + 1 < args.Length:
+                    titleMode = args[++i];
+                    break;
+                case "--force":
+                    forceTranslation = true;
+                    break;
                 case "--data-dir" when i + 1 < args.Length:
                     dataDir = args[++i];
                     break;
@@ -516,6 +531,9 @@ public sealed record CommandLine
             Autostart = autostart,
             Interval = interval,
             Theme = theme,
+            TitleEngine = titleEngine,
+            TitleMode = titleMode,
+            ForceTranslation = forceTranslation,
             UiFontFamily = uiFontFamily,
             UiLanguage = uiLanguage,
             UiFontScale = uiFontScale,

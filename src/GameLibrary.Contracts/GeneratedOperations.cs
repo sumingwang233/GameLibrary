@@ -6,6 +6,9 @@ namespace GameLibrary.Contracts;
 public static class OperationIds
 {
     public const string ProfilesDiscover = "profiles.discover";
+    public const string TitlesTranslate = "titles.translate";
+    public const string TitlesSetDisplay = "titles.set_display";
+    public const string TitlesSetTranslated = "titles.set_translated";
     public const string ProfilesRestore = "profiles.restore";
     public const string CapabilitiesGet = "capabilities.get";
     public const string SchemaGet = "schema.get";
@@ -147,6 +150,9 @@ internal static class GeneratedOperations
     internal static readonly IReadOnlySet<string> Available = new HashSet<string>(StringComparer.Ordinal)
     {
         OperationIds.ProfilesDiscover,
+        OperationIds.TitlesTranslate,
+        OperationIds.TitlesSetDisplay,
+        OperationIds.TitlesSetTranslated,
         OperationIds.ProfilesRestore,
         OperationIds.CapabilitiesGet,
         OperationIds.SchemaGet,
@@ -215,6 +221,7 @@ internal static class GeneratedOperations
         OperationIds.LaunchStatus,
         OperationIds.LaunchHistory,
         OperationIds.JobsGet,
+        OperationIds.JobsCancel,
         OperationIds.EventsRead,
         OperationIds.NotificationsList,
         OperationIds.NotificationsGet,
@@ -247,6 +254,9 @@ internal static class GeneratedOperations
         new Dictionary<string, ParamSpec[]>(StringComparer.Ordinal)
         {
             [OperationIds.ProfilesDiscover] = [new("gameId", "string", false, "游戏 ID；省略时回填库内游戏"), new("idempotencyKey", "string", true, "识别幂等键")],
+            [OperationIds.TitlesTranslate] = [new("gameIds", "array", true, "gameIds"), new("engine", "string", false, "engine"), new("force", "boolean", false, "force"), new("idempotencyKey", "string", true, "idempotencyKey")],
+            [OperationIds.TitlesSetDisplay] = [new("gameId", "string", true, "gameId"), new("mode", "string", true, "mode"), new("expectedRevision", "integer", true, "expectedRevision"), new("idempotencyKey", "string", true, "idempotencyKey")],
+            [OperationIds.TitlesSetTranslated] = [new("gameId", "string", true, "gameId"), new("title", "string", true, "title"), new("expectedRevision", "integer", true, "expectedRevision"), new("idempotencyKey", "string", true, "idempotencyKey")],
             [OperationIds.ProfilesRestore] = [new("profileId", "string", true, "启动方式 ID"), new("expectedRevision", "integer", true, "预期修订号"), new("idempotencyKey", "string", true, "恢复幂等键")],
             [OperationIds.CapabilitiesGet] = [],
             [OperationIds.HostStatus] = [],
@@ -314,13 +324,14 @@ internal static class GeneratedOperations
             [OperationIds.LaunchStatus] = [new("attemptId", "string", true, "尝试 ID")],
             [OperationIds.LaunchHistory] = [new("gameId", "string", false, "按游戏过滤")],
             [OperationIds.JobsGet] = [new("jobId", "string", true, "作业 ID")],
+            [OperationIds.JobsCancel] = [new("jobId", "string", true, "jobId"), new("idempotencyKey", "string", true, "idempotencyKey")],
             [OperationIds.EventsRead] = [new("cursor", "integer", false, "游标（上次响应的 nextCursor）；缺省表示从头全量读取"), new("limit", "integer", false, "单批上限（1–4096）")],
             [OperationIds.NotificationsList] = [new("state", "string", false, "按状态过滤")],
             [OperationIds.NotificationsGet] = [new("notificationId", "string", true, "通知 ID")],
             [OperationIds.NotificationsAcknowledge] = [new("notificationId", "string", true, "通知 ID"), new("idempotencyKey", "string", true, "幂等键")],
             [OperationIds.NotificationsDefer] = [new("notificationId", "string", true, "通知 ID"), new("idempotencyKey", "string", true, "幂等键")],
             [OperationIds.SettingsGet] = [],
-            [OperationIds.SettingsUpdate] = [new("activeViewId", "string", false, "激活视图（字符串或 null）"), new("autostartEnabled", "boolean", false, "开机启动"), new("scanIntervalMinutes", "integer", false, "核对周期（1–10080 分钟）"), new("theme", "string", false, "dark / light / system"), new("closeToTray", "boolean", false, "关闭即缩托盘"), new("uiFontScale", "number", false, "界面缩放（0.85–1.6）"), new("uiLanguage", "string", false, "zh-CN / zh-TW / en / ja"), new("uiFontFamily", "string", false, "已安装字体的名称"), new("cacheParentDirectory", "string", false, "缓存存放位置的父目录；null 恢复默认"), new("expectedRevision", "integer", true, "期望设置修订"), new("idempotencyKey", "string", true, "幂等键")],
+            [OperationIds.SettingsUpdate] = [new("titleTranslationEngine", "string", false, "titleTranslationEngine"), new("activeViewId", "string", false, "激活视图（字符串或 null）"), new("autostartEnabled", "boolean", false, "开机启动"), new("scanIntervalMinutes", "integer", false, "核对周期（1–10080 分钟）"), new("theme", "string", false, "dark / light / system"), new("closeToTray", "boolean", false, "关闭即缩托盘"), new("uiFontScale", "number", false, "界面缩放（0.85–1.6）"), new("uiLanguage", "string", false, "zh-CN / zh-TW / en / ja"), new("uiFontFamily", "string", false, "已安装字体的名称"), new("cacheParentDirectory", "string", false, "缓存存放位置的父目录；null 恢复默认"), new("expectedRevision", "integer", true, "期望设置修订"), new("idempotencyKey", "string", true, "幂等键")],
             [OperationIds.SettingsReset] = [new("idempotencyKey", "string", true, "幂等键")],
             [OperationIds.ViewsList] = [],
             [OperationIds.ViewsGet] = [new("viewId", "string", true, "视图 ID")],

@@ -10,6 +10,9 @@ internal static class GeneratedCommandMap
     public static string? Resolve(string noun, string verb) => (noun, verb) switch
     {
         ("profiles", "discover") => OperationIds.ProfilesDiscover,
+        ("titles", "translate") => OperationIds.TitlesTranslate,
+        ("titles", "set-display") => OperationIds.TitlesSetDisplay,
+        ("titles", "set-translated") => OperationIds.TitlesSetTranslated,
         ("profiles", "restore") => OperationIds.ProfilesRestore,
         ("capabilities", "get") => OperationIds.CapabilitiesGet,
         ("schema", "get") => OperationIds.SchemaGet,
@@ -79,6 +82,7 @@ internal static class GeneratedCommandMap
         ("launch", "status") => OperationIds.LaunchStatus,
         ("launch", "history") => OperationIds.LaunchHistory,
         ("jobs", "get") => OperationIds.JobsGet,
+        ("jobs", "cancel") => OperationIds.JobsCancel,
         ("events", "read") => OperationIds.EventsRead,
         ("notifications", "list") => OperationIds.NotificationsList,
         ("notifications", "get") => OperationIds.NotificationsGet,

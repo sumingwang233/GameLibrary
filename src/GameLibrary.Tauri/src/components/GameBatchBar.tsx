@@ -6,19 +6,22 @@ import { groupTagsByCategory, tagLabel } from "../lib/tags";
 import type { GameItem, TagItem } from "../lib/types";
 import { Button } from "./ui/button";
 import { ConfirmDialog } from "./ui/confirm-dialog";
+import type { TitleTranslationController } from "../lib/hooks/useTitleTranslation";
 
 /**
  * 批量操作条。bug-3：「添加标签」不再依赖先在下拉里选好标签的前置状态（用户不理解
  * 按钮为何灰），改为按钮常可点（busy 除外）→ 点击弹出按分类分组的标签浮层 → 选择即
  * 应用。assign 调用链保持不变：逐游戏 games.get 取最新 revision 后 tags.assign。
  */
-export function GameBatchBar({ games, tags, onComplete, onBusy }: {
+export function GameBatchBar({ games, tags, onComplete, onBusy, titleTranslation }: {
   games: GameItem[];
   tags: TagItem[];
   onComplete: (failedIds: string[]) => Promise<void>;
   onBusy: (busy: boolean) => void;
+  titleTranslation?: TitleTranslationController;
 }) {
-  const [busy, setBusy] = useState(false);
+  const [actionBusy, setBusy] = useState(false);
+  const busy = actionBusy || !!titleTranslation?.busy;
   const [confirm, setConfirm] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [result, setResult] = useState("");
@@ -66,6 +69,7 @@ export function GameBatchBar({ games, tags, onComplete, onBusy }: {
   return <>
     <div className="flex flex-wrap items-center gap-2" aria-label={t("游戏批量操作")}>
       <span className="text-sm">{t("已选")}{games.length}{t("个")}</span>
+      {titleTranslation && <Button size="sm" variant="outline" disabled={busy || !games.length} onClick={() => void titleTranslation.start(games.map(game => game.gameId))}>{t("翻译选中名称")}</Button>}
       <Button size="sm" variant="outline" disabled={busy || !games.length} onClick={() => void execute("favorite")}>{t("批量收藏")}</Button>
       <Button size="sm" variant="outline" disabled={busy || !games.length} onClick={() => void execute("unfavorite")}>{t("取消收藏")}</Button>
       <span className="relative">

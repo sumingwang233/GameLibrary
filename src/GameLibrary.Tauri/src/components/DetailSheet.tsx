@@ -1,10 +1,12 @@
 import { t } from "../lib/i18n";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { dirname, join, pictureDir } from "@tauri-apps/api/path";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { Check, ExternalLink, ImagePlus, Play, Star, Trash2 } from "lucide-react";
-import { assetDataUrl, describeFailure, operation } from "../lib/api";
+import { assetDataUrl, describeFailure, operation, OperationError } from "../lib/api";
+import type { TitleTranslationController } from "../lib/hooks/useTitleTranslation";
+import { TitleTranslationStatus } from "./TitleTranslationStatus";
 import { discoverLaunchProfiles, LaunchProfileSelectionRequired } from "../lib/launchProfiles";
 import { groupTagsByCategory, tagLabel } from "../lib/tags";
 import type {
@@ -53,6 +55,7 @@ export function DetailSheet({
   onNavigate,
   refreshToken,
   supportsSuggestions = false,
+  titleTranslation,
   initialTab = "overview",
 }: {
   game: GameItem | null;
@@ -61,6 +64,7 @@ export function DetailSheet({
   onPlay: (gameId: string, profileId?: string) => Promise<void>;
   refreshToken?: number;
   supportsSuggestions?: boolean;
+  titleTranslation?: TitleTranslationController;
   initialTab?: "overview" | "launch";
   onChanged: () => Promise<void> | void;
   /** 点击「疑似重复」条目跳到目标游戏详情；Sheet 不关闭不重建，由 App 侧换 selected 实现。 */
@@ -73,6 +77,10 @@ export function DetailSheet({
   const [cover, setCover] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [titleDraft, setTitleDraft] = useState("");
+  const [titleTarget, setTitleTarget] = useState<"original" | "translated">("original");
+  const titleEdit = useRef({ gameId: "", dirty: false, revision: 0 });
+  const activeId = useRef(game?.gameId);
+  activeId.current = game?.gameId;
   const [summaryDraft, setSummaryDraft] = useState("");
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -91,8 +99,13 @@ export function DetailSheet({
         operation<{ items: ProfileItem[] }>("profiles.list", { gameId }),
         operation<TranslationPolicy>("translation.get", { gameId }),
       ]);
+      if (activeId.current !== gameId) return;
       setCurrent(detail.data);
-      setTitleDraft(detail.data.title);
+      if (!titleEdit.current.dirty || titleEdit.current.gameId !== gameId) {
+        setTitleDraft(detail.data.title);
+        setTitleTarget(detail.data.titleDisplayMode ?? "original");
+        titleEdit.current = { gameId, revision: detail.data.revision, dirty: false };
+      }
       setSummaryDraft(detail.data.summary ?? "");
       setProfiles(profileResult.data.items);
       setTranslation(translationResult.data);
@@ -102,6 +115,7 @@ export function DetailSheet({
       } else {
         setCover(null);
       }
+      return detail.data;
     } catch (cause) {
       setError(describeFailure(cause));
     }
@@ -113,10 +127,25 @@ export function DetailSheet({
     setProfiles([]);
     setTranslation(null);
     setTitleDraft(game?.title ?? "");
+    setTitleTarget(game?.titleDisplayMode ?? "original");
+    titleEdit.current = { gameId: gameId ?? "", revision: game?.revision ?? 0, dirty: false };
     setSummaryDraft(game?.summary ?? "");
     setTagDraft("");
     if (gameId) void load();
-  }, [game, gameId, load]);
+  // Reset drafts only when navigating to another game.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameId, load]);
+
+  useEffect(() => {
+    if (game && game.gameId === activeId.current) {
+      setCurrent(previous => !previous || previous.revision <= game.revision ? game : previous);
+      if (!titleEdit.current.dirty) {
+        setTitleDraft(game.title);
+        setTitleTarget(game.titleDisplayMode ?? "original");
+        titleEdit.current.revision = game.revision;
+      }
+    }
+  }, [game]);
 
   useEffect(() => {
     if (!gameId) return;
@@ -145,11 +174,21 @@ export function DetailSheet({
 
   const saveField = (field: "title" | "summary", value: string) =>
     run(async () => {
-      await operation(
-        "fields.set",
-        { gameId: current.gameId, field, value, expectedRevision: current.revision },
-        `fields.set:${current.gameId}:${field}:${current.revision}`,
-      );
+      const translated = field === "title" && titleTarget === "translated";
+      const operationId = translated ? "titles.set_translated" : "fields.set";
+      const revision = field === "title" ? titleEdit.current.revision : current.revision;
+      try {
+        await operation(operationId,
+          { gameId: current.gameId, ...(translated ? { title: value } : { field, value }), expectedRevision: revision },
+          `${operationId}:${current.gameId}:${field}:${revision}:${value}`);
+      } catch (cause) {
+        if (cause instanceof OperationError && cause.code === "RevisionConflict") {
+          const refreshed = await load();
+          if (refreshed) titleEdit.current.revision = refreshed.revision;
+        }
+        throw cause;
+      }
+      if (field === "title") titleEdit.current.dirty = false;
       // fields.set 只返回字段修订回执，不是完整 GameItem；重新读取后再渲染，
       // 避免把缺少 title/rootPath 的回执写入 current 导致整页白屏。
       await load();
@@ -329,16 +368,26 @@ export function DetailSheet({
             </TabsList>
 
             <TabsContent value="overview" className="space-y-4">
-              <LabeledField label={t("标题")}>
+              {titleTranslation && <>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" disabled={busy || titleTranslation.busy} onClick={() => void titleTranslation.start([current.gameId], !!current.translatedTitle)}>{current.translatedTitle ? t("重新翻译名称") : t("翻译为简体中文")}</Button>
+                  {current.translatedTitle && <Button variant="outline" disabled={busy || titleTranslation.busy} onClick={() => void run(async () => {
+                    await operation("titles.set_display", { gameId: current.gameId, mode: current.titleDisplayMode === "translated" ? "original" : "translated", expectedRevision: current.revision }, `titles.set_display:${current.gameId}:${current.revision}`);
+                    await load(); await onChanged();
+                  })}>{current.titleDisplayMode === "translated" ? t("显示原文") : t("显示中文译名")}</Button>}
+                </div>
+                <TitleTranslationStatus controller={titleTranslation} />
+              </>}
+              <LabeledField label={titleTarget === "translated" ? t("标题（中文译名）") : t("标题（原文）")}>
                 <div className="flex gap-2">
                   <Input
                     value={titleDraft}
-                    onChange={(event) => setTitleDraft(event.currentTarget.value)}
+                    onChange={(event) => { titleEdit.current.dirty = true; setTitleDraft(event.currentTarget.value); }}
                     aria-label={t("游戏标题")}
                   />
                   <Button
                     variant="outline"
-                    disabled={busy || titleDraft.trim() === current.title}
+                    disabled={busy || !titleDraft.trim() || titleDraft.trim() === (titleTarget === "translated" ? current.translatedTitle : current.originalTitle ?? current.title)}
                     onClick={() => void saveField("title", titleDraft.trim())}
                   >{t("保存")}</Button>
                 </div>

@@ -30,6 +30,19 @@ it("refreshes only domains affected by events", () => {
   expect([...affectedDomains([{ type: "tag.updated", sequence: 2 }])]).toEqual(["tags", "games"]);
 });
 
+it("patches translated titles in loaded pages while refresh is suppressed and ignores stale revisions", async () => {
+  call.mockResolvedValue(envelope({ total: 120, items: Array.from({ length: 60 }, (_, i) => game(i)) }));
+  const hook = renderHook(({ suppress }) => useGamesQuery(emptyFilters, 0, suppress), { initialProps: { suppress: false } });
+  await act(async () => {});
+  hook.rerender({ suppress: true });
+  act(() => hook.result.current.patch({ gameId: "20", revision: 2, title: "中文名" }));
+  expect(hook.result.current.games).toHaveLength(60);
+  expect(hook.result.current.games[20].title).toBe("中文名");
+  act(() => hook.result.current.patch({ gameId: "20", revision: 1, title: "stale" }));
+  expect(hook.result.current.games[20].title).toBe("中文名");
+  expect(call).toHaveBeenCalledOnce();
+});
+
 it("establishes a tail cursor, merges events for 250ms, and cleans up on unmount", async () => {
   let pending!: (value: unknown) => void;
   let sequence = 10;

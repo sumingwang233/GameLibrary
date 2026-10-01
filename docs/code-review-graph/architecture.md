@@ -1,5 +1,7 @@
 # GameLibrary 架构预览
 
+v1.7.0（未发布）新增名称翻译边界：React 共享作业 Hook → Host `TitlesHandler` / `JobManager` → `TitleTranslationClient` → `SqliteLibraryStore.Titles`。schema 26 译名表与原文层分离；DTO 在 Host 统一解析显示名称，查询同时覆盖原文/译名；既有启动翻译工具策略不变。插件增量索引包含新增文件，快照见 [图谱入口](README.md)，具体文件、网络适配和 CAS 保护见 [名称翻译](../title-translation.md)。
+
 2026-10-01：基于 `fedc7ac` 加 v1.6.0 工作区差异，图谱覆盖 321 个源码文件。验证和权限边界见 [优化实施记录](optimization-implementation.md)；本次发行构建结果见 [v1.6.0 构建记录](../releases/v1.6.0-validation.md)。
 
 ## 客户端与会话

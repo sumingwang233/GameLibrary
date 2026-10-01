@@ -18,7 +18,8 @@ public sealed record AppSettingsSnapshot(
     double UiFontScale,
     string UiFontFamily,
     string? CacheParentDirectory,
-    string UiLanguage = "zh-CN")
+    string UiLanguage = "zh-CN",
+    string TitleTranslationEngine = "balanced")
 {
     public const int DefaultScanIntervalMinutes = 60;
 
@@ -77,7 +78,8 @@ public static class SettingsStore
                 AppSettingsSnapshot.MinUiFontScale, AppSettingsSnapshot.MaxUiFontScale),
             ReadString(values, "uiFontFamily") ?? AppSettingsSnapshot.DefaultUiFontFamily,
             ReadString(values, "cacheParentDirectory"),
-            ReadString(values, "uiLanguage") is "zh-TW" or "en" or "ja" ? values["uiLanguage"] : "zh-CN");
+            ReadString(values, "uiLanguage") is "zh-TW" or "en" or "ja" ? values["uiLanguage"] : "zh-CN",
+            ReadString(values, "titleTranslationEngine") is "google" or "bing" ? values["titleTranslationEngine"] : "balanced");
     }
 
     /// <summary>单键写入（事务内递增 Revision）。调用方负责字段校验。</summary>

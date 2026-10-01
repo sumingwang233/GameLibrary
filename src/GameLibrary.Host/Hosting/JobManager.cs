@@ -225,6 +225,11 @@ public sealed class JobManager
     public int ActiveJobCount() =>
         _jobs.Values.Count(entry => !IsTerminal(entry.State));
 
+    public void CancelKind(string kind)
+    {
+        foreach (var entry in _jobs.Values.Where(entry => entry.Kind == kind)) RequestCancel(entry.Id);
+    }
+
     private static bool IsTerminal(string state) =>
         state is "succeeded" or "failed" or "cancelled";
 

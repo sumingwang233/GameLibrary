@@ -833,6 +833,7 @@ internal sealed class GamesHandler
         return GameDto(game, new GameCardEnrichment
         {
             Title = title,
+            TitleTranslation = store.ReadTitleTranslation(game.GameId),
             TitleSource = titleSource,
             Summary = summary ?? "",
             SummarySource = summarySource,
@@ -851,7 +852,11 @@ internal sealed class GamesHandler
         {
             gameId = game.GameId,
             favorite = game.Favorite,
-            title = enrichment.Title ?? "",
+            title = enrichment.TitleTranslation is { DisplayMode: "translated" } alias ? alias.TranslatedTitle : enrichment.Title ?? "",
+            originalTitle = enrichment.Title ?? "",
+            translatedTitle = enrichment.TitleTranslation?.TranslatedTitle,
+            titleDisplayMode = enrichment.TitleTranslation?.DisplayMode ?? "original",
+            titleTranslation = enrichment.TitleTranslation,
             titleSource = enrichment.TitleSource,
             summary = enrichment.Summary,
             summarySource = enrichment.SummarySource,

@@ -183,7 +183,7 @@ public sealed class LaunchSuggestionLifecycleTests
         var roundtrip = Assert.Single(store.ReadProfiles());
         Assert.Equal("deleted", roundtrip.ValidationStatus);
         Assert.Equal("single-entry", Assert.Single(roundtrip.SuggestionReasons!));
-        Assert.Single(Directory.GetFiles(Path.Combine(directory, "backups"), "pre-migration-v24-to-v25-*.db"));
+        Assert.Single(Directory.GetFiles(Path.Combine(directory, "backups"), $"pre-migration-v24-to-v{DatabaseMigrations.All.Max(migration => migration.Version)}-*.db"));
         store.UpsertProfile(roundtrip with { ValidationStatus = "suggested", Revision = 8 }, DateTime.UtcNow);
         Assert.False(store.CommitSuggestedProfile("profile", 7, "verified", true, DateTime.UtcNow));
         Assert.True(store.CommitSuggestedProfile("profile", 8, "verified", true, DateTime.UtcNow));

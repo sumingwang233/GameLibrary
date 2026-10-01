@@ -354,6 +354,7 @@ public sealed class HostRuntime : IAsyncDisposable
         _state.Coordinator.Dispose();
         _state.Suggestions?.Dispose();
         _state.Launches.CancelObservations();
+        _state.Jobs.CancelKind("titleTranslation");
         if (_state.Suggestions is not null) await _state.Suggestions.Stopped;
         await _server.DisposeAsync();
         await _state.Jobs.WaitForIdleAsync();
@@ -378,6 +379,12 @@ public sealed class HostRuntimeState
     public required HostLibraryState Library { get; set; }
 
     public required JobManager Jobs { get; init; }
+
+    internal TitleTranslationClient TitleTranslations { get; init; } = new(new HttpClient
+    {
+        Timeout = Timeout.InfiniteTimeSpan,
+        MaxResponseContentBufferSize = 65536,
+    });
 
     public LibrarySessionGate Sessions { get; } = new();
 

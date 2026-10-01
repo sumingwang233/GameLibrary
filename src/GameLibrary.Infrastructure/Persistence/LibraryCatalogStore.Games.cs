@@ -120,12 +120,13 @@ public static partial class LibraryCatalogStore
         int limit,
         int offset)
     {
+        const string originalTitle = "COALESCE((SELECT COALESCE(value, '') FROM game_fields gf WHERE gf.game_id = games.game_id AND gf.field_key = 'title' ORDER BY CASE gf.source WHEN 'user' THEN 0 ELSE 1 END LIMIT 1), title)";
         var where = new List<string> { "membership = 'active'" };
         if (!string.IsNullOrWhiteSpace(search))
         {
             // LIKE 通配符转义；中文按字节子串匹配（策划案：预归一化内存搜索的数据库侧等价）。
             var escaped = search.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
-            where.Add("(title LIKE $like ESCAPE '\\' OR root_path LIKE $like ESCAPE '\\')");
+            where.Add($"({originalTitle} LIKE $like ESCAPE '\\' OR root_path LIKE $like ESCAPE '\\' OR EXISTS (SELECT 1 FROM game_title_translations tt WHERE tt.game_id = games.game_id AND tt.translated_title LIKE $like ESCAPE '\\'))");
         }
 
         if (favoriteOnly)
@@ -138,12 +139,13 @@ public static partial class LibraryCatalogStore
             where.Add("EXISTS (SELECT 1 FROM game_tags gt WHERE gt.game_id = games.game_id AND gt.tag_id = $tagId)");
         }
 
+        var displayedTitle = $"COALESCE((SELECT translated_title FROM game_title_translations tt WHERE tt.game_id = games.game_id AND tt.display_mode = 'translated'), {originalTitle})";
         var orderBy = sort switch
         {
-            "title-desc" => "title COLLATE NOCASE DESC, game_id",
+            "title-desc" => $"{displayedTitle} COLLATE NOCASE DESC, game_id",
             "recent" or "updated-desc" => "updated_utc DESC, game_id",
             "accepted-desc" => "accepted_utc DESC, game_id",
-            _ => "title COLLATE NOCASE, game_id",
+            _ => $"{displayedTitle} COLLATE NOCASE, game_id",
         };
 
         int total;
@@ -206,6 +208,7 @@ public static partial class LibraryCatalogStore
         var titles = new Dictionary<string, (string? Value, string Source)>(StringComparer.Ordinal);
         var summaries = new Dictionary<string, (string? Value, string Source)>(StringComparer.Ordinal);
         var covers = new Dictionary<string, string>(StringComparer.Ordinal);
+        var translations = new Dictionary<string, GameTitleTranslation>(StringComparer.Ordinal);
         var tags = new Dictionary<string, List<(string Kind, string Name)>>(StringComparer.Ordinal);
 
         for (var chunkStart = 0; chunkStart < games.Count; chunkStart += chunkSize)
@@ -217,6 +220,14 @@ public static partial class LibraryCatalogStore
             }
 
             var idList = string.Join(", ", ids.Select((_, i) => $"$id{i}"));
+
+            using (var aliases = connection.CreateCommand())
+            {
+                aliases.CommandText = $"SELECT game_id, translated_title, source_title, provider, translated_utc, manually_edited, display_mode FROM game_title_translations WHERE game_id IN ({idList})";
+                BindIds(aliases, ids);
+                using var reader = aliases.ExecuteReader();
+                while (reader.Read()) translations[reader.GetString(0)] = SqliteLibraryStore.ReadTitleTranslationRow(reader, 1);
+            }
 
             using (var fields = connection.CreateCommand())
             {
@@ -291,6 +302,7 @@ public static partial class LibraryCatalogStore
             result[game.GameId] = new GameCardEnrichment
             {
                 Title = title.Value,
+                TitleTranslation = translations.GetValueOrDefault(game.GameId),
                 TitleSource = title.Source,
                 Summary = summary.Value ?? "",
                 SummarySource = summary.Source,

@@ -20,6 +20,17 @@ internal static class McpSession
 [McpServerToolType]
 public static partial class GameLibraryTools
 {
+    [McpServerTool(Name = "titles_translate")]
+    [Description("将游戏名称翻译为简体中文，保留原文；只发送名称，不发送文件路径。引擎缺省使用设置。")]
+    public static Task<CallToolResult> TitlesTranslate(
+        [Description("游戏 ID 数组")] string[] gameIds,
+        [Description("幂等键")] string idempotencyKey,
+        [Description("balanced / google / bing；省略时使用设置")] string? engine = null,
+        [Description("重新翻译已有译名")] bool force = false) =>
+        engine is null
+            ? InvokeOperationAsync("titles.translate", new { gameIds, idempotencyKey, force })
+            : InvokeOperationAsync("titles.translate", new { gameIds, idempotencyKey, force, engine });
+
     [McpServerTool(Name = "capabilities_get")]
     [Description("列出 GameLibrary 可用操作、权限与宿主状态；宿主未连接时返回静态契约。")]
     public static async Task<CallToolResult> CapabilitiesGet()
@@ -383,7 +394,8 @@ public static partial class GameLibraryTools
         [Description("恢复默认缓存位置")] bool clearCacheParentDirectory = false,
         [Description("清除激活视图")] bool clearActiveView = false,
         [Description("幂等键")] string? idempotencyKey = null,
-        [Description("界面语言 zh-CN / zh-TW / en / ja")] string? uiLanguage = null)
+        [Description("界面语言 zh-CN / zh-TW / en / ja")] string? uiLanguage = null,
+        [Description("名称翻译引擎 balanced / google / bing")] string? titleTranslationEngine = null)
     {
         var patch = new Dictionary<string, object?>
         {
@@ -399,6 +411,7 @@ public static partial class GameLibraryTools
         if (uiFontScale is not null) patch["uiFontScale"] = uiFontScale;
         if (uiFontFamily is not null) patch["uiFontFamily"] = uiFontFamily;
         if (uiLanguage is not null) patch["uiLanguage"] = uiLanguage;
+        if (titleTranslationEngine is not null) patch["titleTranslationEngine"] = titleTranslationEngine;
         if (clearCacheParentDirectory) patch["cacheParentDirectory"] = null;
         else if (cacheParentDirectory is not null) patch["cacheParentDirectory"] = cacheParentDirectory;
         return InvokeOperationAsync("settings.update", patch);

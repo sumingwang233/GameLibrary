@@ -45,6 +45,10 @@ export interface GameItem {
   gameId: string;
   title: string;
   titleSource?: string | null;
+  originalTitle?: string;
+  translatedTitle?: string | null;
+  titleDisplayMode?: "original" | "translated";
+  titleTranslation?: { sourceTitle: string; provider: string; translatedUtc: string; manuallyEdited: boolean; displayMode: string } | null;
   summary?: string | null;
   summarySource?: string | null;
   rootPath: string;
@@ -184,6 +188,7 @@ export interface LaunchPlan {
 }
 
 export interface LibrarySettings {
+  titleTranslationEngine?: "balanced" | "google" | "bing";
   uiLanguage?: "zh-CN" | "zh-TW" | "en" | "ja";
   revision: number;
   activeViewId?: string | null;

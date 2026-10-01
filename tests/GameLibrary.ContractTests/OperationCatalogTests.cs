@@ -46,6 +46,7 @@ public sealed class OperationCatalogTests
             ["assets"] = ["list", "get", "import", "choose", "crop", "reset", "remove"],
             ["profiles"] = ["list", "get", "create", "update", "remove", "set_default", "validate"],
             ["translation"] = ["get", "set"],
+            ["titles"] = ["translate", "set_display", "set_translated"],
             ["tools"] = ["list", "get", "discover", "register", "update", "remove", "capabilities"],
             ["verification"] = ["start", "get", "list", "report", "invalidate"],
             ["launch"] = ["plan", "execute", "status", "history"],

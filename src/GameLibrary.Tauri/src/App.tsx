@@ -11,6 +11,8 @@ import { AppShell } from "./components/AppShell";
 import { TitleBar } from "./components/TitleBar";
 import { DetailSheet } from "./components/DetailSheet";
 import { GameGrid } from "./components/GameGrid";
+import { TitleTranslationStatus } from "./components/TitleTranslationStatus";
+import { useTitleTranslation } from "./lib/hooks/useTitleTranslation";
 import { LibraryToolbar } from "./components/LibraryToolbar";
 import { ReviewList, type ReviewAction } from "./components/ReviewList";
 import { RootsPanel } from "./components/RootsPanel";
@@ -47,7 +49,13 @@ function App() {
     [],
   );
 
-  const games = useGamesQuery(filters, library.changeToken, false);
+  const [translationBusy, setTranslationBusy] = useState(false);
+  const games = useGamesQuery(filters, library.changeToken, translationBusy);
+  const titleTranslation = useTitleTranslation(patch => {
+    games.patch(patch);
+    setSelected(previous => previous?.gameId === patch.gameId && previous.revision <= patch.revision ? { ...previous, ...patch } : previous);
+  }, async () => { await games.reload(); await library.refreshMeta(); });
+  useEffect(() => { setTranslationBusy(titleTranslation.busy); }, [titleTranslation.busy]);
 
   /** 详情操作会触发列表失效重查。记录主滚动容器的位置，等新一帧列表提交后恢复，
    * 避免启动游戏、导入封面等操作把用户从当前卡片跳回列表顶部。 */
@@ -292,9 +300,11 @@ function App() {
                   {games.error}
                 </p>
               )}
+              {library.supports("titles.translate") && <TitleTranslationStatus controller={titleTranslation} />}
               <GameGrid
                 key={JSON.stringify(filters)}
                 tags={library.tags}
+                titleTranslation={library.supports("titles.translate") ? titleTranslation : undefined}
                 onChanged={() => preserveLibraryScroll(async () => {
                   setSelected(null);
                   await library.refreshMeta();
@@ -350,6 +360,7 @@ function App() {
           tags={library.tags}
           refreshToken={library.changeToken}
           supportsSuggestions={library.supports("profiles.discover")}
+          titleTranslation={library.supports("titles.translate") ? titleTranslation : undefined}
           onClose={() => setSelected(null)}
           onPlay={(gameId, profileId) => preserveLibraryScroll(() => library.launch(gameId, profileId))}
           onChanged={() => {
@@ -361,7 +372,7 @@ function App() {
           onNavigate={openGameById}
         />
 
-        <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+        <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} supportsTitleTranslation={library.supports("titles.translate")} />
 
         <PromptDialog
           open={prompt === "tag"}

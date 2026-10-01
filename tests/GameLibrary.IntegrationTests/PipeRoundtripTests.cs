@@ -93,6 +93,11 @@ public sealed class PipeRoundtripTests : IClassFixture<PipeServerFixture>
 public sealed class PipeServerFixture : IAsyncDisposable
 {
     public PipeServerFixture()
+        : this(null)
+    {
+    }
+
+    internal PipeServerFixture(TitleTranslationClient? titleTranslations)
     {
         TestId = Guid.NewGuid().ToString("N");
         Identity = new HostIdentity();
@@ -121,6 +126,7 @@ public sealed class PipeServerFixture : IAsyncDisposable
                 Store = init.Store,
             },
             Jobs = new JobManager { OnJobFinished = metrics.RecordJobFinished },
+            TitleTranslations = titleTranslations ?? new TitleTranslationClient(new System.Net.Http.HttpClient()),
             Candidates = new GameLibrary.Host.Scanning.CandidateRegistry(),
             Launches = new GameLibrary.Host.Launching.LaunchRegistry(),
             Roots = roots,

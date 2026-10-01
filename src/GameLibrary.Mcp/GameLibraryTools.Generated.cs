@@ -11,6 +11,16 @@ namespace GameLibrary.Mcp;
 
 public static partial class GameLibraryTools
 {
+    [McpServerTool(Name = "titles_set_display")]
+    [Description("Translate game titles to Simplified Chinese, preserving originals.")]
+    public static Task<CallToolResult> TitlesSetDisplay([Description("gameId")] string gameId, [Description("mode")] string mode, [Description("expectedRevision")] int expectedRevision, [Description("idempotencyKey")] string idempotencyKey) =>
+        InvokeOperationAsync(OperationIds.TitlesSetDisplay, new { gameId, mode, expectedRevision, idempotencyKey });
+
+    [McpServerTool(Name = "titles_set_translated")]
+    [Description("Translate game titles to Simplified Chinese, preserving originals.")]
+    public static Task<CallToolResult> TitlesSetTranslated([Description("gameId")] string gameId, [Description("title")] string title, [Description("expectedRevision")] int expectedRevision, [Description("idempotencyKey")] string idempotencyKey) =>
+        InvokeOperationAsync(OperationIds.TitlesSetTranslated, new { gameId, title, expectedRevision, idempotencyKey });
+
     [McpServerTool(Name = "roots_list")]
     [Description("列出已注册库根。")]
     public static Task<CallToolResult> RootsList() =>
@@ -220,6 +230,11 @@ public static partial class GameLibraryTools
     [Description("查询启动尝试状态（prepared/executing/processCreated/exited/processStartFailed）。参数：attemptId。")]
     public static Task<CallToolResult> LaunchStatus([Description("尝试 ID")] string attemptId) =>
         InvokeOperationAsync(OperationIds.LaunchStatus, new { attemptId });
+
+    [McpServerTool(Name = "jobs_cancel")]
+    [Description("Cancels title translation jobs; other jobs use their domain cancellation operation.")]
+    public static Task<CallToolResult> JobsCancel([Description("jobId")] string jobId, [Description("idempotencyKey")] string idempotencyKey) =>
+        InvokeOperationAsync(OperationIds.JobsCancel, new { jobId, idempotencyKey });
 
     [McpServerTool(Name = "notifications_get")]
     [Description("查询单个通知批详情（含候选 ID 集合）。参数：notificationId。")]

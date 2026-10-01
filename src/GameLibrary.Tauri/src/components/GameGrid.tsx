@@ -8,6 +8,7 @@ import { EmptyState } from "./EmptyState";
 import { GameCard } from "./GameCard";
 import { SkeletonGrid } from "./SkeletonGrid";
 import { Button } from "./ui/button";
+import type { TitleTranslationController } from "../lib/hooks/useTitleTranslation";
 
 const GRID_CLASS = "grid grid-cols-[repeat(auto-fill,minmax(var(--grid-min-card),1fr))] gap-4";
 
@@ -24,6 +25,7 @@ export function GameGrid({
   onPlay,
   tags,
   onChanged,
+  titleTranslation,
 }: {
   games: GameItem[];
   loading: boolean;
@@ -37,10 +39,12 @@ export function GameGrid({
   onPlay: (gameId: string) => void;
   tags: TagItem[];
   onChanged: () => Promise<void>;
+  titleTranslation?: TitleTranslationController;
 }) {
   const sentinel = useRef<HTMLDivElement | null>(null);
   const [checked, setChecked] = useState<Set<string>>(new Set());
-  const [busy, setBusy] = useState(false);
+  const [actionBusy, setBusy] = useState(false);
+  const busy = actionBusy || !!titleTranslation?.busy;
   const chosen = games.filter(game => checked.has(game.gameId));
   const toggle = (id: string) => setChecked(previous => {
     const next = new Set(previous);
@@ -84,7 +88,7 @@ export function GameGrid({
           <Button size="sm" variant="outline" disabled={busy} onClick={() => setChecked(new Set(games.map(game => game.gameId)))}>{t("全选")}</Button>
           <Button size="sm" variant="ghost" disabled={busy || !chosen.length} onClick={() => setChecked(new Set())}>{t("清空选择")}</Button>
         </div>
-        <GameBatchBar games={chosen} tags={tags} onBusy={setBusy} onComplete={async failedIds => {
+        <GameBatchBar games={chosen} tags={tags} titleTranslation={titleTranslation} onBusy={setBusy} onComplete={async failedIds => {
           setChecked(new Set(failedIds));
           await onChanged();
         }} />

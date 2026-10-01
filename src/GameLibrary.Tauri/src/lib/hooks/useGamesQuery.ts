@@ -13,6 +13,7 @@ export interface GamesQuery {
   hasMore: boolean;
   loadMore: () => void;
   reload: () => Promise<void>;
+  patch: (item: Partial<GameItem> & Pick<GameItem, "gameId" | "revision">) => void;
 }
 
 /**
@@ -76,6 +77,8 @@ export function useGamesQuery(
 
   const applyResult = useCallback((items: GameItem[], totalNow: number) => {
     if (!mounted.current) return;
+    const newer = new Map(gamesRef.current.map(item => [item.gameId, item]));
+    items = items.map(item => (newer.get(item.gameId)?.revision ?? 0) > item.revision ? newer.get(item.gameId)! : item);
     gamesRef.current = items;
     totalRef.current = totalNow;
     setGames(items);
@@ -193,5 +196,10 @@ export function useGamesQuery(
     }
   }, [enqueue, refresh, request]);
 
-  return { games, total, loading, loadingMore, error, hasMore: games.length < total, loadMore, reload };
+  const patch = useCallback((item: Partial<GameItem> & Pick<GameItem, "gameId" | "revision">) => {
+    gamesRef.current = gamesRef.current.map(game => game.gameId === item.gameId && game.revision <= item.revision ? { ...game, ...item } : game);
+    setGames(gamesRef.current);
+  }, []);
+
+  return { games, total, loading, loadingMore, error, hasMore: games.length < total, loadMore, reload, patch };
 }
