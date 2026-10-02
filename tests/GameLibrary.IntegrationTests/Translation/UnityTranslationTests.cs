@@ -19,6 +19,23 @@ namespace GameLibrary.IntegrationTests.Translation;
 public sealed class UnityTranslationTests
 {
     [Theory]
+    [InlineData("unity")]
+    [InlineData("Unity")]
+    [InlineData("UNITY")]
+    public async Task AutomaticSetup_AcceptsUnityEngineCasing_OnStartupAndTagAssignment(string engine)
+    {
+        await using var fixture = await Fixture.Create();
+        var existing = fixture.AddGame("existing", engine);
+        fixture.Service.Start();
+        Assert.Equal("needs_settings", fixture.ReadState(existing.GameId)?.State);
+
+        var newlyTagged = fixture.AddGame("newly-tagged", engine);
+        fixture.Service.RequestForTaggedGame(newlyTagged.GameId);
+        Assert.Equal("needs_settings", fixture.ReadState(newlyTagged.GameId)?.State);
+        Assert.Empty(fixture.Host.Launches.History());
+    }
+
+    [Theory]
     [InlineData("https://api.deepseek.com", "deepseek", true)]
     [InlineData("http://127.0.0.1:8080/v1", "custom", true)]
     [InlineData("http://remote.example/v1", "custom", false)]
@@ -573,7 +590,7 @@ public sealed class UnityTranslationTests
             return fixture;
         }
         public void RestartService() => Host.UnityTranslations = Service = new(Host, new UnityTranslationPayload(Path.Combine(DirectoryPath, "empty-cache")), VaultBase);
-        public GameCard AddGame(string name)
+        public GameCard AddGame(string name, string engine = "unity")
         {
             var root = Path.Combine(DirectoryPath, "games", name);
             Directory.CreateDirectory(root);
@@ -582,7 +599,7 @@ public sealed class UnityTranslationTests
                 GameId = "game-" + name,
                 Title = name,
                 RootPath = root,
-                Engine = "Unity",
+                Engine = engine,
                 Kind = "game",
                 Membership = "active",
                 AcceptedUtc = DateTime.UtcNow,

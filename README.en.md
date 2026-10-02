@@ -87,7 +87,9 @@ The installer provides a wizard, Start menu entries and uninstallation registrat
 </details>
 
 <details>
-<summary><strong>Current source: v1.7.3, acceptance pre-release</strong></summary>
+<summary><strong>Current source: v1.7.4, unreleased</strong></summary>
+
+v1.7.4 fixes automatic Unity translation setup and missing retry controls for lowercase `unity` engine records. Startup recovery, tag triggers, configuration and pre-install checks now accept engine casing consistently, preserving existing provider settings. See the [fix and validation record](docs/unity-translation-backend.md). This version has not been packaged or published.
 
 v1.7.3 fixes excessive pending counts caused by ungrouped legacy resource SWF candidates. The first startup immediately rescans affected library roots and replaces covered file candidates with complete directory reviews, preserving original game files, IDs and metadata. Schema27 is unchanged and ignore rules are not reset again. Cover paste, Flash review, tag colors and local Unity translation setup from v1.7.2 remain available. See the [validation record](docs/releases/v1.7.3-validation.md).
 

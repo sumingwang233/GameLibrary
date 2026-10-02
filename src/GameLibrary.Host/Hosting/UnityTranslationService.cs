@@ -60,6 +60,8 @@ public sealed class UnityTranslationService
         settings.BoundTagId is not null ? store.TryGetTag(settings.BoundTagId) : store.TryGetTagByName("user", "未翻译");
     private static bool HasTag(SqliteLibraryStore store, GameCard game, PersistedTag? tag) => tag is { Kind: "user" }
         && store.ListGameTags(game.GameId).Any(item => item.Kind == "user" && item.Name == tag.Name);
+    private static bool IsActiveUnityGame(GameCard? game) => game is { Membership: "active" }
+        && string.Equals(game.Engine, "unity", StringComparison.OrdinalIgnoreCase);
 
     public void Start()
     {
@@ -83,7 +85,7 @@ public sealed class UnityTranslationService
             }
             catch { Save(store, state with { State = "blocked", Reason = "上次配置被中断，原文件无法安全恢复；请先检查或恢复" }); }
         }
-        foreach (var game in store.ListGames().Where(game => game.Membership == "active" && game.Engine == "Unity"))
+        foreach (var game in store.ListGames().Where(IsActiveUnityGame))
         {
             var existing = ReadState(store, game.GameId);
             if (existing is null || existing.State == "needs_settings") RequestForTaggedGame(game.GameId);
@@ -99,7 +101,7 @@ public sealed class UnityTranslationService
             if (store is null || _host.MaintenanceMode) return;
             var settings = BindTag(store, Settings(store));
             var game = store.TryGetGame(gameId);
-            if (!settings.Enabled || game is not { Membership: "active", Engine: "Unity" } || !HasTag(store, game, BoundTag(store, settings))) return;
+            if (!settings.Enabled || game is null || !IsActiveUnityGame(game) || !HasTag(store, game, BoundTag(store, settings))) return;
             var existing = ReadState(store, gameId);
             if (existing?.State is "queued" or "inspecting" or "installing" or "configured") return;
             if (!settings.Configured || !Vault(store).HasKey(settings.CredentialId))
@@ -231,7 +233,7 @@ public sealed class UnityTranslationService
         var settings = Settings(store);
         if (!settings.Enabled) return;
         var tag = BoundTag(store, settings);
-        var ids = store.ListGames().Where(game => game is { Membership: "active", Engine: "Unity" } && HasTag(store, game, tag)
+        var ids = store.ListGames().Where(game => IsActiveUnityGame(game) && HasTag(store, game, tag)
             && (ReadState(store, game.GameId)?.State is null or "needs_settings")).Select(game => game.GameId).ToArray();
         if (ids.Length > 0) Queue(store, ids);
     }
@@ -262,7 +264,7 @@ public sealed class UnityTranslationService
     {
         var result = new List<ImportSource>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var game in store.ListGames().Where(game => game is { Membership: "active", Engine: "Unity" }))
+        foreach (var game in store.ListGames().Where(IsActiveUnityGame))
         {
             var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var profile in _host.Launches.ListProfiles(game.GameId))
@@ -445,7 +447,7 @@ public sealed class UnityTranslationService
             var game = store.TryGetGame(state.GameId);
             var settings = Settings(store);
             state = state with { Provider = settings.Provider == "custom" ? "openai" : settings.Provider };
-            if (game is not { Membership: "active", Engine: "Unity" }) { Block("仅支持当前库中的 Unity 游戏"); return; }
+            if (game is null || !IsActiveUnityGame(game)) { Block("仅支持当前库中的 Unity 游戏"); return; }
             if (!settings.Enabled || BoundTag(store, settings)?.TagId != state.BoundTagId)
             { Block("自动翻译已禁用或标签绑定已改变，保留现有配置"); return; }
             if (!HasTag(store, game, state.BoundTagId is null ? null : store.TryGetTag(state.BoundTagId))) { Block("游戏未绑定未翻译用户标签"); return; }
@@ -495,7 +497,7 @@ public sealed class UnityTranslationService
             var currentGame = store.TryGetGame(state.GameId);
             var currentProfile = _host.Launches.GetDefaultProfile(state.GameId);
             if (!ReferenceEquals(store, _host.Library.Store) || ReadState(store, state.GameId)?.AttemptId != state.AttemptId) return;
-            if (currentGame is not { Membership: "active", Engine: "Unity" }
+            if (currentGame is null || !IsActiveUnityGame(currentGame)
                 || !HasTag(store, currentGame, store.TryGetTag(state.BoundTagId!))
                 || currentProfile != profile || Settings(store) != settings)
             { Block("游戏、标签或启动配置在准备期间已改变，取消安装"); return; }

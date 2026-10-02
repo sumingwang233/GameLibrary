@@ -485,7 +485,7 @@ export function DetailSheet({
             </TabsContent>
 
             <TabsContent value="launch" className="space-y-3">
-              {current.engine === "Unity" && onUnityTranslation && <div className="space-y-2 rounded-md border border-border p-3">
+              {current.engine?.toLowerCase() === "unity" && onUnityTranslation && <div className="space-y-2 rounded-md border border-border p-3">
                 <h3 className="text-sm font-semibold">{t("Unity 游戏内翻译")}</h3>
                 <p className="text-xs text-text-secondary">{t("先添加未翻译标签，程序将自动配置插件。配置失败或需要再次测试时可在这里重试。")}</p>
                 <div className="flex flex-wrap gap-2">

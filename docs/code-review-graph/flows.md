@@ -42,7 +42,8 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    Tag[实际新增绑定用户标签 / 启动时现有 tagged Unity] --> Settings[唯一已有配置自动导入 / 首次本机设置]
+    Tag[实际新增绑定用户标签 / 启动时现有 tagged Unity] --> Engine[IsActiveUnityGame / unity 大小写兼容]
+    Engine --> Settings[唯一已有配置自动导入 / 首次本机设置]
     Settings --> Queue[既有 JobManager / 单队列与库租约]
     Queue --> Inspect[默认启动入口 / Mono与加载器检查]
     Inspect --> Files[固定哈希公开插件 / 离线补丁]

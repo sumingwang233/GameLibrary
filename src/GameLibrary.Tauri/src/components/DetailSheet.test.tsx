@@ -80,6 +80,17 @@ function respond(items: ProfileItem[]) {
     : name === "profiles.list" ? { items } : name === "translation.get" ? { effective: "Auto" } : {} }));
 }
 
+it.each(["unity", "Unity", "UNITY"])("shows plugin retry controls for engine %s", async engine => {
+  const unityGame = { ...game, engine };
+  operation.mockImplementation(async name => ({ data: name === "games.get" ? unityGame
+    : name === "profiles.list" ? { items: [] } : name === "translation.get" ? { effective: "Required" } : {} }));
+  const configure = vi.fn();
+  render(<DetailSheet game={unityGame} tags={[]} onClose={vi.fn()} onPlay={vi.fn()} onChanged={vi.fn()}
+    initialTab="launch" onUnityTranslation={configure} />);
+  fireEvent.click(await screen.findByRole("button", { name: "配置或重试翻译插件" }));
+  expect(configure).toHaveBeenCalledWith("game", "configure");
+});
+
 it("starts the explicitly selected suggestion without making it a default", async () => {
   respond(profiles());
   const play = vi.fn().mockResolvedValue(undefined);

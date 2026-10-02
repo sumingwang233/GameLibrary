@@ -1,5 +1,7 @@
 # GameLibrary 代码预览框架
 
+v1.7.4 修改前调用最小上下文，修改后增量刷新，解析错误0。UnityTranslationService 的六处引擎判断统一复用 IsActiveUnityGame，兼容扫描持久化的小写 unity；详情页恢复同样条件下的重试入口。测试默认使用真实引擎标识，新增启动/标签触发及详情按钮的大小写回归。接口、数据库与凭据存储未变；[验证记录](../unity-translation-backend.md)，流程见 [flows.md](flows.md)。
+
 v1.7.3 修改前调用最小上下文，修改后增量刷新包含 FlashLegacyRegroupTests，解析错误0。新增旧逐文件 SWF 候选所属根查询、协调器即时核对及忙时重试、完整 inventory 内版本匹配归并、同组显式恢复和通知有效集合更新。无需新 schema 或 operation；流程见 [flows.md](flows.md)，真实数据库副本及发布验证见 [v1.7.3 验证记录](../releases/v1.7.3-validation.md)。
 
 本文档是 `code-review-graph` 的可重复入口。它把源码结构、社区边界和执行流固定成一套低成本的预览流程，适合接手项目、代码评审和重构前审计。
@@ -8,14 +10,14 @@ v1.7.3 修改前调用最小上下文，修改后增量刷新包含 FlashLegacyR
 
 | 项目 | 结果 |
 |---|---|
-| 图谱基线 | `7d6c119` + 网站 v1.1.0 实现工作区，2026-10-02 |
+| 图谱基线 | `03e8ee3` + Unity v1.7.4 修复工作区，2026-10-02 |
 | 源码文件 | 361 |
-| 节点 / 边 | 3,444 / 29,893 |
+| 节点 / 边 | 3,448 / 29,924 |
 | 执行流 | 175 |
 | 解析错误 | 0 |
 | 验证环境 | .NET SDK 10.0.401；global.json 未修改 |
 
-快照在 2026-10-02 重建并增量更新，包含 v1.7.3 与网站 v1.1.0 的四语言路由、主题、截图控件和静态门禁；解析错误为空。当前直接 CALLS 为 6,921，未解析 CALLS 为 17,110。图谱中的委托、动态装配和裸名匹配仍需结合源码复核；`head_matches_build=true` 只说明 Git 提交基线一致，不证明工作区没有后续变化。175 个执行流是 2026-09-30 的历史统计，未在此次重新统计。网站的架构、素材与真实验证见 [网站实施记录](website.md)；此前记录见 [建议启动方式](../launch-suggestions.md)、[优化实施记录](optimization-implementation.md) 和 [v1.6.0 构建记录](../releases/v1.6.0-validation.md)。
+快照在 2026-10-02 增量更新，包含 Unity v1.7.4 修复、v1.7.3 与网站 v1.1.0；解析错误为空。当前直接 CALLS 为 6,931，未解析 CALLS 为 17,126。图谱中的委托、动态装配和裸名匹配仍需结合源码复核；`head_matches_build=true` 只说明 Git 提交基线一致，不证明工作区没有后续变化。175 个执行流是 2026-09-30 的历史统计，未在此次重新统计。网站的架构、素材与真实验证见 [网站实施记录](website.md)；此前记录见 [建议启动方式](../launch-suggestions.md)、[优化实施记录](optimization-implementation.md) 和 [v1.6.0 构建记录](../releases/v1.6.0-validation.md)。
 
 ## 入口文件
 
