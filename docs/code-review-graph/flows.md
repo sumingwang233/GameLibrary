@@ -1,5 +1,9 @@
 # GameLibrary 关键流程
 
+## 宣传页 — 2026-10-02 / 网站 v1.1.0
+
+四语言静态路由 → layout 绘制前应用已有主题偏好 → MarketingPage 输出本地素材和稳定版下载 → Header 的 details 菜单切换语言/主题；Screenshot 用原生 dialog 打开 PNG、Escape 关闭并恢复焦点。首屏和下载区共享安装版目标，预发布为独立入口。构建先生成 WebP，再静态导出并由四语言门禁检查。架构与实际验收见 [website.md](website.md)。
+
 ## Flash 历史候选归并 — v1.7.3
 
 ```mermaid

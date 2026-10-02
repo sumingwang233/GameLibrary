@@ -1,10 +1,12 @@
-# GameLibrary website
+# GameLibrary 宣传网站
 
-Chinese `/` and English `/en/` promotional pages built with Next.js, React, and Tailwind. Production exports to `out/` with the `/GameLibrary` project prefix; GitHub Pages needs no Node.js server. Development uses the root path. See [Next.js static exports](https://nextjs.org/docs/app/guides/static-exports) and [basePath](https://nextjs.org/docs/app/api-reference/config/next-config-js/basePath).
+网站 v1.1.0 按 `FrontEnd_Design/gamelibrary_1`、`gamelibrary_2` 的原型重构；[DESIGN.md](DESIGN.md) 保留产品事实与设计约定。[实施及验收记录](../docs/code-review-graph/website.md) 包含源码审计、架构图、文件清单、迁移与回滚方法。
 
-## Check and preview
+网站使用现有 Next.js 16 / React 19 / Tailwind 4，导出为静态文件，不需要 Node.js 服务。支持简体中文 `/`、繁體中文 `/zh-TW/`、English `/en/` 和日本語 `/ja/`；正式路径统一带 `/GameLibrary` 前缀。
 
-From the repository root (Node.js 24 and Python 3):
+## 检查与预览
+
+从仓库根目录运行，使用 Node.js 24 和可用的 Python 3：
 
 ```powershell
 npm --prefix website ci
@@ -16,48 +18,34 @@ python scripts/check_website.py
 npm --prefix website run dev
 ```
 
-Open `http://127.0.0.1:4173/` or `/en/`. The image generation step runs before development and production builds. It derives 440, 880, and 1320 pixel WebP previews from the original PNG screenshots. Generated previews, build output, and dependencies are ignored. Production output is served at `/GameLibrary/`, including `/GameLibrary/en/`.
+开发地址为 `http://127.0.0.1:4173/`。若 Windows 的 `python` 指向无可用解释器的应用执行别名，请使用已安装 Python 的明确路径，不修改系统 PATH。构建前用已有的 Sharp 从真实 PNG 生成 440、880、1320px WebP 预览；原图、尺寸和比例保持不变，生成预览与构建文件不提交。
 
-## Glass components
+## 外观与交互
 
-`lib/glass.ts` supplies the shared treatment: `bg-white/10 dark:bg-black/10 backdrop-blur-2xl border border-white/20 shadow-lg`. `components/GlassControls.tsx` uses it for the screenshot modal, language and appearance dropdowns, navigation sidebar, and local-data tooltip. Native dialogs handle modal behavior and Escape dismissal; dropdowns use native `details`. Color comes from radial-gradient orbs behind the surfaces, animated with transforms. Reduced motion disables animation; reduced transparency and higher contrast replace glass with opaque surfaces. No analytics or remote fonts are included.
+- 浅蓝页面、青绿强调色、不透明表面，保持原型的非对称首屏和区块顺序。
+- 新访客默认浅色；已有浅色、深色或跟随系统偏好继续保留。使用原有 localStorage 键，首次绘制与选择器共享逻辑。
+- `GlassControls.tsx` 与 `glass()` 保留现有文件和调用名；实际样式已改为 `surface`，不使用玻璃模糊或背景光球。
+- 语言/主题菜单使用原生 `details`；截图与手机导航复用原生 `dialog`。支持 Escape、焦点恢复、滚动锁定；FAQ 支持键盘展开。
+- 使用本机字体，不加载远程字体、分析脚本或图片。设置 `prefers-reduced-motion` 时取消移动与平滑滚动。
 
-The header appearance button offers **Dark**, **Light**, and **System**. System is the default. A browser-local preference survives refreshes and language changes; system changes apply immediately when System is selected. The same theme function runs before page content paints and from the selector. Invalid or unavailable storage falls back to System. No theme dependency is needed. `scripts/theme.test.mjs` uses Node's built-in test runner to cover the initial theme, explicit overrides, both system preferences, invalid values, and blocked storage.
+## 真实素材与版本
 
-## Publishing
+页头、下载区和页脚使用 `public/assets/icon.png`，它来自已认可的 GameLibrary 应用 logo。用户确认“真实游戏图标”指应用 logo，不额外引入具体游戏封面。
 
-The target is `https://sumingwang233.github.io/GameLibrary/`. The repository currently needs Pages enabled with **GitHub Actions** as its source. `.github/workflows/website.yml` installs, builds, typechecks, validates, and uploads only `website/out`. Pull requests validate without deploying; approved changes on `main` publish through GitHub Actions.
+`library.png` 和 `tags.png` 是仓库已有的真实应用截图：v1.5.5、简体中文、隔离示例库、默认封面。来源依据是[主 README 的截图说明](../README.md)。网页逐图说明版本、界面语言和示例数据性质；截图保留原来的标题栏图标，不修改图片冒充新版软件。点击查看原始 1320×820 PNG，图片加载失败显示明确说明。
 
-Source pushes and deployment require the owner's explicit authorization. The v1.6.0 repository sync includes the website source; it does not enable Pages or deploy it. Pushes run website checks; deployment requires an explicitly approved workflow_dispatch with publish=true. Validate the actual HTTPS address, both language pages, assets, and release links after deployment.
+扫描区是明确标注的流程示意。原型只要求游戏库和标签管理两处图片，这两处已换为实机图；缺少对应版本的审核/启动截图时，使用准确的文字说明。
 
-## Content and assets
+主下载与首屏能力对应公开稳定版 v1.5.5；v1.7.3 单独标为“预发布 · 待验收”。稳定版链接来自[公开 Release](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.5.5)。Windows 程序未签名，下载区提供 SHA-256 清单。四种网页语言不代表稳定版桌面包支持四种界面语言。
 
-- Download links describe public stable release **v1.5.5**. When changing the version, update both pages together and verify package names against the public GitHub release. The latest-release link remains available separately.
-- The app icon is the 128px derivative from `src/GameLibrary.Tauri/src-tauri/icons/128x128.png`; its master is `src/GameLibrary.Tauri/app-icon.png`. It matches the desktop and tray icons.
-- `public/assets/library.png` and `public/assets/tags.png` are captures of the actual desktop app in an isolated, synthetic sample library. Covers use the app's defaults; no real game files or third-party cover art are included. The desktop interface is Chinese; the English page states this explicitly. Modal enlargement uses the original PNGs.
-- Capture the app without user directories, private paths, or personal collection data. Never fabricate UI or imply that sample entries represent included games.
-- Preserve the HTML image dimensions when replacing screenshots, or update them to the actual PNG dimensions. Run the offline gate afterward.
+## 验证 — 2026-10-02
 
-## Validation — 2026-09-30
+生产构建、TypeScript、两项主题测试、静态门禁及其负例自检通过。门禁覆盖四语言、section ID、项目路径前缀、本地图片和 PNG 尺寸、可访问 dialog 名称、下载链接一致性、canonical/hreflang 与 sitemap。
 
-- Production export, TypeScript check, offline gate and its negative regression checks pass: both languages, navigation anchors, assets, responsive image sources, PNG dimensions, canonical/hreflang metadata, matching release links, sitemap, accessible dialog names, and all four glass surfaces. Production dependency audit reports no known vulnerabilities.
-- Chinese and English layouts checked at 320, 375, 768, and 1440 CSS pixels: no horizontal overflow or broken images.
-- `/GameLibrary/` and `/GameLibrary/en/` verified with a local export preview, including stylesheet, images, and both directions of language navigation.
-- Screenshot modal and sidebar open, close with Escape, and restore focus. Modal opening locks page scrolling. Sidebar links close the sheet and navigate to their section. Language dropdown supports keyboard activation and Escape. Tooltip opens on focus or click and dismisses with Escape. Native FAQ remains keyboard accessible.
-- Reduced-motion emulation stops all three orbs and changes scrolling to `auto`. Reduced-transparency emulation produces opaque surfaces with no backdrop blur; a regression check verifies the reset survives production CSS compilation.
-- Appearance switching, dark-mode refresh persistence, system-change events, and shared language preference were checked in the browser. The 320px header still fits. The light export scores 100 for accessibility, best practices, and SEO; report: `artifacts/website-liquid-glass/lighthouse-theme-light.json`.
-- The redesigned English page's 200% zoom check remains **unverified**: the earlier browser permission denial was respected. No alternate route was used to perform that denied check.
-- Download links retain the verified public v1.5.5 release: three packages and checksums, with a separate latest-release link.
+浏览器实测四语言 `320 / 375 / 768 / 1440px` 无横向溢出，无已加载图片损坏；正式导出页四个路径与素材可用。截图查看器开关、Escape、焦点恢复与滚动锁定、手机导航、键盘语言选择、FAQ、主题切换和刷新持久化、减弱动画均已验证。浏览器无错误日志。
 
-Lighthouse **13.5.0**, mobile simulation against the local static server:
+本地证据在 `../artifacts/website-prototype-v1.1.0/`，包含桌面和手机完整截图。它们是本地静态导出预览，不代表网站已部署。此次未重跑 Lighthouse、200% 缩放、无脚本模式或第三方语言审校，不沿用旧版分数。
 
-| Page | Performance | Accessibility | Best practices | SEO | LCP | CLS | TBT |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Chinese | 87 | 100 | 100 | 100 | 4.1 s | 0 | 20 ms |
-| English | 87 | 100 | 100 | 100 | 4.1 s | 0 | 20 ms |
+## 发布
 
-These are local lab measurements, not field performance or a deployed-site audit. INP requires real interactions and field data; TBT is reported separately. The local Python server provides no compression or production cache headers; the export includes Next.js hydration JavaScript. Live-site performance has not been measured.
-
-Local evidence (ignored build artifacts): `artifacts/website-liquid-glass/lighthouse-{cn,en}.report.{html,json}`, `desktop-cn.jpg`, `mobile-cn.jpg`, and `sidebar.jpg`. The application capture used its own data directory and stopped the demo app afterward; the existing installed app remains separate.
-
-**Publication is pending final owner approval.** No website commit, push, Pages configuration change, or production deployment has been performed. After approval, publish the website-only changes and verify the live HTTPS URL, both languages, images, and download links.
+`.github/workflows/website.yml` 沿用原有检查及 Pages 发布流程。推送、启用 Pages、部署与产品 Release 均需明确授权；本次只提交本地网站代码。产品版本仍由 `Directory.Build.props` 管理，网站版本独立为 1.1.0。

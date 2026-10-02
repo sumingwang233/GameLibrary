@@ -295,8 +295,8 @@ FAQ 使用 `details / summary` 或等效可访问行为，回答置于问题下�
 | 文件或槽位 | 现状 | 用途与规则 |
 |---|---|---|
 | `public/assets/icon.png` | 已查看，`128×128`，认可的彩色 logo | 页头、页脚；不重画、调色或添加光效 |
-| `public/assets/library.png` | 已查看，`1320×820`，中文示例游戏库，标题栏为旧图标；捕获版本待核实 | 首屏和收藏局部的候选素材；不能因旧图标而改图冒充新版 |
-| `public/assets/tags.png` | 已查看，`1320×820`，中文示例标签管理；捕获版本待核实 | 标签说明；保留实际控件与默认示例封面 |
+| `public/assets/library.png` | `1320×820`，v1.5.5 简体中文隔离示例库，版本依据主 README；标题栏为旧图标 | 首屏完整实机图；不修改旧图标冒充新版 |
+| `public/assets/tags.png` | `1320×820`，v1.5.5 简体中文隔离示例库，版本依据主 README | 标签管理实机图；保留实际控件与默认示例封面 |
 | 扫描/待确认真实截图 | 待补 | 需与所述发行版本对应、操作完成，能看见候选审核流程 |
 | 游戏详情/启动配置真实截图 | 待补 | 核实启动入口与参数；不展示私人目录 |
 | 预发布功能真实截图 | 待补，只有展示该功能时才需要 | 与稳定版素材分开，明确软件版本与预发布状态 |
@@ -341,22 +341,22 @@ Revise only [TARGET SECTION] to achieve [SPECIFIC CHANGE]. Use the approved scre
 
 ### 审计事实与结构
 
-2026-10-02 源码基线 `e5b2d0d`：宣传站是独立 Next.js 16 / React 19 / Tailwind 4 静态站点，当前为中英两条路由；桌面应用是 C# / Tauri，网页重组不改变桌面软件界面。现有网页使用系统字体、浅深渐变背景与玻璃控件，默认跟随系统。本文件定义的是重组后的目标，四语言路由与浅色默认尚未实现。
+2026-10-02 原始审计基线 `e5b2d0d`：宣传站是独立 Next.js 16 / React 19 / Tailwind 4 静态站点，原为中英两条路由、玻璃控件与默认跟随系统。网站 v1.1.0 已按本地原型实现四语言、浅色默认和不透明表面，桌面应用代码未改。实际文件映射、架构与验收见 [网站实施记录](../docs/code-review-graph/website.md)。继续使用本机字体，避免为本次重构引入远程字体依赖。
 
 ```mermaid
 flowchart LR
-  A["现有中文 / 与英文 /en/"] --> B["MarketingPage 共用内容"]
+  A["中文 /、繁中 /zh-TW/、英文 /en/、日文 /ja/"] --> B["MarketingPage 共用内容"]
   B --> C["GlassControls 导航、主题、截图交互"]
   B --> D["lib/site.ts 版本、资产、路由与 metadata"]
   C --> E["lib/theme.ts 首次绘制与主题偏好"]
   B --> F["app/globals.css 网页样式"]
 ```
 
-事实证据：[当前内容](components/MarketingPage.tsx)、[控件](components/GlassControls.tsx)、[网站配置](lib/site.ts)、[主题逻辑](lib/theme.ts)、[样式](app/globals.css)、[静态导出](next.config.mjs)、[素材说明](README.md)、[公开稳定版](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.5.5)、[发布原则](../docs/release-policy.md)、[预发布验证记录](../docs/releases/v1.7.3-validation.md)。待确认项是截图捕获版本、缺失流程截图、派生语言审校和实际部署状态。
+事实证据：[当前内容](components/MarketingPage.tsx)、[控件](components/GlassControls.tsx)、[网站配置](lib/site.ts)、[主题逻辑](lib/theme.ts)、[样式](app/globals.css)、[静态导出](next.config.mjs)、[素材说明](README.md)、[公开稳定版](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.5.5)、[发布原则](../docs/release-policy.md)、[预发布验证记录](../docs/releases/v1.7.3-validation.md)。主 README 已说明现有截图来自 v1.5.5 的隔离示例库。审核/启动实机图仍无对应稳定版素材，扫描区明确使用流程示意；派生语言人工审校与正式部署待完成。
 
-### 后续网页落地清单
+### 网页迁移职责
 
-以下是设计获认可后的代码迁移映射，不代表本次已修改这些文件。保留现有框架、静态导出与行为，无需替换站点或引入全局状态库。
+以下为迁移职责映射，网站 v1.1.0 的实际改动和已执行验证以实施记录为准。保留现有框架、静态导出与行为，无需替换站点或引入全局状态库；没有实际重复需求的 FeatureSection / DownloadSection 不额外拆分。
 
 | 文件或职责 | 后续改动 |
 |---|---|
@@ -379,7 +379,7 @@ flowchart LR
 - 验证指定色对及最终控件状态的 AA 对比；检查 reduced-motion、字体失败、图片失败和无脚本阅读；各语言的菜单、截图及 FAQ 有正确可访问名称。
 - 本文件校验使用 `npx --yes --package=@google/design.md@0.4.0 designmd lint website/DESIGN.md`，检查 YAML、结构与 token 引用。后续网页实现再运行 typecheck、主题测试、构建及离线导出门禁；不把文档校验成功当作渲染或发布验收通过。
 
-文档完成时的状态：网页重组、Stitch 画布生成、浏览器尺寸检查、截图版本核实、补图和派生语言审校均 **未执行或待完成**；它们是后续设计与实现的验收项。实际执行结果写入对应验证记录，不在本规范中提前声称通过。
+网站 v1.1.0 已完成网页重组、四语言、真实 logo/截图接入、构建和浏览器验证，详见实施记录。此次直接采用用户提供的 Stitch 原型，没有重新生成设计图或实机 UI。414px、200% 缩放、无脚本阅读和派生语言人工审校未执行；发布部署未执行。
 
 2026-10-02 本次文档验证：官方 `@google/design.md@0.4.0` lint 为 `0 errors / 0 warnings`；六组指定文字色对均达到 `4.5:1`，九个本地 Markdown 链接全部存在，章节名无重复且代码围栏配对；GitHub 已核实 `v1.5.5` 为稳定版、`v1.7.3` 为预发布。以上结果仅覆盖文档与所列色对。
 

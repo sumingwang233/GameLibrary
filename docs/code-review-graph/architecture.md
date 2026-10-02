@@ -1,5 +1,9 @@
 # GameLibrary 架构预览
 
+## 宣传网站 — 2026-10-02 / 网站 v1.1.0
+
+独立 Next.js 静态站沿用服务端 `MarketingPage` 与客户端 `GlassControls`；新增繁中/日文静态路径，四语言共用版本、素材与 metadata。页面主题和浮层使用浏览器本地状态，不涉及 Host、SQLite 游戏库或桌面 IPC。真实 logo/截图、组件和路由图、验证及回滚见 [网站实施记录](website.md)。
+
 v1.7.0 新增名称翻译边界：React 共享作业 Hook → Host `TitlesHandler` / `JobManager` → `TitleTranslationClient` → `SqliteLibraryStore.Titles`。v1.7.1 在共享客户端成功路径收紧由连字符生成的副标题标点，手动编辑仍直接进入存储。schema 26 译名表与原文层分离；DTO 在 Host 统一解析显示名称，查询同时覆盖原文/译名；既有启动翻译工具策略不变。插件增量索引包含新增文件，快照见 [图谱入口](README.md)，具体文件、网络适配和 CAS 保护见 [名称翻译](../title-translation.md)。
 
 2026-10-01：基于 `fedc7ac` 加 v1.6.0 工作区差异，图谱覆盖 321 个源码文件。验证和权限边界见 [优化实施记录](optimization-implementation.md)；本次发行构建结果见 [v1.6.0 构建记录](../releases/v1.6.0-validation.md)。

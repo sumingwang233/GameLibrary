@@ -1,4 +1,4 @@
-/** Shared liquid glass treatment; CSS supplies the contrast and motion fallbacks. */
+/** Retain the existing helper name while moving controls to opaque surfaces. */
 export function glass(className = "") {
-  return `glass bg-white/10 dark:bg-black/10 backdrop-blur-2xl border border-white/20 shadow-lg ${className}`.trim();
+  return `surface ${className}`.trim();
 }

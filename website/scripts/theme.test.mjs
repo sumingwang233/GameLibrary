@@ -21,14 +21,14 @@ test("explicit themes override the system; system follows both preferences", () 
     assert.equal(result.root.dataset.theme, mode);
     assert.equal(result.dark, dark);
     assert.equal(result.root.style.colorScheme, dark ? "dark" : "light");
-    assert.equal(result.meta.content, dark ? "#0b1020" : "#edf4fb");
+    assert.equal(result.meta.content, dark ? "#151c21" : "#f4faff");
   }
 });
 
-test("missing, invalid, or blocked storage falls back to the system", () => {
+test("new visitors, invalid values, and blocked storage use light even on a dark system", () => {
   for (const [saved, blocked] of [[null, false], ["unexpected", false], ["dark", true]]) {
-    assert.equal(boot(saved, false, blocked).root.dataset.theme, "system");
+    assert.equal(boot(saved, false, blocked).root.dataset.theme, "light");
     assert.equal(boot(saved, false, blocked).dark, false);
-    assert.equal(boot(saved, true, blocked).dark, true);
+    assert.equal(boot(saved, true, blocked).dark, false);
   }
 });

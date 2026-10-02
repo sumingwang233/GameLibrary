@@ -3,7 +3,6 @@
 import argparse
 from html.parser import HTMLParser
 from pathlib import Path
-import re
 import struct
 import tempfile
 from urllib.parse import unquote, urlsplit
@@ -35,10 +34,8 @@ class Page(HTMLParser):
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
         classes = set(a.get("class", "").split())
-        if "glass" in classes:
+        if "surface" in classes:
             self.surfaces |= classes & {"sidebar", "screenshot-modal", "language-dropdown", "tooltip"}
-            if not {"bg-white/10", "dark:bg-black/10", "backdrop-blur-2xl", "border", "border-white/20", "shadow-lg"} <= classes:
-                self.errors.append("glass surface missing required treatment")
         if "id" in a:
             if a["id"] in self.ids:
                 self.errors.append(f"duplicate id: {a['id']}")
@@ -87,12 +84,13 @@ class Page(HTMLParser):
 
 def validate(root):
     root = root.resolve()
-    expected = {root / "index.html": "zh-CN", root / "en/index.html": "en"}
+    locales = {"zh-CN": "", "zh-TW": "zh-TW/", "en": "en/", "ja": "ja/"}
+    expected = {root / path / "index.html": locale for locale, path in locales.items()}
     pages = {p: Page(p.read_text(encoding="utf-8")) for p in expected if p.is_file()}
     errors = []
     styles = set()
     if pages.keys() != expected.keys():
-        errors.append("missing Chinese or English export; run the website build first")
+        errors.append("missing language export; run the website build first")
 
     def resolve(file, path):
         if path.startswith(PREFIX):
@@ -109,14 +107,14 @@ def validate(root):
             problems.append("missing title, description, or viewport")
         if page.h1 != 1 or page.faq != 6:
             problems.append("expected one h1 and six FAQ items")
-        if page.canonical != ORIGIN + ("en/" if page.lang == "en" else ""):
+        if page.canonical != ORIGIN + locales.get(page.lang, ""):
             problems.append("incorrect canonical URL")
-        if page.alternates != {"zh-CN": ORIGIN, "en": ORIGIN + "en/", "x-default": ORIGIN}:
+        if page.alternates != {**{locale: ORIGIN + path for locale, path in locales.items()}, "x-default": ORIGIN}:
             problems.append("incorrect language alternates")
-        if not {"main", "experience", "collection", "safety", "download", "questions"} <= page.ids:
+        if not {"main", "experience", "collection", "launch", "safety", "download", "preview", "questions"} <= page.ids:
             problems.append("missing navigation target")
         if page.surfaces != {"sidebar", "screenshot-modal", "language-dropdown", "tooltip"}:
-            problems.append("missing glass interaction surface")
+            problems.append("missing interaction surface")
         if len(page.dialogs) != 3 or page.tooltips != 1:
             problems.append("expected a sidebar, two screenshot dialogs, and one tooltip")
         for dialog in page.dialogs:
@@ -141,6 +139,8 @@ def validate(root):
             elif target.suffix == ".css":
                 styles.add(target.read_text(encoding="utf-8"))
         for image in page.images:
+            if urlsplit(image.get("src", "")).netloc:
+                problems.append("image must use a verified local asset")
             if "alt" not in image or not image.get("width") or not image.get("height"):
                 problems.append(f"image needs alt and dimensions: {image.get('src')}")
             if not image.get("alt") and "icon.png" not in image.get("src", ""):
@@ -151,20 +151,20 @@ def validate(root):
                 if tuple(str(n) for n in size) != (image.get("width"), image.get("height")):
                     problems.append(f"PNG dimensions disagree with HTML: {target.name}: {size}")
         errors.extend(f"{name}: {problem}" for problem in problems)
-    if len(pages) == 2:
-        cn, en = (pages[p] for p in expected)
-        if {i for i in cn.ids if not i.startswith("_")} != {i for i in en.ids if not i.startswith("_")}:
-            errors.append("translated pages have different section IDs")
+    if len(pages) == len(locales):
+        cn = pages[root / "index.html"]
         downloads = lambda page: {l for l in page.links if "/releases/" in l}
-        if downloads(cn) != downloads(en) or len(downloads(cn)) != 5:
-            errors.append("release links must match across languages (three packages, checksums, latest)")
-    fallback = re.search(r"@media[^{]*prefers-reduced-transparency[^{]*\{\s*\.glass\s*\{([^}]+)", "\n".join(styles))
-    if not fallback or not re.search(r"backdrop-filter\s*:\s*none", fallback[1]):
-        errors.append("compiled transparency fallback must disable backdrop-filter")
+        for page in pages.values():
+            if {i for i in cn.ids if not i.startswith("_")} != {i for i in page.ids if not i.startswith("_")}:
+                errors.append("translated pages have different section IDs")
+            if downloads(cn) != downloads(page) or len(downloads(page)) != 6:
+                errors.append("release links must match across languages (three packages, checksums, stable notes, prerelease)")
+    if not any("prefers-reduced-motion" in style for style in styles):
+        errors.append("compiled styles need a reduced-motion rule")
     try:
         sitemap = ET.parse(root / "sitemap.xml")
         urls = {n.text for n in sitemap.findall(".//{http://www.sitemaps.org/schemas/sitemap/0.9}loc")}
-        if urls != {ORIGIN, ORIGIN + "en/"}:
+        if urls != {ORIGIN + path for path in locales.values()}:
             errors.append("incorrect sitemap URLs")
     except (OSError, ET.ParseError) as error:
         errors.append(f"invalid sitemap: {error}")
@@ -184,13 +184,14 @@ def self_test():
         assert any("missing or out-of-site target" in error for error in errors), errors
         (root / "index.html").write_text('<a href="/assets/missing.png">Go</a>', encoding="utf-8")
         assert any("path missing project prefix" in error for error in validate(root))
-        (root / "index.html").write_text('<dialog class="glass sidebar"></dialog>', encoding="utf-8")
+        (root / "index.html").write_text('<dialog class="surface sidebar"></dialog>', encoding="utf-8")
         errors = validate(root)
         assert any("dialog needs a valid accessible name" in error for error in errors), errors
-        assert any("glass surface missing required treatment" in error for error in errors), errors
+        (root / "index.html").write_text('<img src="https://example.com/placeholder.svg" alt="Screenshot" width="1320" height="820">', encoding="utf-8")
+        assert any("verified local asset" in error for error in validate(root))
         (root / "index.html").write_text('<link rel="stylesheet" href="test.css">', encoding="utf-8")
-        (root / "test.css").write_text('@media(prefers-reduced-transparency:reduce){.glass{background:#142035}}', encoding="utf-8")
-        assert any("compiled transparency fallback" in error for error in validate(root))
+        (root / "test.css").write_text('body{color:#111d23}', encoding="utf-8")
+        assert any("reduced-motion" in error for error in validate(root))
     print("Website gate regression check passed.")
 
 
@@ -205,4 +206,4 @@ if __name__ == "__main__":
         failures = validate(args.directory)
         if failures:
             raise SystemExit("\n".join(failures))
-        print("Website checks passed: two languages, links, images, metadata, and sitemap.")
+        print("Website checks passed: four languages, links, local images, metadata, and sitemap.")
