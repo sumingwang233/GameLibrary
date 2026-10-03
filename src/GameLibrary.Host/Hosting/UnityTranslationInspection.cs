@@ -87,6 +87,61 @@ internal static class UnityTranslationInspection
         return Result("none");
     }
 
+    /// <summary>Inspect enabled Chinese configuration and a constant endpoint ID without loading plugin code.</summary>
+    public static bool IsConfiguredChineseTranslator(UnityTranslationLayout layout)
+    {
+        if (layout.Reason is not null || layout.Loader is not ("rei" or "bepinex")) return false;
+        RejectReparse(layout.Root, layout.Config);
+        var ini = UnityTranslationIni.Read(layout.Config);
+        var language = ini.Get("General", "Language")?.Trim().ToLowerInvariant();
+        if (language is not ("zh" or "zh-cn" or "zh-hans")) return false;
+        var enabled = ini.Get("Behaviour", "EnableTranslation")?.Split(['#', ';'], 2)[0].Trim();
+        if (enabled is not null && !enabled.Equals("true", StringComparison.OrdinalIgnoreCase) && enabled != "1") return false;
+        var endpoint = ini.Get("Service", "Endpoint")?.Trim();
+        if (string.IsNullOrWhiteSpace(endpoint)) return false;
+        if (endpoint == "DeepSeekTranslate" && string.IsNullOrWhiteSpace(ini.Get("DeepSeek", "ApiKey"))) return false;
+        IEnumerable<string> assemblies = Directory.Exists(layout.Translators)
+            ? Directory.EnumerateFiles(layout.Translators, "*.dll", SearchOption.TopDirectoryOnly).Take(64).Prepend(layout.Core)
+            : [layout.Core];
+        foreach (var assembly in assemblies)
+        {
+            RejectReparse(layout.Root, assembly);
+            if (HasEndpointId(assembly, endpoint)) return true;
+        }
+        return false;
+    }
+
+    private static bool HasEndpointId(string assembly, string endpoint)
+    {
+        try
+        {
+            using var stream = File.OpenRead(assembly);
+            using var pe = new PEReader(stream);
+            var metadata = pe.GetMetadataReader();
+            foreach (var handle in metadata.MethodDefinitions)
+            {
+                var method = metadata.GetMethodDefinition(handle);
+                if (metadata.GetString(method.Name) != "get_Id" || method.RelativeVirtualAddress == 0) continue;
+                var type = metadata.GetTypeDefinition(method.GetDeclaringType());
+                var endpointTypes = type.GetInterfaceImplementations().Select(h => metadata.GetInterfaceImplementation(h).Interface).Append(type.BaseType);
+                if (!endpointTypes.Any(h => h.Kind == HandleKind.TypeReference
+                    && metadata.GetString(metadata.GetTypeReference((TypeReferenceHandle)h).Namespace).StartsWith("XUnity.AutoTranslator.Plugin.Core.Endpoints", StringComparison.Ordinal)
+                    && metadata.GetString(metadata.GetTypeReference((TypeReferenceHandle)h).Name) is "ITranslateEndpoint" or "HttpEndpoint" or "AbstractTranslateEndpoint")) continue;
+                var il = pe.GetMethodBody(method.RelativeVirtualAddress).GetILBytes()!;
+                // ponytail: recognize constant ID getters only; dynamic IDs keep the tag for explicit review.
+                var offset = il.Length == 6 && il[5] == 0x2a ? 0
+                    : il.Length == 11 && il[0] == 0 && il[6] == 0x0a && il[7] == 0x2b && il[8] == 0 && il[9] == 6 && il[10] == 0x2a ? 1 : -1;
+                if (offset < 0 || il[offset] != 0x72) continue;
+                var token = BitConverter.ToInt32(il, offset + 1);
+                if ((token & unchecked((int)0xff000000)) != 0x70000000) continue;
+                var id = metadata.GetUserString(System.Reflection.Metadata.Ecma335.MetadataTokens.UserStringHandle(token & 0x00ffffff));
+                if (id == endpoint) return true;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException) { }
+        return false;
+    }
+
     public static bool HasBootstrap(string assembly)
     {
         try

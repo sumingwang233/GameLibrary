@@ -17,6 +17,8 @@ public sealed class ScanCoordinator : IDisposable
     private readonly TimeSpan _interval;
     private readonly Timer _timer;
     private readonly Timer _metadataTimer;
+    private readonly CancellationTokenSource _stop = new();
+    public CancellationToken StopToken => _stop.Token;
     public Action? ReconcileMetadata { get; set; }
     public Action<Exception>? OnBackgroundError { get; set; }
     private int _busy; // 0=空闲 1=核对中（Interlocked）
@@ -119,5 +121,5 @@ public sealed class ScanCoordinator : IDisposable
         finally { Interlocked.Exchange(ref _busy, 0); }
     }
 
-    public void Dispose() { _timer.Dispose(); _metadataTimer.Dispose(); }
+    public void Dispose() { _stop.Cancel(); _timer.Dispose(); _metadataTimer.Dispose(); }
 }

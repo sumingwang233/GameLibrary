@@ -50,6 +50,9 @@ public sealed partial class SqliteLibraryStore
     public IReadOnlyList<PersistedCandidate> ListCandidates()
         => ReadExclusive((c, _) => LibraryCatalogStore.ListCandidates(c));
 
+    public IReadOnlyList<(string CandidateId, string PhysicalPath, string ReviewState, int Revision)> ListCandidatePathChecks()
+        => ReadExclusive((c, _) => LibraryCatalogStore.ListCandidatePathChecks(c));
+
 
     public (int Total, IReadOnlyList<PersistedCandidate> Items) QueryCandidates(
         string? jobId,

@@ -20,18 +20,20 @@ internal sealed class LaunchSuggestionService(HostRuntimeState state) : IDisposa
         {
             while (!_stop.IsCancellationRequested)
             {
-                try { await DiscoverAsync(null, _stop.Token); }
+                var version = state.Events.Version;
+                var completed = false;
+                try { completed = await DiscoverAsync(null, _stop.Token); }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
                     state.Coordinator?.OnBackgroundError?.Invoke(ex);
                 }
-                await Task.Delay(TimeSpan.FromSeconds(5), _stop.Token);
+                await state.Events.WaitForChangeAsync(version, completed ? TimeSpan.FromMinutes(5) : TimeSpan.FromSeconds(1), _stop.Token);
             }
         }
         catch (OperationCanceledException) { }
     });
 
-    public async Task DiscoverAsync(string? gameId, CancellationToken token)
+    public async Task<bool> DiscoverAsync(string? gameId, CancellationToken token)
     {
         await _worker.WaitAsync(token);
         try
@@ -40,19 +42,27 @@ internal sealed class LaunchSuggestionService(HostRuntimeState state) : IDisposa
             GameLibrary.Domain.Catalog.GameCard[] games;
             using (var lease = state.Sessions.TryEnter(background: true))
             {
-                if (lease is null) return;
+                if (lease is null) return false;
                 if (_generation != state.ConnectionGeneration) { _seen.Clear(); _generation = state.ConnectionGeneration; }
                 games = state.Library.Store?.ListGames().Where(g => g.Membership == "active").ToArray() ?? [];
                 ids = gameId is null ? games.Select(g => g.GameId).ToArray() : [gameId];
             }
+            var snapshotById = games.ToDictionary(game => game.GameId, StringComparer.Ordinal);
+            var knownEntries = games.SelectMany(game => new[]
+                {
+                    (Path: game.EntryPath, game.GameId),
+                    (Path: game.Kind is "manualFile" or "fileGame" ? game.RootPath : null, game.GameId),
+                }).Where(entry => entry.Path is not null)
+                .ToLookup(entry => entry.Path!, entry => entry.GameId, StringComparer.OrdinalIgnoreCase);
             foreach (var id in ids)
             {
                 token.ThrowIfCancellationRequested();
+                if (gameId is null && snapshotById.TryGetValue(id, out var snapshotGame)
+                    && _seen.TryGetValue(id, out var previous) && previous == (snapshotGame.RootPath, snapshotGame.Revision)) continue;
                 using var lease = state.Sessions.TryEnter(background: true);
-                if (lease is null || _generation != state.ConnectionGeneration) return;
+                if (lease is null || _generation != state.ConnectionGeneration) return false;
                 var game = state.Library.Store?.TryGetGame(id);
                 if (game is not { Membership: "active" }) continue;
-                if (gameId is null && _seen.TryGetValue(id, out var previous) && previous == (game.RootPath, game.Revision)) continue;
                 var directory = game.Kind is "manualFile" or "fileGame" ? Path.GetDirectoryName(game.RootPath)
                     : game.Kind == "manualShortcut" ? Path.GetDirectoryName(game.EntryPath) : game.RootPath;
                 if (directory is null || !Directory.Exists(directory) || !state.Roots.Contains(directory)) continue;
@@ -67,9 +77,7 @@ internal sealed class LaunchSuggestionService(HostRuntimeState state) : IDisposa
                     if (!path.IsValid) continue;
                     // Shared directories may hold separately registered file games. Their known
                     // entries belong to those games and must not influence this game's single-entry score.
-                    var ownFiles = files.Where(file => !games.Any(other => other.GameId != id
-                        && (string.Equals(other.EntryPath, file, StringComparison.OrdinalIgnoreCase)
-                            || (other.Kind is "manualFile" or "fileGame" && string.Equals(other.RootPath, file, StringComparison.OrdinalIgnoreCase))))).ToArray();
+                    var ownFiles = files.Where(file => !knownEntries[file].Any(otherId => otherId != id)).ToArray();
                     var snapshot = new FileSystemDirectorySnapshot(path.Path!, directories, ownFiles);
                     state.Launches.AddSuggestions(id, directory, LaunchSuggestionDetector.Detect(snapshot));
                     _seen[id] = (game.RootPath, game.Revision);
@@ -78,6 +86,7 @@ internal sealed class LaunchSuggestionService(HostRuntimeState state) : IDisposa
                 // Yield between entries so a large library does not monopolize request processing.
                 await Task.Yield();
             }
+            return true;
         }
         finally { _worker.Release(); }
     }

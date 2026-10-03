@@ -22,7 +22,7 @@ public sealed class BridgeServer
     {
         while (!cancellationToken.IsCancellationRequested)
         {
-            var line = await _input.ReadLineAsync(cancellationToken);
+            var line = await _input.ReadLineAsync(cancellationToken).AsTask().WaitAsync(cancellationToken);
             if (line is null)
             {
                 break;
@@ -81,12 +81,12 @@ public sealed class BridgeServer
                 await _connection.DisposeAsync();
             }
 
+            _dataDirectory = dataDirectory;
             _connection = await HostProcessLauncher.EnsureStartedAsync(
                 dataDirectory,
                 clientName: "tauri",
                 timeout: TimeSpan.FromSeconds(10),
                 cancellationToken);
-            _dataDirectory = dataDirectory;
         }
 
         return await _connection.InvokeAsync(
@@ -99,6 +99,24 @@ public sealed class BridgeServer
                 Parameters = request.Parameters?.Clone(),
             },
             cancellationToken);
+    }
+
+    /// <summary>Only stop the connected data scope; never start a Host merely to stop it.</summary>
+    internal async Task StopHostAsync()
+    {
+        if (_dataDirectory is null) return;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        try
+        {
+            await using var connection = await HostConnection.ConnectAsync(_dataDirectory, "tauri-exit", timeout.Token);
+            await connection.InvokeAsync(new IpcRequest
+            {
+                RequestId = "tauri-exit-" + Guid.NewGuid().ToString("N"),
+                OperationId = "host.stop",
+                Parameters = JsonSerializer.SerializeToElement(new { idempotencyKey = "tauri-exit-" + Guid.NewGuid().ToString("N") }, ContractJson.Options),
+            }, timeout.Token);
+        }
+        catch (Exception ex) when (ex is HostClientException or IOException or OperationCanceledException) { }
     }
 
     private static string ResolveDataDirectory(string? requested)

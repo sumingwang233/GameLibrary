@@ -94,7 +94,7 @@ public sealed class HostRuntime : IAsyncDisposable
         runtimeState.Coordinator = new ScanCoordinator(
             runtimeState.Roots,
             events,
-            rootPath => RunReconcileScan(runtimeState, rootPath),
+            rootPath => RunReconcileScan(runtimeState, rootPath, runtimeState.Coordinator.StopToken),
             reconcileInterval);
         runtimeState.Coordinator.AcquireLibraryLease = () => runtimeState.Sessions.TryEnter(background: true);
 
@@ -268,7 +268,7 @@ public sealed class HostRuntime : IAsyncDisposable
     }
 
     /// <summary>周期核对（T16）：小步重扫 + 候选落库/晋升 + 事件发布；与手动扫描共用同一路径。</summary>
-    private static Hosting.JobOutcome RunReconcileScan(HostRuntimeState state, string rootPath)
+    private static Hosting.JobOutcome RunReconcileScan(HostRuntimeState state, string rootPath, CancellationToken token = default)
     {
         var validation = GamePath.TryCreate(rootPath);
         if (!validation.IsValid)
@@ -284,7 +284,7 @@ public sealed class HostRuntime : IAsyncDisposable
         var jobId = $"job-reconcile-{Guid.NewGuid():N}";
         var collector = new Scanning.ScanCandidateCollector(validation.Path, jobId, state.Candidates,
             flashRules: state.Library.Store?.ListFlashDirectoryRules());
-        var context = new Hosting.JobContext { JobId = jobId, Token = CancellationToken.None };
+        var context = new Hosting.JobContext { JobId = jobId, Token = token };
         Infrastructure.Scanning.ScanCoverageData? completedCoverage = null;
         var outcome = Scanning.ScanJobRunner.Run(
             validation.Path,
@@ -360,6 +360,7 @@ public sealed class HostRuntime : IAsyncDisposable
         _state.Launches.CancelObservations();
         _state.Jobs.CancelKind("titleTranslation");
         _state.Jobs.CancelKind("unityTranslation");
+        _state.Jobs.CancelKind("scan");
         if (_state.Suggestions is not null) await _state.Suggestions.Stopped;
         await _server.DisposeAsync();
         await _state.Jobs.WaitForIdleAsync();

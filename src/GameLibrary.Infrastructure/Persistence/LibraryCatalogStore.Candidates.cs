@@ -92,6 +92,20 @@ public static partial class LibraryCatalogStore
         return result;
     }
 
+    public static IReadOnlyList<(string CandidateId, string PhysicalPath, string ReviewState, int Revision)> ListCandidatePathChecks(SqliteConnection connection)
+    {
+        var result = new List<(string, string, string, int)>();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT candidate_id, physical_path, review_state, revision FROM candidates
+            WHERE review_state IN ('observed', 'pendingReview', 'deferred')
+              AND NOT (review_state='deferred' AND coalesce(json_type(payload_json, '$.flashSupersededBy'), 'null')='text')
+            """;
+        using var reader = command.ExecuteReader();
+        while (reader.Read()) result.Add((reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetInt32(3)));
+        return result;
+    }
+
     public static bool IsDefinitelyMissing(string path)
     {
         // 拔盘、无权限和 I/O 故障不等于文件被删除。

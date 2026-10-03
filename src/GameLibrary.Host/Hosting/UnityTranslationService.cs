@@ -87,8 +87,7 @@ public sealed class UnityTranslationService
         }
         foreach (var game in store.ListGames().Where(IsActiveUnityGame))
         {
-            var existing = ReadState(store, game.GameId);
-            if (existing is null || existing.State == "needs_settings") RequestForTaggedGame(game.GameId);
+            RequestForTaggedGame(game.GameId);
         }
     }
 
@@ -103,7 +102,15 @@ public sealed class UnityTranslationService
             var game = store.TryGetGame(gameId);
             if (!settings.Enabled || game is null || !IsActiveUnityGame(game) || !HasTag(store, game, BoundTag(store, settings))) return;
             var existing = ReadState(store, gameId);
-            if (existing?.State is "queued" or "inspecting" or "installing" or "configured") return;
+            if (existing?.State is "queued" or "inspecting" or "installing" or "declined") return;
+            if (_host.Launches.GetDefaultProfile(gameId) is { ToolId: null } profile
+                && _host.Roots.Contains(profile.ExecutablePath)
+                && UnityTranslationInspection.IsConfiguredChineseTranslator(UnityTranslationInspection.Inspect(profile.ExecutablePath)))
+            {
+                CompleteExisting(store, NewState(store, game, settings));
+                return;
+            }
+            if (existing?.State == "configured") return;
             if (!settings.Configured || !Vault(store).HasKey(settings.CredentialId))
             {
                 Save(store, NewState(store, game, settings) with { State = "needs_settings", Reason = "请先配置翻译服务商" });
@@ -115,6 +122,15 @@ public sealed class UnityTranslationService
     }
 
     public void QueueTaggedGame(string gameId) => RequestForTaggedGame(gameId);
+
+    private void CompleteExisting(SqliteLibraryStore store, UnityTranslationState state)
+    {
+        Save(store, state with { State = "confirmed", Reason = "已检测到已启用的中文翻译插件" });
+        if (state.BoundTagId is not null && store.TryGetTag(state.BoundTagId) is { Kind: "user" }
+            && store.UnassignTag(state.GameId, state.BoundTagId) == "user")
+            _host.Events.Publish("game.updated", "game:" + state.GameId,
+                new { gameId = state.GameId, fields = new[] { "tags" } }, DateTime.UtcNow);
+    }
 
     public Envelope<object> Handle(IpcRequest request)
     {
@@ -461,6 +477,8 @@ public sealed class UnityTranslationService
             Save(store, state);
             var layout = UnityTranslationInspection.Inspect(profile.ExecutablePath);
             if (layout.Reason is not null) { Block(layout.Reason); return; }
+            if (state.BackupId is null && UnityTranslationInspection.IsConfiguredChineseTranslator(layout))
+            { CompleteExisting(store, state); return; }
             if (!settings.Configured || !Vault(store).HasKey(settings.CredentialId))
             { Save(store, state with { State = "needs_settings", Reason = "请先配置翻译服务商" }); return; }
             var key = Vault(store).ReadKey(settings.CredentialId); // Capture with metadata before awaits; provider changes must not mix credentials.

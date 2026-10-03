@@ -102,7 +102,8 @@ public static class ReconcileService
     public static void CheckCandidates(SqliteLibraryStore store, DateTime utcNow, EventStream? events = null)
     {
         // 旧版系统目录候选也在后台清理，通知在所有转换完成后统一核对。
-        foreach (var candidate in store.ListCandidates().Where(candidate =>
+        var candidates = store.ListCandidatePathChecks();
+        foreach (var candidate in candidates.Where(candidate =>
             candidate.ReviewState is "observed" or "pendingReview" or "deferred"
             && GameLibrary.Infrastructure.Scanning.DirectoryWalker.IsSystemDirectory(candidate.PhysicalPath)))
         {
@@ -111,7 +112,7 @@ public static class ReconcileService
                     new { candidateId = candidate.CandidateId, reviewState = "ignored" }, utcNow);
         }
         // Filesystem observations precede the individual write transactions.
-        foreach (var candidate in store.ListCandidates().Where(candidate =>
+        foreach (var candidate in candidates.Where(candidate =>
             candidate.ReviewState is "pendingReview" or "deferred"
             && LibraryCatalogStore.IsDefinitelyMissing(candidate.PhysicalPath)))
         {

@@ -19,6 +19,59 @@ namespace GameLibrary.IntegrationTests.Translation;
 public sealed class UnityTranslationTests
 {
     [Theory]
+    [InlineData("startup")]
+    [InlineData("tag")]
+    [InlineData("configure")]
+    public async Task ExistingEnabledChinesePlugin_RemovesOnlyBoundTag_WithoutRunningOrChangingFiles(string trigger)
+    {
+        await using var fixture = await Fixture.Create();
+        var game = fixture.AddGame("already-translated");
+        var exe = Path.Combine(game.RootPath, "Game.exe");
+        File.WriteAllText(exe, "never execute");
+        await BuildSyntheticPlugins(Path.Combine(game.RootPath, "Game_Data"));
+        fixture.Host.Launches.AddProfile(game.GameId, exe, [], game.RootPath, isDefault: true);
+        fixture.Store.CreateTag(new("other-tag", "user", "keep", null, 1, 0, DateTime.UtcNow, DateTime.UtcNow));
+        fixture.Store.AssignTag(game.GameId, "other-tag", DateTime.UtcNow);
+        var config = Path.Combine(game.RootPath, "AutoTranslator", "Config.ini");
+        Directory.CreateDirectory(Path.GetDirectoryName(config)!);
+        var original = "[General]\nLanguage=zh\n[Service]\nEndpoint=DeepSeekTranslate\n[DeepSeek]\nApiKey=" + fixture.Key;
+        File.WriteAllText(config, original);
+        if (trigger == "startup") fixture.Service.Start();
+        else if (trigger == "tag") fixture.Service.RequestForTaggedGame(game.GameId);
+        else { Assert.True(fixture.Invoke("configure", new { gameIds = new[] { game.GameId } }).Ok); await fixture.Host.Jobs.WaitForIdleAsync(); }
+        Assert.Equal("confirmed", fixture.ReadState(game.GameId)?.State);
+        Assert.DoesNotContain(("user", "未翻译"), fixture.Store.ListGameTags(game.GameId));
+        Assert.Contains(("user", "keep"), fixture.Store.ListGameTags(game.GameId));
+        Assert.Equal(original, File.ReadAllText(config));
+        Assert.Empty(fixture.Host.Launches.History());
+    }
+
+    [Theory]
+    [InlineData("language")]
+    [InlineData("disabled")]
+    [InlineData("endpoint")]
+    [InlineData("key")]
+    [InlineData("declined")]
+    [InlineData("invalid-endpoint")]
+    public async Task ExistingUnverifiedOrDeclinedPlugin_KeepsUntranslatedTag(string reason)
+    {
+        await using var fixture = await Fixture.Create();
+        var game = fixture.AddGame("not-ready");
+        var exe = Path.Combine(game.RootPath, "Game.exe");
+        File.WriteAllText(exe, "never execute");
+        await BuildSyntheticPlugins(Path.Combine(game.RootPath, "Game_Data"), invalidEndpoint: reason == "invalid-endpoint");
+        fixture.Host.Launches.AddProfile(game.GameId, exe, [], game.RootPath, isDefault: true);
+        var config = Path.Combine(game.RootPath, "AutoTranslator", "Config.ini");
+        Directory.CreateDirectory(Path.GetDirectoryName(config)!);
+        File.WriteAllText(config, $"[General]\nLanguage={(reason == "language" ? "en" : "zh")}\n[Service]\nEndpoint={(reason == "endpoint" ? "MissingEndpoint" : "DeepSeekTranslate")}\n[DeepSeek]\nApiKey={(reason == "key" ? "" : fixture.Key)}\n[Behaviour]\nEnableTranslation={(reason == "disabled" ? "False" : "True")}\n");
+        if (reason == "declined") fixture.WriteState(new() { GameId = game.GameId, Title = game.Title, AttemptId = "declined", DataEpoch = fixture.Store.Info.DataEpoch, State = "declined" });
+        fixture.Service.RequestForTaggedGame(game.GameId);
+        Assert.Contains(("user", "未翻译"), fixture.Store.ListGameTags(game.GameId));
+        Assert.NotEqual("confirmed", fixture.ReadState(game.GameId)?.State);
+        Assert.Empty(fixture.Host.Launches.History());
+    }
+
+    [Theory]
     [InlineData("unity")]
     [InlineData("Unity")]
     [InlineData("UNITY")]
@@ -540,7 +593,7 @@ public sealed class UnityTranslationTests
               Add-Type -TypeDefinition 'namespace XUnity.AutoTranslator.Plugin.Core { public static class PluginLoader { public static void LoadThroughBootstrapper() {} } namespace Endpoints { public interface ITranslateEndpoint { void Initialize(); void Translate(); } } }' -OutputAssembly $core
               Add-Type -TypeDefinition 'namespace UnityEngine { public class Input { static Input() { XUnity.AutoTranslator.Plugin.Core.PluginLoader.LoadThroughBootstrapper(); } } public class Display { static Display() {} } }' -ReferencedAssemblies $core -OutputAssembly (Join-Path $managed 'UnityEngine.CoreModule.dll')
               Add-Type -TypeDefinition 'public class DummyGame {}' -OutputAssembly (Join-Path $managed 'Assembly-CSharp.dll')
-              Add-Type -TypeDefinition 'namespace DeepSeekTranslate { public class DeepSeekTranslateEndpoint : XUnity.AutoTranslator.Plugin.Core.Endpoints.ITranslateEndpoint { public void Initialize() { throw new System.Exception("Must never run"); } public void Translate() { throw new System.Exception("Must never run"); } } }' -ReferencedAssemblies $core -OutputAssembly (Join-Path $translators 'DeepSeekTranslate.dll')
+              Add-Type -TypeDefinition 'namespace DeepSeekTranslate { public class DeepSeekTranslateEndpoint : XUnity.AutoTranslator.Plugin.Core.Endpoints.ITranslateEndpoint { public string Id { get { return "DeepSeekTranslate"; } } public void Initialize() { throw new System.Exception("Must never run"); } public void Translate() { throw new System.Exception("Must never run"); } } }' -ReferencedAssemblies $core -OutputAssembly (Join-Path $translators 'DeepSeekTranslate.dll')
               exit 0
             } catch { exit 1 }
             """;

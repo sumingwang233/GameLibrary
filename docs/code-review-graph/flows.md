@@ -46,7 +46,9 @@ flowchart TD
     Engine --> Settings[唯一已有配置自动导入 / 首次本机设置]
     Settings --> Queue[既有 JobManager / 单队列与库租约]
     Queue --> Inspect[默认启动入口 / Mono与加载器检查]
-    Inspect --> Files[固定哈希公开插件 / 离线补丁]
+    Inspect --> Existing{已有启用中文插件与有效端点}
+    Existing -->|是| ExistingTag[保存已配置元数据 / 解除绑定标签]
+    Existing -->|否| Files[固定哈希公开插件 / 离线补丁]
     Files --> Recheck[重新校验游戏/标签/设置/原文件]
     Recheck --> Backup[DPAPI 加密原文件备份]
     Backup --> Write[原子写入 / 离线验证 / 失败恢复]

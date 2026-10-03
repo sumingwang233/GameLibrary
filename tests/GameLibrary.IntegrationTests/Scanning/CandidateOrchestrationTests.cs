@@ -16,6 +16,42 @@ namespace GameLibrary.IntegrationTests.Scanning;
 /// </summary>
 public sealed class CandidateOrchestrationTests
 {
+    [Fact]
+    public async Task MetadataPathChecks_PreserveSupersededHistory_AndReconcileRealReviews()
+    {
+        var root = NewFixtureRoot();
+        var opened = await SqliteLibraryStore.InitializeAsync(Path.Combine(root, "data"),
+            new SqliteLibraryStoreOptions { AppVersion = "test", ApiVersion = "1" }, CancellationToken.None);
+        await using var store = opened.Store!;
+        var now = DateTime.UtcNow;
+        foreach (var (id, state, payload) in new[]
+        {
+            ("superseded", "deferred", "{\"flashSupersededBy\":\"confirmed-group\"}"),
+            ("user-deferred", "deferred", "{}"),
+            ("pending", "pendingReview", "{}"),
+            ("accepted", "accepted", "{}"),
+        })
+            store.UpsertCandidate(new()
+            {
+                CandidateId = id,
+                Kind = "fileGame",
+                PhysicalPath = Path.Combine(root, id + ".swf"),
+                RelativePath = id + ".swf",
+                PayloadJson = payload,
+                ReviewState = state,
+                Revision = 1,
+                ObservedUtc = now,
+                UpdatedUtc = now
+            });
+        Assert.Equal(new[] { "pending", "user-deferred" }, store.ListCandidatePathChecks().Select(candidate => candidate.CandidateId).Order().ToArray());
+        ReconcileService.CheckCandidates(store, now);
+        Assert.Equal("deferred", store.TryGetCandidate("superseded")!.ReviewState);
+        Assert.Equal(1, store.TryGetCandidate("superseded")!.Revision);
+        Assert.Equal("accepted", store.TryGetCandidate("accepted")!.ReviewState);
+        Assert.Equal("observed", store.TryGetCandidate("user-deferred")!.ReviewState);
+        Assert.Equal("observed", store.TryGetCandidate("pending")!.ReviewState);
+    }
+
     private static string NewFixtureRoot()
     {
         var path = Path.Combine(

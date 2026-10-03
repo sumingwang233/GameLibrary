@@ -183,6 +183,7 @@ fn spawn_bridge(app: &AppHandle) -> Result<BridgeProcess, String> {
         command.env("GAMELIBRARY_HOST_EXE", host_path);
     }
     let mut child = command
+        .args(["--parent-pid", &std::process::id().to_string()])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -426,8 +427,10 @@ pub fn run() {
             if matches!(event, RunEvent::Exit) {
                 if let Some(state) = app.try_state::<BridgeState>() {
                     for lane in [&state.requests, &state.events] {
-                        if let Ok(mut bridge) = lane.lock() {
-                            discard_bridge(&mut bridge);
+                        // Parent monitoring stops Host; avoid waiting for busy long-poll lanes.
+                        // Closing stdin also lets an idle bridge finish gracefully.
+                        if let Ok(mut bridge) = lane.try_lock() {
+                            bridge.take();
                         }
                     }
                 }

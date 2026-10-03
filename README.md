@@ -89,7 +89,7 @@ Get-FileHash .\GameLibrary-Setup-v1.5.5.exe -Algorithm SHA256
 <details>
 <summary><strong>当前源码：v1.7.4，未发布</strong></summary>
 
-v1.7.4 修复小写 `unity` 引擎记录未触发翻译插件自动配置、详情页不显示重试按钮的问题。启动补处理、标签触发、配置与安装前检查统一兼容引擎大小写；已有翻译服务设置可继续使用。见[修复与验证记录](docs/unity-translation-backend.md)。本版尚未打包或发布。
+v1.7.4 修复 Unity 未翻译标签的自动配置触发，离线确认已有且启用的中文翻译插件后自动解除该标签；降低后台建议发现和候选核对的重复开销，退出桌面时优雅停止对应 Host，标签颜色仅用于文字和圆点。[版本说明](docs/releases/v1.7.4.md)记录变更，[验证记录](docs/releases/v1.7.4-validation.md)记录发布准备状态。
 
 v1.7.3 修复旧资源 SWF 候选没有按目录归并、导致待确认数量过大的问题。首次启动立即核对受影响的扫描根，完整目录组代替旧逐文件候选；原游戏文件、ID 与元数据保留。继续使用 schema27，不重复重置忽略规则。保留 v1.7.2 的封面粘贴、Flash 审核、标签颜色和本机 Unity 翻译配置。见[验证记录](docs/releases/v1.7.3-validation.md)。
 
