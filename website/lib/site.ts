@@ -4,7 +4,7 @@ export const languages = ["zh-CN", "zh-TW", "en", "ja"] as const;
 export type Language = typeof languages[number];
 export const languageNames: Record<Language, string> = { "zh-CN": "简体中文", "zh-TW": "繁體中文", en: "English", ja: "日本語" };
 export const translate = (language: Language) => (zh: string, tw: string, en: string, ja: string) => [zh, tw, en, ja][languages.indexOf(language)];
-export const stableVersion = "1.5.5";
+export const stableVersion = "1.7.5";
 export const prefix = process.env.NODE_ENV === "production" ? "/GameLibrary" : "";
 export const repository = "https://github.com/sumingwang233/GameLibrary";
 export const release = `${repository}/releases/download/v${stableVersion}/`;

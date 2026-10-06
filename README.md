@@ -10,26 +10,26 @@
 
 把散落在硬盘里的游戏放到一处。选好文件夹，确认启动项，就能从游戏库打开游戏。
 
-**[下载 Windows 安装版](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.5/GameLibrary-Setup-v1.5.5.exe)** · [所有版本](https://github.com/sumingwang233/GameLibrary/releases) · [反馈问题](https://github.com/sumingwang233/GameLibrary/issues)
+**[下载 Windows 安装版](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.5/GameLibrary-Setup-v1.7.5.exe)** · [所有版本](https://github.com/sumingwang233/GameLibrary/releases) · [反馈问题](https://github.com/sumingwang233/GameLibrary/issues)
 
 [下载](#download) · [界面](#demo) · [开始使用](#start) · [常见问题](#faq)
 
 <a id="download"></a>
 ## 下载
 
-目前公开稳定版为 **v1.5.5**，支持 **Windows 10 / 11 x64**。这一版的桌面界面为简体中文；README 的翻译不代表该安装包已支持其他界面语言。
+目前公开正式版为 **v1.7.5（未验收）**，面向 **Windows 10 / 11 x64**。维护者已明确豁免本次发布前验收；仅完成生产编译，测试、独立检查与人工验收均未执行。详见[本次记录](docs/releases/v1.7.5-validation.md)。
 
 | 文件 | 适合谁 |
 |---|---|
-| [`GameLibrary-Setup-v1.5.5.exe`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.5/GameLibrary-Setup-v1.5.5.exe) | 推荐。当前用户安装器，可选择安装目录。 |
-| [`GameLibrary-Portable-win-x64-v1.5.5.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.5/GameLibrary-Portable-win-x64-v1.5.5.zip) | 解压后运行 GameLibrary.Desktop.exe。 |
-| [`GameLibrary-Tools-win-x64-v1.5.5.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.5/GameLibrary-Tools-win-x64-v1.5.5.zip) | Host、CLI 和 MCP，供命令行与自动化使用。 |
-| [`GameLibrary-v1.5.5-SHA256SUMS.txt`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.5/GameLibrary-v1.5.5-SHA256SUMS.txt) | 上面三个下载包的 SHA-256 校验清单。 |
+| [`GameLibrary-Setup-v1.7.5.exe`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.5/GameLibrary-Setup-v1.7.5.exe) | 推荐。当前用户安装器，可选择安装目录。 |
+| [`GameLibrary-Portable-win-x64-v1.7.5.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.5/GameLibrary-Portable-win-x64-v1.7.5.zip) | 解压后运行 GameLibrary.Desktop.exe。 |
+| [`GameLibrary-Tools-win-x64-v1.7.5.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.5/GameLibrary-Tools-win-x64-v1.7.5.zip) | Host、CLI 和 MCP，供命令行与自动化使用。 |
+| [`GameLibrary-v1.7.5-SHA256SUMS.txt`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.5/GameLibrary-v1.7.5-SHA256SUMS.txt) | 上面三个下载包的 SHA-256 校验清单。 |
 
 程序与安装器未进行 Authenticode 签名，Windows 可能提示未知发布者。请从本仓库下载，并用同版本校验清单核对文件：
 
 ```powershell
-Get-FileHash .\GameLibrary-Setup-v1.5.5.exe -Algorithm SHA256
+Get-FileHash .\GameLibrary-Setup-v1.7.5.exe -Algorithm SHA256
 ```
 
 <a id="demo"></a>
@@ -87,7 +87,7 @@ Get-FileHash .\GameLibrary-Setup-v1.5.5.exe -Algorithm SHA256
 </details>
 
 <details>
-<summary><strong>当前源码：v1.7.5，未发布</strong></summary>
+<summary><strong>当前版本：v1.7.5，正式发布 / 未验收</strong></summary>
 
 v1.7.5 根据架构审查收紧恢复后的旧写请求、启动幂等、备份封面一致性和文件回收恢复协议；统一 CLI/MCP 参数与 schema 发现，将慢注入等待移至后台作业。本次仅获授权进行打包编译，测试及人工验收未执行。参阅[架构实施](docs/development/v1.7.5-architecture-plan.md)、[版本说明](docs/releases/v1.7.5.md)和[验收记录](docs/releases/v1.7.5-validation.md)。
 
@@ -95,9 +95,7 @@ v1.7.4 修复 Unity 未翻译标签的自动配置触发，离线确认已有且
 
 v1.7.3 修复旧资源 SWF 候选没有按目录归并、导致待确认数量过大的问题。首次启动立即核对受影响的扫描根，完整目录组代替旧逐文件候选；原游戏文件、ID 与元数据保留。继续使用 schema27，不重复重置忽略规则。保留 v1.7.2 的封面粘贴、Flash 审核、标签颜色和本机 Unity 翻译配置。见[验证记录](docs/releases/v1.7.3-validation.md)。
 
-v1.6.1 新增建议启动方式：中文入口优先、试运行验证后自动设为默认、明确失败自动废弃并支持手动恢复；同步调整卡片时长、主题快捷切换和 Windows 任务栏图标。这些修改不在上方 v1.5.5 稳定下载包中。[v1.6.1 说明](docs/releases/v1.6.1.md)记录交付内容与验收状态。
-
-v1.7.0 新增[游戏名称翻译](docs/title-translation.md)：Google/Bing 免费免密钥翻译、批量进度和取消、中文译名与原文切换；同时补修两种布局标题下方的游玩时长。体验这些功能请使用 [v1.7.0 预发布包](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.0)，[验证记录](docs/releases/v1.7.0-validation.md)列明尚未完成的人工验收。上方稳定版下载保持 v1.5.5。
+这些历史版本的功能已包含在上方 v1.7.5 正式包；旧说明和预发布链接保留供追溯。
 
 v1.7.1 修复翻译后的副标题标点：原文含 `-` 时，将引擎返回的连续长破折号收为 `：` 并去掉首尾包围符。旧译名可在详情重新翻译；原文和手工译名保留。[v1.7.1 预发布包](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.1)及[验证记录](docs/releases/v1.7.1-validation.md)提供本次修复和验收状态。
 </details>

@@ -10,26 +10,26 @@
 
 Keep games scattered across your drives in one library. Choose a folder, check the launch entry, and open the game from your collection.
 
-**[Download the Windows installer](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.5/GameLibrary-Setup-v1.5.5.exe)** · [All releases](https://github.com/sumingwang233/GameLibrary/releases) · [Report an issue](https://github.com/sumingwang233/GameLibrary/issues)
+**[Download the Windows installer](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.5/GameLibrary-Setup-v1.7.5.exe)** · [All releases](https://github.com/sumingwang233/GameLibrary/releases) · [Report an issue](https://github.com/sumingwang233/GameLibrary/issues)
 
 [Download](#download) · [Screenshots](#demo) · [Get started](#start) · [FAQ](#faq)
 
 <a id="download"></a>
 ## Download
 
-The public stable release is **v1.5.5**, for **Windows 10 / 11 x64**. Its desktop interface is in Simplified Chinese. Translated READMEs do not imply that this installer includes translated interfaces.
+The current official release is **v1.7.5 (acceptance not run)**, targeting **Windows 10 / 11 x64**. The maintainer explicitly waived pre-release acceptance for this version. Only production compilation completed; tests, separate checks and manual acceptance were not run. See the [record](docs/releases/v1.7.5-validation.md).
 
 | File | Use |
 |---|---|
-| [`GameLibrary-Setup-v1.5.5.exe`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.5/GameLibrary-Setup-v1.5.5.exe) | Recommended. Current-user installer with a choice of installation folder. |
-| [`GameLibrary-Portable-win-x64-v1.5.5.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.5/GameLibrary-Portable-win-x64-v1.5.5.zip) | Extract and run GameLibrary.Desktop.exe. |
-| [`GameLibrary-Tools-win-x64-v1.5.5.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.5/GameLibrary-Tools-win-x64-v1.5.5.zip) | Host, CLI and MCP for command-line use and automation. |
-| [`GameLibrary-v1.5.5-SHA256SUMS.txt`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.5.5/GameLibrary-v1.5.5-SHA256SUMS.txt) | SHA-256 checksums for the three packages above. |
+| [`GameLibrary-Setup-v1.7.5.exe`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.5/GameLibrary-Setup-v1.7.5.exe) | Recommended. Current-user installer with a choice of installation folder. |
+| [`GameLibrary-Portable-win-x64-v1.7.5.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.5/GameLibrary-Portable-win-x64-v1.7.5.zip) | Extract and run GameLibrary.Desktop.exe. |
+| [`GameLibrary-Tools-win-x64-v1.7.5.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.5/GameLibrary-Tools-win-x64-v1.7.5.zip) | Host, CLI and MCP for command-line use and automation. |
+| [`GameLibrary-v1.7.5-SHA256SUMS.txt`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.5/GameLibrary-v1.7.5-SHA256SUMS.txt) | SHA-256 checksums for the three packages above. |
 
 The executables and installer are not Authenticode-signed. Windows may show an unknown-publisher warning. Download from this repository and compare the hash with the same-version checksum file:
 
 ```powershell
-Get-FileHash .\GameLibrary-Setup-v1.5.5.exe -Algorithm SHA256
+Get-FileHash .\GameLibrary-Setup-v1.7.5.exe -Algorithm SHA256
 ```
 
 <a id="demo"></a>
@@ -87,7 +87,7 @@ The installer provides a wizard, Start menu entries and uninstallation registrat
 </details>
 
 <details>
-<summary><strong>Current source: v1.7.5, unreleased</strong></summary>
+<summary><strong>Current version: v1.7.5, official release / acceptance not run</strong></summary>
 
 v1.7.5 addresses stale writes after restore, launch idempotency, cover consistency in backups and interrupted recycling. CLI/MCP parameters and schema discovery share their definitions; slow injection waits run as background jobs. Only packaging compilation was authorized; tests and manual acceptance were not run. See the [implementation](docs/development/v1.7.5-architecture-plan.md), [release notes](docs/releases/v1.7.5.md) and [acceptance record](docs/releases/v1.7.5-validation.md).
 
@@ -95,9 +95,7 @@ v1.7.4 fixes tag-triggered Unity translation setup and removes the untranslated 
 
 v1.7.3 fixes excessive pending counts caused by ungrouped legacy resource SWF candidates. The first startup immediately rescans affected library roots and replaces covered file candidates with complete directory reviews, preserving original game files, IDs and metadata. Schema27 is unchanged and ignore rules are not reset again. Cover paste, Flash review, tag colors and local Unity translation setup from v1.7.2 remain available. See the [validation record](docs/releases/v1.7.3-validation.md).
 
-v1.6.1 adds suggested launch profiles, Chinese entry preference, automatic default promotion after trial verification, and manual recovery of clearly failed entries. It also updates card playtime, the titlebar theme shortcut and Windows taskbar icon. These changes are not in the stable v1.5.5 downloads above. See the [v1.6.1 notes](docs/releases/v1.6.1.md) for changes and acceptance status.
-
-v1.7.0 adds [game title translation](docs/title-translation.md) with free Google/Bing engines requiring no key, batch progress and cancellation, and persistent original/Chinese title switching. It also fixes playtime below titles in both layouts. Try these features with the [v1.7.0 pre-release packages](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.0); the [validation record](docs/releases/v1.7.0-validation.md) lists pending manual acceptance. Stable downloads above remain at v1.5.5.
+The historical features described here are included in the v1.7.5 package above. Earlier notes and prerelease links remain for traceability.
 
 v1.7.1 fixes subtitle punctuation in translations: when the original contains `-`, repeated em dashes become `：` and surrounding dashes are removed. Retranslate existing titles in details to apply the fix; original and manually edited titles are preserved. See the [v1.7.1 pre-release packages](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.1) and [validation record](docs/releases/v1.7.1-validation.md).
 </details>
