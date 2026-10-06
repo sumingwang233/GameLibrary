@@ -16,6 +16,21 @@ namespace GameLibrary.IntegrationTests;
 public sealed class ArchitectureBoundariesTests
 {
     [Fact]
+    public void GeneratedMcpSchemaSupportsOmittedTagPatchAndCropCoordinates()
+    {
+        var update = ModelContextProtocol.Server.McpServerTool.Create(
+            typeof(GameLibrary.Mcp.GameLibraryTools).GetMethod("TagsUpdate")!).ProtocolTool.InputSchema;
+        var required = update.GetProperty("required").EnumerateArray().Select(value => value.GetString()).ToArray();
+        Assert.DoesNotContain("color", required);
+        Assert.DoesNotContain("displayName", required);
+        Assert.Equal(JsonValueKind.Null, update.GetProperty("properties").GetProperty("color").GetProperty("default").ValueKind);
+        var crop = ModelContextProtocol.Server.McpServerTool.Create(
+            typeof(GameLibrary.Mcp.GameLibraryTools).GetMethod("AssetsCrop")!).ProtocolTool.InputSchema;
+        foreach (var field in new[] { "gameId", "assetId", "x", "y", "width", "height", "expectedRevision", "idempotencyKey" })
+            Assert.Contains(crop.GetProperty("required").EnumerateArray(), value => value.GetString() == field);
+    }
+
+    [Fact]
     public async Task ReconnectRetainsOriginalWriteEpoch()
     {
         var data = Path.Combine(Path.GetTempPath(), "gamelibrary-reconnect-" + Guid.NewGuid().ToString("N"));
@@ -96,7 +111,7 @@ public sealed class ArchitectureBoundariesTests
         Assert.Throws<IOException>(() => store.InTransaction<int>(() =>
         {
             store.InsertPreparedReceipt(receipt);
-            store.WriteSettingsKeys([("theme", "dark")], DateTime.UtcNow);
+            store.WriteSettingsKeys([("theme", before.Theme == "dark" ? "light" : "dark")], DateTime.UtcNow);
             store.CompleteReceipt(receipt, "{}");
             throw new IOException("interrupted commit");
         }));
