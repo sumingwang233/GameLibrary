@@ -2760,6 +2760,21 @@
     "Unknown error",
     "不明なエラー"
   ],
+  "游戏启动失败": [
+    "遊戲啟動失敗",
+    "Game launch failed",
+    "ゲームの起動に失敗しました"
+  ],
+  "启动未完成": [
+    "啟動未完成",
+    "Launch did not complete",
+    "起動が完了しませんでした"
+  ],
+  "启动结果无法确认": [
+    "啟動結果無法確認",
+    "Launch outcome could not be confirmed",
+    "起動結果を確認できませんでした"
+  ],
   "；另有 {0} 项失败": [
     "；另有 {0} 項失敗",
     "; {0} more failed",

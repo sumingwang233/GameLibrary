@@ -24,7 +24,7 @@ public sealed class IpcRequest
 
     /// <summary>
     /// 调用方期望的数据纪元。备份恢复会续期纪元：携带旧纪元的变更请求一律
-    /// DataEpochMismatch 拒绝，客户端必须重连获取新纪元后重试。
+    /// DataEpochMismatch 拒绝；重连后必须重新读取状态并准备新的写意图，不能重绑旧请求。
     /// </summary>
     public string? ExpectedDataEpoch { get; set; }
 

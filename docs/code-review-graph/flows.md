@@ -250,3 +250,28 @@ Schema 25 添加可选元数据，旧手动配置不晋升也不重排默认。�
 核对运行程序与 v1.6.1 最终暂存 EXE 的 SHA-256 完全一致，标签源码和生产 JS 也包含卡片时长逻辑。遗漏来自显示条件：`formatPlaytime` 对0/缺省返回空串，`GameCard` 原先据此隐藏整行；`GameGrid` 紧凑布局仍展示 engine/kind。只读统计确认多数活跃游戏不足1分钟或没有完成记录，卡片因而看不到时长，并非旧程序或图标缓存问题。
 
 补修 `GameCard` 与 `GameGrid`：复用既有 formatter，卡片/列表局部回退为已翻译的「0 分钟」，两种布局均在标题下方显示时长，紧凑布局移除引擎。详情的「尚未游玩」及后台整分钟聚合语义不变。回归覆盖0、缺省、分钟、小时、两种布局与数据刷新；前端33项、typecheck、生产构建和四语言检查通过。未重建安装包、未改写已发布 v1.6.1 资产，当前安装程序不会自动获得本次源码修改。
+# v1.7.5 恢复与启动边界
+
+```mermaid
+sequenceDiagram
+    participant Client as Desktop / CLI / MCP
+    participant Host as Host admission
+    participant Store as SQLite receipts
+    participant Jobs as Existing JobManager
+    participant OS as Process / recycle bin
+    Client->>Host: Original instance + epoch + actor/key
+    Host->>Store: Prepare receipt and associate launch/recycle intent
+    alt Injection wait
+        Host->>Jobs: Launch job + library lease
+        Host-->>Client: accepted + jobId
+        Jobs->>OS: Execute with cancellation
+        Client->>Host: jobs.get / launch.status
+    else Immediate launch / recycle
+        Host->>OS: Side effect after intent
+    end
+    Host->>Store: Persist known outcome
+    Note over Host,Store: Restart verifies identity/revision/absence; unknown effects are never rerun
+```
+
+备份沿存储写入锁完成 SQLite 快照及管理资产复制。此图记录源码变更，测试与人工验收未执行，见 [v1.7.5](../releases/v1.7.5-validation.md)。
+

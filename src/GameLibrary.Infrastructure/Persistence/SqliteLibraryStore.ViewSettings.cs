@@ -11,10 +11,10 @@ public sealed partial class SqliteLibraryStore
         => ReadExclusive((c, _) => SettingsStore.Read(c));
 
     public int WriteSettingsKeys(IEnumerable<(string Key, string? Value)> keys, DateTime utcNow)
-        => Execute((c, _) => SettingsStore.WriteKeys(c, keys, utcNow));
+        => Execute((c, _) => SettingsStore.WriteKeys(c, keys, utcNow, _writeTransaction));
 
     public int ResetSettings(DateTime utcNow)
-        => Execute((c, _) => SettingsStore.ResetAll(c, utcNow));
+        => Execute((c, _) => SettingsStore.ResetAll(c, utcNow, _writeTransaction));
 
     // T15-C 自定义视图转发。
 
@@ -31,7 +31,7 @@ public sealed partial class SqliteLibraryStore
         string viewId, string? name, string? search, bool? favoriteOnly, string? tagId, string? sort,
         int expectedRevision, DateTime utcNow)
         => Execute((c, _) => LibraryViewStore.UpdateView(
-            c, viewId, name, search, favoriteOnly, tagId, sort, expectedRevision, utcNow));
+            c, viewId, name, search, favoriteOnly, tagId, sort, expectedRevision, utcNow, _writeTransaction));
 
     public bool DeleteView(string viewId)
         => Execute((c, _) => LibraryViewStore.DeleteView(c, viewId));

@@ -170,6 +170,20 @@ internal static class Program
             return ExitArgumentError;
         }
 
+        if (cli.ParametersJson is not null)
+        {
+            Dictionary<string, JsonElement>? supplied;
+            try { supplied = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(cli.ParametersJson); }
+            catch (JsonException) { Console.Error.WriteLine("--parameters-json 必须是 JSON 参数对象"); return ExitArgumentError; }
+            if (supplied is null) return ExitArgumentError;
+            if (cli.IdempotencyKey is not null && !supplied.ContainsKey("idempotencyKey"))
+                supplied["idempotencyKey"] = JsonSerializer.SerializeToElement(cli.IdempotencyKey);
+            await using var rawConnection = await HostProcessLauncher.EnsureStartedAsync(cli.DataDir, clientName: "cli", timeout: TimeSpan.FromSeconds(cli.TimeoutSeconds));
+            var rawResult = await rawConnection.InvokeAsync(new IpcRequest { RequestId = cli.RequestId, OperationId = operationId, Parameters = ToParameters(supplied) }, CancellationToken.None);
+            WriteEnvelope(rawResult);
+            return EnvelopeExitCode(rawResult);
+        }
+
         if (requiresRoot && cli.RootArgument is null)
         {
             Console.Error.WriteLine(operationId switch
@@ -414,7 +428,7 @@ internal static class Program
             "tags.reorder" => new { items = JsonSerializer.Deserialize<JsonElement>(cli.ItemsJson ?? "null"), idempotencyKey = cli.IdempotencyKey ?? Guid.NewGuid().ToString("N") },
             "events.read" => (cli.Limit is null && cli.ExpectedRevision is null) ? null : new { cursor = cli.ExpectedRevision, limit = cli.Limit },
             "scan.inspect" => new { path = cli.RootArgument },
-            "roots.add" => new { root = cli.RootArgument },
+            "roots.add" => new { root = cli.RootArgument, kind = cli.Kind, idempotencyKey = cli.IdempotencyKey ?? Guid.NewGuid().ToString("N") },
             "roots.list" => new { },
             "roots.remove" => new
             {
@@ -546,13 +560,20 @@ internal static class Program
             "assets.crop" => new
             {
                 idempotencyKey = cli.IdempotencyKey ?? $"crop-{Guid.NewGuid():N}",
+                gameId = cli.GameId,
+                expectedRevision = cli.ExpectedRevision,
                 assetId = cli.AssetId,
                 x = cli.X,
                 y = cli.Y,
                 width = cli.Width,
                 height = cli.Height,
             },
-            "assets.reset" => new { gameId = cli.GameId },
+            "assets.reset" => new
+            {
+                idempotencyKey = cli.IdempotencyKey ?? $"resetcover-{Guid.NewGuid():N}",
+                gameId = cli.GameId,
+                expectedRevision = cli.ExpectedRevision,
+            },
             "assets.remove" => new
             {
                 idempotencyKey = cli.IdempotencyKey ?? $"rmasset-{Guid.NewGuid():N}",
@@ -602,15 +623,12 @@ internal static class Program
                 idempotencyKey = cli.IdempotencyKey ?? $"tagc-{Guid.NewGuid():N}",
                 name = cli.Name,
                 color = cli.Color,
+                category = cli.Category,
+                sortOrder = cli.SortOrder,
+                starred = cli.Starred,
+                displayName = cli.DisplayName,
             },
-            "tags.update" => new
-            {
-                idempotencyKey = cli.IdempotencyKey ?? $"tagu-{Guid.NewGuid():N}",
-                tagId = cli.TagId,
-                name = cli.Name,
-                color = cli.Color,
-                expectedRevision = cli.ExpectedRevision,
-            },
+            "tags.update" => BuildTagPatch(cli),
             "tags.remove" => new
             {
                 idempotencyKey = cli.IdempotencyKey ?? $"tagrm-{Guid.NewGuid():N}",
@@ -770,6 +788,23 @@ internal static class Program
         return ExitOk;
     }
 
+    private static Dictionary<string, object?> BuildTagPatch(CommandLine cli)
+    {
+        var patch = new Dictionary<string, object?>
+        {
+            ["idempotencyKey"] = cli.IdempotencyKey ?? $"tagu-{Guid.NewGuid():N}",
+            ["tagId"] = cli.TagId,
+            ["expectedRevision"] = cli.ExpectedRevision,
+        };
+        if (cli.Name is not null) patch["name"] = cli.Name;
+        if (cli.ColorSpecified) patch["color"] = cli.Color;
+        if (cli.Category is not null) patch["category"] = cli.Category;
+        if (cli.SortOrder is not null) patch["sortOrder"] = cli.SortOrder;
+        if (cli.Starred is not null) patch["starred"] = cli.Starred;
+        if (cli.DisplayNameSpecified) patch["displayName"] = cli.DisplayName;
+        return patch;
+    }
+
     private static int Schema(CommandLine cli)
     {
         if (cli.OperationArgument is null)
@@ -801,21 +836,7 @@ internal static class Program
             RequestId = cli.RequestId,
             Ok = true,
             Status = OperationStatus.Completed,
-            Data = new
-            {
-                operationId = info.OperationId,
-                cli = info.Cli,
-                mcpTool = info.McpTool,
-                handler = info.Handler,
-                permission = info.Permission,
-                requiresRevision = info.RequiresRevision,
-                requiresIdempotencyKey = info.RequiresIdempotencyKey,
-                execution = info.Execution,
-                available = info.IsAvailable,
-                note = info.Note,
-                inputSchemaFile = (string?)null,
-                outputSchemaFile = (string?)null,
-            },
+            Data = OperationSchemas.Describe(info),
         });
         return ExitOk;
     }

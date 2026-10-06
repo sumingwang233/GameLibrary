@@ -136,9 +136,10 @@ public static class LibraryViewStore
     /// <summary>受限 patch：期望 Revision 对齐，事务内更新并递增；视图不存在或冲突返回 null。未提供的字段保持不变。</summary>
     public static int? UpdateView(
         SqliteConnection connection, string viewId, string? name, string? search, bool? favoriteOnly,
-        string? tagId, string? sort, int expectedRevision, DateTime utcNow)
+        string? tagId, string? sort, int expectedRevision, DateTime utcNow, SqliteTransaction? parentTransaction = null)
     {
-        using var transaction = (SqliteTransaction)connection.BeginTransaction();
+        using var ownedTransaction = parentTransaction is null ? connection.BeginTransaction() : null;
+        var transaction = parentTransaction ?? ownedTransaction!;
         int currentRevision;
         string currentFilter;
         using (var select = connection.CreateCommand())
@@ -149,7 +150,7 @@ public static class LibraryViewStore
             using var reader = select.ExecuteReader();
             if (!reader.Read())
             {
-                transaction.Rollback();
+                ownedTransaction?.Rollback();
                 return null;
             }
 
@@ -159,7 +160,7 @@ public static class LibraryViewStore
 
         if (currentRevision != expectedRevision)
         {
-            transaction.Rollback();
+            ownedTransaction?.Rollback();
             return null;
         }
 
@@ -195,7 +196,7 @@ public static class LibraryViewStore
             update.ExecuteNonQuery();
         }
 
-        transaction.Commit();
+        ownedTransaction?.Commit();
         return currentRevision + 1;
     }
 

@@ -164,6 +164,18 @@ public sealed class HostRuntime : IAsyncDisposable
             });
         }
 
+        var launchScopes = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var receipt in store.ListReceipts("launch.execute"))
+        {
+            if (receipt.AttemptJson is null) continue;
+            try
+            {
+                using var reference = System.Text.Json.JsonDocument.Parse(receipt.AttemptJson);
+                if (reference.RootElement.TryGetProperty("attemptId", out var id) && id.ValueKind == System.Text.Json.JsonValueKind.String)
+                    launchScopes[id.GetString()!] = RequestReceiptStore.ScopeKey(receipt.LibraryInstanceId, receipt.Actor, receipt.OperationId, receipt.IdempotencyKey);
+            }
+            catch (System.Text.Json.JsonException) { /* A malformed reference remains an unknown outcome. */ }
+        }
         foreach (var attempt in store.ReadLaunchAttempts())
         {
             state.Launches.RestoreAttempt(new Launching.LaunchAttempt
@@ -183,7 +195,7 @@ public sealed class HostRuntime : IAsyncDisposable
                 FinishedUtc = attempt.FinishedUtc,
                 Error = attempt.Error,
                 CreatedUtc = attempt.CreatedUtc,
-            });
+            }, launchScopes.GetValueOrDefault(attempt.AttemptId));
         }
 
         // 4. 变更回调接线（此后 create/update/finish 同步落库）。
@@ -213,6 +225,7 @@ public sealed class HostRuntime : IAsyncDisposable
         state.Launches.TryCommitValidation = (profile, revision) => state.Library.Store?.CommitSuggestedProfile(
             profile.ProfileId, revision, profile.ValidationStatus, profile.IsDefault, DateTime.UtcNow) == true;
         WireAttemptPersistence(state);
+        new GamesHandler(() => state.Library.Store, state.Roots, state.Events).RecoverPendingRemovals();
         state.Jobs.OnJobRecorded = snapshot =>
             state.Library.Store?.UpsertJobRecord(new PersistedJobRecord(
                 snapshot.JobId,
@@ -361,6 +374,7 @@ public sealed class HostRuntime : IAsyncDisposable
         _state.Jobs.CancelKind("titleTranslation");
         _state.Jobs.CancelKind("unityTranslation");
         _state.Jobs.CancelKind("scan");
+        _state.Jobs.CancelKind("launch");
         if (_state.Suggestions is not null) await _state.Suggestions.Stopped;
         await _server.DisposeAsync();
         await _state.Jobs.WaitForIdleAsync();

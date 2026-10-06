@@ -87,6 +87,9 @@ public static class GameCoverService
     }
 
     public static string? Synchronize(SqliteLibraryStore store, GameCard game, bool replaceExisting = false)
+        => store.WithWriteLock(() => SynchronizeCore(store, game, replaceExisting));
+
+    private static string? SynchronizeCore(SqliteLibraryStore store, GameCard game, bool replaceExisting)
     {
         if (game.Membership != "active" || DirectoryWalker.IsSystemDirectory(game.RootPath)) return null;
         var directory = game.Kind switch

@@ -525,6 +525,8 @@ def parse_args():
     parser.add_argument("--makensis", help="explicit path to NSIS makensis.exe")
     parser.add_argument("--skip-desktop-smoke-reason",
                         help="produce an acceptance candidate without native smoke; records not-run and reason")
+    parser.add_argument("--build-only-reason",
+                        help="compile/package only; skip verification and record an explicit acceptance limitation")
     return parser.parse_args()
 
 
@@ -562,13 +564,17 @@ def main():
             ("cargo fmt", ["cargo", "fmt", "--check"], os.path.join(project, "src-tauri")),
         ]
         for name, command, directory in checks:
+            if args.build_only_reason:
+                CHECK_RESULTS.append({"name": name, "status": "not-run", "exitCode": None,
+                                      "evidence": args.build_only_reason})
+                continue
             print(f"CHECK: {name}", flush=True)
             rc, output = sh(command, cwd=directory, label=name)
             if rc != 0:
                 raise RuntimeError(f"{name} failed:\n{output[-4000:]}")
         signing = signing_configuration(args.require_signing, log)
         clean_staging(log)
-        publish_all(log, args.skip_desktop_smoke_reason)
+        publish_all(log, args.build_only_reason or args.skip_desktop_smoke_reason)
         separate_pdbs(log)
         sign_payload(signing, log)
         write_payload_checksums(USER_PAYLOAD, "user", log)
@@ -580,10 +586,14 @@ def main():
         portable = make_portable_zip(version, log)
         tools = make_tools_zip(version, log)
         manifest = write_asset_manifest(version, [installer, portable, tools], log)
-        rc, output = sh([sys.executable, "scripts/check_release.py", "--dist", DIST],
-                        label="final asset integrity")
-        if rc != 0:
-            raise RuntimeError(output)
+        if args.build_only_reason:
+            CHECK_RESULTS.append({"name": "final asset integrity", "status": "not-run", "exitCode": None,
+                                  "evidence": args.build_only_reason})
+        else:
+            rc, output = sh([sys.executable, "scripts/check_release.py", "--dist", DIST],
+                            label="final asset integrity")
+            if rc != 0:
+                raise RuntimeError(output)
         log.append(f"portable sha256={sha256(portable)}")
         log.append(f"tools sha256={sha256(tools)}")
         log.append(f"installer sha256={sha256(installer)}")

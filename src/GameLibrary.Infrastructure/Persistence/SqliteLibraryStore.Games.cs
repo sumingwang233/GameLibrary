@@ -9,7 +9,7 @@ public sealed partial class SqliteLibraryStore
         => Execute((c, _) => LibraryCatalogStore.InsertGame(c, game, _writeTransaction));
 
     public int? RemoveGame(string gameId, int expectedRevision, IgnoreRule ignore, DateTime utcNow)
-        => Execute((c, _) => LibraryCatalogStore.RemoveGame(c, gameId, expectedRevision, ignore, utcNow));
+        => Execute((c, _) => LibraryCatalogStore.RemoveGame(c, gameId, expectedRevision, ignore, utcNow, _writeTransaction));
 
     public GameCard? TryGetGame(string gameId)
         => ReadExclusive((c, _) => LibraryCatalogStore.TryGetGame(c, gameId));
@@ -43,10 +43,10 @@ public sealed partial class SqliteLibraryStore
     // T13 收藏与翻译策略转发。
 
     public int? SetFavorite(string gameId, bool favorite, int expectedRevision, DateTime utcNow)
-        => Execute((c, _) => LibraryCatalogStore.SetFavorite(c, gameId, favorite, expectedRevision, utcNow));
+        => Execute((c, _) => LibraryCatalogStore.SetFavorite(c, gameId, favorite, expectedRevision, utcNow, _writeTransaction));
 
     public int? SetTranslationOverride(string gameId, string? overrideValue, int expectedRevision, DateTime utcNow)
-        => Execute((c, _) => LibraryCatalogStore.SetTranslationOverride(c, gameId, overrideValue, expectedRevision, utcNow));
+        => Execute((c, _) => LibraryCatalogStore.SetTranslationOverride(c, gameId, overrideValue, expectedRevision, utcNow, _writeTransaction));
 
     // T17 可用性核对与重关联转发。
 

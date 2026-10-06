@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 
 namespace GameLibrary.Infrastructure.Backups;
 
@@ -190,6 +191,36 @@ public static class BackupArchive
             }
         }
 
+        var database = Path.Combine(backupDirectory, DatabaseFileName);
+        if (File.Exists(database))
+        {
+            try
+            {
+                using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = database, Mode = SqliteOpenMode.ReadOnly, Pooling = false }.ToString());
+                connection.Open();
+                using var command = connection.CreateCommand();
+                command.CommandText = "SELECT game_id, file_path FROM game_assets";
+                using var reader = command.ExecuteReader();
+                var archivePaths = manifest.Files.Select(file => file.RelativePath).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                while (reader.Read())
+                {
+                    var gameId = reader.GetString(0);
+                    var path = reader.GetString(1);
+                    var parent = Path.GetDirectoryName(path);
+                    // Legacy external assets are outside the application's managed collection.
+                    if (Path.GetFileName(parent) != gameId
+                        || !string.Equals(Path.GetFileName(Path.GetDirectoryName(parent)), "assets", StringComparison.OrdinalIgnoreCase)) continue;
+                    var relative = $"assets/{gameId}/{Path.GetFileName(path)}";
+                    if (!archivePaths.Contains(relative)
+                        || !File.Exists(ResolveManifestPath(backupDirectory, relative)))
+                        problems.Add($"快照引用的资产缺失：{relative}");
+                }
+            }
+            catch (Exception ex) when (ex is SqliteException or ArgumentException or IOException or UnauthorizedAccessException)
+            {
+                problems.Add($"无法核对快照资产引用：{ex.Message}");
+            }
+        }
         return problems;
     }
 

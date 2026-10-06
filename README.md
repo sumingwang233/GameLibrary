@@ -87,7 +87,9 @@ Get-FileHash .\GameLibrary-Setup-v1.5.5.exe -Algorithm SHA256
 </details>
 
 <details>
-<summary><strong>当前源码：v1.7.4，未发布</strong></summary>
+<summary><strong>当前源码：v1.7.5，未发布</strong></summary>
+
+v1.7.5 根据架构审查收紧恢复后的旧写请求、启动幂等、备份封面一致性和文件回收恢复协议；统一 CLI/MCP 参数与 schema 发现，将慢注入等待移至后台作业。本次仅获授权进行打包编译，测试及人工验收未执行。参阅[架构实施](docs/development/v1.7.5-architecture-plan.md)、[版本说明](docs/releases/v1.7.5.md)和[验收记录](docs/releases/v1.7.5-validation.md)。
 
 v1.7.4 修复 Unity 未翻译标签的自动配置触发，离线确认已有且启用的中文翻译插件后自动解除该标签；降低后台建议发现和候选核对的重复开销，退出桌面时优雅停止对应 Host，标签颜色仅用于文字和圆点。[版本说明](docs/releases/v1.7.4.md)记录变更，[验证记录](docs/releases/v1.7.4-validation.md)记录发布准备状态。
 

@@ -521,7 +521,12 @@ internal sealed class CatalogingHandler
     }
 
     /// <summary>导入路径或粘贴图片：保留独立资产与历史，同步替换游戏目录封面。</summary>
-    public Envelope<object> AssetsImport(IpcRequest request)
+    private Envelope<object> WithAssetLock(IpcRequest request, Func<IpcRequest, Envelope<object>> action)
+        => _storeAccessor() is { } store ? store.WithWriteLock(() => action(request)) : action(request);
+
+    public Envelope<object> AssetsImport(IpcRequest request) => WithAssetLock(request, AssetsImportCore);
+
+    private Envelope<object> AssetsImportCore(IpcRequest request)
     {
         var store = _storeAccessor();
         if (store is null)
@@ -711,7 +716,9 @@ internal sealed class CatalogingHandler
     }
 
     /// <summary>选择候选封面（assets.choose）：校验游戏 Revision；封面切换不递增卡片 Revision。</summary>
-    public Envelope<object> AssetsChoose(IpcRequest request)
+    public Envelope<object> AssetsChoose(IpcRequest request) => WithAssetLock(request, AssetsChooseCore);
+
+    private Envelope<object> AssetsChooseCore(IpcRequest request)
     {
         var store = _storeAccessor();
         if (store is null)
@@ -773,7 +780,9 @@ internal sealed class CatalogingHandler
     }
 
     /// <summary>裁切封面（assets.crop）：真实像素裁切，产出新资产并设为当前封面。</summary>
-    public Envelope<object> AssetsCrop(IpcRequest request)
+    public Envelope<object> AssetsCrop(IpcRequest request) => WithAssetLock(request, AssetsCropCore);
+
+    private Envelope<object> AssetsCropCore(IpcRequest request)
     {
         var store = _storeAccessor();
         if (store is null)
@@ -804,6 +813,7 @@ internal sealed class CatalogingHandler
         try
         {
             var destDirectory = Path.Combine(_dataDirectory, "assets", asset.GameId);
+            if (ValidateAssetRevision(request, asset.GameId) is { } revisionError) return revisionError;
             var croppedPath = ImageCropper.Crop(
                 asset.FilePath, destDirectory, x.Value, y.Value, width.Value, height.Value);
             var newAsset = store.ImportAsset(asset.GameId, croppedPath, DateTime.UtcNow);
@@ -834,7 +844,9 @@ internal sealed class CatalogingHandler
     }
 
     /// <summary>重置封面（assets.reset）：全部封面置为非当前，游戏回到无封面展示。</summary>
-    public Envelope<object> AssetsReset(IpcRequest request)
+    public Envelope<object> AssetsReset(IpcRequest request) => WithAssetLock(request, AssetsResetCore);
+
+    private Envelope<object> AssetsResetCore(IpcRequest request)
     {
         var store = _storeAccessor();
         if (store is null)
@@ -847,6 +859,7 @@ internal sealed class CatalogingHandler
             return IpcRequests.InvalidArgument(request, "缺少 gameId 参数");
         }
 
+        if (ValidateAssetRevision(request, gameId) is { } revisionError) return revisionError;
         var previous = store.ResetCover(gameId);
         return new Envelope<object>
         {
@@ -857,8 +870,26 @@ internal sealed class CatalogingHandler
         };
     }
 
+    private Envelope<object>? ValidateAssetRevision(IpcRequest request, string ownerGameId)
+    {
+        if (!IpcRequests.TryGetStringParameter(request, "gameId", out var gameId)
+            || !IpcRequests.TryGetIntParameter(request, "expectedRevision", out var revision) || revision is null)
+            return IpcRequests.InvalidArgument(request, "需要 gameId、expectedRevision 参数");
+        if (gameId != ownerGameId) return IpcRequests.InvalidArgument(request, "资产不属于指定游戏");
+        var game = _storeAccessor()!.TryGetGame(gameId);
+        if (game is null) return IpcRequests.NotFound(request, $"游戏不存在：{gameId}");
+        return game.Revision == revision ? null
+            : new Envelope<object>
+            {
+                RequestId = request.RequestId, Ok = false, Status = OperationStatus.Failed,
+                Error = new RequestError { Code = ErrorCodes.RevisionConflict, Message = "游戏修订已变化，请重新读取游戏详情", CurrentRevision = game.Revision, Retryable = false },
+            };
+    }
+
     /// <summary>移除资产（assets.remove）：仅限应用自有且非当前引用的资源。</summary>
-    public Envelope<object> AssetsRemove(IpcRequest request)
+    public Envelope<object> AssetsRemove(IpcRequest request) => WithAssetLock(request, AssetsRemoveCore);
+
+    private Envelope<object> AssetsRemoveCore(IpcRequest request)
     {
         var store = _storeAccessor();
         if (store is null)

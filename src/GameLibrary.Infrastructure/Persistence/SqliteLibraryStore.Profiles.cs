@@ -11,7 +11,7 @@ public sealed partial class SqliteLibraryStore
         => Execute((c, _) => GameProfileStore.SetGameField(c, gameId, fieldKey, value, source, expectedRevision, utcNow, _writeTransaction));
 
     public int? ResetGameField(string gameId, string fieldKey, string autoValue, int expectedRevision, DateTime utcNow)
-        => Execute((c, _) => GameProfileStore.ResetGameField(c, gameId, fieldKey, autoValue, expectedRevision, utcNow));
+        => Execute((c, _) => GameProfileStore.ResetGameField(c, gameId, fieldKey, autoValue, expectedRevision, utcNow, _writeTransaction));
 
     public (string? Value, string Source) EffectiveField(string gameId, string fieldKey, string fallback)
         => ReadExclusive((c, _) => GameProfileStore.EffectiveField(c, gameId, fieldKey, fallback));

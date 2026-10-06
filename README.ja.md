@@ -87,7 +87,9 @@ v1.5.5 の独立したサンプルライブラリで撮影しています。ア�
 </details>
 
 <details>
-<summary><strong>現在のソース：v1.7.4、未公開</strong></summary>
+<summary><strong>現在のソース：v1.7.5、未公開</strong></summary>
+
+v1.7.5 は復元後の古い書き込み要求、起動の冪等性、バックアップのカバー整合性、ごみ箱操作の中断からの復旧を改善します。CLI/MCP の引数と schema 検出を共通化し、長い注入待機をバックグラウンドジョブへ移しました。今回はパッケージ作成に必要なコンパイルのみ許可され、テストと手動検証は未実行です。[実施記録](docs/development/v1.7.5-architecture-plan.md)、[変更点](docs/releases/v1.7.5.md)、[検証記録](docs/releases/v1.7.5-validation.md)をご覧ください。
 
 v1.7.4 は未翻訳タグによる Unity 翻訳設定を修正し、有効な中国語翻訳プラグインをオフラインで確認できた場合にタグを自動解除します。バックグラウンド処理の重複を減らし、デスクトップ終了時に対応する Host を正常終了します。タグ色は文字と丸印のみに適用します。[更新内容](docs/releases/v1.7.4.md)と[検証記録](docs/releases/v1.7.4-validation.md)をご覧ください。
 

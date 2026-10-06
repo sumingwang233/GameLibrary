@@ -35,6 +35,8 @@ public sealed record RequestReceipt
 
 public static class RequestReceiptStore
 {
+    public static string ScopeKey(string instanceId, string actor, string operationId, string key) =>
+        System.Text.Json.JsonSerializer.Serialize(new[] { instanceId, actor, operationId, key });
     /// <summary>
     /// completed 收据保留期。prepared 是未定态意图，任何情况下都不淘汰
     /// （崩溃后 RecoverLaunchReceipt 需要它判定 UnknownOutcome）。
@@ -65,7 +67,28 @@ public static class RequestReceiptStore
             return null;
         }
 
-        return new RequestReceipt
+        return Read(reader, instanceId, actor, operationId, idempotencyKey);
+    }
+
+    public static IReadOnlyList<RequestReceipt> List(SqliteConnection connection, string instanceId, string operationId, bool preparedOnly)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT request_digest, status, attempt_json, result_json, created_utc, updated_utc, actor, idempotency_key
+            FROM request_receipts WHERE library_instance_id=$instance AND operation_id=$operation
+                AND ($prepared=0 OR status='prepared')
+            """;
+        command.Parameters.AddWithValue("$instance", instanceId);
+        command.Parameters.AddWithValue("$operation", operationId);
+        command.Parameters.AddWithValue("$prepared", preparedOnly ? 1 : 0);
+        using var reader = command.ExecuteReader();
+        var result = new List<RequestReceipt>();
+        while (reader.Read()) result.Add(Read(reader, instanceId, reader.GetString(6), operationId, reader.GetString(7)));
+        return result;
+    }
+
+    private static RequestReceipt Read(SqliteDataReader reader, string instanceId, string actor, string operationId, string idempotencyKey) =>
+        new()
         {
             LibraryInstanceId = instanceId,
             Actor = actor,
@@ -78,7 +101,6 @@ public static class RequestReceiptStore
             CreatedUtc = DateTime.Parse(reader.GetString(4), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
             UpdatedUtc = DateTime.Parse(reader.GetString(5), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
         };
-    }
 
     public static void InsertPrepared(SqliteConnection connection, RequestReceipt receipt)
     {

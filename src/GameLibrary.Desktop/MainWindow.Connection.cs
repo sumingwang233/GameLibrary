@@ -264,8 +264,12 @@ public partial class MainWindow : Window
         var envelope = await _connection.InvokeAsync(request, CancellationToken.None);
         if (!envelope.Ok && envelope.Error?.Code is ErrorCodes.DataEpochMismatch or ErrorCodes.LibraryInstanceMismatch)
         {
-            // 纪元更换：立即重连并重试一次（新握手携带新纪元）。
+            // Refresh the connection, but only readers may retry against a different library state.
             await _connection.ReconnectAsync(App.ResolvedDataDirectory, "desktop", CancellationToken.None);
+            if (OperationCatalog.Catalog.Find(operationId)?.Permission.EndsWith(".read", StringComparison.Ordinal) != true)
+            {
+                return envelope;
+            }
             var retry = new IpcRequest
             {
                 RequestId = $"desktop-{Guid.NewGuid():N}",
@@ -277,6 +281,47 @@ public partial class MainWindow : Window
             envelope = await _connection.InvokeAsync(retry, CancellationToken.None);
         }
 
+        if (operationId == "launch.execute" && envelope.Ok && envelope.JobId is not null)
+        {
+            while (true)
+            {
+                var job = await InvokeAsync("jobs.get", new { jobId = envelope.JobId });
+                if (!job.Ok) return job;
+                var state = job.Data.GetProperty("state").GetString();
+                if (state is "succeeded" or "failed" or "cancelled")
+                {
+                    var result = job.Data.GetProperty("result");
+                    if (result.ValueKind == JsonValueKind.Object)
+                        return JsonSerializer.Deserialize<Envelope<JsonElement>>(result.GetRawText(), ContractJson.Options)!;
+                    return new Envelope<JsonElement>
+                    {
+                        RequestId = request.RequestId, Ok = false, Status = OperationStatus.Failed,
+                        Error = new RequestError { Code = ErrorCodes.ProcessStartFailed, Message = job.Data.GetProperty("error").GetString() ?? L10n.T("游戏启动失败"), Retryable = false },
+                    };
+                }
+                await Task.Delay(300);
+            }
+        }
+        if (operationId == "launch.execute" && envelope.Ok &&
+            envelope.Data.TryGetProperty("state", out var attemptState) &&
+            attemptState.GetString() is "prepared" or "executing")
+        {
+            var attemptId = envelope.Data.GetProperty("attemptId").GetString();
+            while (true)
+            {
+                var attempt = await InvokeAsync("launch.status", new { attemptId });
+                if (!attempt.Ok) return attempt;
+                var state = attempt.Data.GetProperty("state").GetString();
+                if (state is "processCreated" or "exited") return attempt;
+                if (state is "processStartFailed" or "unknownOutcome")
+                    return new Envelope<JsonElement>
+                    {
+                        RequestId = request.RequestId, Ok = false, Status = OperationStatus.Failed,
+                        Error = new RequestError { Code = ErrorCodes.UnknownOutcome, Message = L10n.T("启动结果无法确认"), Retryable = false },
+                    };
+                await Task.Delay(300);
+            }
+        }
         return envelope;
     }
 

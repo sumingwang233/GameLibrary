@@ -17,7 +17,7 @@ public sealed partial class SqliteLibraryStore
         => Execute((c, _) => RuntimeStateStore.DeleteRoot(c, rootId));
 
     public int RemoveRootGames(string rootId, string rootPath, DateTime utcNow)
-        => Execute((c, _) => RuntimeStateStore.RemoveRootGames(c, rootId, rootPath, utcNow));
+        => Execute((c, _) => RuntimeStateStore.RemoveRootGames(c, rootId, rootPath, utcNow, _writeTransaction));
 
     public IReadOnlyList<PersistedProfile> ReadProfiles()
         => ReadExclusive((c, _) => RuntimeStateStore.ReadProfiles(c));

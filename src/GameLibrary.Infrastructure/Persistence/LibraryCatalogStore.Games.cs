@@ -37,9 +37,10 @@ public static partial class LibraryCatalogStore
 
     /// <summary>仅将游戏从可见库移除，并原子登记 ExactPath 忽略；绝不触碰游戏文件。</summary>
     public static int? RemoveGame(
-        SqliteConnection connection, string gameId, int expectedRevision, IgnoreRule ignore, DateTime utcNow)
+        SqliteConnection connection, string gameId, int expectedRevision, IgnoreRule ignore, DateTime utcNow, SqliteTransaction? parentTransaction = null)
     {
-        using var transaction = (SqliteTransaction)connection.BeginTransaction();
+        using var ownedTransaction = parentTransaction is null ? connection.BeginTransaction() : null;
+        var transaction = parentTransaction ?? ownedTransaction!;
         using (var update = connection.CreateCommand())
         {
             update.Transaction = transaction;
@@ -53,7 +54,7 @@ public static partial class LibraryCatalogStore
             update.Parameters.AddWithValue("$now", utcNow.ToString("O", CultureInfo.InvariantCulture));
             if (update.ExecuteNonQuery() != 1)
             {
-                transaction.Rollback();
+                ownedTransaction?.Rollback();
                 return null;
             }
         }
@@ -73,7 +74,7 @@ public static partial class LibraryCatalogStore
             insert.ExecuteNonQuery();
         }
 
-        transaction.Commit();
+        ownedTransaction?.Commit();
         return expectedRevision + 1;
     }
 
@@ -389,9 +390,10 @@ public static partial class LibraryCatalogStore
     }
 
     /// <summary>收藏切换（games.update 受限字段）：期望 Revision 对齐 games.revision，事务内更新并递增；冲突返回 null。</summary>
-    public static int? SetFavorite(SqliteConnection connection, string gameId, bool favorite, int expectedRevision, DateTime utcNow)
+    public static int? SetFavorite(SqliteConnection connection, string gameId, bool favorite, int expectedRevision, DateTime utcNow, SqliteTransaction? parentTransaction = null)
     {
-        using var transaction = (SqliteTransaction)connection.BeginTransaction();
+        using var ownedTransaction = parentTransaction is null ? connection.BeginTransaction() : null;
+        var transaction = parentTransaction ?? ownedTransaction!;
         int currentRevision;
         using (var select = connection.CreateCommand())
         {
@@ -401,7 +403,7 @@ public static partial class LibraryCatalogStore
             var result = select.ExecuteScalar();
             if (result is null)
             {
-                transaction.Rollback();
+                ownedTransaction?.Rollback();
                 return null;
             }
 
@@ -410,7 +412,7 @@ public static partial class LibraryCatalogStore
 
         if (currentRevision != expectedRevision)
         {
-            transaction.Rollback();
+            ownedTransaction?.Rollback();
             return null;
         }
 
@@ -427,7 +429,7 @@ public static partial class LibraryCatalogStore
             update.ExecuteNonQuery();
         }
 
-        transaction.Commit();
+        ownedTransaction?.Commit();
         return currentRevision + 1;
     }
 
@@ -436,9 +438,10 @@ public static partial class LibraryCatalogStore
     /// 期望 Revision 对齐 games.revision，事务内更新并递增；游戏不存在或冲突返回 null。
     /// </summary>
     public static int? SetTranslationOverride(
-        SqliteConnection connection, string gameId, string? overrideValue, int expectedRevision, DateTime utcNow)
+        SqliteConnection connection, string gameId, string? overrideValue, int expectedRevision, DateTime utcNow, SqliteTransaction? parentTransaction = null)
     {
-        using var transaction = (SqliteTransaction)connection.BeginTransaction();
+        using var ownedTransaction = parentTransaction is null ? connection.BeginTransaction() : null;
+        var transaction = parentTransaction ?? ownedTransaction!;
         int currentRevision;
         using (var select = connection.CreateCommand())
         {
@@ -448,7 +451,7 @@ public static partial class LibraryCatalogStore
             var result = select.ExecuteScalar();
             if (result is null)
             {
-                transaction.Rollback();
+                ownedTransaction?.Rollback();
                 return null;
             }
 
@@ -457,7 +460,7 @@ public static partial class LibraryCatalogStore
 
         if (currentRevision != expectedRevision)
         {
-            transaction.Rollback();
+            ownedTransaction?.Rollback();
             return null;
         }
 
@@ -474,7 +477,7 @@ public static partial class LibraryCatalogStore
             update.ExecuteNonQuery();
         }
 
-        transaction.Commit();
+        ownedTransaction?.Commit();
         return currentRevision + 1;
     }
 

@@ -449,6 +449,9 @@ internal sealed class GamesHandler
 
     /// <summary>games.remove：软移除（membership=removed）并隐式创建 ExactPath 忽略规则，不删除任何文件。</summary>
     public Envelope<object> GamesRemove(IpcRequest request)
+        => _storeAccessor() is { } store ? store.WithWriteLock(() => GamesRemoveCore(request)) : GamesRemoveCore(request);
+
+    private Envelope<object> GamesRemoveCore(IpcRequest request)
     {
         var store = _storeAccessor();
         if (store is null)
@@ -476,6 +479,7 @@ internal sealed class GamesHandler
 
         IpcRequests.TryGetBoolParameter(request, "deleteFiles", out var deleteFilesValue);
         var deleteFiles = deleteFilesValue == true;
+        RequestReceipt? receipt = null;
         if (deleteFiles)
         {
             var target = Path.GetFullPath(current.RootPath);
@@ -513,6 +517,13 @@ internal sealed class GamesHandler
             }
             if (!File.Exists(target) && !Directory.Exists(target))
                 return IpcRequests.NotFound(request, $"游戏文件或目录不存在：{target}");
+            if (!IpcRequests.TryGetStringParameter(request, "idempotencyKey", out var key))
+                return IpcRequests.InvalidArgument(request, "删除原文件需要幂等键");
+            var actor = string.IsNullOrWhiteSpace(request.ClientName) ? "anonymous" : request.ClientName!;
+            receipt = store.TryGetReceipt(actor, request.OperationId, key);
+            if (receipt is null) return IpcRequests.InvalidArgument(request, "删除原文件前必须登记持久化意图");
+            var intent = new RemovalIntent("recycle", gameId, current.RootPath, expectedRevision.Value, store.Info.DataEpoch, "moving");
+            store.UpdateReceiptAttempt(receipt, JsonSerializer.Serialize(intent, ContractJson.Options));
             try
             {
                 if (File.Exists(target))
@@ -522,55 +533,111 @@ internal sealed class GamesHandler
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or OperationCanceledException)
             {
-                return IpcRequests.InvalidArgument(request, $"原文件未能移入回收站，保留游戏库记录：{ex.Message}");
+                if (IsRemovalAbsent(target))
+                    return ResumeRemoval(request, store.TryGetReceipt(actor, request.OperationId, key)!)!;
+                return IpcRequests.Failure(request, ErrorCodes.UnknownOutcome, $"原文件回收未完成，需要检查实际文件状态：{ex.Message}", retryable: false);
             }
+            store.UpdateReceiptAttempt(receipt, JsonSerializer.Serialize(intent with { Phase = "moved" }, ContractJson.Options));
         }
 
-        var utcNow = DateTime.UtcNow;
-        var ignore = new IgnoreRule
+        return FinalizeRemoval(request, current, expectedRevision.Value, deleteFiles, receipt);
+    }
+
+    private Envelope<object> FinalizeRemoval(IpcRequest request, GameCard current, int expectedRevision, bool deleteFiles, RequestReceipt? receipt)
+    {
+        var store = _storeAccessor()!;
+        return store.InTransaction(() =>
         {
-            IgnoreId = $"ignore-{Guid.NewGuid():N}",
-            Scope = "ExactPath",
-            Path = current.RootPath,
-            GameId = gameId,
-            Reason = "games.remove",
-            CreatedUtc = utcNow,
-        };
-        var newRevision = store.RemoveGame(gameId, expectedRevision.Value, ignore, utcNow);
-        if (newRevision is null)
-        {
-            var latest = store.TryGetGame(gameId);
-            return new Envelope<object>
+            var gameId = current.GameId;
+            var utcNow = DateTime.UtcNow;
+            var ignore = new IgnoreRule
+            {
+                IgnoreId = $"ignore-{Guid.NewGuid():N}",
+                Scope = "ExactPath",
+                Path = current.RootPath,
+                GameId = gameId,
+                Reason = "games.remove",
+                CreatedUtc = utcNow,
+            };
+            var newRevision = store.RemoveGame(gameId, expectedRevision, ignore, utcNow);
+            if (newRevision is null)
+            {
+                var latest = store.TryGetGame(gameId);
+                return new Envelope<object>
+                {
+                    RequestId = request.RequestId,
+                    Ok = false,
+                    Status = OperationStatus.Failed,
+                    Error = new RequestError
+                    {
+                        Code = ErrorCodes.RevisionConflict,
+                        Message = $"游戏 Revision 不一致：期望 {expectedRevision}，当前 {latest?.Revision}",
+                        Retryable = false,
+                        CurrentRevision = latest?.Revision,
+                    },
+                };
+            }
+
+            _events.Publish("game.removed", $"game:{gameId}", new { gameId, ignoreId = ignore.IgnoreId }, utcNow);
+            var result = new Envelope<object>
             {
                 RequestId = request.RequestId,
-                Ok = false,
-                Status = OperationStatus.Failed,
-                Error = new RequestError
+                Ok = true,
+                Status = OperationStatus.Completed,
+                Data = new
                 {
-                    Code = ErrorCodes.RevisionConflict,
-                    Message = $"游戏 Revision 不一致：期望 {expectedRevision}，当前 {latest?.Revision}",
-                    Retryable = false,
-                    CurrentRevision = latest?.Revision,
+                    gameId,
+                    membership = "removed",
+                    revision = newRevision.Value,
+                    ignoreId = ignore.IgnoreId,
+                    filesDeleted = deleteFiles,
+                    recycled = deleteFiles,
                 },
             };
-        }
+            if (receipt is not null) store.CompleteReceipt(receipt, JsonSerializer.Serialize(result, ContractJson.Options));
+            return result;
+        });
+    }
 
-        _events.Publish("game.removed", $"game:{gameId}", new { gameId, ignoreId = ignore.IgnoreId }, utcNow);
-        return new Envelope<object>
+    private sealed record RemovalIntent(string Kind, string GameId, string Target, int ExpectedRevision, string DataEpoch, string Phase);
+
+    private static bool IsRemovalAbsent(string target)
+    {
+        if (!Directory.Exists(Path.GetDirectoryName(target))) return false;
+        try { _ = File.GetAttributes(target); return false; }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException) { return true; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return false; }
+    }
+
+    public Envelope<object>? ResumeRemoval(IpcRequest request, RequestReceipt receipt)
+    {
+        if (receipt.AttemptJson is null) return null;
+        RemovalIntent? intent;
+        try { intent = JsonSerializer.Deserialize<RemovalIntent>(receipt.AttemptJson, ContractJson.Options); }
+        catch (JsonException) { return null; }
+        if (intent is null || intent.Kind != "recycle" || intent.Phase is not ("moving" or "moved")) return null;
+        var store = _storeAccessor()!;
+        return store.WithWriteLock(() =>
         {
-            RequestId = request.RequestId,
-            Ok = true,
-            Status = OperationStatus.Completed,
-            Data = new
-            {
-                gameId,
-                membership = "removed",
-                revision = newRevision.Value,
-                ignoreId = ignore.IgnoreId,
-                filesDeleted = deleteFiles,
-                recycled = deleteFiles,
-            },
-        };
+            var current = store.TryGetGame(intent.GameId);
+            if (intent.DataEpoch != store.Info.DataEpoch || current is null || current.RootPath != intent.Target
+                || current.Revision != intent.ExpectedRevision || current.Membership != "active"
+                || !IsRemovalAbsent(intent.Target))
+                return IpcRequests.Failure(request, ErrorCodes.UnknownOutcome,
+                    "上次回收结果需要人工确认；不会再次回收该路径或修改已变化的记录", retryable: false);
+            return FinalizeRemoval(request, current, intent.ExpectedRevision, deleteFiles: true, receipt);
+        });
+    }
+
+    public void RecoverPendingRemovals()
+    {
+        foreach (var receipt in _storeAccessor()!.ListReceipts("games.remove", preparedOnly: true))
+        {
+            var request = new IpcRequest { RequestId = $"recover-{Guid.NewGuid():N}", OperationId = "games.remove", ClientName = receipt.Actor };
+            // Uncertain intents stay prepared for review; recovery never performs a filesystem deletion.
+            try { _ = ResumeRemoval(request, receipt); }
+            catch (Microsoft.Data.Sqlite.SqliteException) { /* Keep the durable intent; the caller can retry after database recovery. */ }
+        }
     }
 
     /// <summary>

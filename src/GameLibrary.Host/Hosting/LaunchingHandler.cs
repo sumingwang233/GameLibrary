@@ -25,6 +25,7 @@ internal sealed class LaunchingHandler
     private readonly GameLibrary.Host.Launching.LaunchRegistry _launches;
     private readonly RootRegistry _roots;
     private readonly EventStream _events;
+    private readonly JobManager _jobs;
 
     /// <summary>
     /// launches/roots/events 以 init-only 引用直传：HostRuntimeState 构造后整体不可替换
@@ -34,12 +35,14 @@ internal sealed class LaunchingHandler
         Func<SqliteLibraryStore?> storeAccessor,
         GameLibrary.Host.Launching.LaunchRegistry launches,
         RootRegistry roots,
-        EventStream events)
+        EventStream events,
+        JobManager jobs)
     {
         _storeAccessor = storeAccessor;
         _launches = launches;
         _roots = roots;
         _events = events;
+        _jobs = jobs;
     }
 
     /// <summary>profiles.set_default：切换默认启动方式（首个 Profile 创建时自动默认，替换走本操作）。</summary>
@@ -551,13 +554,52 @@ internal sealed class LaunchingHandler
 
         try
         {
+            var store = _storeAccessor()!;
+            var actor = string.IsNullOrWhiteSpace(request.ClientName) ? "anonymous" : request.ClientName;
+            var scope = RequestReceiptStore.ScopeKey(store.Info.LibraryInstanceId, actor!, request.OperationId, idempotencyKey);
+            var receipt = store.TryGetReceipt(actor!, request.OperationId, idempotencyKey)!;
+            void Associate(GameLibrary.Host.Launching.LaunchAttempt prepared)
+                => store.UpdateReceiptAttempt(receipt, JsonSerializer.Serialize(new { attemptId = prepared.AttemptId, processId = prepared.ProcessId, processStartedUtc = prepared.ProcessStartedUtc, executablePath = prepared.ExecutablePath }, ContractJson.Options));
+
+            if (translationRoute?.Steps.Any(step => step.WaitForExit) == true)
+            {
+                var prepared = _launches.Prepare(idempotencyKey, planId.Length > 0 ? planId : null,
+                    profileId.Length > 0 ? profileId : null, profileId.Length > 0 ? profileId : null,
+                    expectedRevision, scope, Associate);
+                string jobId;
+                try
+                {
+                    jobId = _jobs.Create("launch", context =>
+                    {
+                        try
+                        {
+                            var finished = _launches.RunPrepared(prepared.AttemptId, translationRoute.Steps, cancellationToken: context.Token);
+                            context.ReportProgress(new Envelope<object> { RequestId = request.RequestId, Ok = true, Status = OperationStatus.Completed, Data = finished.ToDto() });
+                            return Task.FromResult(JobOutcome.Succeeded());
+                        }
+                        catch (GameLibrary.Host.Launching.LaunchException ex)
+                        {
+                            context.ReportProgress(LaunchError(request, ex));
+                            return Task.FromResult(context.Token.IsCancellationRequested ? JobOutcome.Cancelled() : JobOutcome.Failed(ex.Message));
+                        }
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _launches.FailPrepared(prepared.AttemptId, ex.Message);
+                    throw new GameLibrary.Host.Launching.LaunchException(ErrorCodes.ProcessStartFailed, ex.Message);
+                }
+                return new Envelope<object> { RequestId = request.RequestId, Ok = true, Status = OperationStatus.Accepted, JobId = jobId, Data = prepared.ToDto() };
+            }
             var attempt = _launches.Execute(
                 idempotencyKey,
                 planId.Length > 0 ? planId : null,
                 profileId.Length > 0 ? profileId : null,
                 profileId.Length > 0 ? profileId : null,
                 expectedRevision,
-                translationRoute?.Steps);
+                translationRoute?.Steps,
+                receiptScope: scope,
+                beforeStart: Associate);
             return new Envelope<object>
             {
                 RequestId = request.RequestId,

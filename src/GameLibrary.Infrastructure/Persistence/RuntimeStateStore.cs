@@ -118,14 +118,15 @@ public static class RuntimeStateStore
             || path.StartsWith(prefix + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
 
-    public static int RemoveRootGames(SqliteConnection connection, string rootId, string rootPath, DateTime utcNow)
+    public static int RemoveRootGames(SqliteConnection connection, string rootId, string rootPath, DateTime utcNow, SqliteTransaction? parentTransaction = null)
     {
         var remainingRoots = ReadRoots(connection).Where(root => root.RootId != rootId).ToArray();
         bool RemovedPath(string path) => ContainsPath(rootPath, path)
             && !remainingRoots.Any(root => ContainsPath(root.PhysicalPath, path));
         var games = LibraryCatalogStore.ListGames(connection).Where(game => game.Membership == "active" && RemovedPath(game.RootPath)).ToArray();
         var candidates = LibraryCatalogStore.ListCandidates(connection).Where(candidate => RemovedPath(candidate.PhysicalPath)).ToArray();
-        using var transaction = connection.BeginTransaction();
+        using var ownedTransaction = parentTransaction is null ? connection.BeginTransaction() : null;
+        var transaction = parentTransaction ?? ownedTransaction!;
         foreach (var game in games)
         {
             using var command = connection.CreateCommand();
@@ -159,7 +160,7 @@ public static class RuntimeStateStore
             command.ExecuteNonQuery();
         }
 
-        transaction.Commit();
+        ownedTransaction?.Commit();
         return games.Length;
     }
 
@@ -292,6 +293,7 @@ public static class RuntimeStateStore
                     $pstart, $exit, $fin, $err, $created)
             ON CONFLICT(attempt_id) DO UPDATE SET
                 state = excluded.state,
+                executable_path = excluded.executable_path,
                 process_id = excluded.process_id,
                 process_started_utc = excluded.process_started_utc,
                 exit_code = excluded.exit_code,

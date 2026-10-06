@@ -99,6 +99,12 @@ public sealed partial class SqliteLibraryStore : IAsyncDisposable, GameLibrary.A
         }
     }
 
+    /// <summary>Keep owned asset files and their database references in one write boundary; WAL readers remain independent.</summary>
+    public T WithWriteLock<T>(Func<T> action)
+    {
+        lock (_sync) return action();
+    }
+
     /// <summary>
     /// 私有锁助手（第 10 片拆分）：承载各 partial 域转发方法的单写队列样板，
     /// 与 <see cref="WriteExclusive"/> 共用 _sync，同线程可重入；纯读取经 ReadExclusive 使用快照。
@@ -121,8 +127,9 @@ public sealed partial class SqliteLibraryStore : IAsyncDisposable, GameLibrary.A
     }
 
     /// <summary>一致性备份到新文件（SQLite 备份 API，WAL 下同样一致）。目标已存在则拒绝。</summary>
-    public async Task CreateBackupAsync(string targetPath, CancellationToken ct)
+    public Task CreateBackupAsync(string targetPath, CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
         if (File.Exists(targetPath))
         {
             throw new IOException($"备份目标已存在：{targetPath}");
@@ -134,12 +141,13 @@ public sealed partial class SqliteLibraryStore : IAsyncDisposable, GameLibrary.A
             Directory.CreateDirectory(parent);
         }
 
-        await using var target = new SqliteConnection($"Data Source={targetPath}{ConnectionSuffix}");
-        await target.OpenAsync(ct);
+        using var target = new SqliteConnection($"Data Source={targetPath}{ConnectionSuffix}");
+        target.Open();
         lock (_sync)
         {
             _connection.BackupDatabase(target);
         }
+        return Task.CompletedTask;
     }
 
     /// <summary>更换数据纪元（备份恢复后调用）；旧 Revision/游标/计划随之失效。</summary>

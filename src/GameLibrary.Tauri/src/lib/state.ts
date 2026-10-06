@@ -10,7 +10,8 @@ import {
   useState,
   type PropsWithChildren,
 } from "react";
-import { operation } from "./api";
+import { operation, OperationError } from "./api";
+import type { Envelope } from "./types";
 import { discoverLaunchProfiles, LaunchProfileSelectionRequired, selectLaunchProfile, type ProfileList } from "./launchProfiles";
 import { useLibraryMetadata } from "./hooks/useLibraryMetadata";
 import { useLibraryEvents } from "./hooks/useLibraryEvents";
@@ -178,11 +179,30 @@ function useLibraryController(): LibraryController {
         profileId: profile.profileId,
       });
 
-      await operation(
+      const launched = await operation<{ attemptId: string; state: string }>(
         "launch.execute",
         { planId: plan.data.planId, profileId: profile.profileId },
         `launch.execute:${gameId}:${profile.profileId}`,
       );
+      if (launched.status === "accepted" && launched.jobId) {
+        while (mounted.current) {
+          const job = await operation<{ state: string; error?: string | null; result?: Envelope<unknown> | null }>("jobs.get", { jobId: launched.jobId });
+          if (["succeeded", "failed", "cancelled"].includes(job.data.state)) {
+            if (job.data.result && !job.data.result.ok)
+              throw new OperationError(job.data.result.error?.code ?? "ProcessStartFailed", job.data.result.error?.message ?? t("游戏启动失败"), job.data.result);
+            if (job.data.state !== "succeeded") throw new Error(job.data.error ?? t("启动未完成"));
+            break;
+          }
+          await new Promise(resolve => window.setTimeout(resolve, 300));
+        }
+      } else if (["prepared", "executing"].includes(launched.data.state)) {
+        while (mounted.current) {
+          const attempt = await operation<{ state: string; error?: string | null }>("launch.status", { attemptId: launched.data.attemptId });
+          if (["processCreated", "exited"].includes(attempt.data.state)) break;
+          if (["processStartFailed", "unknownOutcome"].includes(attempt.data.state)) throw new Error(attempt.data.error ?? t("启动结果无法确认"));
+          await new Promise(resolve => window.setTimeout(resolve, 300));
+        }
+      }
       bump();
     },
     [bump, supports],

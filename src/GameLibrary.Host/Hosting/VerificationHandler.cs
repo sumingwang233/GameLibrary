@@ -83,6 +83,7 @@ internal sealed class VerificationHandler
 
         IpcRequests.TryGetBoolParameter(request, "gameStarted", out var gameStarted);
         IpcRequests.TryGetBoolParameter(request, "translationConfirmed", out var translationConfirmed);
+        IpcRequests.TryGetStringParameter(request, "note", out var note);
 
         // 指纹校验：工具更新/换目录后旧记录失效，需重新验证。
         if (IpcRequests.TryGetStringParameter(request, "fingerprint", out var fingerprint)
@@ -116,6 +117,7 @@ internal sealed class VerificationHandler
             Status = newStatus,
             GameStartedConfirmed = record.GameStartedConfirmed || gameStarted == true,
             TranslationConfirmed = record.TranslationConfirmed || translationConfirmed == true,
+            Note = note.Length > 0 ? note : record.Note,
             UpdatedUtc = DateTime.UtcNow,
         };
         store.UpdateVerification(record);

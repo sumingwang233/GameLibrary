@@ -136,9 +136,10 @@ public static class NotificationStore
     }
 
     /// <summary>状态迁移（acknowledge/defer）：仅 pending 可迁移；通知不存在或已处理返回 null。</summary>
-    public static NotificationBatch? TransitionBatch(SqliteConnection connection, string notificationId, string toState, DateTime utcNow)
+    public static NotificationBatch? TransitionBatch(SqliteConnection connection, string notificationId, string toState, DateTime utcNow, SqliteTransaction? parentTransaction = null)
     {
-        using var transaction = (SqliteTransaction)connection.BeginTransaction();
+        using var ownedTransaction = parentTransaction is null ? connection.BeginTransaction() : null;
+        var transaction = parentTransaction ?? ownedTransaction!;
         NotificationBatch? current;
         using (var select = connection.CreateCommand())
         {
@@ -151,7 +152,7 @@ public static class NotificationStore
 
         if (current is null || current.State != "pending")
         {
-            transaction.Rollback();
+            ownedTransaction?.Rollback();
             return null;
         }
 
@@ -165,7 +166,7 @@ public static class NotificationStore
             update.ExecuteNonQuery();
         }
 
-        transaction.Commit();
+        ownedTransaction?.Commit();
         return current with { State = toState, UpdatedUtc = utcNow };
     }
 

@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace GameLibrary.Contracts;
 
 /// <summary>参数 schema 描述项。</summary>
-public sealed record ParamSpec(string Name, string Type, bool Required, string Description);
+public sealed record ParamSpec(string Name, string Type, bool Required, string Description, bool Nullable = false);
 
 /// <summary>
 /// 操作输入/输出 schema 注册表（v1 审查修复：schema.get 不再返回 null）。
@@ -14,6 +14,22 @@ public sealed record ParamSpec(string Name, string Type, bool Required, string D
 public static class OperationSchemas
 {
     private static readonly IReadOnlyDictionary<string, ParamSpec[]> InputSpecs = GeneratedOperations.InputSpecs;
+
+    public static object Describe(OperationInfo info) => new
+    {
+        operationId = info.OperationId,
+        cli = info.Cli,
+        mcpTool = info.McpTool,
+        handler = info.Handler,
+        permission = info.Permission,
+        requiresRevision = info.RequiresRevision,
+        requiresIdempotencyKey = info.RequiresIdempotencyKey,
+        execution = info.Execution,
+        available = info.IsAvailable,
+        note = info.Note,
+        inputSchema = BuildInputSchema(info.OperationId),
+        outputSchema = BuildOutputSchema(),
+    };
 
     /// <summary>生成指定操作的 inputSchema；未登记操作返回通用对象 schema（注明待补充）。</summary>
     public static JsonElement BuildInputSchema(string operationId)
@@ -26,8 +42,7 @@ public static class OperationSchemas
             {
                 properties[spec.Name] = new Dictionary<string, object>
                 {
-                    ["type"] = operationId == "tags.update" && spec.Name == "color"
-                        ? new[] { "string", "null" } : (object)MapType(spec.Type),
+                    ["type"] = spec.Nullable ? new[] { MapType(spec.Type), "null" } : (object)MapType(spec.Type),
                     ["description"] = spec.Description,
                 };
                 if (spec.Required)
@@ -59,6 +74,8 @@ public static class OperationSchemas
                 },
                 ["jobId"] = new Dictionary<string, object> { ["type"] = new[] { "string", "null" } },
                 ["error"] = new Dictionary<string, object> { ["type"] = new[] { "object", "null" } },
+                ["warnings"] = new Dictionary<string, object> { ["type"] = "array", ["items"] = new { type = "string" } },
+                ["nextActions"] = new Dictionary<string, object> { ["type"] = "array", ["items"] = new { type = "object" } },
             },
             ["apiVersion", "requestId", "ok", "status"],
             "统一结果信封（契约第 3 节）");

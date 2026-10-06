@@ -80,6 +80,9 @@ public sealed class HostConnection : IAsyncDisposable
         var retried = false;
         try
         {
+            // Pin the original intent before sending. Reconnecting must not bind it to restored data.
+            request.LibraryInstanceId ??= Handshake.LibraryInstanceId;
+            request.ExpectedDataEpoch ??= Handshake.DataEpoch;
             while (true)
             {
                 var pipe = _pipe ?? throw new InvalidOperationException("客户端未连接");
@@ -91,7 +94,14 @@ public sealed class HostConnection : IAsyncDisposable
                 {
                     // 连接可能已被对端关闭：重连一次重发同请求（同 requestId）。
                     retried = true;
-                    await ReconnectAsync(_dataDirectory, _clientName, ct);
+                    await ReconnectCoreAsync(_dataDirectory, _clientName, ct);
+                    if (request.LibraryInstanceId is null && Handshake.LibraryInstanceId is not null
+                        && OperationCatalog.Catalog.Find(request.OperationId)?.RequiresIdempotencyKey == true)
+                        return new Envelope<JsonElement>
+                        {
+                            RequestId = request.RequestId, Ok = false, Status = OperationStatus.Failed,
+                            Error = new RequestError { Code = ErrorCodes.LibraryInstanceMismatch, Message = "库实例已变化，请重新读取状态后准备新的操作", Retryable = false },
+                        };
                 }
             }
         }
@@ -118,6 +128,13 @@ public sealed class HostConnection : IAsyncDisposable
 
     /// <summary>断线后重连并重新握手；旧连接句柄被替换，重连失败时实例保持断开状态。</summary>
     public async Task ReconnectAsync(string dataDirectory, string? clientName, CancellationToken ct)
+    {
+        await _sendLock.WaitAsync(ct);
+        try { await ReconnectCoreAsync(dataDirectory, clientName, ct); }
+        finally { _sendLock.Release(); }
+    }
+
+    private async Task ReconnectCoreAsync(string dataDirectory, string? clientName, CancellationToken ct)
     {
         var oldPipe = _pipe;
         _pipe = null;

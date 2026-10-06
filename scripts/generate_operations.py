@@ -29,7 +29,7 @@ def generate(catalog):
     for op in operations:
         if "parameters" not in op:
             continue
-        specs = ", ".join(f"new({quote(p['name'])}, {quote(p['type'])}, {str(p['required']).lower()}, {quote(p['description'])})"
+        specs = ", ".join(f"new({quote(p['name'])}, {quote(p['type'])}, {str(p['required']).lower()}, {quote(p['description'])}, {str(p.get('nullable', False)).lower()})"
                           for p in op["parameters"])
         contracts += f"            [OperationIds.{identifier(op['operationId'])}] = [{specs}],\n"
     contracts += "        };\n}\n"
@@ -48,13 +48,22 @@ def generate(catalog):
         if not forward:
             continue
         parameters = []
-        for param in forward["parameters"]:
-            default = " = " + param["default"] if "default" in param else ""
-            parameters.append(f"[Description({quote(param['description'])})] {param['type']} {param['name']}{default}")
-        args = ", ".join(p["name"] for p in forward["parameters"])
+        specs = sorted(op["parameters"], key=lambda p: not p["required"])
+        types = {"string": "string", "integer": "int", "number": "double", "boolean": "bool", "array": "JsonElement"}
+        for param in specs:
+            clr_type = param.get("csharpType", types[param["type"]])
+            optional = not param["required"]
+            if optional and clr_type != "JsonElement":
+                clr_type += "?"
+            default = " = default" if optional and clr_type == "JsonElement" else " = null" if optional else ""
+            # AIJsonUtilities otherwise serializes the Undefined struct while deriving a schema.
+            # A null metadata default binds to default(JsonElement), preserving omitted vs JSON null.
+            metadata_default = "[DefaultValue(null)] " if optional and clr_type == "JsonElement" else ""
+            parameters.append(f"{metadata_default}[Description({quote(param['description'])})] {clr_type} {param['name']}{default}")
+        args = ", ".join(f"[{quote(p['name'])}] = {p['name']}" for p in specs)
         mcp += f"    [McpServerTool(Name = {quote(op['mcpTool'])})]\n    [Description({quote(forward['description'])})]\n"
         mcp += f"    public static Task<CallToolResult> {forward['method']}({', '.join(parameters)}) =>\n"
-        mcp += f"        InvokeOperationAsync(OperationIds.{identifier(op['operationId'])}, new {{ {args} }});\n\n"
+        mcp += f"        InvokeGeneratedOperationAsync(OperationIds.{identifier(op['operationId'])}, new Dictionary<string, object?> {{ {args} }});\n\n"
     mcp = mcp.rstrip() + "\n}\n"
     return {
         "src/GameLibrary.Contracts/GeneratedOperations.cs": contracts,
@@ -68,6 +77,9 @@ def validate(catalog, generated):
     ids = [op["operationId"] for op in operations]
     if len(ids) != len(set(ids)):
         raise ValueError("Duplicate operation ID")
+    for op in operations:
+        if op.get("mcpForward") and "parameters" in op["mcpForward"]:
+            raise ValueError(f"MCP parameters must use the canonical source: {op['operationId']}")
     available = {op["operationId"] for op in operations if op.get("available")}
     host = (ROOT / "src/GameLibrary.Host/Hosting/OperationDispatcher.cs").read_text(encoding="utf-8-sig")
     routes = set()

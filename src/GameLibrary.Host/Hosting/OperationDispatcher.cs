@@ -106,7 +106,7 @@ public sealed class OperationDispatcher
             state.Roots,
             state.DataDirectory,
             () => state.StartupShortcuts);
-        _launching = new LaunchingHandler(() => state.Library.Store, state.Launches, state.Roots, state.Events);
+        _launching = new LaunchingHandler(() => state.Library.Store, state.Launches, state.Roots, state.Events, state.Jobs);
         _games = new GamesHandler(() => state.Library.Store, state.Roots, state.Events);
         _cataloging = new CatalogingHandler(() => state.Library.Store, state.Roots, state.Events, state.Candidates, state.Jobs, state.DataDirectory);
         _observability = new ObservabilityHandler(() => state.Library.Store, () => state.Library, state.Identity, state.Jobs, state.Metrics, state.Events, state.Roots, state.AuditLog, state.DataDirectory);
@@ -448,7 +448,37 @@ public sealed class OperationDispatcher
     /// IdempotencyConflict。launch.execute 的 prepared 收据在进程已创建但结果未落时，
     /// 按 PID+启动时间+路径尽力核实，无法证明即 UnknownOutcome，原键重试不再启动。
     /// </summary>
+    private static readonly HashSet<string> DatabaseReceiptOperations = new(StringComparer.Ordinal)
+    {
+        "profiles.create", "profiles.update", "profiles.set_default", "profiles.remove", "profiles.restore",
+        "games.update", "games.relink", "translation.set",
+        "views.create", "views.update", "views.remove", "views.activate",
+        "notifications.acknowledge", "notifications.defer",
+        "titles.set_display", "titles.set_translated",
+        "verification.start", "verification.report", "verification.invalidate",
+        "fields.set", "fields.clear", "fields.reset", "ignores.create",
+        "tags.create", "tags.update", "tags.remove", "tags.unassign", "tags.suppress", "tags.reset", "tags.reorder",
+        "assets.reset",
+    };
+
     private Envelope<object> DispatchWithReceipt(IpcRequest request)
+    {
+        var databaseOnly = DatabaseReceiptOperations.Contains(request.OperationId)
+            || (request.OperationId == "games.remove"
+                && (!IpcRequests.TryGetBoolParameter(request, "deleteFiles", out var files) || files != true));
+        if (!databaseOnly || _state.Library.Store is not { } store) return DispatchReceiptCore(request);
+        if (request.OperationId.StartsWith("profiles.", StringComparison.Ordinal))
+            return _state.Launches.WithProfileRollback(() => store.InTransaction(() => DispatchReceiptCore(request)));
+        var activeView = _state.ActiveViewId;
+        try { return store.InTransaction(() => DispatchReceiptCore(request)); }
+        catch
+        {
+            if (request.OperationId == "views.activate") _state.ActiveViewId = activeView;
+            throw;
+        }
+    }
+
+    private Envelope<object> DispatchReceiptCore(IpcRequest request)
     {
         var store = _state.Library.Store;
         if (store is null)
@@ -503,6 +533,13 @@ public sealed class OperationDispatcher
                 var replayed = JsonSerializer.Deserialize<Envelope<object>>(existing.ResultJson, ContractJson.Options);
                 if (replayed is not null)
                 {
+                    if (request.OperationId == "launch.execute" && replayed.Status == OperationStatus.Accepted
+                        && replayed.JobId is { } jobId
+                        && (_state.Jobs.Get(jobId) is null
+                            || (_state.Jobs.Get(jobId)?.State is "failed" or "cancelled"
+                                && _state.Jobs.TryGetProgress(jobId)?.Data is null)))
+                        return RecoverLaunchReceipt(request, store, existing)
+                            ?? IpcRequests.Failure(request, ErrorCodes.UnknownOutcome, "启动作业重启后无法证明结果", retryable: false);
                     // 收据重放：结果内容不变，但 RequestId 必须对齐本次请求（客户端按其校验）。
                     return new Envelope<object>
                     {
@@ -529,6 +566,16 @@ public sealed class OperationDispatcher
                     return recovery;
                 }
             }
+            else if (request.OperationId == "games.remove" && _games.ResumeRemoval(request, existing) is { } resumed)
+            {
+                return resumed;
+            }
+            else
+            {
+                // A legacy prepared receipt cannot prove that its effect was never committed.
+                return IpcRequests.Failure(request, ErrorCodes.UnknownOutcome,
+                    "上次操作被中断且结果无法证明；请重新读取库状态后显式决定下一步", retryable: false);
+            }
         }
 
         var receipt = existing ?? NewReceipt(store, actor, request, key, digest);
@@ -544,7 +591,8 @@ public sealed class OperationDispatcher
             TryAttachAttemptRef(store, receipt, resultJson);
         }
 
-        store.CompleteReceipt(receipt, resultJson);
+        if (!(request.OperationId == "games.remove" && result.Error?.Code == ErrorCodes.UnknownOutcome))
+            store.CompleteReceipt(receipt, resultJson);
         return result;
     }
 
@@ -583,46 +631,37 @@ public sealed class OperationDispatcher
 
     /// <summary>
     /// prepared 收据恢复：有尝试引用则核实（本进程注册表优先，再按 PID/启动时间核实）；
-    /// 核实成功返回尝试现状，无法证明返回 UnknownOutcome 并终结收据；无尝试引用
-    /// （进程尚未创建即中断）返回 null，允许本次执行继续。
+    /// 核实成功返回尝试现状，无法证明（包括无尝试引用）返回 UnknownOutcome；不会重启。
     /// </summary>
     private Envelope<object>? RecoverLaunchReceipt(IpcRequest request, Infrastructure.Persistence.SqliteLibraryStore store, Infrastructure.Persistence.RequestReceipt existing)
     {
-        if (existing.AttemptJson is null)
-        {
-            return null;
-        }
-
         AttemptRef? attemptRef;
         try
         {
-            attemptRef = JsonSerializer.Deserialize<AttemptRef>(existing.AttemptJson, ContractJson.Options);
+            attemptRef = existing.AttemptJson is null ? null : JsonSerializer.Deserialize<AttemptRef>(existing.AttemptJson, ContractJson.Options);
         }
         catch (JsonException)
         {
             attemptRef = null;
         }
 
-        if (attemptRef is null)
-        {
-            return null;
-        }
-
-        var attempt = _state.Launches.GetAttempt(attemptRef.AttemptId);
-        if (attempt is not null)
+        var attempt = attemptRef is null ? null : _state.Launches.GetAttempt(attemptRef.AttemptId);
+        if (attempt is not null && attempt.State != "unknownOutcome")
         {
             var live = new Envelope<object>
             {
                 RequestId = request.RequestId,
-                Ok = true,
-                Status = OperationStatus.Completed,
+                Ok = attempt.State != "processStartFailed",
+                Status = attempt.State == "processStartFailed" ? OperationStatus.Failed : OperationStatus.Completed,
                 Data = attempt.ToDto(),
+                Error = attempt.State == "processStartFailed"
+                    ? new RequestError { Code = ErrorCodes.ProcessStartFailed, Message = attempt.Error ?? "启动未完成", Retryable = false } : null,
             };
             store.CompleteReceipt(existing, JsonSerializer.Serialize(live, ContractJson.Options));
             return live;
         }
 
-        if (IsProcessVerified(attemptRef))
+        if (attemptRef is not null && IsProcessVerified(attemptRef))
         {
             // 进程仍在但注册表无记录（不应发生）：保守返回 UnknownOutcome，不重启。
         }
@@ -635,7 +674,7 @@ public sealed class OperationDispatcher
             Error = new RequestError
             {
                 Code = ErrorCodes.UnknownOutcome,
-                Message = $"上次执行结果无法证明（attempt {attemptRef.AttemptId}，pid {attemptRef.ProcessId}）；请检查运行状态后用新幂等键显式重试，本键不再启动",
+                Message = $"上次执行结果无法证明（attempt {attemptRef?.AttemptId ?? "未关联"}，pid {attemptRef?.ProcessId}）；请检查运行状态后用新幂等键显式重试，本键不再启动",
                 Retryable = false,
             },
         };
@@ -647,15 +686,16 @@ public sealed class OperationDispatcher
     {
         try
         {
-            using var process = Process.GetProcessById(attemptRef.ProcessId);
+            if (attemptRef.ProcessId is not { } pid || attemptRef.ProcessStartedUtc is not { } started) return false;
+            using var process = Process.GetProcessById(pid);
             process.Refresh();
             if (process.HasExited)
             {
                 return false;
             }
 
-            var drift = Math.Abs((process.StartTime.ToUniversalTime() - attemptRef.ProcessStartedUtc).TotalSeconds);
-            return drift <= 5;
+            var drift = Math.Abs((process.StartTime.ToUniversalTime() - started).TotalSeconds);
+            return drift <= 1 && string.Equals(process.MainModule?.FileName, attemptRef.ExecutablePath, StringComparison.OrdinalIgnoreCase);
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
@@ -708,9 +748,9 @@ public sealed class OperationDispatcher
     {
         public string AttemptId { get; init; } = "";
 
-        public int ProcessId { get; init; }
+        public int? ProcessId { get; init; }
 
-        public DateTime ProcessStartedUtc { get; init; }
+        public DateTime? ProcessStartedUtc { get; init; }
 
         public string ExecutablePath { get; init; } = "";
     }
@@ -1021,23 +1061,7 @@ public sealed class OperationDispatcher
             RequestId = request.RequestId,
             Ok = true,
             Status = OperationStatus.Completed,
-            Data = new
-            {
-                operationId = info.OperationId,
-                cli = info.Cli,
-                mcpTool = info.McpTool,
-                handler = info.Handler,
-                permission = info.Permission,
-                requiresRevision = info.RequiresRevision,
-                requiresIdempotencyKey = info.RequiresIdempotencyKey,
-                execution = info.Execution,
-                available = info.IsAvailable,
-                note = info.Note,
-                // v1 审查修复：返回程序化生成的真实 JSON Schema（draft 2020-12 子集），
-                // 不再把 inputSchemaFile/outputSchemaFile 置 null 冒充机器可发现契约。
-                inputSchema = Contracts.OperationSchemas.BuildInputSchema(info.OperationId),
-                outputSchema = Contracts.OperationSchemas.BuildOutputSchema(),
-            },
+            Data = OperationSchemas.Describe(info),
         };
     }
 

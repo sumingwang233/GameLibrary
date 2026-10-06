@@ -7,18 +7,23 @@ namespace GameLibrary.Infrastructure.Backups;
 public sealed class LibraryBackupStorage(SqliteLibraryStore store, string dataDirectory, string backupId) : IBackupCreateStorage
 {
     private readonly string _directory = BackupArchive.BackupDirectory(Path.Combine(dataDirectory, "backups"), backupId);
+    private int _assetCount;
 
-    public async Task CreateSnapshotAsync(CancellationToken cancellationToken)
+    public Task CreateSnapshotAsync(CancellationToken cancellationToken)
     {
-        Directory.CreateDirectory(_directory);
-        await store.CreateBackupAsync(Path.Combine(_directory, BackupArchive.DatabaseFileName), cancellationToken);
+        store.WithWriteLock(() =>
+        {
+            Directory.CreateDirectory(_directory);
+            store.CreateBackupAsync(Path.Combine(_directory, BackupArchive.DatabaseFileName), cancellationToken).GetAwaiter().GetResult();
+            cancellationToken.ThrowIfCancellationRequested();
+            var source = Path.Combine(dataDirectory, "assets");
+            _assetCount = Directory.Exists(source) ? BackupArchive.CopyDirectory(source, Path.Combine(_directory, "assets")) : 0;
+            return _assetCount;
+        });
+        return Task.CompletedTask;
     }
 
-    public int CopyAssets()
-    {
-        var source = Path.Combine(dataDirectory, "assets");
-        return Directory.Exists(source) ? BackupArchive.CopyDirectory(source, Path.Combine(_directory, "assets")) : 0;
-    }
+    public int CopyAssets() => _assetCount;
 
     public BackupCreationResult CommitManifest(int assetCount)
     {

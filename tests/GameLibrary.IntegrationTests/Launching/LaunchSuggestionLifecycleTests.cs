@@ -24,11 +24,11 @@ public sealed class LaunchSuggestionLifecycleTests
         var plan = registry.CreatePlan(profile.GameId, profile.ProfileId);
         return registry.Execute(Guid.NewGuid().ToString("N"), plan.PlanId, null, null, null);
     }
-    private static async Task Wait(Func<bool> done, int seconds = 8)
+    private static async Task Wait(Func<bool> done, int seconds = 8, Func<string>? diagnostic = null)
     {
         var timer = Stopwatch.StartNew();
         while (!done() && timer.Elapsed < TimeSpan.FromSeconds(seconds)) await Task.Delay(50);
-        Assert.True(done(), "等待测试进程状态超时");
+        Assert.True(done(), "等待测试进程状态超时；" + diagnostic?.Invoke());
     }
 
     [Fact]
@@ -42,7 +42,8 @@ public sealed class LaunchSuggestionLifecycleTests
         try
         {
             // Keep the real process alive until observation succeeds, independent of CI scheduling speed.
-            await Wait(() => registry.GetProfile(profile.ProfileId)?.ValidationStatus == "verified", 20);
+            await Wait(() => registry.GetProfile(profile.ProfileId)?.ValidationStatus == "verified", 20,
+                () => $"profile={registry.GetProfile(profile.ProfileId)?.ValidationStatus}; attempt={registry.GetAttempt(attempt.AttemptId)?.State}; pid={attempt.ProcessId}; exe={attempt.ExecutablePath}; error={registry.GetAttempt(attempt.AttemptId)?.Error}");
             Assert.True(registry.GetProfile(profile.ProfileId)!.IsDefault);
             Assert.Equal("processCreated", registry.GetAttempt(attempt.AttemptId)!.State);
         }

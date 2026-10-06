@@ -9,6 +9,9 @@ public sealed partial class SqliteLibraryStore
     public RequestReceipt? TryGetReceipt(string actor, string operationId, string idempotencyKey)
         => ReadExclusive((c, info) => RequestReceiptStore.TryGet(c, info.LibraryInstanceId, actor, operationId, idempotencyKey));
 
+    public IReadOnlyList<RequestReceipt> ListReceipts(string operationId, bool preparedOnly = false)
+        => ReadExclusive((connection, info) => RequestReceiptStore.List(connection, info.LibraryInstanceId, operationId, preparedOnly));
+
     public void InsertPreparedReceipt(RequestReceipt receipt)
         => Execute((c, _) => RequestReceiptStore.InsertPrepared(c, receipt));
 
@@ -88,5 +91,5 @@ public sealed partial class SqliteLibraryStore
         => ReadExclusive((c, _) => NotificationStore.TryGetBatch(c, notificationId));
 
     public NotificationBatch? TransitionNotification(string notificationId, string toState, DateTime utcNow)
-        => Execute((c, _) => NotificationStore.TransitionBatch(c, notificationId, toState, utcNow));
+        => Execute((c, _) => NotificationStore.TransitionBatch(c, notificationId, toState, utcNow, _writeTransaction));
 }

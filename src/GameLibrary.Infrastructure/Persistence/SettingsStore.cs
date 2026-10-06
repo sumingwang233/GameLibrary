@@ -83,9 +83,10 @@ public static class SettingsStore
     }
 
     /// <summary>单键写入（事务内递增 Revision）。调用方负责字段校验。</summary>
-    public static int WriteKeys(SqliteConnection connection, IEnumerable<(string Key, string? Value)> keys, DateTime utcNow)
+    public static int WriteKeys(SqliteConnection connection, IEnumerable<(string Key, string? Value)> keys, DateTime utcNow, SqliteTransaction? parentTransaction = null)
     {
-        using var transaction = (SqliteTransaction)connection.BeginTransaction();
+        using var ownedTransaction = parentTransaction is null ? connection.BeginTransaction() : null;
+        var transaction = parentTransaction ?? ownedTransaction!;
         foreach (var (key, value) in keys)
         {
             using (var delete = connection.CreateCommand())
@@ -129,7 +130,7 @@ public static class SettingsStore
             newRevision = int.Parse((string)(select.ExecuteScalar() ?? "0"), CultureInfo.InvariantCulture);
         }
 
-        transaction.Commit();
+        ownedTransaction?.Commit();
         return newRevision;
     }
 
@@ -137,9 +138,10 @@ public static class SettingsStore
     /// 恢复默认：清空全部设置键；Revision 保持单调（读取旧值后 +1，不归零回退——
     /// 归零会让早已缓存的旧 Revision 重新通过乐观校验，破坏单调整承诺）。
     /// </summary>
-    public static int ResetAll(SqliteConnection connection, DateTime utcNow)
+    public static int ResetAll(SqliteConnection connection, DateTime utcNow, SqliteTransaction? parentTransaction = null)
     {
-        using var transaction = (SqliteTransaction)connection.BeginTransaction();
+        using var ownedTransaction = parentTransaction is null ? connection.BeginTransaction() : null;
+        var transaction = parentTransaction ?? ownedTransaction!;
         long previousRevision;
         using (var readRevision = connection.CreateCommand())
         {
@@ -168,7 +170,7 @@ public static class SettingsStore
             seed.ExecuteNonQuery();
         }
 
-        transaction.Commit();
+        ownedTransaction?.Commit();
         return (int)newRevision;
     }
 

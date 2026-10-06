@@ -87,7 +87,9 @@ The installer provides a wizard, Start menu entries and uninstallation registrat
 </details>
 
 <details>
-<summary><strong>Current source: v1.7.4, unreleased</strong></summary>
+<summary><strong>Current source: v1.7.5, unreleased</strong></summary>
+
+v1.7.5 addresses stale writes after restore, launch idempotency, cover consistency in backups and interrupted recycling. CLI/MCP parameters and schema discovery share their definitions; slow injection waits run as background jobs. Only packaging compilation was authorized; tests and manual acceptance were not run. See the [implementation](docs/development/v1.7.5-architecture-plan.md), [release notes](docs/releases/v1.7.5.md) and [acceptance record](docs/releases/v1.7.5-validation.md).
 
 v1.7.4 fixes tag-triggered Unity translation setup and removes the untranslated tag when an existing enabled Chinese translator passes offline checks. It reduces repeated background discovery and candidate checks, stops the corresponding Host gracefully when the desktop exits, and applies tag colors only to text and dots. See the [release notes](docs/releases/v1.7.4.md) and [validation record](docs/releases/v1.7.4-validation.md) for publication readiness.
 

@@ -176,6 +176,15 @@ public sealed record CommandLine
     /// <summary>tags create/update 的 --color 参数（#RRGGBB）。</summary>
     public string? Color { get; private init; }
 
+    public bool ColorSpecified { get; private init; }
+    public string? ParametersJson { get; private init; }
+    public string? Kind { get; private init; }
+    public string? Category { get; private init; }
+    public int? SortOrder { get; private init; }
+    public int? Starred { get; private init; }
+    public string? DisplayName { get; private init; }
+    public bool DisplayNameSpecified { get; private init; }
+
     public bool NoStart { get; private init; }
 
     public int TimeoutSeconds { get; private init; } = 30;
@@ -248,6 +257,14 @@ public sealed record CommandLine
         string? rootId = null;
         string? tagId = null;
         string? color = null;
+        var colorSpecified = false;
+        string? parametersJson = null;
+        string? kind = null;
+        string? category = null;
+        int? sortOrder = null;
+        int? starred = null;
+        string? displayName = null;
+        var displayNameSpecified = false;
         var argList = new List<string>();
         var noStart = false;
         var timeout = 30;
@@ -282,6 +299,36 @@ public sealed record CommandLine
                     break;
                 case "--color" when i + 1 < args.Length:
                     color = args[++i];
+                    colorSpecified = true;
+                    break;
+                case "--parameters-json" when i + 1 < args.Length:
+                    parametersJson = args[++i];
+                    break;
+                case "--clear-color":
+                    color = null;
+                    colorSpecified = true;
+                    break;
+                case "--category" when i + 1 < args.Length:
+                    category = args[++i];
+                    break;
+                case "--kind" when i + 1 < args.Length:
+                    kind = args[++i];
+                    break;
+                case "--sort-order" when i + 1 < args.Length && int.TryParse(args[i + 1], out var order):
+                    sortOrder = order;
+                    i++;
+                    break;
+                case "--starred" when i + 1 < args.Length && int.TryParse(args[i + 1], out var stars):
+                    starred = stars;
+                    i++;
+                    break;
+                case "--display-name" when i + 1 < args.Length:
+                    displayName = args[++i];
+                    displayNameSpecified = true;
+                    break;
+                case "--clear-display-name":
+                    displayName = null;
+                    displayNameSpecified = true;
                     break;
                 case "--job-id" when i + 1 < args.Length:
                     jobId = args[++i];
@@ -525,6 +572,14 @@ public sealed record CommandLine
             RootId = rootId,
             TagId = tagId,
             Color = color,
+            ColorSpecified = colorSpecified,
+            ParametersJson = parametersJson,
+            Kind = kind,
+            Category = category,
+            SortOrder = sortOrder,
+            Starred = starred,
+            DisplayName = displayName,
+            DisplayNameSpecified = displayNameSpecified,
             NewPath = newPath,
             NotificationId = notificationId,
             BackupId = backupId,

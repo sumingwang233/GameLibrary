@@ -96,19 +96,7 @@ public static partial class GameLibraryTools
             RequestId = NewRequestId(),
             Ok = true,
             Status = OperationStatus.Completed,
-            Data = new
-            {
-                operationId = info.OperationId,
-                cli = info.Cli,
-                mcpTool = info.McpTool,
-                handler = info.Handler,
-                permission = info.Permission,
-                requiresRevision = info.RequiresRevision,
-                requiresIdempotencyKey = info.RequiresIdempotencyKey,
-                execution = info.Execution,
-                available = info.IsAvailable,
-                note = info.Note,
-            },
+            Data = OperationSchemas.Describe(info),
         }));
     }
 
@@ -579,6 +567,11 @@ public static partial class GameLibraryTools
         toolId is null
             ? InvokeOperationAsync("verification.list", new { })
             : InvokeOperationAsync("verification.list", new { toolId });
+
+    private static Task<CallToolResult> InvokeGeneratedOperationAsync(string operationId, Dictionary<string, object?> parameters) =>
+        InvokeOperationAsync(operationId, parameters
+            .Where(pair => pair.Value is not null && pair.Value is not JsonElement { ValueKind: JsonValueKind.Undefined })
+            .ToDictionary(pair => pair.Key, pair => pair.Value));
 
     private static async Task<CallToolResult> InvokeOperationAsync(string operationId, object parameters)
     {

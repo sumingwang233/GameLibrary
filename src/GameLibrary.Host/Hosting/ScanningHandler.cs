@@ -201,7 +201,7 @@ internal sealed class ScanningHandler
                 startedUtc = snapshot.StartedUtc?.ToString("O"),
                 finishedUtc = snapshot.FinishedUtc?.ToString("O"),
                 error = snapshot.Error,
-                result = snapshot.Kind is "restore" or "titleTranslation" ? _jobs.TryGetProgress(jobId)?.Data : null,
+                result = snapshot.Kind is "restore" or "titleTranslation" or "launch" ? _jobs.TryGetProgress(jobId)?.Data : null,
             },
         };
     }

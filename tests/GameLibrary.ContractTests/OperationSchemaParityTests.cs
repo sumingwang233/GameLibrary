@@ -6,6 +6,24 @@ namespace GameLibrary.ContractTests;
 /// <summary>防止 schema.get 的参数名与实际 Host/CLI/MCP 载荷漂移。</summary>
 public sealed class OperationSchemaParityTests
 {
+    [Fact]
+    public void OutputSchemaIncludesEverySerializedEnvelopeFieldAndCropHasCoordinates()
+    {
+        var envelope = new GameLibrary.Contracts.Ipc.Envelope<object>
+        {
+            RequestId = "schema-boundary", Ok = true, Status = OperationStatus.Completed, Data = new { },
+        };
+        var json = System.Text.Json.JsonSerializer.SerializeToElement(envelope, ContractJson.Options);
+        var properties = OperationSchemas.BuildOutputSchema().GetProperty("properties");
+        Assert.All(json.EnumerateObject(), property => Assert.True(properties.TryGetProperty(property.Name, out _), property.Name));
+        var crop = OperationSchemas.BuildInputSchema("assets.crop");
+        foreach (var field in new[] { "x", "y", "width", "height", "expectedRevision" })
+        {
+            Assert.Equal("integer", crop.GetProperty("properties").GetProperty(field).GetProperty("type").GetString());
+            Assert.Contains(crop.GetProperty("required").EnumerateArray(), value => value.GetString() == field);
+        }
+    }
+
     [Theory]
     [InlineData("games.create", "sourcePath", "string")]
     [InlineData("games.relink", "newPath", "string")]
@@ -65,7 +83,10 @@ public sealed class OperationSchemaParityTests
         // v1.5.2：starred 升级为星级评分 0–5。
         Assert.Equal("integer", properties.GetProperty("starred").GetProperty("type").GetString());
         Assert.Contains("0–5", properties.GetProperty("starred").GetProperty("description").GetString());
-        Assert.Equal("string", properties.GetProperty("displayName").GetProperty("type").GetString());
+        var displayType = properties.GetProperty("displayName").GetProperty("type");
+        if (operationId == "tags.update")
+            Assert.Equal(new[] { "string", "null" }, displayType.EnumerateArray().Select(value => value.GetString()));
+        else Assert.Equal("string", displayType.GetString());
     }
 
     /// <summary>bug-5：roots.add 必须声明可选 kind（library|manual）；manual 根不参与扫描枚举。</summary>

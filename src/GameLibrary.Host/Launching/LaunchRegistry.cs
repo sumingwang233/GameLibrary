@@ -101,7 +101,7 @@ public sealed record LaunchAttempt
 
     public required DateTime CreatedUtc { get; init; }
 
-    public bool IsTerminal => State is "exited" or "processStartFailed";
+    public bool IsTerminal => State is "exited" or "processStartFailed" or "unknownOutcome";
 
     public object ToDto() => new
     {
@@ -173,20 +173,43 @@ public sealed partial class LaunchRegistry
     public void RestoreProfile(LaunchProfile profile) => _profiles[profile.ProfileId] = profile.ValidationStatus == "verifying"
         ? profile with { ValidationStatus = "inconclusive" } : profile;
 
-    /// <summary>启动恢复：把持久层尝试注册回内存；非终态尝试在重启后直接记为 exited（进程已不属于本生命周期）。</summary>
-    public void RestoreAttempt(LaunchAttempt attempt)
+    /// <summary>Restore only a process whose PID, start time and executable still match; uncertain effects are never rerun.</summary>
+    public void RestoreAttempt(LaunchAttempt attempt, string? receiptScope = null)
     {
+        Process? process = null;
         if (!attempt.IsTerminal)
         {
-            attempt = attempt with
+            try
             {
-                State = "exited",
-                FinishedUtc = attempt.FinishedUtc ?? DateTime.UtcNow,
-                Error = attempt.Error ?? "宿主进程重启时启动尚未完成",
-            };
+                if (attempt.ProcessId is { } pid && attempt.ProcessStartedUtc is { } started)
+                {
+                    process = Process.GetProcessById(pid);
+                    if (process.HasExited || Math.Abs((process.StartTime.ToUniversalTime() - started).TotalSeconds) > 1
+                        || !SamePath(process.MainModule?.FileName ?? "", attempt.ExecutablePath))
+                    {
+                        process.Dispose();
+                        process = null;
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
+            {
+                process?.Dispose();
+                process = null;
+            }
+            if (process is not null)
+            {
+                attempt = attempt with { State = "processCreated" };
+                _processes[attempt.AttemptId] = process;
+                _activeByGame[attempt.GameId] = attempt.AttemptId;
+            }
+            else
+                attempt = attempt with { State = "unknownOutcome", Error = "宿主重启后无法证明上次启动结果；不会自动再次启动" };
         }
 
         _attempts[attempt.AttemptId] = attempt;
+        _receiptByKey[receiptScope ?? attempt.IdempotencyKey] = attempt.AttemptId;
+        if (process is not null) WatchProcessExit(attempt.AttemptId, process);
     }
 
     private LaunchProfile AddProfileCore(
@@ -362,9 +385,21 @@ public sealed partial class LaunchRegistry
         string? expectedRevisionProfileId,
         int? expectedRevision,
         IReadOnlyList<RecipeProcessStep>? translationSteps = null,
-        TimeSpan? translationStepTimeout = null)
+        TimeSpan? translationStepTimeout = null,
+        string? receiptScope = null,
+        Action<LaunchAttempt>? beforeStart = null,
+        CancellationToken cancellationToken = default)
     {
-        if (_receiptByKey.TryGetValue(idempotencyKey, out var existingAttemptId))
+        var attempt = Prepare(idempotencyKey, planId, profileId, expectedRevisionProfileId, expectedRevision, receiptScope, beforeStart);
+        return attempt.State == "prepared"
+            ? RunPrepared(attempt.AttemptId, translationSteps, translationStepTimeout, cancellationToken) : attempt;
+    }
+
+    public LaunchAttempt Prepare(string idempotencyKey, string? planId, string? profileId,
+        string? expectedRevisionProfileId, int? expectedRevision, string? receiptScope = null, Action<LaunchAttempt>? beforeStart = null)
+    {
+        var key = receiptScope ?? idempotencyKey;
+        if (_receiptByKey.TryGetValue(key, out var existingAttemptId))
         {
             return _attempts[existingAttemptId];
         }
@@ -431,20 +466,63 @@ public sealed partial class LaunchRegistry
             CreatedUtc = DateTime.UtcNow,
         };
         _attempts[attempt.AttemptId] = attempt;
-        if (!_receiptByKey.TryAdd(idempotencyKey, attempt.AttemptId))
+        if (!_receiptByKey.TryAdd(key, attempt.AttemptId))
         {
             // 并发相同键：返回已注册的收据，不启动第二个进程。
-            return _attempts[_receiptByKey[idempotencyKey]];
+            _attempts.TryRemove(attempt.AttemptId, out _);
+            return _attempts[_receiptByKey[key]];
         }
 
-        _activeByGame[plan.GameId] = attempt.AttemptId;
-        attempt = attempt with { State = "executing" };
-        _attempts[attempt.AttemptId] = attempt;
-        NotifyAttempt(attempt);
+        if (!_activeByGame.TryAdd(plan.GameId, attempt.AttemptId))
+        {
+            _receiptByKey.TryRemove(key, out _);
+            _attempts.TryRemove(attempt.AttemptId, out _);
+            throw new LaunchException(ErrorCodes.InvalidArgument, "该游戏已有进行中的启动");
+        }
+        try
+        {
+            beforeStart?.Invoke(attempt);
+            NotifyAttempt(attempt);
+        }
+        catch
+        {
+            _activeByGame.TryRemove(plan.GameId, out _);
+            _receiptByKey.TryRemove(key, out _);
+            _attempts.TryRemove(attempt.AttemptId, out _);
+            throw;
+        }
+        return attempt;
+    }
+
+    public void FailPrepared(string attemptId, string message)
+    {
+        lock (_refreshLock)
+        {
+            if (!_attempts.TryGetValue(attemptId, out var attempt) || attempt.State != "prepared") return;
+            attempt = attempt with { State = "processStartFailed", Error = message, FinishedUtc = DateTime.UtcNow };
+            _attempts[attemptId] = attempt;
+            _activeByGame.TryRemove(attempt.GameId, out _);
+            NotifyAttempt(attempt);
+        }
+    }
+
+    public LaunchAttempt RunPrepared(string attemptId, IReadOnlyList<RecipeProcessStep>? translationSteps = null,
+        TimeSpan? translationStepTimeout = null, CancellationToken cancellationToken = default)
+    {
+        LaunchAttempt attempt;
+        lock (_refreshLock)
+        {
+            attempt = _attempts[attemptId];
+            if (attempt.State != "prepared") return attempt;
+            attempt = attempt with { State = "executing" };
+            _attempts[attempt.AttemptId] = attempt;
+        }
+        var plan = _plans[attempt.PlanId!];
 
         var started = new List<Process>();
         try
         {
+            NotifyAttempt(attempt);
             var steps = translationSteps is { Count: > 0 }
                 ? translationSteps.OrderBy(step => step.Sequence).ToArray()
                 :
@@ -461,6 +539,7 @@ public sealed partial class LaunchRegistry
             Process? process = null;
             foreach (var step in steps)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var startInfo = new ProcessStartInfo
                 {
                     FileName = step.ExecutablePath,
@@ -478,9 +557,12 @@ public sealed partial class LaunchRegistry
                 started.Add(process);
                 if (step.WaitForExit)
                 {
-                    // 有界等待：注入工具挂死不得持请求门锁冻结宿主（与 TauriBridge 响应超时同量级）。
+                    // Slow steps run in JobManager; cancellation ends only processes owned by this attempt.
                     var timeout = translationStepTimeout ?? DefaultTranslationStepTimeout;
-                    if (!process.WaitForExit((int)timeout.TotalMilliseconds))
+                    using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    timeoutCts.CancelAfter(timeout);
+                    try { process.WaitForExitAsync(timeoutCts.Token).GetAwaiter().GetResult(); }
+                    catch (OperationCanceledException)
                     {
                         throw new LaunchException(
                             ErrorCodes.ProcessStartFailed,
@@ -504,6 +586,7 @@ public sealed partial class LaunchRegistry
             attempt = attempt with
             {
                 State = "processCreated",
+                ExecutablePath = steps[^1].ExecutablePath,
                 ProcessId = process.Id,
                 ProcessStartedUtc = process.StartTime.ToUniversalTime(),
             };

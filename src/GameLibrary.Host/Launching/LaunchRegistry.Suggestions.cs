@@ -15,6 +15,22 @@ public sealed partial class LaunchRegistry
     internal TimeSpan VerificationDuration { get; set; } = TimeSpan.FromSeconds(30);
     internal TimeSpan ObservationTimeout { get; set; } = TimeSpan.FromSeconds(120);
 
+    internal T WithProfileRollback<T>(Func<T> action)
+    {
+        // Keep the established profile -> persistence lock order used by observation callbacks.
+        lock (_profileLock)
+        {
+            var before = _profiles.ToArray();
+            try { return action(); }
+            catch
+            {
+                _profiles.Clear();
+                foreach (var item in before) _profiles[item.Key] = item.Value;
+                throw;
+            }
+        }
+    }
+
     private static bool SamePath(string left, string right) =>
         string.Equals(Path.GetFullPath(left), Path.GetFullPath(right), StringComparison.OrdinalIgnoreCase);
 
@@ -220,7 +236,8 @@ public sealed partial class LaunchRegistry
                         }
                         if (!resolved && (longLived || alive == 0 || elapsed.Elapsed >= ObservationTimeout))
                         {
-                            var status = !uncertain && longLived ? "verified"
+                            // A verified live game is positive evidence even if an unrelated child cannot be inspected.
+                            var status = longLived ? "verified"
                                 : !uncertain && alive == 0 && IsCrash(exitCode) ? "discarded" : "inconclusive";
                             CompleteSuggestion(attempt.ProfileId, revision, status);
                             resolved = true;

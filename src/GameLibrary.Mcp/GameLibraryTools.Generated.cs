@@ -14,330 +14,330 @@ public static partial class GameLibraryTools
     [McpServerTool(Name = "titles_set_display")]
     [Description("Translate game titles to Simplified Chinese, preserving originals.")]
     public static Task<CallToolResult> TitlesSetDisplay([Description("gameId")] string gameId, [Description("mode")] string mode, [Description("expectedRevision")] int expectedRevision, [Description("idempotencyKey")] string idempotencyKey) =>
-        InvokeOperationAsync(OperationIds.TitlesSetDisplay, new { gameId, mode, expectedRevision, idempotencyKey });
+        InvokeGeneratedOperationAsync(OperationIds.TitlesSetDisplay, new Dictionary<string, object?> { ["gameId"] = gameId, ["mode"] = mode, ["expectedRevision"] = expectedRevision, ["idempotencyKey"] = idempotencyKey });
 
     [McpServerTool(Name = "titles_set_translated")]
     [Description("Translate game titles to Simplified Chinese, preserving originals.")]
     public static Task<CallToolResult> TitlesSetTranslated([Description("gameId")] string gameId, [Description("title")] string title, [Description("expectedRevision")] int expectedRevision, [Description("idempotencyKey")] string idempotencyKey) =>
-        InvokeOperationAsync(OperationIds.TitlesSetTranslated, new { gameId, title, expectedRevision, idempotencyKey });
+        InvokeGeneratedOperationAsync(OperationIds.TitlesSetTranslated, new Dictionary<string, object?> { ["gameId"] = gameId, ["title"] = title, ["expectedRevision"] = expectedRevision, ["idempotencyKey"] = idempotencyKey });
 
     [McpServerTool(Name = "roots_list")]
     [Description("列出已注册库根。")]
-    public static Task<CallToolResult> RootsList() =>
-        InvokeOperationAsync(OperationIds.RootsList, new {  });
+    public static Task<CallToolResult> RootsList([Description("包含 manual 根（默认只返回 library 根；manual 根是手动添加游戏的包含边界）")] bool? includeManual = null) =>
+        InvokeGeneratedOperationAsync(OperationIds.RootsList, new Dictionary<string, object?> { ["includeManual"] = includeManual });
 
     [McpServerTool(Name = "roots_add")]
     [Description("注册库根（显式授权）：此后 scan/启动目标必须落在已注册根内。参数：root（绝对本地路径）。")]
-    public static Task<CallToolResult> RootsAdd([Description("库根的绝对本地路径")] string root) =>
-        InvokeOperationAsync(OperationIds.RootsAdd, new { root });
+    public static Task<CallToolResult> RootsAdd([Description("库根绝对路径")] string root, [Description("幂等键")] string idempotencyKey, [Description("根类型 library/manual（默认 library；manual 仅作路径包含边界，不参与扫描枚举与候选发现）")] string? kind = null) =>
+        InvokeGeneratedOperationAsync(OperationIds.RootsAdd, new Dictionary<string, object?> { ["root"] = root, ["idempotencyKey"] = idempotencyKey, ["kind"] = kind });
 
     [McpServerTool(Name = "roots_remove")]
     [Description("移除库根（仅解除扫描/启动边界，不触碰游戏数据与记录）。参数：rootId、expectedRevision、idempotencyKey。")]
-    public static Task<CallToolResult> RootsRemove([Description("库根 ID")] string rootId, [Description("期望库根修订")] int expectedRevision, [Description("幂等键")] string? idempotencyKey = null) =>
-        InvokeOperationAsync(OperationIds.RootsRemove, new { rootId, expectedRevision, idempotencyKey });
+    public static Task<CallToolResult> RootsRemove([Description("库根 ID")] string rootId, [Description("期望库根修订")] int expectedRevision, [Description("幂等键")] string idempotencyKey) =>
+        InvokeGeneratedOperationAsync(OperationIds.RootsRemove, new Dictionary<string, object?> { ["rootId"] = rootId, ["expectedRevision"] = expectedRevision, ["idempotencyKey"] = idempotencyKey });
 
     [McpServerTool(Name = "candidates_get")]
     [Description("查询单个候选详情：引擎证据、入口候选、祖先分类与审核状态。参数：candidateId。")]
     public static Task<CallToolResult> CandidatesGet([Description("候选 ID")] string candidateId) =>
-        InvokeOperationAsync(OperationIds.CandidatesGet, new { candidateId });
+        InvokeGeneratedOperationAsync(OperationIds.CandidatesGet, new Dictionary<string, object?> { ["candidateId"] = candidateId });
 
     [McpServerTool(Name = "candidates_inspect")]
     [Description("检查候选目录中的 Flash 入口、资源和已有游戏调整清单，不修改库或游戏文件。")]
-    public static Task<CallToolResult> CandidatesInspect([Description("候选 ID")] string candidateId, [Description("Flash 目录判断")] string? flashKind = null, [Description("所选入口")] string[]? entryPaths = null) =>
-        InvokeOperationAsync(OperationIds.CandidatesInspect, new { candidateId, flashKind, entryPaths });
+    public static Task<CallToolResult> CandidatesInspect([Description("候选 ID")] string candidateId, [Description("预览 Flash project/collection/resources 判断")] string? flashKind = null, [Description("预览所选游戏入口")] string[]? entryPaths = null) =>
+        InvokeGeneratedOperationAsync(OperationIds.CandidatesInspect, new Dictionary<string, object?> { ["candidateId"] = candidateId, ["flashKind"] = flashKind, ["entryPaths"] = entryPaths });
 
     [McpServerTool(Name = "candidates_accept")]
     [Description("接受候选入库（仅 pendingReview）：创建游戏卡片并返回 gameId；同候选重试幂等返回已有 gameId。参数：idempotencyKey、candidateId、expectedRevision。")]
-    public static Task<CallToolResult> CandidatesAccept([Description("幂等键")] string idempotencyKey, [Description("候选 ID")] string candidateId, [Description("期望 Revision")] int expectedRevision, [Description("Flash 目录判断")] string? flashKind = null, [Description("所选入口")] string[]? entryPaths = null, [Description("已确认调整清单")] JsonElement? adjustments = null) =>
-        InvokeOperationAsync(OperationIds.CandidatesAccept, new { idempotencyKey, candidateId, expectedRevision, flashKind, entryPaths, adjustments });
+    public static Task<CallToolResult> CandidatesAccept([Description("候选 ID")] string candidateId, [Description("期望修订")] int expectedRevision, [Description("幂等键")] string idempotencyKey, [Description("Flash 目录判断 project/collection/resources")] string? flashKind = null, [Description("所选完整游戏入口")] string[]? entryPaths = null, [DefaultValue(null)] [Description("inspect 返回的整份已有游戏调整清单，包含 gameId 和 expectedRevision")] JsonElement adjustments = default) =>
+        InvokeGeneratedOperationAsync(OperationIds.CandidatesAccept, new Dictionary<string, object?> { ["candidateId"] = candidateId, ["expectedRevision"] = expectedRevision, ["idempotencyKey"] = idempotencyKey, ["flashKind"] = flashKind, ["entryPaths"] = entryPaths, ["adjustments"] = adjustments });
 
     [McpServerTool(Name = "candidates_defer")]
     [Description("暂缓候选（仅 pendingReview）；deferred 需人工重新查看，不周期重弹。参数：idempotencyKey、candidateId、expectedRevision。")]
-    public static Task<CallToolResult> CandidatesDefer([Description("幂等键")] string idempotencyKey, [Description("候选 ID")] string candidateId, [Description("期望 Revision")] int expectedRevision) =>
-        InvokeOperationAsync(OperationIds.CandidatesDefer, new { idempotencyKey, candidateId, expectedRevision });
+    public static Task<CallToolResult> CandidatesDefer([Description("候选 ID")] string candidateId, [Description("期望修订")] int expectedRevision, [Description("幂等键")] string idempotencyKey) =>
+        InvokeGeneratedOperationAsync(OperationIds.CandidatesDefer, new Dictionary<string, object?> { ["candidateId"] = candidateId, ["expectedRevision"] = expectedRevision, ["idempotencyKey"] = idempotencyKey });
 
     [McpServerTool(Name = "candidates_ignore")]
     [Description("忽略候选（仅 pendingReview）：同时登记 ExactPath 忽略规则；撤销规则才恢复提示。参数：idempotencyKey、candidateId、expectedRevision。")]
-    public static Task<CallToolResult> CandidatesIgnore([Description("幂等键")] string idempotencyKey, [Description("候选 ID")] string candidateId, [Description("期望 Revision")] int expectedRevision) =>
-        InvokeOperationAsync(OperationIds.CandidatesIgnore, new { idempotencyKey, candidateId, expectedRevision });
+    public static Task<CallToolResult> CandidatesIgnore([Description("候选 ID")] string candidateId, [Description("期望修订")] int expectedRevision, [Description("幂等键")] string idempotencyKey) =>
+        InvokeGeneratedOperationAsync(OperationIds.CandidatesIgnore, new Dictionary<string, object?> { ["candidateId"] = candidateId, ["expectedRevision"] = expectedRevision, ["idempotencyKey"] = idempotencyKey });
 
     [McpServerTool(Name = "ignores_list")]
     [Description("列出忽略规则。")]
     public static Task<CallToolResult> IgnoresList() =>
-        InvokeOperationAsync(OperationIds.IgnoresList, new {  });
+        InvokeGeneratedOperationAsync(OperationIds.IgnoresList, new Dictionary<string, object?> {  });
 
     [McpServerTool(Name = "ignores_create")]
     [Description("创建忽略规则（scope: ExactPath/Subtree/ConfirmedIdentity），立即抑制匹配的待审核候选。参数：idempotencyKey、scope、path 或 gameId、reason（可选）。")]
-    public static Task<CallToolResult> IgnoresCreate([Description("幂等键")] string idempotencyKey, [Description("范围：ExactPath/Subtree/ConfirmedIdentity")] string scope, [Description("ExactPath/Subtree 的规范化绝对路径")] string? path = null, [Description("ConfirmedIdentity 绑定的用户确认 gameId")] string? gameId = null, [Description("原因说明")] string? reason = null) =>
-        InvokeOperationAsync(OperationIds.IgnoresCreate, new { idempotencyKey, scope, path, gameId, reason });
+    public static Task<CallToolResult> IgnoresCreate([Description("ExactPath / Subtree / ConfirmedIdentity")] string scope, [Description("幂等键")] string idempotencyKey, [Description("路径类规则的路径")] string? path = null, [Description("身份类规则的游戏 ID")] string? gameId = null, [Description("原因")] string? reason = null) =>
+        InvokeGeneratedOperationAsync(OperationIds.IgnoresCreate, new Dictionary<string, object?> { ["scope"] = scope, ["idempotencyKey"] = idempotencyKey, ["path"] = path, ["gameId"] = gameId, ["reason"] = reason });
 
     [McpServerTool(Name = "ignores_remove")]
     [Description("撤销忽略规则（恢复候选提示的唯一途径）：匹配的 ignored 候选回到 observed。参数：idempotencyKey、ignoreId、expectedRevision（可选）。")]
-    public static Task<CallToolResult> IgnoresRemove([Description("幂等键")] string idempotencyKey, [Description("忽略规则 ID")] string ignoreId, [Description("期望 Revision（可选）")] int? expectedRevision = null) =>
-        InvokeOperationAsync(OperationIds.IgnoresRemove, new { idempotencyKey, ignoreId, expectedRevision });
+    public static Task<CallToolResult> IgnoresRemove([Description("忽略规则 ID")] string ignoreId, [Description("期望修订")] int expectedRevision, [Description("幂等键")] string idempotencyKey) =>
+        InvokeGeneratedOperationAsync(OperationIds.IgnoresRemove, new Dictionary<string, object?> { ["ignoreId"] = ignoreId, ["expectedRevision"] = expectedRevision, ["idempotencyKey"] = idempotencyKey });
 
     [McpServerTool(Name = "games_list")]
     [Description("列出已入库游戏卡片，可搜索、过滤、排序并分页。参数均可选。")]
-    public static Task<CallToolResult> GamesList([Description("搜索标题或原路径")] string? search = null, [Description("true 时仅返回收藏游戏")] bool? favorite = null, [Description("排序：title/title-asc、title-desc、recent/updated-desc、accepted-desc")] string? sort = null, [Description("套用已保存视图")] string? viewId = null, [Description("按标签 ID 过滤")] string? tagId = null, [Description("分页大小 1-1000；省略则返回全部匹配项")] int? limit = null, [Description("分页偏移；仅与 limit 一起生效")] int? offset = null) =>
-        InvokeOperationAsync(OperationIds.GamesList, new { search, favorite, sort, viewId, tagId, limit, offset });
+    public static Task<CallToolResult> GamesList([Description("搜索词（命中用户标题或原文件夹名，数据库侧执行）")] string? search = null, [Description("仅收藏")] bool? favorite = null, [Description("title/title-asc、title-desc、recent/updated-desc 或 accepted-desc")] string? sort = null, [Description("套用视图筛选/排序")] string? viewId = null, [Description("按标签过滤（与搜索 AND 组合）")] string? tagId = null, [Description("分页大小（1–1000）")] int? limit = null, [Description("分页偏移")] int? offset = null) =>
+        InvokeGeneratedOperationAsync(OperationIds.GamesList, new Dictionary<string, object?> { ["search"] = search, ["favorite"] = favorite, ["sort"] = sort, ["viewId"] = viewId, ["tagId"] = tagId, ["limit"] = limit, ["offset"] = offset });
 
     [McpServerTool(Name = "games_get")]
     [Description("查询单个游戏卡片。参数：gameId。")]
     public static Task<CallToolResult> GamesGet([Description("游戏 ID")] string gameId) =>
-        InvokeOperationAsync(OperationIds.GamesGet, new { gameId });
+        InvokeGeneratedOperationAsync(OperationIds.GamesGet, new Dictionary<string, object?> { ["gameId"] = gameId });
 
     [McpServerTool(Name = "fields_set")]
     [Description("设置游戏资料字段（title/summary，用户来源）；Revision 即游戏卡片 Revision。参数：idempotencyKey、gameId、field、value、expectedRevision。")]
-    public static Task<CallToolResult> FieldsSet([Description("幂等键")] string idempotencyKey, [Description("游戏 ID")] string gameId, [Description("字段名：title 或 summary")] string field, [Description("字段值（不传 = 清空）")] string? value = null, [Description("期望 Revision")] int expectedRevision = 0) =>
-        InvokeOperationAsync(OperationIds.FieldsSet, new { idempotencyKey, gameId, field, value, expectedRevision });
+    public static Task<CallToolResult> FieldsSet([Description("游戏 ID")] string gameId, [Description("字段：title / summary")] string field, [Description("字段值")] string value, [Description("期望修订")] int expectedRevision, [Description("幂等键")] string idempotencyKey) =>
+        InvokeGeneratedOperationAsync(OperationIds.FieldsSet, new Dictionary<string, object?> { ["gameId"] = gameId, ["field"] = field, ["value"] = value, ["expectedRevision"] = expectedRevision, ["idempotencyKey"] = idempotencyKey });
 
     [McpServerTool(Name = "fields_clear")]
     [Description("用户主动清空资料字段（value=null，≠继承自动值）。参数：idempotencyKey、gameId、field、expectedRevision。")]
-    public static Task<CallToolResult> FieldsClear([Description("幂等键")] string idempotencyKey, [Description("游戏 ID")] string gameId, [Description("字段名：title 或 summary")] string field, [Description("期望 Revision")] int expectedRevision) =>
-        InvokeOperationAsync(OperationIds.FieldsClear, new { idempotencyKey, gameId, field, expectedRevision });
+    public static Task<CallToolResult> FieldsClear([Description("游戏 ID")] string gameId, [Description("字段名")] string field, [Description("期望修订")] int expectedRevision, [Description("幂等键")] string idempotencyKey) =>
+        InvokeGeneratedOperationAsync(OperationIds.FieldsClear, new Dictionary<string, object?> { ["gameId"] = gameId, ["field"] = field, ["expectedRevision"] = expectedRevision, ["idempotencyKey"] = idempotencyKey });
 
     [McpServerTool(Name = "fields_reset")]
     [Description("恢复资料字段的自动值（删除用户覆盖层）。参数：idempotencyKey、gameId、field、expectedRevision。")]
-    public static Task<CallToolResult> FieldsReset([Description("幂等键")] string idempotencyKey, [Description("游戏 ID")] string gameId, [Description("字段名：title 或 summary")] string field, [Description("期望 Revision")] int expectedRevision) =>
-        InvokeOperationAsync(OperationIds.FieldsReset, new { idempotencyKey, gameId, field, expectedRevision });
+    public static Task<CallToolResult> FieldsReset([Description("游戏 ID")] string gameId, [Description("字段名")] string field, [Description("期望修订")] int expectedRevision, [Description("幂等键")] string idempotencyKey) =>
+        InvokeGeneratedOperationAsync(OperationIds.FieldsReset, new Dictionary<string, object?> { ["gameId"] = gameId, ["field"] = field, ["expectedRevision"] = expectedRevision, ["idempotencyKey"] = idempotencyKey });
 
     [McpServerTool(Name = "tags_list")]
     [Description("列出全部标签（含游戏计数；kind=engine 为自动标签，user 为用户标签）。")]
     public static Task<CallToolResult> TagsList() =>
-        InvokeOperationAsync(OperationIds.TagsList, new {  });
+        InvokeGeneratedOperationAsync(OperationIds.TagsList, new Dictionary<string, object?> {  });
 
     [McpServerTool(Name = "tags_create")]
     [Description("创建用户标签。参数：name、color（可选 #RRGGBB）、idempotencyKey。")]
-    public static Task<CallToolResult> TagsCreate([Description("标签名（1–100 字符）")] string name, [Description("颜色 #RRGGBB（可选）")] string? color = null, [Description("幂等键")] string? idempotencyKey = null) =>
-        InvokeOperationAsync(OperationIds.TagsCreate, new { name, color, idempotencyKey });
+    public static Task<CallToolResult> TagsCreate([Description("标签名（1–100 字符）")] string name, [Description("幂等键")] string idempotencyKey, [Description("颜色 #RRGGBB（可选）")] string? color = null, [Description("分类 engine/gameplay/social/special（缺省按 kind 推断：user 标签为 special）")] string? category = null, [Description("排序权重（缺省 0）")] int? sortOrder = null, [Description("星级评分 0–5（0=无评分，缺省 0）")] int? starred = null, [Description("显示名（缺省同 name）")] string? displayName = null) =>
+        InvokeGeneratedOperationAsync(OperationIds.TagsCreate, new Dictionary<string, object?> { ["name"] = name, ["idempotencyKey"] = idempotencyKey, ["color"] = color, ["category"] = category, ["sortOrder"] = sortOrder, ["starred"] = starred, ["displayName"] = displayName });
 
     [McpServerTool(Name = "tags_update")]
     [Description("更新用户标签（自动标签不可编辑）。参数：tagId、name/color（可选）、expectedRevision、idempotencyKey。")]
-    public static Task<CallToolResult> TagsUpdate([Description("标签 ID")] string tagId, [Description("期望修订")] int expectedRevision, [Description("新名称（可选）")] string? name = null, [Description("新颜色 #RRGGBB（可选）")] string? color = null, [Description("幂等键")] string? idempotencyKey = null) =>
-        InvokeOperationAsync(OperationIds.TagsUpdate, new { tagId, expectedRevision, name, color, idempotencyKey });
+    public static Task<CallToolResult> TagsUpdate([Description("标签 ID")] string tagId, [Description("期望标签修订")] int expectedRevision, [Description("幂等键")] string idempotencyKey, [Description("新名称（可选；engine 标签 name 是身份键不可改，改名用 displayName）")] string? name = null, [DefaultValue(null)] [Description("颜色 #RRGGBB；显式 null 清除为主题默认色，省略保持原值")] JsonElement color = default, [Description("新分类 engine/gameplay/social/special（可选，engine 标签同样允许）")] string? category = null, [Description("新排序权重（可选）")] int? sortOrder = null, [Description("新星级评分 0–5（可选，0=清除评分）")] int? starred = null, [DefaultValue(null)] [Description("新显示名（可选；传 null 清除，回落 name）")] JsonElement displayName = default) =>
+        InvokeGeneratedOperationAsync(OperationIds.TagsUpdate, new Dictionary<string, object?> { ["tagId"] = tagId, ["expectedRevision"] = expectedRevision, ["idempotencyKey"] = idempotencyKey, ["name"] = name, ["color"] = color, ["category"] = category, ["sortOrder"] = sortOrder, ["starred"] = starred, ["displayName"] = displayName });
 
     [McpServerTool(Name = "tags_remove")]
     [Description("删除标签并返回受影响游戏列表；删除自动标签会逐游戏登记 Suppress（重扫不恢复）。参数：tagId、expectedRevision、idempotencyKey。")]
-    public static Task<CallToolResult> TagsRemove([Description("标签 ID")] string tagId, [Description("期望修订")] int expectedRevision, [Description("幂等键")] string? idempotencyKey = null) =>
-        InvokeOperationAsync(OperationIds.TagsRemove, new { tagId, expectedRevision, idempotencyKey });
+    public static Task<CallToolResult> TagsRemove([Description("标签 ID")] string tagId, [Description("期望标签修订")] int expectedRevision, [Description("幂等键")] string idempotencyKey) =>
+        InvokeGeneratedOperationAsync(OperationIds.TagsRemove, new Dictionary<string, object?> { ["tagId"] = tagId, ["expectedRevision"] = expectedRevision, ["idempotencyKey"] = idempotencyKey });
 
     [McpServerTool(Name = "tags_assign")]
     [Description("把标签挂到游戏（幂等；同时清除该标签的 Suppress）。参数：gameId、tagId、expectedRevision（游戏修订）、idempotencyKey。")]
-    public static Task<CallToolResult> TagsAssign([Description("游戏 ID")] string gameId, [Description("标签 ID")] string tagId, [Description("期望游戏修订")] int expectedRevision, [Description("幂等键")] string? idempotencyKey = null) =>
-        InvokeOperationAsync(OperationIds.TagsAssign, new { gameId, tagId, expectedRevision, idempotencyKey });
+    public static Task<CallToolResult> TagsAssign([Description("游戏 ID")] string gameId, [Description("标签 ID")] string tagId, [Description("期望游戏修订")] int expectedRevision, [Description("幂等键")] string idempotencyKey) =>
+        InvokeGeneratedOperationAsync(OperationIds.TagsAssign, new Dictionary<string, object?> { ["gameId"] = gameId, ["tagId"] = tagId, ["expectedRevision"] = expectedRevision, ["idempotencyKey"] = idempotencyKey });
 
     [McpServerTool(Name = "tags_unassign")]
     [Description("解除游戏标签；自动标签解除后登记 Suppress（重扫不恢复）。参数：gameId、tagId、expectedRevision（游戏修订）、idempotencyKey。")]
-    public static Task<CallToolResult> TagsUnassign([Description("游戏 ID")] string gameId, [Description("标签 ID")] string tagId, [Description("期望游戏修订")] int expectedRevision, [Description("幂等键")] string? idempotencyKey = null) =>
-        InvokeOperationAsync(OperationIds.TagsUnassign, new { gameId, tagId, expectedRevision, idempotencyKey });
+    public static Task<CallToolResult> TagsUnassign([Description("游戏 ID")] string gameId, [Description("标签 ID")] string tagId, [Description("期望游戏修订")] int expectedRevision, [Description("幂等键")] string idempotencyKey) =>
+        InvokeGeneratedOperationAsync(OperationIds.TagsUnassign, new Dictionary<string, object?> { ["gameId"] = gameId, ["tagId"] = tagId, ["expectedRevision"] = expectedRevision, ["idempotencyKey"] = idempotencyKey });
 
     [McpServerTool(Name = "tags_suppress")]
     [Description("抑制 (游戏, 标签)：阻止扫描恢复用户删除的自动标签。参数：gameId、tagId、expectedRevision（游戏修订）、idempotencyKey。")]
-    public static Task<CallToolResult> TagsSuppress([Description("游戏 ID")] string gameId, [Description("标签 ID")] string tagId, [Description("期望游戏修订")] int expectedRevision, [Description("幂等键")] string? idempotencyKey = null) =>
-        InvokeOperationAsync(OperationIds.TagsSuppress, new { gameId, tagId, expectedRevision, idempotencyKey });
+    public static Task<CallToolResult> TagsSuppress([Description("游戏 ID")] string gameId, [Description("标签 ID")] string tagId, [Description("期望游戏修订")] int expectedRevision, [Description("幂等键")] string idempotencyKey) =>
+        InvokeGeneratedOperationAsync(OperationIds.TagsSuppress, new Dictionary<string, object?> { ["gameId"] = gameId, ["tagId"] = tagId, ["expectedRevision"] = expectedRevision, ["idempotencyKey"] = idempotencyKey });
 
     [McpServerTool(Name = "tags_reset")]
     [Description("清除 (游戏, 自动标签) 的 Suppress 并按当前引擎恢复。参数：gameId、tagId、expectedRevision（游戏修订）、idempotencyKey。")]
-    public static Task<CallToolResult> TagsReset([Description("游戏 ID")] string gameId, [Description("标签 ID")] string tagId, [Description("期望游戏修订")] int expectedRevision, [Description("幂等键")] string? idempotencyKey = null) =>
-        InvokeOperationAsync(OperationIds.TagsReset, new { gameId, tagId, expectedRevision, idempotencyKey });
+    public static Task<CallToolResult> TagsReset([Description("游戏 ID")] string gameId, [Description("标签 ID")] string tagId, [Description("期望游戏修订")] int expectedRevision, [Description("幂等键")] string idempotencyKey) =>
+        InvokeGeneratedOperationAsync(OperationIds.TagsReset, new Dictionary<string, object?> { ["gameId"] = gameId, ["tagId"] = tagId, ["expectedRevision"] = expectedRevision, ["idempotencyKey"] = idempotencyKey });
 
     [McpServerTool(Name = "metadata_preview")]
     [Description("本地证据元数据建议预览（仅 auto，无在线源）。参数：gameId。")]
     public static Task<CallToolResult> MetadataPreview([Description("游戏 ID")] string gameId) =>
-        InvokeOperationAsync(OperationIds.MetadataPreview, new { gameId });
+        InvokeGeneratedOperationAsync(OperationIds.MetadataPreview, new Dictionary<string, object?> { ["gameId"] = gameId });
 
     [McpServerTool(Name = "metadata_refresh")]
     [Description("刷新元数据自动值（作业；只更新 AutoValue 不覆盖用户层）。参数：idempotencyKey、gameId。")]
-    public static Task<CallToolResult> MetadataRefresh([Description("幂等键")] string idempotencyKey, [Description("游戏 ID")] string gameId) =>
-        InvokeOperationAsync(OperationIds.MetadataRefresh, new { idempotencyKey, gameId });
+    public static Task<CallToolResult> MetadataRefresh([Description("游戏 ID")] string gameId, [Description("幂等键")] string idempotencyKey) =>
+        InvokeGeneratedOperationAsync(OperationIds.MetadataRefresh, new Dictionary<string, object?> { ["gameId"] = gameId, ["idempotencyKey"] = idempotencyKey });
 
     [McpServerTool(Name = "assets_list")]
     [Description("列出游戏资产（cover）。参数：gameId。")]
     public static Task<CallToolResult> AssetsList([Description("游戏 ID")] string gameId) =>
-        InvokeOperationAsync(OperationIds.AssetsList, new { gameId });
+        InvokeGeneratedOperationAsync(OperationIds.AssetsList, new Dictionary<string, object?> { ["gameId"] = gameId });
 
     [McpServerTool(Name = "assets_get")]
     [Description("读取资产预览，缓存不可用时返回原图（≤5 MiB，base64）。参数：assetId。")]
     public static Task<CallToolResult> AssetsGet([Description("资产 ID")] string assetId) =>
-        InvokeOperationAsync(OperationIds.AssetsGet, new { assetId });
+        InvokeGeneratedOperationAsync(OperationIds.AssetsGet, new Dictionary<string, object?> { ["assetId"] = assetId });
 
     [McpServerTool(Name = "assets_import")]
     [Description("导入封面图片，保留历史并同步游戏目录封面；自动扫描补全仍不覆盖。")]
-    public static Task<CallToolResult> AssetsImport([Description("幂等键")] string idempotencyKey, [Description("游戏 ID")] string gameId, [Description("图片路径，与 imageBase64 二选一")] string? sourcePath = null, [Description("剪贴板图片 Base64")] string? imageBase64 = null, [Description("图片 MIME 类型")] string? mimeType = null) =>
-        InvokeOperationAsync(OperationIds.AssetsImport, new { idempotencyKey, gameId, sourcePath, imageBase64, mimeType });
+    public static Task<CallToolResult> AssetsImport([Description("游戏 ID")] string gameId, [Description("幂等键")] string idempotencyKey, [Description("图片绝对路径（复制入应用目录）")] string? sourcePath = null, [Description("图片 Base64，解码后最多 5 MiB；与 sourcePath 二选一")] string? imageBase64 = null, [Description("剪贴板图片 MIME 类型")] string? mimeType = null) =>
+        InvokeGeneratedOperationAsync(OperationIds.AssetsImport, new Dictionary<string, object?> { ["gameId"] = gameId, ["idempotencyKey"] = idempotencyKey, ["sourcePath"] = sourcePath, ["imageBase64"] = imageBase64, ["mimeType"] = mimeType });
 
     [McpServerTool(Name = "assets_choose")]
     [Description("选择某资产为当前封面。参数：idempotencyKey、gameId、assetId、expectedRevision。")]
-    public static Task<CallToolResult> AssetsChoose([Description("幂等键")] string idempotencyKey, [Description("游戏 ID")] string gameId, [Description("资产 ID")] string assetId, [Description("期望 Revision")] int expectedRevision) =>
-        InvokeOperationAsync(OperationIds.AssetsChoose, new { idempotencyKey, gameId, assetId, expectedRevision });
+    public static Task<CallToolResult> AssetsChoose([Description("游戏 ID")] string gameId, [Description("资产 ID")] string assetId, [Description("期望修订")] int expectedRevision, [Description("幂等键")] string idempotencyKey) =>
+        InvokeGeneratedOperationAsync(OperationIds.AssetsChoose, new Dictionary<string, object?> { ["gameId"] = gameId, ["assetId"] = assetId, ["expectedRevision"] = expectedRevision, ["idempotencyKey"] = idempotencyKey });
 
     [McpServerTool(Name = "assets_crop")]
     [Description("像素级裁切封面并产出新资产（设为当前封面）。参数：idempotencyKey、assetId、x、y、width、height。")]
-    public static Task<CallToolResult> AssetsCrop([Description("幂等键")] string idempotencyKey, [Description("源资产 ID")] string assetId, [Description("裁切起点 X")] int x, [Description("裁切起点 Y")] int y, [Description("裁切宽度")] int width, [Description("裁切高度")] int height) =>
-        InvokeOperationAsync(OperationIds.AssetsCrop, new { idempotencyKey, assetId, x, y, width, height });
+    public static Task<CallToolResult> AssetsCrop([Description("游戏 ID")] string gameId, [Description("资产 ID")] string assetId, [Description("裁切起点 X")] int x, [Description("裁切起点 Y")] int y, [Description("裁切宽度")] int width, [Description("裁切高度")] int height, [Description("期望修订")] int expectedRevision, [Description("幂等键")] string idempotencyKey) =>
+        InvokeGeneratedOperationAsync(OperationIds.AssetsCrop, new Dictionary<string, object?> { ["gameId"] = gameId, ["assetId"] = assetId, ["x"] = x, ["y"] = y, ["width"] = width, ["height"] = height, ["expectedRevision"] = expectedRevision, ["idempotencyKey"] = idempotencyKey });
 
     [McpServerTool(Name = "assets_reset")]
     [Description("重置封面：全部封面置为非当前，游戏回到无封面展示。参数：gameId。")]
-    public static Task<CallToolResult> AssetsReset([Description("游戏 ID")] string gameId) =>
-        InvokeOperationAsync(OperationIds.AssetsReset, new { gameId });
+    public static Task<CallToolResult> AssetsReset([Description("游戏 ID")] string gameId, [Description("期望修订")] int expectedRevision, [Description("幂等键")] string idempotencyKey) =>
+        InvokeGeneratedOperationAsync(OperationIds.AssetsReset, new Dictionary<string, object?> { ["gameId"] = gameId, ["expectedRevision"] = expectedRevision, ["idempotencyKey"] = idempotencyKey });
 
     [McpServerTool(Name = "assets_remove")]
     [Description("移除非当前引用的应用自有资产。参数：idempotencyKey、assetId。")]
-    public static Task<CallToolResult> AssetsRemove([Description("幂等键")] string idempotencyKey, [Description("资产 ID")] string assetId) =>
-        InvokeOperationAsync(OperationIds.AssetsRemove, new { idempotencyKey, assetId });
+    public static Task<CallToolResult> AssetsRemove([Description("资产 ID")] string assetId, [Description("幂等键")] string idempotencyKey) =>
+        InvokeGeneratedOperationAsync(OperationIds.AssetsRemove, new Dictionary<string, object?> { ["assetId"] = assetId, ["idempotencyKey"] = idempotencyKey });
 
     [McpServerTool(Name = "profiles_get")]
     [Description("查询单个启动配置。参数：profileId。")]
     public static Task<CallToolResult> ProfilesGet([Description("Profile ID")] string profileId) =>
-        InvokeOperationAsync(OperationIds.ProfilesGet, new { profileId });
+        InvokeGeneratedOperationAsync(OperationIds.ProfilesGet, new Dictionary<string, object?> { ["profileId"] = profileId });
 
     [McpServerTool(Name = "profiles_create")]
     [Description("创建启动配置（最小集）：绝对 exe、argv 数组、绝对 cwd。参数：idempotencyKey、gameId、executablePath、argv、cwd。")]
-    public static Task<CallToolResult> ProfilesCreate([Description("幂等键：相同键重试返回原结果")] string idempotencyKey, [Description("所属游戏 ID")] string gameId, [Description("启动目标的绝对路径")] string executablePath, [Description("argv 参数数组")] string[] argv, [Description("工作目录绝对路径")] string cwd) =>
-        InvokeOperationAsync(OperationIds.ProfilesCreate, new { idempotencyKey, gameId, executablePath, argv, cwd });
+    public static Task<CallToolResult> ProfilesCreate([Description("游戏 ID")] string gameId, [Description("启动 EXE 或 SWF 的绝对路径")] string executablePath, [Description("启动参数字符串数组")] string[] argv, [Description("工作目录")] string cwd, [Description("幂等键")] string idempotencyKey, [Description("是否默认 Profile")] bool? isDefault = null) =>
+        InvokeGeneratedOperationAsync(OperationIds.ProfilesCreate, new Dictionary<string, object?> { ["gameId"] = gameId, ["executablePath"] = executablePath, ["argv"] = argv, ["cwd"] = cwd, ["idempotencyKey"] = idempotencyKey, ["isDefault"] = isDefault });
 
     [McpServerTool(Name = "profiles_update")]
     [Description("更新启动配置；expectedRevision 不一致返回 RevisionConflict，更新使引用旧 Revision 的计划失效。参数：idempotencyKey、profileId、executablePath、argv、cwd、expectedRevision。")]
-    public static Task<CallToolResult> ProfilesUpdate([Description("幂等键：相同键重试返回原结果")] string idempotencyKey, [Description("Profile ID")] string profileId, [Description("启动目标的绝对路径")] string executablePath, [Description("argv 参数数组")] string[] argv, [Description("工作目录绝对路径")] string cwd, [Description("期望 Revision")] int expectedRevision) =>
-        InvokeOperationAsync(OperationIds.ProfilesUpdate, new { idempotencyKey, profileId, executablePath, argv, cwd, expectedRevision });
+    public static Task<CallToolResult> ProfilesUpdate([Description("Profile ID")] string profileId, [Description("新的 EXE 或 SWF 路径")] string executablePath, [Description("新启动参数字符串数组")] string[] argv, [Description("新工作目录")] string cwd, [Description("期望 Profile 修订")] int expectedRevision, [Description("幂等键")] string idempotencyKey) =>
+        InvokeGeneratedOperationAsync(OperationIds.ProfilesUpdate, new Dictionary<string, object?> { ["profileId"] = profileId, ["executablePath"] = executablePath, ["argv"] = argv, ["cwd"] = cwd, ["expectedRevision"] = expectedRevision, ["idempotencyKey"] = idempotencyKey });
 
     [McpServerTool(Name = "profiles_validate")]
     [Description("校验 Profile：入口/工作目录存在性；不执行任何程序。参数：profileId。")]
     public static Task<CallToolResult> ProfilesValidate([Description("Profile ID")] string profileId) =>
-        InvokeOperationAsync(OperationIds.ProfilesValidate, new { profileId });
+        InvokeGeneratedOperationAsync(OperationIds.ProfilesValidate, new Dictionary<string, object?> { ["profileId"] = profileId });
 
     [McpServerTool(Name = "translation_get")]
     [Description("查询游戏翻译策略：继承值（[toolNeed] 祖先）、用户覆盖与有效值分离返回。参数：gameId。")]
     public static Task<CallToolResult> TranslationGet([Description("游戏 ID")] string gameId) =>
-        InvokeOperationAsync(OperationIds.TranslationGet, new { gameId });
+        InvokeGeneratedOperationAsync(OperationIds.TranslationGet, new Dictionary<string, object?> { ["gameId"] = gameId });
 
     [McpServerTool(Name = "verification_start")]
     [Description("开始一次工具验证：绑定工具指纹与隔离样本，状态 Unknown；样本必须来自用户授权的隔离副本。参数：idempotencyKey、toolId、fingerprint、engine、samplePath。")]
-    public static Task<CallToolResult> VerificationStart([Description("幂等键")] string idempotencyKey, [Description("工具 ID（mtool/renpythief）")] string toolId, [Description("工具指纹")] string fingerprint, [Description("样本游戏引擎标识")] string engine, [Description("隔离样本路径")] string samplePath) =>
-        InvokeOperationAsync(OperationIds.VerificationStart, new { idempotencyKey, toolId, fingerprint, engine, samplePath });
+    public static Task<CallToolResult> VerificationStart([Description("工具 ID")] string toolId, [Description("授权样本路径")] string samplePath, [Description("工具指纹")] string fingerprint, [Description("样本游戏引擎标识")] string engine, [Description("幂等键")] string idempotencyKey) =>
+        InvokeGeneratedOperationAsync(OperationIds.VerificationStart, new Dictionary<string, object?> { ["toolId"] = toolId, ["samplePath"] = samplePath, ["fingerprint"] = fingerprint, ["engine"] = engine, ["idempotencyKey"] = idempotencyKey });
 
     [McpServerTool(Name = "verification_get")]
     [Description("查询验证记录。参数：recordId。")]
     public static Task<CallToolResult> VerificationGet([Description("验证记录 ID")] string recordId) =>
-        InvokeOperationAsync(OperationIds.VerificationGet, new { recordId });
+        InvokeGeneratedOperationAsync(OperationIds.VerificationGet, new Dictionary<string, object?> { ["recordId"] = recordId });
 
     [McpServerTool(Name = "verification_report")]
     [Description("提交验证观察：游戏启动与翻译生效双结论分开累积；翻译生效必须先有游戏启动证据。参数：idempotencyKey、recordId、gameStarted、translationConfirmed、fingerprint（可选校验）。")]
-    public static Task<CallToolResult> VerificationReport([Description("幂等键")] string idempotencyKey, [Description("验证记录 ID")] string recordId, [Description("游戏已启动（用户观察）")] bool gameStarted, [Description("翻译实际生效（用户观察）")] bool translationConfirmed = false, [Description("工具指纹（可选，不一致即失效）")] string? fingerprint = null) =>
-        InvokeOperationAsync(OperationIds.VerificationReport, new { idempotencyKey, recordId, gameStarted, translationConfirmed, fingerprint });
+    public static Task<CallToolResult> VerificationReport([Description("验证记录 ID")] string recordId, [Description("游戏是否启动")] bool gameStarted, [Description("翻译是否确认")] bool translationConfirmed, [Description("幂等键")] string idempotencyKey, [Description("备注")] string? note = null, [Description("工具指纹（可选校验）")] string? fingerprint = null) =>
+        InvokeGeneratedOperationAsync(OperationIds.VerificationReport, new Dictionary<string, object?> { ["recordId"] = recordId, ["gameStarted"] = gameStarted, ["translationConfirmed"] = translationConfirmed, ["idempotencyKey"] = idempotencyKey, ["note"] = note, ["fingerprint"] = fingerprint });
 
     [McpServerTool(Name = "launch_plan")]
     [Description("生成纯数据启动计划（可预览，无副作用）。参数：gameId、profileId。")]
     public static Task<CallToolResult> LaunchPlan([Description("游戏 ID")] string gameId, [Description("Profile ID")] string profileId) =>
-        InvokeOperationAsync(OperationIds.LaunchPlan, new { gameId, profileId });
+        InvokeGeneratedOperationAsync(OperationIds.LaunchPlan, new Dictionary<string, object?> { ["gameId"] = gameId, ["profileId"] = profileId });
 
     [McpServerTool(Name = "launch_status")]
     [Description("查询启动尝试状态（prepared/executing/processCreated/exited/processStartFailed）。参数：attemptId。")]
     public static Task<CallToolResult> LaunchStatus([Description("尝试 ID")] string attemptId) =>
-        InvokeOperationAsync(OperationIds.LaunchStatus, new { attemptId });
+        InvokeGeneratedOperationAsync(OperationIds.LaunchStatus, new Dictionary<string, object?> { ["attemptId"] = attemptId });
 
     [McpServerTool(Name = "jobs_cancel")]
     [Description("Cancels title translation jobs; other jobs use their domain cancellation operation.")]
     public static Task<CallToolResult> JobsCancel([Description("jobId")] string jobId, [Description("idempotencyKey")] string idempotencyKey) =>
-        InvokeOperationAsync(OperationIds.JobsCancel, new { jobId, idempotencyKey });
+        InvokeGeneratedOperationAsync(OperationIds.JobsCancel, new Dictionary<string, object?> { ["jobId"] = jobId, ["idempotencyKey"] = idempotencyKey });
 
     [McpServerTool(Name = "notifications_get")]
     [Description("查询单个通知批详情（含候选 ID 集合）。参数：notificationId。")]
     public static Task<CallToolResult> NotificationsGet([Description("通知 ID")] string notificationId) =>
-        InvokeOperationAsync(OperationIds.NotificationsGet, new { notificationId });
+        InvokeGeneratedOperationAsync(OperationIds.NotificationsGet, new Dictionary<string, object?> { ["notificationId"] = notificationId });
 
     [McpServerTool(Name = "settings_get")]
     [Description("读取应用设置快照：激活视图、开机启动、核对周期、主题、字体、界面缩放、缓存位置、托盘行为与 Revision。")]
     public static Task<CallToolResult> SettingsGet() =>
-        InvokeOperationAsync(OperationIds.SettingsGet, new {  });
+        InvokeGeneratedOperationAsync(OperationIds.SettingsGet, new Dictionary<string, object?> {  });
 
     [McpServerTool(Name = "unity_translation_settings_get")]
     [Description("Unity 游戏内翻译：settings.get；密钥仅存本机，读取操作不返回密钥。")]
     public static Task<CallToolResult> UnityTranslationSettingsGet() =>
-        InvokeOperationAsync(OperationIds.UnityTranslationSettingsGet, new {  });
+        InvokeGeneratedOperationAsync(OperationIds.UnityTranslationSettingsGet, new Dictionary<string, object?> {  });
 
     [McpServerTool(Name = "unity_translation_settings_set")]
     [Description("Unity 游戏内翻译：settings.set；密钥仅存本机，读取操作不返回密钥。")]
-    public static Task<CallToolResult> UnityTranslationSettingsSet([Description("幂等键")] string idempotencyKey, [Description("供应商")] string? provider = null, [Description("服务地址")] string? endpoint = null, [Description("模型名称")] string? model = null, [Description("密钥，仅存本机，不返回")] string? apiKey = null, [Description("用户标签 ID")] string? boundTagId = null, [Description("启用自动配置")] bool? enabled = null) =>
-        InvokeOperationAsync(OperationIds.UnityTranslationSettingsSet, new { idempotencyKey, provider, endpoint, model, apiKey, boundTagId, enabled });
+    public static Task<CallToolResult> UnityTranslationSettingsSet([Description("幂等键")] string idempotencyKey, [Description("deepseek 或 openai")] string? provider = null, [Description("HTTPS 服务地址；本机允许 HTTP")] string? endpoint = null, [Description("模型名称")] string? model = null, [Description("本机密钥；省略保留同供应商和同来源的已保存密钥")] string? apiKey = null, [Description("触发自动配置的用户标签 ID")] string? boundTagId = null, [Description("启用自动配置")] bool? enabled = null) =>
+        InvokeGeneratedOperationAsync(OperationIds.UnityTranslationSettingsSet, new Dictionary<string, object?> { ["idempotencyKey"] = idempotencyKey, ["provider"] = provider, ["endpoint"] = endpoint, ["model"] = model, ["apiKey"] = apiKey, ["boundTagId"] = boundTagId, ["enabled"] = enabled });
 
     [McpServerTool(Name = "unity_translation_settings_import")]
     [Description("Unity 游戏内翻译：settings.import；密钥仅存本机，读取操作不返回密钥。")]
-    public static Task<CallToolResult> UnityTranslationSettingsImport([Description("幂等键")] string idempotencyKey, [Description("本机 Config.ini 路径")] string? configPath = null) =>
-        InvokeOperationAsync(OperationIds.UnityTranslationSettingsImport, new { idempotencyKey, configPath });
+    public static Task<CallToolResult> UnityTranslationSettingsImport([Description("幂等键")] string idempotencyKey, [Description("本机 Config.ini；省略时尝试发现已有 Unity 配置")] string? configPath = null) =>
+        InvokeGeneratedOperationAsync(OperationIds.UnityTranslationSettingsImport, new Dictionary<string, object?> { ["idempotencyKey"] = idempotencyKey, ["configPath"] = configPath });
 
     [McpServerTool(Name = "unity_translation_status")]
     [Description("Unity 游戏内翻译：status；密钥仅存本机，读取操作不返回密钥。")]
-    public static Task<CallToolResult> UnityTranslationStatus([Description("游戏 ID")] string? gameId = null) =>
-        InvokeOperationAsync(OperationIds.UnityTranslationStatus, new { gameId });
+    public static Task<CallToolResult> UnityTranslationStatus([Description("仅查询该游戏")] string? gameId = null) =>
+        InvokeGeneratedOperationAsync(OperationIds.UnityTranslationStatus, new Dictionary<string, object?> { ["gameId"] = gameId });
 
     [McpServerTool(Name = "unity_translation_pending")]
     [Description("Unity 游戏内翻译：pending；密钥仅存本机，读取操作不返回密钥。")]
-    public static Task<CallToolResult> UnityTranslationPending([Description("游戏 ID")] string? gameId = null) =>
-        InvokeOperationAsync(OperationIds.UnityTranslationPending, new { gameId });
+    public static Task<CallToolResult> UnityTranslationPending([Description("仅查询该游戏")] string? gameId = null) =>
+        InvokeGeneratedOperationAsync(OperationIds.UnityTranslationPending, new Dictionary<string, object?> { ["gameId"] = gameId });
 
     [McpServerTool(Name = "unity_translation_configure")]
     [Description("Unity 游戏内翻译：configure；密钥仅存本机，读取操作不返回密钥。")]
-    public static Task<CallToolResult> UnityTranslationConfigure([Description("幂等键")] string idempotencyKey, [Description("游戏 ID")] string[] gameIds) =>
-        InvokeOperationAsync(OperationIds.UnityTranslationConfigure, new { idempotencyKey, gameIds });
+    public static Task<CallToolResult> UnityTranslationConfigure([Description("1–1000 个唯一游戏 ID；实际入口必须为 Unity Mono 且带绑定标签")] string[] gameIds, [Description("幂等键")] string idempotencyKey) =>
+        InvokeGeneratedOperationAsync(OperationIds.UnityTranslationConfigure, new Dictionary<string, object?> { ["gameIds"] = gameIds, ["idempotencyKey"] = idempotencyKey });
 
     [McpServerTool(Name = "unity_translation_confirm")]
     [Description("Unity 游戏内翻译：confirm；密钥仅存本机，读取操作不返回密钥。")]
-    public static Task<CallToolResult> UnityTranslationConfirm([Description("幂等键")] string idempotencyKey, [Description("游戏 ID")] string gameId, [Description("配置尝试 ID")] string attemptId, [Description("用户确认结果")] bool success) =>
-        InvokeOperationAsync(OperationIds.UnityTranslationConfirm, new { idempotencyKey, gameId, attemptId, success });
+    public static Task<CallToolResult> UnityTranslationConfirm([Description("游戏 ID")] string gameId, [Description("当前配置尝试 ID")] string attemptId, [Description("用户实际运行后是否确认成功；false 保留配置和标签")] bool success, [Description("幂等键")] string idempotencyKey) =>
+        InvokeGeneratedOperationAsync(OperationIds.UnityTranslationConfirm, new Dictionary<string, object?> { ["gameId"] = gameId, ["attemptId"] = attemptId, ["success"] = success, ["idempotencyKey"] = idempotencyKey });
 
     [McpServerTool(Name = "unity_translation_restore")]
     [Description("Unity 游戏内翻译：restore；密钥仅存本机，读取操作不返回密钥。")]
-    public static Task<CallToolResult> UnityTranslationRestore([Description("幂等键")] string idempotencyKey, [Description("游戏 ID")] string gameId) =>
-        InvokeOperationAsync(OperationIds.UnityTranslationRestore, new { idempotencyKey, gameId });
+    public static Task<CallToolResult> UnityTranslationRestore([Description("恢复该游戏的本机原始备份")] string gameId, [Description("幂等键")] string idempotencyKey) =>
+        InvokeGeneratedOperationAsync(OperationIds.UnityTranslationRestore, new Dictionary<string, object?> { ["gameId"] = gameId, ["idempotencyKey"] = idempotencyKey });
 
     [McpServerTool(Name = "views_list")]
     [Description("列出内置与自定义视图及当前激活视图。")]
     public static Task<CallToolResult> ViewsList() =>
-        InvokeOperationAsync(OperationIds.ViewsList, new {  });
+        InvokeGeneratedOperationAsync(OperationIds.ViewsList, new Dictionary<string, object?> {  });
 
     [McpServerTool(Name = "views_get")]
     [Description("查询单个视图定义（筛选/排序语义）。参数：viewId。")]
     public static Task<CallToolResult> ViewsGet([Description("视图 ID")] string viewId) =>
-        InvokeOperationAsync(OperationIds.ViewsGet, new { viewId });
+        InvokeGeneratedOperationAsync(OperationIds.ViewsGet, new Dictionary<string, object?> { ["viewId"] = viewId });
 
     [McpServerTool(Name = "backups_list")]
     [Description("列出可用备份（含库快照与用户原图，逐文件 SHA-256 清单）。")]
     public static Task<CallToolResult> BackupsList() =>
-        InvokeOperationAsync(OperationIds.BackupsList, new {  });
+        InvokeGeneratedOperationAsync(OperationIds.BackupsList, new Dictionary<string, object?> {  });
 
     [McpServerTool(Name = "backups_inspect")]
     [Description("备份完整性核查：逐文件大小与 SHA-256 校验。参数：backupId。")]
     public static Task<CallToolResult> BackupsInspect([Description("备份 ID")] string backupId) =>
-        InvokeOperationAsync(OperationIds.BackupsInspect, new { backupId });
+        InvokeGeneratedOperationAsync(OperationIds.BackupsInspect, new Dictionary<string, object?> { ["backupId"] = backupId });
 
     [McpServerTool(Name = "backups_restore_plan")]
     [Description("生成恢复影响计划（10 分钟有效）：恢复后的实例/epoch 变化与资产数量。参数：backupId。")]
     public static Task<CallToolResult> BackupsRestorePlan([Description("备份 ID")] string backupId) =>
-        InvokeOperationAsync(OperationIds.BackupsRestorePlan, new { backupId });
+        InvokeGeneratedOperationAsync(OperationIds.BackupsRestorePlan, new Dictionary<string, object?> { ["backupId"] = backupId });
 
     [McpServerTool(Name = "diagnostics_status")]
     [Description("诊断状态：进程/库状态/审计日志统计与活动作业数；不含业务数据原文。")]
     public static Task<CallToolResult> DiagnosticsStatus() =>
-        InvokeOperationAsync(OperationIds.DiagnosticsStatus, new {  });
+        InvokeGeneratedOperationAsync(OperationIds.DiagnosticsStatus, new Dictionary<string, object?> {  });
 
     [McpServerTool(Name = "events_wait")]
     [Description("长轮询读取库事件，超时返回空批次。")]
-    public static Task<CallToolResult> EventsWait([Description("游标")] long? cursor = null, [Description("批次上限")] int? limit = null, [Description("等待毫秒")] int timeoutMs = 25000) =>
-        InvokeOperationAsync(OperationIds.EventsWait, new { cursor, limit, timeoutMs });
+    public static Task<CallToolResult> EventsWait([Description("增量游标")] long? cursor = null, [Description("批次上限")] int? limit = null, [Description("等待毫秒，默认25000，最大30000")] int? timeoutMs = null) =>
+        InvokeGeneratedOperationAsync(OperationIds.EventsWait, new Dictionary<string, object?> { ["cursor"] = cursor, ["limit"] = limit, ["timeoutMs"] = timeoutMs });
 
     [McpServerTool(Name = "backups_restore_start")]
     [Description("异步恢复，立即返回jobId；活动扫描、备份、核对和游戏会拒绝恢复。")]
-    public static Task<CallToolResult> BackupsRestoreStart([Description("备份ID")] string backupId, [Description("恢复计划ID")] string planId, [Description("幂等键")] string idempotencyKey) =>
-        InvokeOperationAsync(OperationIds.BackupsRestoreStart, new { backupId, planId, idempotencyKey });
+    public static Task<CallToolResult> BackupsRestoreStart([Description("备份 ID")] string backupId, [Description("restore_plan 返回的计划 ID")] string planId, [Description("幂等键")] string idempotencyKey) =>
+        InvokeGeneratedOperationAsync(OperationIds.BackupsRestoreStart, new Dictionary<string, object?> { ["backupId"] = backupId, ["planId"] = planId, ["idempotencyKey"] = idempotencyKey });
 
     [McpServerTool(Name = "candidates_review_batch")]
     [Description("批量审核候选，逐项返回业务失败，成功项保留。")]
-    public static Task<CallToolResult> CandidatesReviewBatch([Description("accept/defer/ignore")] string action, [Description("ID、expectedRevision（标签包括sortOrder）的数组")] JsonElement items, [Description("幂等键")] string idempotencyKey) =>
-        InvokeOperationAsync(OperationIds.CandidatesReviewBatch, new { action, items, idempotencyKey });
+    public static Task<CallToolResult> CandidatesReviewBatch([Description("accept/defer/ignore")] string action, [Description("最多1000个candidateId/expectedRevision；Flash项可包含flashKind、entryPaths和确认的adjustments")] JsonElement items, [Description("幂等键")] string idempotencyKey) =>
+        InvokeGeneratedOperationAsync(OperationIds.CandidatesReviewBatch, new Dictionary<string, object?> { ["action"] = action, ["items"] = items, ["idempotencyKey"] = idempotencyKey });
 
     [McpServerTool(Name = "tags_reorder")]
     [Description("原子重排标签，任一冲突整批回滚。")]
-    public static Task<CallToolResult> TagsReorder([Description("ID、expectedRevision（标签包括sortOrder）的数组")] JsonElement items, [Description("幂等键")] string idempotencyKey) =>
-        InvokeOperationAsync(OperationIds.TagsReorder, new { items, idempotencyKey });
+    public static Task<CallToolResult> TagsReorder([Description("最多1000个唯一ID与expectedRevision；标签项包含sortOrder")] JsonElement items, [Description("幂等键")] string idempotencyKey) =>
+        InvokeGeneratedOperationAsync(OperationIds.TagsReorder, new Dictionary<string, object?> { ["items"] = items, ["idempotencyKey"] = idempotencyKey });
 }
