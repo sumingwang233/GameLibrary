@@ -480,7 +480,15 @@ public sealed class TranslationConfigTests : IClassFixture<PipeServerFixture>
             profileId = profile.ProfileId,
         });
         Assert.True(execute.Ok, execute.Error?.Message);
-        Assert.Equal("processCreated", execute.Data.GetProperty("state").GetString());
+        Assert.Equal(OperationStatus.Accepted, execute.Status);
+        Assert.Equal("prepared", execute.Data.GetProperty("state").GetString());
+        Assert.NotNull(execute.JobId);
+        await _fixture.State.Jobs.WaitForIdleAsync();
+        var job = _fixture.State.Jobs.Get(execute.JobId)!;
+        Assert.True(job.State == "succeeded", job.Error);
+        var completed = await InvokeAsync("jobs.get", new { jobId = execute.JobId });
+        Assert.True(completed.Ok, completed.Error?.Message);
+        Assert.Equal("processCreated", completed.Data.GetProperty("result").GetProperty("data").GetProperty("state").GetString());
 
         void CopyStub(string targetWithoutExtension)
         {

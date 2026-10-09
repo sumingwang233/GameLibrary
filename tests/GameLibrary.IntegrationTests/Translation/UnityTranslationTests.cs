@@ -579,7 +579,85 @@ public sealed class UnityTranslationTests
 
     private static JsonElement Data(Envelope<object> envelope) => JsonSerializer.SerializeToElement(envelope.Data, ContractJson.Options);
 
-    private static async Task BuildSyntheticPlugins(string data, bool invalidEndpoint = false)
+    [Fact]
+    public async Task SplitUnityModule_PatcherResolvesEnumAttributeFromOriginalManagedDirectory()
+    {
+        await using var fixture = await Fixture.Create();
+        var data = Path.Combine(fixture.DirectoryPath, "SplitGame_Data");
+        await BuildSyntheticPlugins(data, splitDependency: true);
+        var managed = Path.Combine(data, "Managed");
+        var bootstrap = Path.Combine(managed, "UnityEngine.CoreModule.dll");
+        var before = File.ReadAllBytes(bootstrap);
+        Assert.False(UnityTranslationInspection.HasBootstrap(bootstrap));
+        var payload = new UnityTranslationPayload(Path.Combine(fixture.DirectoryPath, "payload"));
+        var runtime = await payload.RuntimeAsync(CancellationToken.None);
+        var layout = new UnityTranslationLayout("unused.exe", fixture.DirectoryPath, data, managed, bootstrap, "none",
+            Path.Combine(managed, "XUnity.AutoTranslator.Plugin.Core.dll"), Path.Combine(managed, "Translators"), "unused.ini");
+        var patched = await payload.PatchAsync(layout, runtime, CancellationToken.None);
+        var output = Path.Combine(fixture.DirectoryPath, "patched.dll");
+        File.WriteAllBytes(output, patched);
+        Assert.True(UnityTranslationInspection.HasBootstrap(output));
+        Assert.Equal(before, File.ReadAllBytes(bootstrap));
+    }
+
+    [Theory]
+    [InlineData("x64")]
+    [InlineData("x86")]
+    public async Task PinnedIl2CppPackages_ConfigureRouteWithoutLaunching_PreserveConfirmation_RestoreAndRetry(string architecture)
+    {
+        await using var fixture = await Fixture.Create();
+        var engine = JsonSerializer.SerializeToElement(GameLibrary.Domain.Detection.EngineId.Unity, ContractJson.Options).GetString()!;
+        var game = fixture.AddGame("il2cpp-" + architecture, engine);
+        var native = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), architecture == "x64" ? "System32" : "SysWOW64", "kernel32.dll");
+        var exe = Path.Combine(game.RootPath, "Game.exe");
+        File.Copy(native, exe);
+        File.Copy(native, Path.Combine(game.RootPath, "GameAssembly.dll"));
+        Directory.CreateDirectory(Path.Combine(game.RootPath, "Game_Data", "il2cpp_data"));
+        fixture.Host.Launches.AddProfile(game.GameId, exe, [], game.RootPath, isDefault: true);
+        var layout = UnityTranslationInspection.Inspect(exe);
+        Assert.Null(layout.Reason);
+        Assert.Equal("il2cpp", layout.Runtime);
+        Assert.Equal(architecture, layout.Architecture);
+        Assert.Equal("none", layout.Loader);
+        Assert.True(fixture.Invoke("settings.set", new { apiKey = fixture.Key }).Ok);
+        await fixture.Host.Jobs.WaitForIdleAsync();
+        var state = fixture.ReadState(game.GameId)!;
+        Assert.True(state.State == "configured", state.Reason);
+        var installed = UnityTranslationInspection.Inspect(exe);
+        Assert.Null(installed.Reason);
+        Assert.Equal("bepinex", installed.Loader);
+        Assert.True(UnityTranslationInspection.IsConfiguredChineseTranslator(installed));
+        var profile = fixture.Host.Launches.GetDefaultProfile(game.GameId)!;
+        var route = TranslationLaunchRouteResolver.Resolve(game with { TranslationInherited = true }, profile);
+        Assert.True(route.SatisfiedByEmbeddedPlugin, route.UnavailableReason);
+        fixture.Service.RequestForTaggedGame(game.GameId);
+        Assert.Equal("configured", fixture.ReadState(game.GameId)?.State);
+        Assert.Contains(("user", "未翻译"), fixture.Store.ListGameTags(game.GameId));
+        Assert.Empty(fixture.Host.Launches.History());
+        Assert.False(fixture.PersistedSettings().Contains(fixture.Key, StringComparison.Ordinal));
+        Assert.True(fixture.Invoke("restore", new { gameId = game.GameId }).Ok);
+        Assert.False(File.Exists(Path.Combine(game.RootPath, "winhttp.dll")));
+        Assert.False(File.Exists(Path.Combine(game.RootPath, "AutoTranslator", "Config.ini")));
+        Assert.Equal("none", UnityTranslationInspection.Inspect(exe).Loader);
+        Assert.True(fixture.Invoke("configure", new { gameIds = new[] { game.GameId } }).Ok);
+        await fixture.Host.Jobs.WaitForIdleAsync();
+        Assert.True(fixture.ReadState(game.GameId)?.State == "configured", fixture.ReadState(game.GameId)?.Reason);
+    }
+
+    [Theory]
+    [InlineData("../escape.dll")]
+    [InlineData("BepInEx/core/../../escape.dll")]
+    [InlineData("BepInEx/core/escape.dll:stream")]
+    public void Il2CppArchives_RejectTraversalAndAlternateStreams(string path)
+    {
+        using var buffer = new MemoryStream();
+        using (var archive = new ZipArchive(buffer, ZipArchiveMode.Create, leaveOpen: true))
+        using (var output = new StreamWriter(archive.CreateEntry(path).Open())) output.Write("untrusted");
+        var error = Assert.Throws<InvalidDataException>(() => UnityTranslationPayload.ExtractIl2CppArchive(buffer.ToArray(), loader: true));
+        Assert.Contains("非法路径", error.Message);
+    }
+
+    private static async Task BuildSyntheticPlugins(string data, bool invalidEndpoint = false, bool splitDependency = false)
     {
         var managed = Path.Combine(data, "Managed");
         var translators = Path.Combine(managed, "Translators");
@@ -598,6 +676,15 @@ public sealed class UnityTranslationTests
             } catch { exit 1 }
             """;
         if (invalidEndpoint) source = source.Replace(" : XUnity.AutoTranslator.Plugin.Core.Endpoints.ITranslateEndpoint", "");
+        if (splitDependency)
+        {
+            var original = source.Split('\n').Single(line => line.Contains("namespace UnityEngine {", StringComparison.Ordinal));
+            source = source.Replace(original, """
+                $shared=Join-Path $managed 'UnityEngine.SharedInternalsModule.dll'
+                Add-Type -TypeDefinition 'namespace UnityEngine.Shared { public enum Scope { Both } public class NativeAttribute : System.Attribute { public NativeAttribute(Scope value) {} } }' -OutputAssembly $shared
+                Add-Type -TypeDefinition 'namespace UnityEngine { [Shared.Native(Shared.Scope.Both)] public class Display { static Display() { System.GC.KeepAlive(typeof(Display)); } } }' -ReferencedAssemblies $shared -OutputAssembly (Join-Path $managed 'UnityEngine.CoreModule.dll')
+                """);
+        }
         File.WriteAllText(script, source);
         var start = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32", "WindowsPowerShell", "v1.0", "powershell.exe"))
         { UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden };

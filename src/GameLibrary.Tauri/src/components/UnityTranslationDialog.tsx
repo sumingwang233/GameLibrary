@@ -179,7 +179,8 @@ export function UnityTranslationDialog({ enabled, settingsOpen, onCloseSettings,
     </Sheet>
     <ConfirmDialog open={prompt !== null && mode === null} title={prompt?.result ? t("插件是否运行成功？") : t("尝试运行游戏")}
       description={(prompt ? prompt.result ? t("请在游戏中确认翻译效果。选择「是」将移除 {0} 的未翻译标签。", prompt.item.title)
-        : t("{0} 已自动配置翻译插件（使用 {1}），是否尝试运行该游戏？", prompt.item.title, providerLabel) : "") + (error ? `\n${error}` : "")}
+        : t("{0} 已自动配置翻译插件（使用 {1}），是否尝试运行该游戏？", prompt.item.title, providerLabel) : "")
+        + (prompt && !prompt.result && prompt.item.reason ? `\n${t(prompt.item.reason)}` : "") + (error ? `\n${error}` : "")}
       confirmLabel={t("是")} cancelLabel={t("否")} busy={busy} onConfirm={() => void answer(true)} onCancel={() => void answer(false)} />
   </>;
 }

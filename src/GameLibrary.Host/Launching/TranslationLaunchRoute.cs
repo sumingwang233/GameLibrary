@@ -66,7 +66,10 @@ public static class TranslationLaunchRouteResolver
         var discovery = new MToolAdapter().Discover(gameRoot);
         if (discovery.Recipe is null)
         {
-            return new(true, false, null, discovery.UnsupportedReason ?? discovery.Notice ?? "游戏目录中未发现可用 MTool 配方");
+            var reason = string.Equals(game.Engine, "unity", StringComparison.OrdinalIgnoreCase)
+                ? "Unity 翻译插件尚未就绪；请在游戏详情重试配置并查看失败原因，配置完成后再启动游戏"
+                : discovery.UnsupportedReason ?? discovery.Notice ?? "游戏目录中未发现可用 MTool 配方";
+            return new(true, false, null, reason);
         }
 
         var steps = discovery.Recipe.Steps
@@ -100,6 +103,7 @@ public static class TranslationLaunchRouteResolver
             var layout = Hosting.UnityTranslationInspection.Inspect(executablePath);
             if (layout.Reason is null && layout.Loader is "rei" or "bepinex") return (true, null);
             if (layout.Loader == "conflict") return (false, layout.Reason);
+            if (layout.Reason is not null && Directory.Exists(layout.Data)) return (false, layout.Reason);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
         { return (false, "无法安全验证 Unity 内置翻译加载器，请检查游戏目录"); }

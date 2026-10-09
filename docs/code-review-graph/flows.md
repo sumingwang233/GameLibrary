@@ -38,17 +38,21 @@ flowchart TD
 
 不完整目录拒绝确认；普通取消忽略保留原 observed 流程，不提前晋升。确认项目/资源时完整子树 inventory 用于下次规则匹配，默认直属合集不会移除独立子项目。审核一次预载游戏/候选 lookup，重新接受已移除入口用 SQL 查找并复用 ID。运行依赖/安装器分支早期硬排除；data/swf/f/s/m 不因名称被排除。
 
-## Unity 翻译插件 — v1.7.2 待验收预发布
+## Unity 翻译插件 — v1.7.6 待验收预发布
 
 ```mermaid
 flowchart TD
     Tag[实际新增绑定用户标签 / 启动时现有 tagged Unity] --> Engine[IsActiveUnityGame / unity 大小写兼容]
     Engine --> Settings[唯一已有配置自动导入 / 首次本机设置]
     Settings --> Queue[既有 JobManager / 单队列与库租约]
-    Queue --> Inspect[默认启动入口 / Mono与加载器检查]
+    Queue --> Inspect[实际默认 EXE / Mono或IL2CPP / PE位数 / 加载器检查]
     Inspect --> Existing{已有启用中文插件与有效端点}
-    Existing -->|是| ExistingTag[保存已配置元数据 / 解除绑定标签]
-    Existing -->|否| Files[固定哈希公开插件 / 离线补丁]
+    Existing -->|是且非首次待确认| ExistingTag[保存已配置元数据 / 解除绑定标签]
+    Existing -->|否| Runtime{Unity 运行时}
+    Runtime -->|Mono| Mono[Cecil 解析原 Managed 依赖 / 隔离补丁]
+    Runtime -->|IL2CPP| IL2[BepInEx BE-704 与专用 XUnity / x86或x64]
+    Mono --> Files[固定哈希组件 / 元数据验证]
+    IL2 --> Files
     Files --> Recheck[重新校验游戏/标签/设置/原文件]
     Recheck --> Backup[DPAPI 加密原文件备份]
     Backup --> Write[原子写入 / 离线验证 / 失败恢复]
@@ -59,7 +63,7 @@ flowchart TD
     Confirm --> Untag[只移除绑定的未翻译标签]
 ```
 
-设置元数据在 app_settings，CredentialId 引用工作区外当前用户 DPAPI 文件；换密钥先写新引用，旧引用供数据库失败/旧备份恢复使用。配置过程不调用翻译 API、不启动游戏。IL2CPP/未知或冲突加载器保留标签供人工处理。前端从 snapshot 恢复未处理提示，第一次「是」只启动，第二次「是」才提交 success；体验首次设置仅在组件内模拟，不保存主配置。
+设置元数据在 app_settings，CredentialId 引用工作区外当前用户 DPAPI 文件；换密钥先写新引用，旧引用供数据库失败/旧备份恢复使用。配置过程不调用翻译 API、不启动游戏。IL2CPP 按位数配置专用加载器，首次运行可能联网生成 interop；未知或冲突加载器保留标签供人工处理。新安装的 configured 状态必须等待实际启动确认，不因自动复查提前清理标签。前端从 snapshot 恢复未处理提示，第一次「是」只启动，第二次「是」才提交 success；体验首次设置仅在组件内模拟，不保存主配置。
 
 图谱基线 `47690cd` 加收尾工作区，2026-10-02 增量刷新，358文件/3,404节点/29,285边，解析错误0。动态操作登记通过生成器及契约测试验证，图谱的裸名匹配不能替代运行测试。
 

@@ -22,6 +22,17 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("Unity translation launch confirmation", () => {
+  it("shows first-run preparation guidance without starting the game automatically", async () => {
+    const callbacks = props();
+    const reason = "IL2CPP 插件已配置；首次启动可能需要联网准备组件，请耐心等待，并在游戏内确认翻译效果";
+    api.operation.mockImplementation(async (id: string) => id === "unity_translation.settings.get"
+      ? { data: { provider: "deepseek", endpoint: "https://api.deepseek.com/chat/completions", model: "deepseek-flash", hasKey: true } }
+      : { libraryInstanceId: "library", dataEpoch: "epoch", data: { items: [{ ...item, reason }], needsSettings: false } });
+    render(<UnityTranslationDialog {...callbacks} />);
+    await screen.findByText(new RegExp(reason));
+    expect(callbacks.onPlay).not.toHaveBeenCalled();
+  });
+
   it("recovers the prompt from the snapshot and confirms success only after launch and the user's second answer", async () => {
     const callbacks = props();
     let finishLaunch!: () => void;

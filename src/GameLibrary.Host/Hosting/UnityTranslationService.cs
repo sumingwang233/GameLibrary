@@ -107,6 +107,7 @@ public sealed class UnityTranslationService
                 && _host.Roots.Contains(profile.ExecutablePath)
                 && UnityTranslationInspection.IsConfiguredChineseTranslator(UnityTranslationInspection.Inspect(profile.ExecutablePath)))
             {
+                if (existing?.State == "configured") return; // Keep first-install confirmation until the user reports actual success.
                 CompleteExisting(store, NewState(store, game, settings));
                 return;
             }
@@ -486,20 +487,27 @@ public sealed class UnityTranslationService
             var originalConfigHash = FileHash(layout.Config);
             var originalBootstrapHash = FileHash(layout.Bootstrap);
             var targets = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
-            if (layout.Loader == "none")
+            var expectedFiles = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+            if (layout.Runtime == "il2cpp" && layout.Loader is "none" or "bepinex-empty")
+            {
+                var files = await _payload.Il2CppAsync(layout.Architecture!, includeLoader: layout.Loader == "none", context.Token);
+                foreach (var pair in files)
+                    if (!AddDependency(Path.Combine(Path.GetDirectoryName(profile.ExecutablePath)!, pair.Key), pair.Value)) return;
+            }
+            else if (layout.Loader == "none")
             {
                 var runtime = await _payload.RuntimeAsync(context.Token);
                 foreach (var pair in runtime)
                 {
                     var path = Path.Combine(layout.Managed, pair.Key);
-                    if (File.Exists(path) && !File.ReadAllBytes(path).AsSpan().SequenceEqual(pair.Value))
-                    { Block("运行依赖与未知现有模组文件重名，保留文件并等待人工检查"); return; }
-                    targets.Add(path, pair.Value);
+                    if (!AddDependency(path, pair.Value)) return;
                 }
                 targets.Add(layout.Bootstrap, await _payload.PatchAsync(layout, runtime, context.Token));
             }
             // Keep existing loader, core and endpoint versions; only install the endpoint if it is missing.
             var endpoint = Path.Combine(layout.Translators, "DeepSeekTranslate.dll");
+            UnityTranslationInspection.RejectReparse(layout.Root, endpoint);
+            expectedFiles[endpoint] = FileHash(endpoint);
             if (!File.Exists(endpoint)) targets.Add(endpoint, await _payload.EndpointAsync(context.Token));
             else if (!UnityTranslationInspection.IsAssembly(endpoint, "DeepSeekTranslate", "DeepSeekTranslateEndpoint"))
             { Block("现有 DeepSeekTranslate 无法验证，保留插件版本并等待人工检查"); return; }
@@ -521,6 +529,8 @@ public sealed class UnityTranslationService
             { Block("游戏、标签或启动配置在准备期间已改变，取消安装"); return; }
             if (FileHash(layout.Config) != originalConfigHash || FileHash(layout.Bootstrap) != originalBootstrapHash)
             { Block("游戏文件在准备期间已改变，保留文件并取消安装"); return; }
+            if (expectedFiles.Any(pair => FileHash(pair.Key) != pair.Value))
+            { Block("运行依赖在准备期间已改变，保留文件并取消安装"); return; }
             if (UnityTranslationInspection.IsRunning(profile.ExecutablePath)) { Block("游戏已开始运行，取消配置"); return; }
             if (ReadState(store, state.GameId)?.AttemptId != state.AttemptId) return;
             state = state with { State = "installing", BackupId = state.BackupId ?? Guid.NewGuid().ToString("N"), InstallRoot = layout.Root };
@@ -529,14 +539,29 @@ public sealed class UnityTranslationService
             foreach (var path in targets.Keys) transaction.Capture(path);
             foreach (var pair in targets) { context.Token.ThrowIfCancellationRequested(); transaction.Write(pair.Key, pair.Value); }
             await _payload.VerifyEndpointAsync(layout, context.Token);
-            if (!UnityTranslationInspection.Inspect(profile.ExecutablePath).Loader.Equals(layout.Loader == "none" ? "rei" : layout.Loader))
+            var expectedLoader = layout.Runtime == "il2cpp" ? "bepinex" : layout.Loader == "none" ? "rei" : layout.Loader;
+            var installed = UnityTranslationInspection.Inspect(profile.ExecutablePath);
+            if (installed.Reason is not null || installed.Loader != expectedLoader || installed.Runtime != layout.Runtime)
                 throw new InvalidDataException("加载器离线验证失败");
             transaction.Commit();
-            Save(store, state with { State = "configured", Reason = null });
+            Save(store, state with { State = "configured", Reason = layout.Runtime == "il2cpp"
+                ? "IL2CPP 插件已配置；首次启动可能需要联网准备组件，请耐心等待，并在游戏内确认翻译效果" : null });
+
+            bool AddDependency(string path, byte[] bytes)
+            {
+                UnityTranslationInspection.RejectReparse(layout.Root, path);
+                var before = FileHash(path);
+                if (before is not null && before != Convert.ToHexString(SHA256.HashData(bytes)))
+                { Block("运行依赖与未知现有模组文件重名，保留文件并等待人工检查"); return false; }
+                expectedFiles.Add(path, before);
+                targets.Add(path, bytes);
+                return true;
+            }
         }
         catch (Exception ex)
         {
             var reason = ex is InvalidDataException ? ex.Message : ex is UnauthorizedAccessException ? "游戏目录不可写，保留原始文件"
+                : ex is HttpRequestException ? "翻译组件下载失败，请检查网络后重试；未调用翻译 API"
                 : ex is OperationCanceledException ? "配置已取消，原始文件已回滚" : "翻译配置失败；未启动游戏或调用翻译 API";
             try { transaction?.Restore(); }
             catch { reason = "配置失败且检测到文件变更，无法安全回滚；请检查后恢复"; }

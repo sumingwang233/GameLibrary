@@ -2,6 +2,12 @@
 
 配置操作只下载固定公开插件并做离线验证，不启动游戏或调用翻译 API。
 
+## v1.7.6 Mono 依赖解析与 IL2CPP
+
+2026-10-09：修复模块化 Mono 主程序集写回时缺失 `UnityEngine.SharedInternalsModule` 等依赖。Cecil 解析器同时搜索 staging 与原 Managed 目录，只在隔离区生成补丁，依旧经原备份事务写入。实际程序集副本已重现修改前依赖异常，修改后补丁与端点助手均 exit=0，未修改或运行实际游戏。
+
+IL2CPP 不再一律拒绝：读取 EXE/GameAssembly 的真实 PE 位数，固定安装 BepInEx `6.0.0-be.704+6b38cee` 与 XUnity IL2CPP `5.6.2`。已有完整 IL2CPP BepInEx 可补装插件，未知/残缺/Mono 混用保持阻断。首次运行之前不能用 Windows PowerShell CLR 加载 net6/interop 插件，因此以 PE 元数据与运行环境检查判断“已配置”，实际成功仍由用户启动后确认；保留首次确认状态与标签。以下 IL2CPP 一律拒绝的内容是 v1.7.2 历史行为。详见[实施记录](development/v1.7.6-unity-runtime-plan.md)及[验证记录](releases/v1.7.6-validation.md)。
+
 ## v1.7.4 已有插件与标签补处理
 
 2026-10-04：启动时重新检查带绑定未翻译标签的 Unity 记录，标签新增和显式配置复用同一流程。已有 Rei/BepInEx 加载器通过检查、目标为 `zh/zh-cn/zh-hans`、翻译未被关闭，并能从受支持端点程序集的常量 `get_Id` 元数据确认所选端点时，记录 `confirmed` 并解除绑定的用户标签。DeepSeek 配置还须有本机非空 key。此检查不加载插件代码、不发送网络翻译请求、不改变现有游戏文件；仅存在 DLL 不足以清理标签。动态端点 ID、配置不完整及用户已 `declined` 的记录保留标签，允许用户从详情主动重试。新安装仍保留原有两次确认。

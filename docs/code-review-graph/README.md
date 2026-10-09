@@ -1,5 +1,7 @@
 # GameLibrary 代码预览框架
 
+2026-10-09 v1.7.6：修改前调用最小上下文，围绕实际 Unity 默认入口追踪 tag → inspection → payload → transaction → launch route。新增跨模块枚举依赖的 Mono 补丁回归，以及固定包 IL2CPP x86/x64 配置、恢复和标签确认回归；复用已有队列、凭据和备份事务，无新 DDL。见[实施记录](../development/v1.7.6-unity-runtime-plan.md)与[验证记录](../releases/v1.7.6-validation.md)。
+
 2026-10-06 v1.7.5：修改前最小上下文审计，修改后增量覆盖恢复、回执、备份、回收意图、共同参数和异步启动；新增 ArchitectureBoundariesTests 后再次索引。增量解析错误为空，静态图谱不代表测试通过。见[实施计划](../development/v1.7.5-architecture-plan.md)与[构建记录](../releases/v1.7.5-validation.md)。
 
 2026-10-06 发布收尾：维护者明确豁免本次验收后正式发布 v1.7.5，四语言 README 与网站下载源同步版本及未验收说明；下载组件增量解析 3 个文件、错误 0。网站本次仅更新源码，未独立编译或部署。图谱计数保持下表，生产包与 tag 仍绑定 `c29a80f`。
@@ -16,14 +18,14 @@ v1.7.3 修改前调用最小上下文，修改后增量刷新包含 FlashLegacyR
 
 | 项目 | 结果 |
 |---|---|
-| 图谱基线 | `9bc0082` + v1.7.5 工作区，2026-10-06 |
+| 图谱基线 | `ee715f2` + v1.7.6 工作区，2026-10-09 |
 | 源码文件 | 362 |
-| 节点 / 边 | 3,499 / 30,604 |
+| 节点 / 边 | 3,507 / 30,800 |
 | 执行流 | 175 |
 | 解析错误 | 0 |
 | 验证环境 | .NET SDK 10.0.401；global.json 未修改 |
 
-快照在 2026-10-06 增量更新，包含 v1.7.5 架构修复；解析错误为空。当前直接 CALLS 为 7,116，未解析 CALLS 为 17,552。图谱中的委托、动态装配和裸名匹配仍需结合源码复核；`head_matches_build=true` 只说明 Git 提交基线一致，不证明工作区没有后续变化。175 个执行流是 2026-09-30 的历史统计，未在此次重新统计。网站的架构、素材与真实验证见 [网站实施记录](website.md)；此前记录见 [建议启动方式](../launch-suggestions.md)、[优化实施记录](optimization-implementation.md) 和 [v1.6.0 构建记录](../releases/v1.6.0-validation.md)。
+快照在 2026-10-09 增量更新，包含 v1.7.6 Unity 运行时修复；解析错误为空。当前直接 CALLS 为 7,172，未解析 CALLS 为 17,677。图谱中的委托、动态装配和裸名匹配仍需结合源码复核；`head_matches_build=true` 只说明 Git 提交基线一致，不证明工作区没有后续变化。175 个执行流是 2026-09-30 的历史统计，未在此次重新统计。网站的架构、素材与真实验证见 [网站实施记录](website.md)；此前记录见 [建议启动方式](../launch-suggestions.md)、[优化实施记录](optimization-implementation.md) 和 [v1.6.0 构建记录](../releases/v1.6.0-validation.md)。
 
 ## 入口文件
 

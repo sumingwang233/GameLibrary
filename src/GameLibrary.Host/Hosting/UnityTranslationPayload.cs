@@ -16,12 +16,69 @@ internal sealed class UnityTranslationPayload
     internal const string DeepSeekSha256 = "8FDC8C26E0C3129350541CE84EA0C818D980626E848991A9D1C4AC8FFC4C4CA7";
     internal const string ReiUrl = "https://github.com/bbepis/XUnity.AutoTranslator/releases/download/v5.0.0/XUnity.AutoTranslator-ReiPatcher-5.0.0.zip";
     internal const string DeepSeekUrl = "https://github.com/Tabing010102/DeepSeekTranslate/releases/download/v0.1.14/DeepSeekTranslate.dll";
+    internal const string Il2CppPluginUrl = "https://github.com/bbepis/XUnity.AutoTranslator/releases/download/v5.6.2/XUnity.AutoTranslator-BepInEx-IL2CPP-5.6.2.zip";
+    internal const string Il2CppPluginSha256 = "639392D3EE3C7542CCA98C6C04B384DEEE4961FE965F3D80A4D9C8413884A0F3";
+    internal const string Il2CppX64Sha256 = "AA47F95A19AB6FDC5924C3567AB6018805BF198E3662ED972871CCC2A371164A";
+    internal const string Il2CppX86Sha256 = "53D1F7505EADFF2DC343CA4F6406B043D35E3F1F91C77347E96BD986A54C3C8D";
     private readonly string _cache;
-    private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromMinutes(2) };
+    private static readonly HttpClient Client = CreateClient();
+    private static HttpClient CreateClient()
+    {
+        var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("GameLibrary/1.7.6");
+        return client;
+    }
     public UnityTranslationPayload(string? cache = null) => _cache = cache ?? Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GameLibrary", "UnityTranslation", "payload", "5.0.0-0.1.14");
 
     public async Task<byte[]> EndpointAsync(CancellationToken ct) => await Download("DeepSeekTranslate.dll", DeepSeekUrl, DeepSeekSha256, ct);
+
+    public async Task<IReadOnlyDictionary<string, byte[]>> Il2CppAsync(string architecture, bool includeLoader, CancellationToken ct)
+    {
+        if (architecture is not ("x86" or "x64")) throw new InvalidDataException("无法确认 IL2CPP 游戏位数，拒绝安装加载器");
+        var files = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        if (includeLoader)
+        {
+            var name = $"BepInEx-Unity.IL2CPP-win-{architecture}-6.0.0-be.704+6b38cee.zip";
+            var zip = await Download(name, "https://builds.bepinex.dev/projects/bepinex_be/704/" + Uri.EscapeDataString(name),
+                architecture == "x64" ? Il2CppX64Sha256 : Il2CppX86Sha256, ct, 64 * 1024 * 1024);
+            foreach (var pair in ExtractIl2CppArchive(zip, loader: true)) files.Add(pair.Key, pair.Value);
+        }
+        var plugin = await Download("XUnity.AutoTranslator-BepInEx-IL2CPP-5.6.2.zip", Il2CppPluginUrl, Il2CppPluginSha256, ct);
+        foreach (var pair in ExtractIl2CppArchive(plugin, loader: false)) files.Add(pair.Key, pair.Value);
+        return files;
+    }
+
+    internal static IReadOnlyDictionary<string, byte[]> ExtractIl2CppArchive(byte[] bytes, bool loader)
+    {
+        using var archive = new ZipArchive(new MemoryStream(bytes), ZipArchiveMode.Read);
+        var files = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        long expanded = 0;
+        if (archive.Entries.Count > 1024) throw new InvalidDataException("IL2CPP 固定包文件过多");
+        foreach (var entry in archive.Entries)
+        {
+            var name = entry.FullName;
+            if (name.Contains('\\') || name.StartsWith('/') || name.Contains(':') || name.Split('/').Any(p => p is "." or "..")
+                || ((entry.ExternalAttributes >> 16) & 0xf000) == 0xa000)
+                throw new InvalidDataException("IL2CPP 固定包包含非法路径");
+            if (name.EndsWith('/')) continue;
+            var allowed = name.StartsWith("BepInEx/core/", StringComparison.Ordinal)
+                || (!loader && name.StartsWith("BepInEx/plugins/", StringComparison.Ordinal))
+                || (loader && (name.StartsWith("dotnet/", StringComparison.Ordinal)
+                    || name is "winhttp.dll" or "doorstop_config.ini" or ".doorstop_version" or "changelog.txt"));
+            if (!allowed || entry.Length > 64 * 1024 * 1024 || (expanded += entry.Length) > 256 * 1024 * 1024)
+                throw new InvalidDataException("IL2CPP 固定包包含非允许文件或超出大小限制");
+            using var input = entry.Open();
+            using var output = new MemoryStream();
+            input.CopyTo(output);
+            if (!files.TryAdd(name, output.ToArray())) throw new InvalidDataException("IL2CPP 固定包包含重复路径");
+        }
+        string[] required = loader ? ["winhttp.dll", "doorstop_config.ini", "dotnet/coreclr.dll", "BepInEx/core/BepInEx.Unity.IL2CPP.dll"]
+            : ["BepInEx/core/XUnity.Common.dll", "BepInEx/plugins/XUnity.AutoTranslator/XUnity.AutoTranslator.Plugin.Core.dll",
+                "BepInEx/plugins/XUnity.AutoTranslator/XUnity.AutoTranslator.Plugin.BepInEx-IL2CPP.dll"];
+        if (required.Any(p => !files.ContainsKey(p))) throw new InvalidDataException("IL2CPP 固定包缺少必要文件");
+        return files;
+    }
 
     public async Task<IReadOnlyDictionary<string, byte[]>> RuntimeAsync(CancellationToken ct)
     {
@@ -74,7 +131,7 @@ internal sealed class UnityTranslationPayload
         return result.ToArray();
     }
 
-    private async Task<byte[]> Download(string name, string url, string hash, CancellationToken ct)
+    private async Task<byte[]> Download(string name, string url, string hash, CancellationToken ct, int maxBytes = 16 * 1024 * 1024)
     {
         Directory.CreateDirectory(_cache);
         var path = Path.Combine(_cache, name);
@@ -86,14 +143,14 @@ internal sealed class UnityTranslationPayload
         }
         using var response = await Client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
         response.EnsureSuccessStatusCode();
-        if (response.Content.Headers.ContentLength > 16 * 1024 * 1024) throw new InvalidDataException("固定下载包超出大小限制");
+        if (response.Content.Headers.ContentLength > maxBytes) throw new InvalidDataException("固定下载包超出大小限制");
         await using var input = await response.Content.ReadAsStreamAsync(ct);
         using var buffer = new MemoryStream();
         var block = new byte[65536];
         int count;
         while ((count = await input.ReadAsync(block, ct)) > 0)
         {
-            if (buffer.Length + count > 16 * 1024 * 1024) throw new InvalidDataException("固定下载包超出大小限制");
+            if (buffer.Length + count > maxBytes) throw new InvalidDataException("固定下载包超出大小限制");
             buffer.Write(block, 0, count);
         }
         var bytes = buffer.ToArray();
@@ -103,6 +160,8 @@ internal sealed class UnityTranslationPayload
         {
             xunity = new { version = "5.0.0", url = ReiUrl, sha256 = ReiSha256 },
             deepSeekTranslate = new { version = "0.1.14", url = DeepSeekUrl, sha256 = DeepSeekSha256 },
+            il2cpp = new { xunityVersion = "5.6.2", url = Il2CppPluginUrl, sha256 = Il2CppPluginSha256,
+                bepinexVersion = "6.0.0-be.704+6b38cee", x64Sha256 = Il2CppX64Sha256, x86Sha256 = Il2CppX86Sha256 },
         }));
         return bytes;
     }
@@ -121,7 +180,7 @@ internal sealed class UnityTranslationPayload
         await File.WriteAllTextAsync(script, PatchScript, ct);
         try
         {
-            await RunHelper(script, [Path.Combine(_cache, "patcher"), ini, bootstrap, output], ct);
+            await RunHelper(script, [Path.Combine(_cache, "patcher"), ini, bootstrap, output, layout.Managed], ct);
             if (!UnityTranslationInspection.HasBootstrap(output)) throw new InvalidDataException("离线补丁未生成有效 Bootstrap 引用");
             return await File.ReadAllBytesAsync(output, ct);
         }
@@ -137,6 +196,14 @@ internal sealed class UnityTranslationPayload
         var endpoint = Path.Combine(layout.Translators, "DeepSeekTranslate.dll");
         if (!UnityTranslationInspection.IsAssembly(endpoint, "DeepSeekTranslate", "DeepSeekTranslateEndpoint"))
             throw new InvalidDataException("DeepSeekTranslate 端点元数据校验失败");
+        if (layout.Runtime == "il2cpp")
+        {
+            // Interop assemblies only exist after the first game run. Inspect PE metadata, never load CoreCLR plugins into PowerShell's CLR.
+            if (!UnityTranslationInspection.HasEndpointId(endpoint, "DeepSeekTranslate")
+                || !UnityTranslationInspection.IsAssembly(layout.Core, "XUnity.AutoTranslator.Plugin.Core"))
+                throw new InvalidDataException("IL2CPP 翻译核心或端点元数据校验失败");
+            return;
+        }
         var script = Path.Combine(_cache, "verify-endpoint.ps1");
         Directory.CreateDirectory(_cache);
         await File.WriteAllTextAsync(script, VerifyScript, ct);
@@ -162,11 +229,13 @@ internal sealed class UnityTranslationPayload
         try { await process.WaitForExitAsync(ct).WaitAsync(TimeSpan.FromSeconds(45), ct); }
         catch { if (!process.HasExited) process.Kill(entireProcessTree: true); throw; }
         await Task.WhenAll(stdout, stderr);
-        if (process.ExitCode != 0) throw new InvalidDataException("离线插件加载/补丁验证失败；未启动游戏或请求翻译 API");
+        if (process.ExitCode != 0) throw new InvalidDataException(process.ExitCode == 3
+            ? "离线补丁无法解析 Unity 模块依赖；未启动游戏或请求翻译 API"
+            : "离线插件加载/补丁验证失败；未启动游戏或请求翻译 API");
     }
 
     internal const string PatchScript = """
-        param($tools, $ini, $inputAssembly, $outputAssembly)
+        param($tools, $ini, $inputAssembly, $outputAssembly, $managed)
         $ErrorActionPreference = 'Stop'
         try {
           [Reflection.Assembly]::LoadFrom((Join-Path $tools 'ExIni.dll')) | Out-Null
@@ -178,13 +247,25 @@ internal sealed class UnityTranslationPayload
           [ReiPatcher.RPConfig]::ConfigFile = [ExIni.IniFile]::FromFile($ini)
           $patcher = New-Object XUnity.AutoTranslator.Patcher.Patcher
           $patcher.PrePatch()
-          $assembly = [Mono.Cecil.AssemblyDefinition]::ReadAssembly($inputAssembly)
+          $resolver = New-Object Mono.Cecil.DefaultAssemblyResolver
+          $resolver.AddSearchDirectory((Split-Path -Parent $inputAssembly))
+          if ($managed) { $resolver.AddSearchDirectory($managed) }
+          $parameters = New-Object Mono.Cecil.ReaderParameters
+          $parameters.AssemblyResolver = $resolver
+          $assembly = [Mono.Cecil.AssemblyDefinition]::ReadAssembly($inputAssembly, $parameters)
           $arguments = New-Object ReiPatcher.Patch.PatcherArguments($assembly, $inputAssembly, $false)
           if (-not $patcher.CanPatch($arguments)) { exit 2 }
           $patcher.Patch($arguments)
           $assembly.Write($outputAssembly)
           exit 0
-        } catch { exit 1 }
+        } catch {
+          $cause = $_.Exception
+          while ($cause) {
+            if ($cause.GetType().FullName -eq 'Mono.Cecil.AssemblyResolutionException') { exit 3 }
+            $cause = $cause.InnerException
+          }
+          exit 1
+        }
         """;
 
     internal const string VerifyScript = """
