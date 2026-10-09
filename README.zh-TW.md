@@ -62,7 +62,7 @@ Get-FileHash .\GameLibrary-Setup-v1.7.5.exe -Algorithm SHA256
 <a id="faq"></a>
 ## 資料與常見問題
 
-**v1.7.7 待驗收預發布**：修復 IL2CPP/BepInEx 中文設定寫入錯誤位置、導致日語譯成英語的問題，支援舊託管安裝自動修復。[下載與說明](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.7) · [驗證記錄](docs/releases/v1.7.7-validation.md)。
+**v1.7.8 待驗收預發布**：為 Unity 自動翻譯補齊中文字型後備，修復部分漢字顯示方框，支援舊託管安裝自動升級。[下載與說明](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.8) · [驗證記錄](docs/releases/v1.7.8-validation.md)。
 
 <details>
 <summary><strong>掃描或移出遊戲庫會刪除遊戲檔案嗎？</strong></summary>

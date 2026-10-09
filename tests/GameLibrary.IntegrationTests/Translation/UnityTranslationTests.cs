@@ -18,6 +18,70 @@ namespace GameLibrary.IntegrationTests.Translation;
 
 public sealed class UnityTranslationTests
 {
+    [Fact]
+    public async Task FontRepair_UsesBoundedUnityVersion_PreservesCustomFontsAndPreviousInstallationOnFailure()
+    {
+        await using var fixture = await Fixture.Create();
+        var game = fixture.AddGame("font-repair");
+        var exe = Path.Combine(game.RootPath, "Game.exe");
+        File.WriteAllText(exe, "never execute");
+        await BuildSyntheticPlugins(Path.Combine(game.RootPath, "Game_Data"));
+        var layout = UnityTranslationInspection.Inspect(exe);
+        File.WriteAllBytes(Path.Combine(layout.Data, "globalgamemanagers"), Encoding.ASCII.GetBytes("\0\0\0\u00142020.2.1f1\0"));
+        Assert.Equal("2020", UnityTranslationFonts.Generation(layout));
+        var ini = new UnityTranslationIni("[Behaviour]\nOverrideFont=Custom CJK\nFallbackFontTextMeshPro=custom.bundle\n[OtherMod]\nValue=keep\n");
+        Assert.False(UnityTranslationFonts.Configure(layout, ini, out _));
+        Assert.Equal("Custom CJK", ini.Get("Behaviour", "OverrideFont"));
+        Assert.Equal("custom.bundle", ini.Get("Behaviour", "FallbackFontTextMeshPro"));
+        ini = new UnityTranslationIni("");
+        Assert.True(UnityTranslationFonts.NeedsRepair(layout, ini));
+        Assert.True(UnityTranslationFonts.Configure(layout, ini, out var generation));
+        Assert.Equal("2020", generation);
+        Assert.Equal("GameLibraryFonts/xiaolai-2020.bundle", ini.Get("Behaviour", "FallbackFontTextMeshPro"));
+        var vault = new UnityTranslationVault("font-test", fixture.VaultBase);
+        var id = Guid.NewGuid().ToString("N");
+        var original = Encoding.UTF8.GetBytes("original configuration");
+        Directory.CreateDirectory(Path.GetDirectoryName(layout.Config)!);
+        File.WriteAllBytes(layout.Config, original);
+        var transaction = new UnityTranslationTransaction(vault, id, layout.Root);
+        transaction.Write(layout.Config, ini.Configure(new(), fixture.Key));
+        var plugin = Path.Combine(layout.Root, "owned-plugin.dll");
+        transaction.Write(plugin, [1, 2, 3]);
+        transaction.Commit();
+        var runtimeIni = File.ReadAllText(layout.Config) + "\n[OtherMod]\nValue=plugin-generated\n";
+        File.WriteAllText(layout.Config, runtimeIni);
+        transaction = new(vault, id, layout.Root);
+        var merged = UnityTranslationIni.Read(layout.Config);
+        merged.Set("Behaviour", "FallbackFontTextMeshPro", "updated.bundle");
+        transaction.WriteConfiguration(layout.Config, merged.Configure(new(), fixture.Key), Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(layout.Config))));
+        var font = Path.Combine(layout.Root, "GameLibraryFonts", "new.bundle");
+        transaction.Write(font, [4, 5, 6]);
+        transaction.RollbackAttempt();
+        Assert.Equal(runtimeIni, File.ReadAllText(layout.Config));
+        Assert.Equal(new byte[] { 1, 2, 3 }, File.ReadAllBytes(plugin));
+        Assert.False(File.Exists(font));
+        transaction = new(vault, id, layout.Root);
+        transaction.WriteConfiguration(layout.Config, merged.Configure(new(), fixture.Key), Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(layout.Config))));
+        transaction.Commit();
+        transaction.Restore();
+        Assert.Equal(original, File.ReadAllBytes(layout.Config));
+        Assert.False(File.Exists(plugin));
+        Assert.Contains("SIL OPEN FONT LICENSE", Encoding.UTF8.GetString(UnityTranslationPayload.FontNotice()));
+    }
+
+    [Theory]
+    [InlineData("xiaolai 2020", "UnityFS\0\0\0\02020.3.0f1\0", true)]
+    [InlineData("../xiaolai 2020", "UnityFS\0\0\0\02020.3.0f1\0", false)]
+    [InlineData("xiaolai 2020", "UnityFS\0\0\0\02019.4.0f1\0", false)]
+    public void FontArchives_ValidatePathAndUnityGeneration(string path, string contents, bool valid)
+    {
+        using var buffer = new MemoryStream();
+        using (var zip = new ZipArchive(buffer, ZipArchiveMode.Create, leaveOpen: true))
+        using (var output = new StreamWriter(zip.CreateEntry(path).Open(), new UTF8Encoding(false))) output.Write(contents);
+        if (valid) Assert.StartsWith("UnityFS\0", Encoding.ASCII.GetString(UnityTranslationPayload.ExtractFont(buffer.ToArray(), "2020")));
+        else Assert.Throws<InvalidDataException>(() => UnityTranslationPayload.ExtractFont(buffer.ToArray(), "2020"));
+    }
+
     [Theory]
     [InlineData("startup")]
     [InlineData("tag")]
@@ -43,6 +107,44 @@ public sealed class UnityTranslationTests
         Assert.DoesNotContain(("user", "未翻译"), fixture.Store.ListGameTags(game.GameId));
         Assert.Contains(("user", "keep"), fixture.Store.ListGameTags(game.GameId));
         Assert.Equal(original, File.ReadAllText(config));
+        Assert.Empty(fixture.Host.Launches.History());
+    }
+
+    [Fact]
+    public async Task Startup_RepairsOwnedChineseConfigMissingFonts_WithoutTag_AndPreservesRuntimeDefaults()
+    {
+        await using var fixture = await Fixture.Create();
+        Assert.True(fixture.Invoke("settings.set", new { apiKey = fixture.Key }).Ok);
+        var game = fixture.AddGame("owned-chinese-fonts");
+        var exe = Path.Combine(game.RootPath, "Game.exe");
+        File.WriteAllText(exe, "never execute");
+        await BuildSyntheticPlugins(Path.Combine(game.RootPath, "Game_Data"));
+        File.WriteAllText(Path.Combine(game.RootPath, "Game_Data", "globalgamemanagers"), "\0\0\0\u00142020.2.1f1\0");
+        var profile = fixture.Host.Launches.AddProfile(game.GameId, exe, [], game.RootPath, isDefault: true);
+        var layout = UnityTranslationInspection.Inspect(exe);
+        var backupId = Guid.NewGuid().ToString("N");
+        var vault = new UnityTranslationVault(Path.GetFullPath(fixture.Host.DataDirectory).ToUpperInvariant(), fixture.VaultBase);
+        var transaction = new UnityTranslationTransaction(vault, backupId, layout.Root);
+        transaction.Write(layout.Config, new UnityTranslationIni("").Configure(new(), fixture.Key));
+        transaction.Commit();
+        File.AppendAllText(layout.Config, "\n[OtherMod]\nRuntimeDefault=keep\n");
+        fixture.Store.UnassignTag(game.GameId, fixture.TagId);
+        fixture.WriteState(new() { GameId = game.GameId, Title = game.Title, AttemptId = "previous", DataEpoch = fixture.Store.Info.DataEpoch,
+            State = "confirmed", BackupId = backupId, InstallRoot = game.RootPath, BoundTagId = fixture.TagId,
+            ProfileId = profile.ProfileId, ExecutablePath = exe });
+        fixture.Service.Start();
+        await fixture.Host.Jobs.WaitForIdleAsync();
+        var repaired = fixture.ReadState(game.GameId)!;
+        Assert.True(repaired.State == "configured", repaired.Reason);
+        Assert.Equal(backupId, repaired.BackupId);
+        var ini = UnityTranslationIni.Read(layout.Config);
+        Assert.Equal("keep", ini.Get("OtherMod", "RuntimeDefault"));
+        Assert.Equal("GameLibraryFonts/xiaolai-2020.bundle", ini.Get("Behaviour", "FallbackFontTextMeshPro"));
+        Assert.True(File.Exists(Path.Combine(layout.Root, ini.Get("Behaviour", "FallbackFontTextMeshPro")!)));
+        fixture.RestartService();
+        fixture.Service.Start();
+        await fixture.Host.Jobs.WaitForIdleAsync();
+        Assert.Equal(repaired.AttemptId, fixture.ReadState(game.GameId)?.AttemptId);
         Assert.Empty(fixture.Host.Launches.History());
     }
 
@@ -615,6 +717,7 @@ public sealed class UnityTranslationTests
         File.Copy(native, exe);
         File.Copy(native, Path.Combine(game.RootPath, "GameAssembly.dll"));
         Directory.CreateDirectory(Path.Combine(game.RootPath, "Game_Data", "il2cpp_data"));
+        File.WriteAllText(Path.Combine(game.RootPath, "Game_Data", "globalgamemanagers"), "\0\0\0\u00142020.2.1f1\0");
         fixture.Host.Launches.AddProfile(game.GameId, exe, [], game.RootPath, isDefault: true);
         var layout = UnityTranslationInspection.Inspect(exe);
         Assert.Null(layout.Reason);
@@ -631,6 +734,10 @@ public sealed class UnityTranslationTests
         Assert.Null(installed.Reason);
         Assert.Equal("bepinex", installed.Loader);
         var ini = UnityTranslationIni.Read(configPath);
+        Assert.Equal(UnityTranslationFonts.SystemFont, ini.Get("Behaviour", "OverrideFont"));
+        Assert.Equal("GameLibraryFonts/xiaolai-2020.bundle", ini.Get("Behaviour", "FallbackFontTextMeshPro"));
+        var fontPath = Path.Combine(game.RootPath, "GameLibraryFonts", "xiaolai-2020.bundle");
+        Assert.StartsWith("UnityFS\0", Encoding.ASCII.GetString(File.ReadAllBytes(fontPath), 0, 8));
         Assert.Equal("zh", ini.Get("General", "Language"));
         Assert.Equal("auto", ini.Get("General", "FromLanguage"));
         Assert.Equal("DeepSeekTranslate", ini.Get("Service", "Endpoint"));
@@ -655,6 +762,7 @@ public sealed class UnityTranslationTests
         Assert.False(File.Exists(Path.Combine(game.RootPath, "winhttp.dll")));
         Assert.False(File.Exists(Path.Combine(game.RootPath, "AutoTranslator", "Config.ini")));
         Assert.False(File.Exists(configPath));
+        Assert.False(File.Exists(fontPath));
         Assert.Equal("none", UnityTranslationInspection.Inspect(exe).Loader);
         Assert.True(fixture.Invoke("configure", new { gameIds = new[] { game.GameId } }).Ok);
         await fixture.Host.Jobs.WaitForIdleAsync();

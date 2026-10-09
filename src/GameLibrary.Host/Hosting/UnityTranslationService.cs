@@ -109,13 +109,14 @@ public sealed class UnityTranslationService
             var profile = _host.Launches.GetDefaultProfile(gameId);
             var layout = profile is { ToolId: null } && _host.Roots.Contains(profile.ExecutablePath)
                 ? UnityTranslationInspection.Inspect(profile.ExecutablePath) : null;
-            // v1.7.6 wrote the Rei config path for BepInEx. Repair only our tracked installations.
-            var repair = ownedConfiguration && layout is { Reason: null, Loader: "bepinex" }
-                && File.Exists(Path.Combine(layout.Root, "AutoTranslator", "Config.ini"))
-                && !UnityTranslationInspection.IsConfiguredChineseTranslator(layout);
+            // Repair our tracked installations, including those already confirmed without the untranslated tag.
+            var repair = ownedConfiguration && layout is { Reason: null }
+                && (layout.Loader == "bepinex" && File.Exists(Path.Combine(layout.Root, "AutoTranslator", "Config.ini"))
+                    && !UnityTranslationInspection.IsConfiguredChineseTranslator(layout)
+                    || UnityTranslationFonts.NeedsRepair(layout, UnityTranslationIni.Read(layout.Config)));
             if (!tagged && !repair) return;
             if (repair && UnityTranslationInspection.IsRunning(profile!.ExecutablePath)) return;
-            if (layout is not null && UnityTranslationInspection.IsConfiguredChineseTranslator(layout))
+            if (!repair && layout is not null && UnityTranslationInspection.IsConfiguredChineseTranslator(layout))
             {
                 if (existing?.State == "configured") return; // Keep first-install confirmation until the user reports actual success.
                 CompleteExisting(store, NewState(store, game, settings));
@@ -528,6 +529,12 @@ public sealed class UnityTranslationService
             if (!File.Exists(endpoint)) targets.Add(endpoint, await _payload.EndpointAsync(context.Token));
             else if (!UnityTranslationInspection.IsAssembly(endpoint, "DeepSeekTranslate", "DeepSeekTranslateEndpoint"))
             { Block("现有 DeepSeekTranslate 无法验证，保留插件版本并等待人工检查"); return; }
+            if (UnityTranslationFonts.Configure(layout, config, out var generation))
+            {
+                if (!AddDependency(Path.Combine(layout.Root, UnityTranslationFonts.BundlePath(generation!)),
+                    await _payload.FontAsync(generation!, context.Token))) return;
+                if (!AddDependency(Path.Combine(layout.Root, UnityTranslationFonts.FontDirectory, "NOTICE.txt"), UnityTranslationPayload.FontNotice())) return;
+            }
             targets.Add(layout.Config, config.Configure(settings, key));
             foreach (var path in targets.Keys)
             {
@@ -554,7 +561,12 @@ public sealed class UnityTranslationService
             Save(store, state);
             transaction = new(Vault(store), state.BackupId!, layout.Root);
             foreach (var path in targets.Keys) transaction.Capture(path);
-            foreach (var pair in targets) { context.Token.ThrowIfCancellationRequested(); transaction.Write(pair.Key, pair.Value); }
+            foreach (var pair in targets)
+            {
+                context.Token.ThrowIfCancellationRequested();
+                if (pair.Key == layout.Config) transaction.WriteConfiguration(pair.Key, pair.Value, originalConfigHash);
+                else transaction.Write(pair.Key, pair.Value);
+            }
             await _payload.VerifyEndpointAsync(layout, context.Token);
             var expectedLoader = layout.Runtime == "il2cpp" ? "bepinex" : layout.Loader == "none" ? "rei" : layout.Loader;
             var installed = UnityTranslationInspection.Inspect(profile.ExecutablePath);
@@ -581,7 +593,7 @@ public sealed class UnityTranslationService
             var reason = ex is InvalidDataException ? ex.Message : ex is UnauthorizedAccessException ? "游戏目录不可写，保留原始文件"
                 : ex is HttpRequestException ? "翻译组件下载失败，请检查网络后重试；未调用翻译 API"
                 : ex is OperationCanceledException ? "配置已取消，原始文件已回滚" : "翻译配置失败；未启动游戏或调用翻译 API";
-            try { transaction?.Restore(); }
+            try { transaction?.RollbackAttempt(); }
             catch { reason = "配置失败且检测到文件变更，无法安全回滚；请检查后恢复"; }
             if (ReadState(store, state.GameId)?.AttemptId == state.AttemptId)
                 Save(store, state with { State = ex is UnauthorizedAccessException ? "blocked" : "failed", Reason = reason });

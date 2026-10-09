@@ -1,5 +1,7 @@
 # GameLibrary 代码预览框架
 
+2026-10-09 v1.7.8：修改前查询图谱最小上下文，修改后增量解析共 7 个文件（含暂存新增字体模块），解析错误 0。沿既有安装流程补中文字体、旧中文配置迁移和本次失败回滚，无前端或数据库协议变化。56 项 Unity 专项通过。见 [方案](../development/v1.7.8-unity-fonts.md)与[验证记录](../releases/v1.7.8-validation.md)。
+
 2026-10-09 v1.7.7：修改前调用最小上下文，追溯配置生产者与上游插件消费者；修复 BepInEx 实际 INI 路径，检查、写入、导入和启动路由复用同一布局。旧托管配置可无标签修复，拒绝/未托管状态不放宽。见 [实施记录](../development/v1.7.7-unity-config-path.md)与[验证记录](../releases/v1.7.7-validation.md)。
 
 2026-10-09 v1.7.6：修改前调用最小上下文，围绕实际 Unity 默认入口追踪 tag → inspection → payload → transaction → launch route。新增跨模块枚举依赖的 Mono 补丁回归，以及固定包 IL2CPP x86/x64 配置、恢复和标签确认回归；复用已有队列、凭据和备份事务，无新 DDL。见[实施记录](../development/v1.7.6-unity-runtime-plan.md)与[验证记录](../releases/v1.7.6-validation.md)。

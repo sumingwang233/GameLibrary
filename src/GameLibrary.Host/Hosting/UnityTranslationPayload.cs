@@ -25,13 +25,67 @@ internal sealed class UnityTranslationPayload
     private static HttpClient CreateClient()
     {
         var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("GameLibrary/1.7.7");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("GameLibrary/1.7.8");
         return client;
     }
     public UnityTranslationPayload(string? cache = null) => _cache = cache ?? Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GameLibrary", "UnityTranslation", "payload", "5.0.0-0.1.14");
 
     public async Task<byte[]> EndpointAsync(CancellationToken ct) => await Download("DeepSeekTranslate.dll", DeepSeekUrl, DeepSeekSha256, ct);
+
+    public async Task<byte[]> FontAsync(string generation, CancellationToken ct)
+    {
+        var hash = generation switch
+        {
+            "2018" => "9A799D1B41508B0D840FC80EC20DEFCDBE4904ABDD7B271215DB711C071BD0EC",
+            "2019" => "97615AA0A55AB584059D4849D3563347CBB975C0231B77A7E650B385EC3C7D94",
+            "2020" => "4CD9190B54731C6E2247D964EE9965C1EF7FE493C4F6EDAAEF3C18CC5525A2D3",
+            "2021" => "0889F852792100D180A9936986BB82846FACE45DB1483423857684708E29B9F8",
+            "2022" => "0F85774C4C27EAAD1EAD9D72993C8564D103468B679BD4513FB2117C17FED6B4",
+            "2023" => "ECB0F1CF24353C0CD7901F4AB052017C44E56782C3E4065CB6EDDD935709AD64",
+            "6000" => "1A6FE0028BA1B0AFC8B235F2EED515E9F5D30FCBE5376CE9BF826622938AEDC7",
+            _ => throw new InvalidDataException("不支持的 Unity 字库版本")
+        };
+        var bytes = await Download("Moe-fonts-" + generation + ".zip",
+            "https://github.com/sorrowmoil/sorrowmoil-MoeFont-for-XUnity.AutoTranslator/releases/download/Moe/" + generation + ".zip",
+            hash, ct, 128 * 1024 * 1024);
+        return ExtractFont(bytes, generation);
+    }
+
+    internal static byte[] ExtractFont(byte[] bytes, string generation)
+    {
+        using var archive = new ZipArchive(new MemoryStream(bytes), ZipArchiveMode.Read);
+        if (archive.Entries.Count > 32 || archive.Entries.Any(e => e.FullName.Contains('\\') || e.FullName.StartsWith('/')
+            || e.FullName.Contains(':') || e.FullName.Split('/').Any(p => p is "." or "..")
+            || ((e.ExternalAttributes >> 16) & 0xf000) == 0xa000))
+            throw new InvalidDataException("字体固定包包含非法路径");
+        var entries = archive.Entries.Where(e => e.FullName == "xiaolai " + generation).ToArray();
+        if (entries.Length != 1 || entries[0].Length is < 16 or > 48 * 1024 * 1024)
+            throw new InvalidDataException("字体固定包缺少唯一的受支持字库");
+        using var input = entries[0].Open();
+        using var output = new MemoryStream();
+        var block = new byte[65536];
+        int count;
+        while ((count = input.Read(block)) > 0)
+        {
+            if (output.Length + count > 48 * 1024 * 1024) throw new InvalidDataException("字体解压超出大小限制");
+            output.Write(block, 0, count);
+        }
+        var font = output.ToArray();
+        var header = Encoding.ASCII.GetString(font, 0, Math.Min(128, font.Length));
+        if (!header.StartsWith("UnityFS\0", StringComparison.Ordinal) || !header.Contains(generation + ".", StringComparison.Ordinal))
+            throw new InvalidDataException("字体 AssetBundle 格式或 Unity 版本不匹配");
+        return font;
+    }
+
+    internal static byte[] FontNotice()
+    {
+        using var stream = typeof(UnityTranslationPayload).Assembly.GetManifestResourceStream("GameLibrary.Host.Resources.UnityFonts.NOTICE.txt")
+            ?? throw new InvalidDataException("缺少字体许可说明");
+        using var result = new MemoryStream();
+        stream.CopyTo(result);
+        return result.ToArray();
+    }
 
     public async Task<IReadOnlyDictionary<string, byte[]>> Il2CppAsync(string architecture, bool includeLoader, CancellationToken ct)
     {

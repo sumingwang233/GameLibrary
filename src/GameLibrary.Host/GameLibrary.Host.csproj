@@ -20,6 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Resources\UnityFonts\NOTICE.txt" />
     <!-- 集成测试夹具复用 HostRuntime.WirePersistence（与真实宿主同一持久化/事件接线） -->
     <InternalsVisibleTo Include="GameLibrary.IntegrationTests" />
   </ItemGroup>

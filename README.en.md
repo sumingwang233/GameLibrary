@@ -62,7 +62,7 @@ Scanning creates candidates; it does not treat every EXE as a game. You can add 
 <a id="faq"></a>
 ## Data and FAQ
 
-**v1.7.7 prerelease awaiting acceptance** fixes IL2CPP/BepInEx Chinese settings written to the wrong path, which caused Japanese-to-English output, and repairs previously managed installations. [Downloads and notes](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.7) · [Validation record](docs/releases/v1.7.7-validation.md).
+**v1.7.8 prerelease awaiting acceptance** adds Chinese font fallbacks for Unity translation, addresses square missing-glyph output, and upgrades previously managed installations. [Downloads and notes](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.8) · [Validation record](docs/releases/v1.7.8-validation.md).
 
 <details>
 <summary><strong>Does scanning or removing a record delete game files?</strong></summary>

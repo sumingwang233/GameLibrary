@@ -1,5 +1,9 @@
 # GameLibrary 关键流程
 
+## v1.7.8 Unity 字体修复
+
+标签/旧托管安装 → 实际加载器 INI → UnityTranslationFonts 识别版本、保留自定义字体 → 固定哈希 Xiaolai 后备 → 本次事务合并与离线检查。无标签 configured/confirmed 也可迁移；失败仅回滚当前写入。详见 [流程图与边界](../development/v1.7.8-unity-fonts.md)。
+
 ## 宣传页 — 2026-10-02 / 网站 v1.1.0
 
 四语言静态路由 → layout 绘制前应用已有主题偏好 → MarketingPage 输出本地素材和稳定版下载 → Header 的 details 菜单切换语言/主题；Screenshot 用原生 dialog 打开 PNG、Escape 关闭并恢复焦点。首屏和下载区共享安装版目标，预发布为独立入口。构建先生成 WebP，再静态导出并由四语言门禁检查。架构与实际验收见 [website.md](website.md)。
