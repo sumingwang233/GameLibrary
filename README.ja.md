@@ -62,7 +62,7 @@ v1.5.5 の独立したサンプルライブラリで撮影しています。ア�
 <a id="faq"></a>
 ## データとよくある質問
 
-**v1.7.6 検証待ちプレリリース**：モジュール化された Unity Mono ゲームのオフラインパッチの依存解決を修正し、IL2CPP x86/x64 の翻訳プラグイン自動設定、復元、起動確認に対応しました。[ダウンロードと詳細](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.6) · [検証記録](docs/releases/v1.7.6-validation.md)。
+**v1.7.7 検証待ちプレリリース**：IL2CPP/BepInEx の中国語設定の保存先を修正し、日本語が英語に翻訳される問題を解消します。以前に本アプリが設定した環境も自動修復します。[ダウンロードと詳細](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.7) · [検証記録](docs/releases/v1.7.7-validation.md)。
 
 <details>
 <summary><strong>スキャンや一覧からの削除で、ゲームファイルも消えますか？</strong></summary>

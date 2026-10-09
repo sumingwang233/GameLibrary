@@ -100,24 +100,34 @@ public sealed class UnityTranslationService
             if (store is null || _host.MaintenanceMode) return;
             var settings = BindTag(store, Settings(store));
             var game = store.TryGetGame(gameId);
-            if (!settings.Enabled || game is null || !IsActiveUnityGame(game) || !HasTag(store, game, BoundTag(store, settings))) return;
+            if (!settings.Enabled || game is null || !IsActiveUnityGame(game)) return;
             var existing = ReadState(store, gameId);
+            var tagged = HasTag(store, game, BoundTag(store, settings));
+            var ownedConfiguration = existing is { BackupId: not null, State: "configured" or "confirmed" };
+            if (!tagged && !ownedConfiguration) return;
             if (existing?.State is "queued" or "inspecting" or "installing" or "declined") return;
-            if (_host.Launches.GetDefaultProfile(gameId) is { ToolId: null } profile
-                && _host.Roots.Contains(profile.ExecutablePath)
-                && UnityTranslationInspection.IsConfiguredChineseTranslator(UnityTranslationInspection.Inspect(profile.ExecutablePath)))
+            var profile = _host.Launches.GetDefaultProfile(gameId);
+            var layout = profile is { ToolId: null } && _host.Roots.Contains(profile.ExecutablePath)
+                ? UnityTranslationInspection.Inspect(profile.ExecutablePath) : null;
+            // v1.7.6 wrote the Rei config path for BepInEx. Repair only our tracked installations.
+            var repair = ownedConfiguration && layout is { Reason: null, Loader: "bepinex" }
+                && File.Exists(Path.Combine(layout.Root, "AutoTranslator", "Config.ini"))
+                && !UnityTranslationInspection.IsConfiguredChineseTranslator(layout);
+            if (!tagged && !repair) return;
+            if (repair && UnityTranslationInspection.IsRunning(profile!.ExecutablePath)) return;
+            if (layout is not null && UnityTranslationInspection.IsConfiguredChineseTranslator(layout))
             {
                 if (existing?.State == "configured") return; // Keep first-install confirmation until the user reports actual success.
                 CompleteExisting(store, NewState(store, game, settings));
                 return;
             }
-            if (existing?.State == "configured") return;
+            if (existing?.State == "configured" && !repair) return;
             if (!settings.Configured || !Vault(store).HasKey(settings.CredentialId))
             {
                 Save(store, NewState(store, game, settings) with { State = "needs_settings", Reason = "请先配置翻译服务商" });
                 return;
             }
-            Queue(store, [gameId]);
+            Queue(store, [gameId], allowUntaggedRepair: repair && !tagged);
         }
         catch { /* Tag mutation succeeded; automation is retried through the explicit detail operation. */ }
     }
@@ -221,7 +231,8 @@ public sealed class UnityTranslationService
             if (unique.Count != 1) return Ok(request, new { imported = false, sources = sources.Select(SourceDto).ToArray() });
             path = unique[0].Path;
         }
-        if (!Path.IsPathFullyQualified(path) || !Path.GetFileName(path).Equals("Config.ini", StringComparison.OrdinalIgnoreCase))
+        if (!Path.IsPathFullyQualified(path) || !(Path.GetFileName(path).Equals("Config.ini", StringComparison.OrdinalIgnoreCase)
+            || Path.GetFileName(path).Equals("AutoTranslatorConfig.ini", StringComparison.OrdinalIgnoreCase)))
             throw new InvalidDataException("configPath 必须为本机 Config.ini 的绝对路径");
         if (!File.Exists(path)) throw new InvalidDataException("本机翻译配置不存在");
         var ini = UnityTranslationIni.Read(path);
@@ -285,22 +296,27 @@ public sealed class UnityTranslationService
         {
             var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var profile in _host.Launches.ListProfiles(game.GameId))
-                if (Path.GetDirectoryName(profile.ExecutablePath) is { } parent) paths.Add(Path.Combine(parent, "AutoTranslator", "Config.ini"));
+                if (Path.GetDirectoryName(profile.ExecutablePath) is { } parent) AddPaths(parent);
             if (Directory.Exists(game.RootPath))
             {
-                paths.Add(Path.Combine(game.RootPath, "AutoTranslator", "Config.ini"));
+                AddPaths(game.RootPath);
                 if (game.RootPath.EndsWith("_Data", StringComparison.OrdinalIgnoreCase) && Path.GetDirectoryName(game.RootPath) is { } parent)
-                    paths.Add(Path.Combine(parent, "AutoTranslator", "Config.ini"));
+                    AddPaths(parent);
                 try
                 {
                     foreach (var directory in Directory.EnumerateDirectories(game.RootPath).Take(200))
                     {
                         if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0) continue;
                         if (Directory.EnumerateFiles(directory, "*.exe", SearchOption.TopDirectoryOnly).Any())
-                            paths.Add(Path.Combine(directory, "AutoTranslator", "Config.ini"));
+                            AddPaths(directory);
                     }
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            }
+            void AddPaths(string directory)
+            {
+                paths.Add(Path.Combine(directory, "BepInEx", "config", "AutoTranslatorConfig.ini"));
+                paths.Add(Path.Combine(directory, "AutoTranslator", "Config.ini"));
             }
             foreach (var path in paths.Where(path => _host.Roots.Contains(path) && File.Exists(path) && seen.Add(path)))
             {
@@ -381,7 +397,7 @@ public sealed class UnityTranslationService
         }
     }
 
-    private string Queue(SqliteLibraryStore store, IReadOnlyList<string> ids)
+    private string Queue(SqliteLibraryStore store, IReadOnlyList<string> ids, bool allowUntaggedRepair = false)
     {
         var settings = Settings(store);
         var states = ids.Select(id => NewState(store, store.TryGetGame(id)!, settings)).ToArray();
@@ -401,7 +417,7 @@ public sealed class UnityTranslationService
                         context.Token.ThrowIfCancellationRequested();
                         if (!ReferenceEquals(store, _host.Library.Store)) return JobOutcome.Cancelled();
                         context.ReportProgress(new { completed = i, total = states.Length, gameId = states[i].GameId, state = "inspecting" });
-                        await ConfigureOne(store, states[i], context);
+                        await ConfigureOne(store, states[i], context, allowUntaggedRepair);
                     }
                     context.ReportProgress(new { completed = states.Length, total = states.Length, items = states.Select(s => StateDto(ReadState(store, s.GameId) ?? s)).ToArray() });
                     return JobOutcome.Succeeded();
@@ -455,7 +471,7 @@ public sealed class UnityTranslationService
         };
     }
 
-    private async Task ConfigureOne(SqliteLibraryStore store, UnityTranslationState state, JobContext context)
+    private async Task ConfigureOne(SqliteLibraryStore store, UnityTranslationState state, JobContext context, bool allowUntaggedRepair)
     {
         UnityTranslationTransaction? transaction = null;
         try
@@ -467,7 +483,8 @@ public sealed class UnityTranslationService
             if (game is null || !IsActiveUnityGame(game)) { Block("仅支持当前库中的 Unity 游戏"); return; }
             if (!settings.Enabled || BoundTag(store, settings)?.TagId != state.BoundTagId)
             { Block("自动翻译已禁用或标签绑定已改变，保留现有配置"); return; }
-            if (!HasTag(store, game, state.BoundTagId is null ? null : store.TryGetTag(state.BoundTagId))) { Block("游戏未绑定未翻译用户标签"); return; }
+            if (!allowUntaggedRepair && !HasTag(store, game, state.BoundTagId is null ? null : store.TryGetTag(state.BoundTagId)))
+            { Block("游戏未绑定未翻译用户标签"); return; }
             var profile = state.ProfileId is null ? null : _host.Launches.GetProfile(state.ProfileId);
             if (profile is null || profile.ExecutablePath != state.ExecutablePath || profile.GameId != state.GameId)
             { Block("未找到稳定的默认启动配置；请先选择实际游戏 EXE"); return; }
@@ -524,7 +541,7 @@ public sealed class UnityTranslationService
             var currentProfile = _host.Launches.GetDefaultProfile(state.GameId);
             if (!ReferenceEquals(store, _host.Library.Store) || ReadState(store, state.GameId)?.AttemptId != state.AttemptId) return;
             if (currentGame is null || !IsActiveUnityGame(currentGame)
-                || !HasTag(store, currentGame, store.TryGetTag(state.BoundTagId!))
+                || !allowUntaggedRepair && !HasTag(store, currentGame, store.TryGetTag(state.BoundTagId!))
                 || currentProfile != profile || Settings(store) != settings)
             { Block("游戏、标签或启动配置在准备期间已改变，取消安装"); return; }
             if (FileHash(layout.Config) != originalConfigHash || FileHash(layout.Bootstrap) != originalBootstrapHash)
@@ -541,7 +558,8 @@ public sealed class UnityTranslationService
             await _payload.VerifyEndpointAsync(layout, context.Token);
             var expectedLoader = layout.Runtime == "il2cpp" ? "bepinex" : layout.Loader == "none" ? "rei" : layout.Loader;
             var installed = UnityTranslationInspection.Inspect(profile.ExecutablePath);
-            if (installed.Reason is not null || installed.Loader != expectedLoader || installed.Runtime != layout.Runtime)
+            if (installed.Reason is not null || installed.Loader != expectedLoader || installed.Runtime != layout.Runtime
+                || !UnityTranslationInspection.IsConfiguredChineseTranslator(installed))
                 throw new InvalidDataException("加载器离线验证失败");
             transaction.Commit();
             Save(store, state with { State = "configured", Reason = layout.Runtime == "il2cpp"

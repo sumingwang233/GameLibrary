@@ -25,7 +25,7 @@ internal sealed class UnityTranslationPayload
     private static HttpClient CreateClient()
     {
         var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("GameLibrary/1.7.6");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("GameLibrary/1.7.7");
         return client;
     }
     public UnityTranslationPayload(string? cache = null) => _cache = cache ?? Path.Combine(

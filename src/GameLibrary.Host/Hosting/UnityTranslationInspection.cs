@@ -33,6 +33,7 @@ internal static class UnityTranslationInspection
         var architecture = ReadArchitecture(executable);
         if (runtime == "il2cpp")
         {
+            config = Path.Combine(directory, "BepInEx", "config", "AutoTranslatorConfig.ini");
             core = Path.Combine(directory, "BepInEx", "plugins", "XUnity.AutoTranslator", "XUnity.AutoTranslator.Plugin.Core.dll");
             translators = Path.Combine(Path.GetDirectoryName(core)!, "Translators");
         }
@@ -71,6 +72,8 @@ internal static class UnityTranslationInspection
         if (active && rei) return Result("conflict", "Rei 与 Doorstop 同时启用，需要人工确认加载器");
         if (active)
         {
+            config = Path.Combine(directory, "BepInEx", "config", "AutoTranslatorConfig.ini");
+            RejectReparse(root, config);
             var ini = UnityTranslationIni.Read(doorstop);
             var target = ini.Get("UnityDoorstop", "targetAssembly") ?? ini.Get("General", "target_assembly");
             if (string.IsNullOrWhiteSpace(target) || !target.Replace('\\', '/').StartsWith("BepInEx/core/", StringComparison.OrdinalIgnoreCase))

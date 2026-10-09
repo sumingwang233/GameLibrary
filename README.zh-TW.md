@@ -62,7 +62,7 @@ Get-FileHash .\GameLibrary-Setup-v1.7.5.exe -Algorithm SHA256
 <a id="faq"></a>
 ## 資料與常見問題
 
-**v1.7.6 待驗收預發布**：修復模組化 Unity Mono 遊戲的離線修補相依性解析，新增 IL2CPP x86/x64 翻譯外掛自動設定、還原及啟動確認。[下載與說明](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.6) · [驗證記錄](docs/releases/v1.7.6-validation.md)。
+**v1.7.7 待驗收預發布**：修復 IL2CPP/BepInEx 中文設定寫入錯誤位置、導致日語譯成英語的問題，支援舊託管安裝自動修復。[下載與說明](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.7) · [驗證記錄](docs/releases/v1.7.7-validation.md)。
 
 <details>
 <summary><strong>掃描或移出遊戲庫會刪除遊戲檔案嗎？</strong></summary>

@@ -161,11 +161,13 @@ public sealed class UnityTranslationTests
         Assert.Equal("player-save", File.ReadAllText(save));
     }
 
-    [Fact]
-    public async Task Settings_ImportReturnsMetadataOnly_PreservesModel_RejectsCrossOriginKeyReuse()
+    [Theory]
+    [InlineData("Config.ini")]
+    [InlineData("AutoTranslatorConfig.ini")]
+    public async Task Settings_ImportReturnsMetadataOnly_PreservesModel_RejectsCrossOriginKeyReuse(string fileName)
     {
         await using var fixture = await Fixture.Create();
-        var config = Path.Combine(fixture.DirectoryPath, "Config.ini");
+        var config = Path.Combine(fixture.DirectoryPath, fileName);
         File.WriteAllText(config, "[DeepSeek]\nEndpoint=https://api.deepseek.com/chat/completions\nModel=legacy-model\nApiKey=" + fixture.Key);
         var imported = fixture.Invoke("settings.import", new { configPath = config });
         Assert.True(imported.Ok, imported.Error?.Message);
@@ -619,6 +621,8 @@ public sealed class UnityTranslationTests
         Assert.Equal("il2cpp", layout.Runtime);
         Assert.Equal(architecture, layout.Architecture);
         Assert.Equal("none", layout.Loader);
+        var configPath = Path.Combine(game.RootPath, "BepInEx", "config", "AutoTranslatorConfig.ini");
+        Assert.Equal(configPath, layout.Config); // XUnity v5.6.2 BepInEx plugin's actual preferences path.
         Assert.True(fixture.Invoke("settings.set", new { apiKey = fixture.Key }).Ok);
         await fixture.Host.Jobs.WaitForIdleAsync();
         var state = fixture.ReadState(game.GameId)!;
@@ -626,7 +630,19 @@ public sealed class UnityTranslationTests
         var installed = UnityTranslationInspection.Inspect(exe);
         Assert.Null(installed.Reason);
         Assert.Equal("bepinex", installed.Loader);
+        var ini = UnityTranslationIni.Read(configPath);
+        Assert.Equal("zh", ini.Get("General", "Language"));
+        Assert.Equal("auto", ini.Get("General", "FromLanguage"));
+        Assert.Equal("DeepSeekTranslate", ini.Get("Service", "Endpoint"));
+        Assert.False(File.Exists(Path.Combine(game.RootPath, "AutoTranslator", "Config.ini")));
         Assert.True(UnityTranslationInspection.IsConfiguredChineseTranslator(installed));
+        var chinese = File.ReadAllText(configPath);
+        Directory.CreateDirectory(Path.Combine(game.RootPath, "AutoTranslator"));
+        File.WriteAllText(Path.Combine(game.RootPath, "AutoTranslator", "Config.ini"), chinese);
+        File.WriteAllText(configPath, "[General]\nLanguage=en\nFromLanguage=ja\n");
+        Assert.False(UnityTranslationInspection.IsConfiguredChineseTranslator(UnityTranslationInspection.Inspect(exe)));
+        File.WriteAllText(configPath, chinese);
+        File.Delete(Path.Combine(game.RootPath, "AutoTranslator", "Config.ini"));
         var profile = fixture.Host.Launches.GetDefaultProfile(game.GameId)!;
         var route = TranslationLaunchRouteResolver.Resolve(game with { TranslationInherited = true }, profile);
         Assert.True(route.SatisfiedByEmbeddedPlugin, route.UnavailableReason);
@@ -638,10 +654,76 @@ public sealed class UnityTranslationTests
         Assert.True(fixture.Invoke("restore", new { gameId = game.GameId }).Ok);
         Assert.False(File.Exists(Path.Combine(game.RootPath, "winhttp.dll")));
         Assert.False(File.Exists(Path.Combine(game.RootPath, "AutoTranslator", "Config.ini")));
+        Assert.False(File.Exists(configPath));
         Assert.Equal("none", UnityTranslationInspection.Inspect(exe).Loader);
         Assert.True(fixture.Invoke("configure", new { gameIds = new[] { game.GameId } }).Ok);
         await fixture.Host.Jobs.WaitForIdleAsync();
         Assert.True(fixture.ReadState(game.GameId)?.State == "configured", fixture.ReadState(game.GameId)?.Reason);
+    }
+
+    [Theory]
+    [InlineData("confirmed", false)]
+    [InlineData("configured", true)]
+    [InlineData("declined", true)]
+    [InlineData("unowned", false)]
+    public async Task Startup_RepairsOwnedLegacyBepInExConfig_WithoutTagOrTouchingEnglishCache(string previousState, bool tagged)
+    {
+        await using var fixture = await Fixture.Create();
+        Assert.True(fixture.Invoke("settings.set", new { apiKey = fixture.Key }).Ok);
+        var game = fixture.AddGame("legacy-il2cpp");
+        var native = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32", "kernel32.dll");
+        var exe = Path.Combine(game.RootPath, "Game.exe");
+        File.Copy(native, exe);
+        File.Copy(native, Path.Combine(game.RootPath, "GameAssembly.dll"));
+        Directory.CreateDirectory(Path.Combine(game.RootPath, "Game_Data", "il2cpp_data"));
+        var profile = fixture.Host.Launches.AddProfile(game.GameId, exe, [], game.RootPath, isDefault: true);
+        var payload = new UnityTranslationPayload();
+        var backupId = Guid.NewGuid().ToString("N");
+        var vault = new UnityTranslationVault(Path.GetFullPath(fixture.Host.DataDirectory).ToUpperInvariant(), fixture.VaultBase);
+        var transaction = new UnityTranslationTransaction(vault, backupId, game.RootPath);
+        foreach (var pair in await payload.Il2CppAsync("x64", includeLoader: true, CancellationToken.None))
+            transaction.Write(Path.Combine(game.RootPath, pair.Key), pair.Value);
+        var layout = UnityTranslationInspection.Inspect(exe);
+        transaction.Write(Path.Combine(layout.Translators, "DeepSeekTranslate.dll"), await payload.EndpointAsync(CancellationToken.None));
+        var legacy = Path.Combine(game.RootPath, "AutoTranslator", "Config.ini");
+        transaction.Write(legacy, new UnityTranslationIni("").Configure(new(), fixture.Key));
+        transaction.Commit();
+        var english = "[General]\nLanguage=en\nFromLanguage=ja\n[OtherMod]\nValue=keep\n";
+        Directory.CreateDirectory(Path.GetDirectoryName(layout.Config)!);
+        File.WriteAllText(layout.Config, english); // Generated by the real BepInEx plugin on its first launch.
+        var cache = Path.Combine(game.RootPath, "BepInEx", "Translation", "en", "Text", "_AutoGeneratedTranslations.txt");
+        Directory.CreateDirectory(Path.GetDirectoryName(cache)!);
+        File.WriteAllText(cache, "original=English cached translation");
+        if (!tagged) fixture.Store.UnassignTag(game.GameId, fixture.TagId);
+        if (previousState != "unowned") fixture.WriteState(new()
+        {
+            GameId = game.GameId, Title = game.Title, AttemptId = "legacy", DataEpoch = fixture.Store.Info.DataEpoch,
+            State = previousState, BackupId = backupId, InstallRoot = game.RootPath, BoundTagId = fixture.TagId,
+            ProfileId = profile.ProfileId, ExecutablePath = exe
+        });
+        fixture.Service.Start();
+        await fixture.Host.Jobs.WaitForIdleAsync();
+        if (previousState is "declined" or "unowned")
+        {
+            Assert.Equal(english, File.ReadAllText(layout.Config));
+            return;
+        }
+        var repaired = fixture.ReadState(game.GameId)!;
+        Assert.True(repaired.State == "configured", repaired.Reason);
+        Assert.Equal(backupId, repaired.BackupId);
+        Assert.Equal("zh", UnityTranslationIni.Read(layout.Config).Get("General", "Language"));
+        Assert.Equal("keep", UnityTranslationIni.Read(layout.Config).Get("OtherMod", "Value"));
+        Assert.Equal("original=English cached translation", File.ReadAllText(cache));
+        Assert.Empty(fixture.Host.Launches.History());
+        fixture.RestartService();
+        fixture.Service.Start();
+        await fixture.Host.Jobs.WaitForIdleAsync();
+        Assert.Equal(repaired.AttemptId, fixture.ReadState(game.GameId)?.AttemptId);
+        Assert.DoesNotContain(fixture.Key, fixture.PersistedSettings());
+        Assert.True(fixture.Invoke("restore", new { gameId = game.GameId }).Ok);
+        Assert.Equal(english, File.ReadAllText(layout.Config));
+        Assert.False(File.Exists(legacy));
+        Assert.Equal("original=English cached translation", File.ReadAllText(cache));
     }
 
     [Theory]

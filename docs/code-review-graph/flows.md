@@ -38,7 +38,9 @@ flowchart TD
 
 不完整目录拒绝确认；普通取消忽略保留原 observed 流程，不提前晋升。确认项目/资源时完整子树 inventory 用于下次规则匹配，默认直属合集不会移除独立子项目。审核一次预载游戏/候选 lookup，重新接受已移除入口用 SQL 查找并复用 ID。运行依赖/安装器分支早期硬排除；data/swf/f/s/m 不因名称被排除。
 
-## Unity 翻译插件 — v1.7.6 待验收预发布
+## Unity 翻译插件 — v1.7.7 待验收预发布
+
+v1.7.7 按加载器选取实际配置：Rei 使用根 AutoTranslator/Config.ini；BepInEx Mono/IL2CPP 使用 EXE 目录 BepInEx/config/AutoTranslatorConfig.ini。导入、安装与启动检查共用布局，安装后检查实际中文端点。旧 configured/confirmed 托管安装存在错误 Rei 配置时启动自动修复，即使标签已移除；无标签放宽仅用于该修复队列，declined 和未托管安装不变。原文件加密备份与英文缓存保留。
 
 ```mermaid
 flowchart TD
