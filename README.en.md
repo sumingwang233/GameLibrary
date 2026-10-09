@@ -62,6 +62,8 @@ Scanning creates candidates; it does not treat every EXE as a game. You can add 
 <a id="faq"></a>
 ## Data and FAQ
 
+**v1.7.6 prerelease awaiting acceptance** fixes offline patch dependency resolution for modular Unity Mono games and adds IL2CPP x86/x64 translation setup, restore and launch confirmation. [Downloads and notes](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.6) · [Validation record](docs/releases/v1.7.6-validation.md).
+
 <details>
 <summary><strong>Does scanning or removing a record delete game files?</strong></summary>
 
