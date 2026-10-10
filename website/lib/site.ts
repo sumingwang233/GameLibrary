@@ -15,8 +15,8 @@ export function metadata(language: Language): Metadata {
   const origin = "https://sumingwang233.github.io/GameLibrary/";
   const t = translate(language);
   return {
-    title: t("GameLibrary — 你的游戏，值得好好收藏", "GameLibrary — 你的遊戲，值得好好收藏", "GameLibrary — Your games, thoughtfully collected", "GameLibrary — あなたのゲームを、大切なコレクションに"),
-    description: t("扫描、审核、整理并启动硬盘里的游戏。无需账号，游戏文件留在原处。", "掃描、審核、整理並啟動硬碟裡的遊戲。無需帳號，遊戲檔案留在原處。", "Scan, review, organize and launch the games on your drives. No account required. Your files stay in place.", "フォルダーをスキャンし、確認・整理してゲームを起動。アカウント不要。ゲームのファイルは元の場所に残ります。"),
+    title: t("GameLibrary — 在一个地方管理本地游戏", "GameLibrary — 在一個地方管理本機遊戲", "GameLibrary — Your local games in one library", "GameLibrary — ローカルゲームをひとつのライブラリで管理"),
+    description: t("添加游戏目录，扫描后确认入库。用标签分类，从游戏库直接启动。无需账号，原文件留在原处。", "新增遊戲目錄，掃描後確認入庫。用標籤分類，從遊戲庫直接啟動。無需帳號，原始檔案留在原處。", "Scan your game folders, review the results, organize with tags and launch from one library. No account required. Files stay in place.", "ゲームフォルダーをスキャンし、確認して登録。タグで整理してライブラリから起動。アカウント不要で、ファイルは元の場所に残ります。"),
     alternates: {
       canonical: origin + (language === "zh-CN" ? "" : `${language}/`),
       languages: { ...Object.fromEntries(languages.map(locale => [locale, origin + (locale === "zh-CN" ? "" : `${locale}/`)])), "x-default": origin },

@@ -23,16 +23,14 @@ export function Header({ language }: { language: Language }) {
   const menu = useRef<HTMLDetailsElement>(null);
   const themeMenu = useRef<HTMLDetailsElement>(null);
   const [expanded, setExpanded] = useState(false);
-  const [theme, setTheme] = useState<Theme>("light");
+  const [theme, setTheme] = useState<Theme>("dark");
   const [themeExpanded, setThemeExpanded] = useState(false);
   const themeLabels = { dark: t("深色", "深色", "Dark", "ダーク"), light: t("浅色", "淺色", "Light", "ライト"), system: t("跟随系统", "跟隨系統", "System", "システム") };
   const sections = [
-    ["experience", t("体验", "體驗", "Experience", "使い方")],
-    ["collection", t("收藏", "收藏", "Collection", "コレクション")],
-    ["launch", t("启动", "啟動", "Launch", "起動")],
-    ["safety", t("本地数据", "本機資料", "Local data", "ローカルデータ")],
+    ["experience", t("如何使用", "如何使用", "How it works", "使い方")],
+    ["collection", t("整理游戏", "整理遊戲", "Your library", "ゲームの整理")],
+    ["questions", t("常见问题", "常見問題", "FAQ", "よくある質問")],
     ["download", t("下载", "下載", "Download", "ダウンロード")],
-    ["questions", "FAQ"],
   ];
 
   useEffect(() => {
@@ -113,7 +111,7 @@ export function LocalTooltip({ language }: { language: Language }) {
   const [visible, setVisible] = useState(false);
   const t = translate(language);
   return <span className="tooltip-wrap" onMouseEnter={() => setVisible(true)} onMouseLeave={event => { if (!event.currentTarget.contains(document.activeElement)) setVisible(false); }}>
-    <button className="tooltip-trigger" aria-describedby={visible ? id : undefined} onFocus={() => setVisible(true)} onBlur={() => setVisible(false)} onClick={() => setVisible(true)} onKeyDown={event => { if (event.key === "Escape") { setVisible(false); event.stopPropagation(); } }}>{t("本地收藏，无需账号", "本機收藏，無需帳號", "Local collection. No account.", "ローカル管理・登録不要")}<Icon kind="info" /></button>
+    <button className="tooltip-trigger" aria-describedby={visible ? id : undefined} onFocus={() => setVisible(true)} onBlur={() => setVisible(false)} onClick={() => setVisible(true)} onKeyDown={event => { if (event.key === "Escape") { setVisible(false); event.stopPropagation(); } }}>{t("无需账号", "無需帳號", "No account required", "アカウント不要")}<Icon kind="info" /></button>
     <span id={id} role="tooltip" className={glass("tooltip")} hidden={!visible}>{t("游戏库数据保存在本机，管理游戏无需注册账号。", "遊戲庫資料儲存在本機，管理遊戲無需註冊帳號。", "Library data is saved on this PC. No account is required to manage your games.", "ゲームの登録情報はこの PC に保存されます。管理にアカウントは不要です。")}</span>
   </span>;
 }
@@ -126,7 +124,7 @@ export function Screenshot({ name, alt, caption, language, priority = false }: {
   return <>
     <figure className={glass(priority ? "screenshot hero-image" : "screenshot secondary-image")}>
       <button className="screenshot-button" aria-label={`${t("放大查看", "放大檢視", "Enlarge", "拡大表示")}: ${caption}`} disabled={failed} onClick={() => modal.current?.showModal()}>
-        {failed ? <span className="image-error" role="status">{t("截图加载失败，请稍后刷新。", "截圖載入失敗，請稍後重新整理。", "Screenshot could not load. Please refresh later.", "画像を読み込めませんでした。後で再読み込みしてください。")}</span> : <img src={asset(name.replace(".png", "-1320.webp"))} srcSet={[440, 880, 1320].map(size => `${asset(name.replace(".png", `-${size}.webp`))} ${size}w`).join(", ")} sizes={priority ? "(max-width: 760px) calc(100vw - 32px), (max-width: 1080px) 55vw, 780px" : "(max-width: 760px) calc(100vw - 32px), (max-width: 1080px) 52vw, 680px"} width="1320" height="820" loading={priority ? "eager" : "lazy"} fetchPriority={priority ? "high" : undefined} decoding="async" alt={alt} onError={() => setFailed(true)} />}
+        {failed ? <span className="image-error" role="status">{t("截图加载失败，请稍后刷新。", "截圖載入失敗，請稍後重新整理。", "Screenshot could not load. Please refresh later.", "画像を読み込めませんでした。後で再読み込みしてください。")}</span> : <img src={asset(name.replace(".png", "-1320.webp"))} srcSet={[440, 880, 1320].map(size => `${asset(name.replace(".png", `-${size}.webp`))} ${size}w`).join(", ")} sizes={priority ? "(max-width: 640px) calc(100vw - 40px), (max-width: 1080px) calc(100vw - 64px), (max-width: 1176px) calc(100vw - 96px), 1080px" : "(max-width: 640px) calc(100vw - 40px), (max-width: 900px) calc(100vw - 64px), (max-width: 1080px) 53vw, 720px"} width="1320" height="820" loading={priority ? "eager" : "lazy"} fetchPriority={priority ? "high" : undefined} decoding="async" alt={alt} onError={() => setFailed(true)} />}
         <span className={glass("expand-hint")} aria-hidden="true"><Icon kind="expand" /></span>
       </button>
       <figcaption><span>{caption}</span><span className="caption-action" aria-hidden="true">{t("查看大图", "檢視大圖", "Enlarge image", "画像を拡大")} ↗</span></figcaption>

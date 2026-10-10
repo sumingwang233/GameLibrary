@@ -13,9 +13,9 @@ async function getLanguage(params: Params) {
 export const dynamicParams = false;
 export const generateStaticParams = () => [{ locale: "zh-TW" }, { locale: "ja" }];
 export const generateMetadata = async ({ params }: { params: Params }) => metadata(await getLanguage(params));
-export const viewport = { themeColor: "#f4faff", colorScheme: "light dark" };
+export const viewport = { themeColor: "#111214", colorScheme: "light dark" };
 
 export default async function Layout({ children, params }: { children: ReactNode; params: Params }) {
   const language = await getLanguage(params);
-  return <html lang={language} suppressHydrationWarning><head><script id="theme-init" dangerouslySetInnerHTML={{ __html: themeBootstrap }} /></head><body>{children}</body></html>;
+  return <html lang={language} className="dark" suppressHydrationWarning><head><script id="theme-init" dangerouslySetInnerHTML={{ __html: themeBootstrap }} /></head><body>{children}</body></html>;
 }

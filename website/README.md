@@ -1,12 +1,12 @@
 # GameLibrary 宣传网站
 
-网站 v1.1.0 按 `FrontEnd_Design/gamelibrary_1`、`gamelibrary_2` 的原型重构；[DESIGN.md](DESIGN.md) 保留产品事实与设计约定。[实施及验收记录](../docs/code-review-graph/website.md) 包含源码审计、架构图、文件清单、迁移与回滚方法。
+网站 v1.2.0 参考 [Agent.Space](https://agent.space/) 的深色排版、灰白大标题、章节留白和简洁导航重构。文案改为具体操作说明，保留真实应用 logo 和实机图。[DESIGN.md](DESIGN.md) 记录当前设计约定，[实施记录](../docs/code-review-graph/website.md) 包含源码审计、架构图、文件范围及回滚方法。
 
 网站使用现有 Next.js 16 / React 19 / Tailwind 4，导出为静态文件，不需要 Node.js 服务。支持简体中文 `/`、繁體中文 `/zh-TW/`、English `/en/` 和日本語 `/ja/`；正式路径统一带 `/GameLibrary` 前缀。
 
 ## 检查与预览
 
-从仓库根目录运行，使用 Node.js 24 和可用的 Python 3：
+以下命令供明确要求检查或预览时使用；不表示本次均已执行。从仓库根目录运行，使用 Node.js 24 和可用的 Python 3：
 
 ```powershell
 npm --prefix website ci
@@ -22,8 +22,8 @@ npm --prefix website run dev
 
 ## 外观与交互
 
-- 浅蓝页面、青绿强调色、不透明表面，保持原型的非对称首屏和区块顺序。
-- 新访客默认浅色；已有浅色、深色或跟随系统偏好继续保留。使用原有 localStorage 键，首次绘制与选择器共享逻辑。
+- 灰白层级、居中首屏、下方完整实机图；功能区改为标题与分隔列表，下载区保留主要安装入口。
+- 新访客默认深色；已有浅色、深色或跟随系统偏好继续保留。使用原有 localStorage 键，首次绘制与选择器共享逻辑。
 - `GlassControls.tsx` 与 `glass()` 保留现有文件和调用名；实际样式已改为 `surface`，不使用玻璃模糊或背景光球。
 - 语言/主题菜单使用原生 `details`；截图与手机导航复用原生 `dialog`。支持 Escape、焦点恢复、滚动锁定；FAQ 支持键盘展开。
 - 使用本机字体，不加载远程字体、分析脚本或图片。设置 `prefers-reduced-motion` 时取消移动与平滑滚动。
@@ -34,9 +34,13 @@ npm --prefix website run dev
 
 `library.png` 和 `tags.png` 是仓库已有的真实应用截图：v1.5.5、简体中文、隔离示例库、默认封面。来源依据是[主 README 的截图说明](../README.md)。网页逐图说明版本、界面语言和示例数据性质；截图保留原来的标题栏图标，不修改图片冒充新版软件。点击查看原始 1320×820 PNG，图片加载失败显示明确说明。
 
-扫描区是明确标注的流程示意。原型只要求游戏库和标签管理两处图片，这两处已换为实机图；缺少对应版本的审核/启动截图时，使用准确的文字说明。
+扫描区使用三步操作说明；游戏库和标签管理使用真实截图。缺少对应版本的审核/启动截图时，用准确文字说明，不生成示意软件窗口。
 
-主下载与首屏能力对应公开稳定版 v1.5.5；v1.7.3 单独标为“预发布 · 待验收”。稳定版链接来自[公开 Release](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.5.5)。Windows 程序未签名，下载区提供 SHA-256 清单。四种网页语言不代表稳定版桌面包支持四种界面语言。
+本次沿用现有 `lib/site.ts` 的下载版本 v1.7.5，保留[该版本](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.5)经维护者明确豁免验收后正式发布的说明：仅完成生产编译，测试、独立检查和人工验收均未执行。Windows 程序未签名，提供 SHA-256 清单；两张截图仍明确标注 v1.5.5。网站重构不更新产品版本或发布状态，四种网页语言也不代表桌面包支持四种界面语言。
+
+## 本次交付 — 2026-10-10
+
+已重排页面、重写四语言正文及搜索摘要、同步主题默认值和响应式图片宽度。TypeScript 类型检查与两项既有主题测试通过；未运行生产构建、静态门禁或浏览器验收。参考站的 HTML 和样式已读取，浏览器画面读取超时。下方记录仅对应历史 v1.1.0。
 
 ## 验证 — 2026-10-02
 
@@ -48,4 +52,4 @@ npm --prefix website run dev
 
 ## 发布
 
-`.github/workflows/website.yml` 沿用原有检查及 Pages 发布流程。推送、启用 Pages、部署与产品 Release 均需明确授权；本次只提交本地网站代码。产品版本仍由 `Directory.Build.props` 管理，网站版本独立为 1.1.0。
+`.github/workflows/website.yml` 沿用原有检查及 Pages 发布流程。推送、启用 Pages、部署与产品 Release 均需明确授权；本次只提交本地网站代码。产品版本仍由 `Directory.Build.props` 管理，网站版本独立为 1.2.0。
