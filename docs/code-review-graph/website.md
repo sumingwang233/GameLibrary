@@ -30,9 +30,17 @@ flowchart LR
 |---|---|
 | 既有主题测试 | passed，2 项；覆盖默认深色、保存的浅色/深色、跟随系统、无效值及存储不可用 |
 | TypeScript 类型检查 | passed |
-| 生产构建、静态门禁 | not-run |
+| 生产构建 | passed；本地 Next.js 成功导出四语言，GitHub Actions 构建也通过 |
+| 静态门禁与负例自检 | passed；由现有 GitHub Actions Website 流程执行 |
+| 本地静态预览 | running；`http://127.0.0.1:4174/GameLibrary/`，四语言、logo 和两张 WebP 返回 HTTP 200 |
 | 本地网页浏览器、响应式与视觉验收 | not-run；没有沿用历史浏览器结果 |
-| 推送、部署、桌面构建或产品发布 | not-run |
+| GitHub 同步与 Pages 部署 | passed；网页源码 `04c6ac3` 已推送，手动发布流程成功 |
+| 线上页面与样式 | passed；四语言页面 HTTP 200，新版标题、默认深色及新样式已核对 |
+| 桌面构建或产品发布 | not-run；本次仅发布宣传网站 |
+
+后续执行依据：用户明确要求将网页同步 GitHub 并构建运行，随后确认“同时发布线上官网”。推送触发的 [Website 检查](https://github.com/sumingwang233/GameLibrary/actions/runs/38014209124)成功；带 `publish=true` 的[手动发布](https://github.com/sumingwang233/GameLibrary/actions/runs/38014369936)完成 check 与 deploy 两个 job。[线上官网](https://sumingwang233.github.io/GameLibrary/)已返回本次四语言正文；未更改 workflow 的独立部署授权条件。
+
+本地使用 Python 标准库提供生产静态文件，`artifacts/website-preview/GameLibrary` 是指向 `website/out` 的目录联接，保留正式路径前缀。仅绑定 127.0.0.1，不修改系统设置，不提交构建产物、示例原型或其他未跟踪文件。
 
 Node 执行主题测试时报告既有 TypeScript 文件的模块类型推断警告；两项用例均通过，未为消除提示扩展 package 模块配置。真实 logo、PNG 和图像生成脚本未变更。
 
