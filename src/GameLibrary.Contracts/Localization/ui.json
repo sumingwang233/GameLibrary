@@ -116,8 +116,7 @@
   "请在启动方式中选择一个建议入口试运行": ["請在啟動方式中選擇一個建議入口試執行", "Choose a suggested entry in launch profiles to try it", "起動設定で推奨エントリーを選んで試してください"],
   "识别启动方式失败": ["識別啟動方式失敗", "Launch discovery failed", "起動方法の検出に失敗しました"],
   "识别仍在后台进行，请稍后重试": ["識別仍在背景進行，請稍後重試", "Discovery is still running; try again shortly", "バックグラウンドで検出中です。しばらくしてから再試行してください"],
-  "建议入口持续运行30秒后自动验证；明确失败的入口会废弃，其他情况保留待确认。": ["建議入口持續執行30秒後自動驗證；明確失敗的入口會廢棄，其他情況保留待確認。", "Suggested entries are verified after running for 30 seconds. Clear failures are discarded; uncertain outcomes remain pending.", "推奨エントリーは30秒間の実行後に検証されます。明確な失敗は廃棄され、不確かな結果は確認待ちとなります。"],
-  "识别建议启动方式": ["識別建議啟動方式", "Discover launch suggestions", "推奨起動方法を検出"],
+  "自动识别启动方式": ["自動識別啟動方式", "Automatically detect launch methods", "起動方法を自動検出"],
   "试运行验证中": ["試執行驗證中", "Verifying trial run", "試行を検証中"],
   "已验证": ["已驗證", "Verified", "検証済み"],
   "已废弃": ["已廢棄", "Discarded", "廃棄済み"],
@@ -125,8 +124,6 @@
   "恢复入口": ["恢復入口", "Restore entry", "エントリーを復元"],
   "中文入口名称": ["中文入口名稱", "Chinese entry name", "中国語のエントリー名"],
   "与原版入口配对": ["與原版入口配對", "Paired with original entry", "元のエントリーと対応"],
-  "目录中唯一游戏入口": ["目錄中唯一遊戲入口", "Only game entry in directory", "フォルダー内の唯一のゲームエントリー"],
-  "引擎目录证据": ["引擎目錄證據", "Engine directory evidence", "エンジンフォルダーの証拠"],
   "语言": [
     "語言",
     "Language",

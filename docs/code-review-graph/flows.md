@@ -1,5 +1,9 @@
 # GameLibrary 关键流程
 
+## v1.7.11 加载器与字体兼容
+
+标签/显式重试/已托管安装启动修复 → Inspect 实际程序集与活动加载器 → Unity 6 固定 Interop 的已验证 xref 修正、完整 BepInEx 下撤销 Rei 的唯一启动调用、现代 Mono TMP 按官方固定包升级并使用系统中文字体 → 原有事务备份/预检/写入/离线检查 → 等待实际游戏确认。失败只回滚当前写入；恢复保留收据与非活动运行缓存，再次安装重新捕获原始状态。未知模组、链接、部分加载器不自动覆盖。用户拒绝确认后继续保留手动重试，未进行真实游戏启动/API 调用。见 [实施记录](../development/v1.7.11-loader-compatibility-plan.md)。
+
 ## v1.7.10 Mono 字体与详情标签
 
 详情标签拖放/下拉 → useTagActions.updateTag → tags.update 修订号校验 → refreshMeta；不调用 assign/unassign。Unity 队列检查中文插件的 NeedsRepair，Mono 设置受管 TMP 主字体，IL2CPP 保留后备项，然后沿既有备份写入事务；无需字体修复才提前确认。用户未确认具体游戏，实际画面仍待验收，见 [实施记录](../development/v1.7.10-mono-fonts-and-tags.md)。

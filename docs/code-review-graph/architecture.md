@@ -1,5 +1,7 @@
 # GameLibrary 架构预览
 
+v1.7.11：Unity 自动配置仍由 `UnityTranslationService` 串行协调；`UnityTranslationInspection` 核对活动加载器与非活动生成物，`UnityTranslationAssembly` 通过 .NET metadata 对受限的已核验 IL 做等长变更，`UnityTranslationFonts` 按真实 TMP 接口选择系统字体或既有字库。复用原有固定哈希 Payload 与加密文件事务，`RestoredBackupId`/恢复收据留在本机既有状态/备份边界，不新增表或 IPC。恢复保留缓存、安装拒绝未知文件，与原游戏文件修改、用户确认和密钥边界保持一致。详见 [实施记录](../development/v1.7.11-loader-compatibility-plan.md)。
+
 ## 宣传网站 — 2026-10-02 / 网站 v1.1.0
 
 独立 Next.js 静态站沿用服务端 `MarketingPage` 与客户端 `GlassControls`；新增繁中/日文静态路径，四语言共用版本、素材与 metadata。页面主题和浮层使用浏览器本地状态，不涉及 Host、SQLite 游戏库或桌面 IPC。真实 logo/截图、组件和路由图、验证及回滚见 [网站实施记录](website.md)。

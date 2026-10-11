@@ -160,6 +160,16 @@ it("starts the explicitly selected suggestion without making it a default", asyn
   expect(operation.mock.calls.some(call => call[0] === "profiles.set_default")).toBe(false);
 });
 
+it("uses the automatic detection label and hides redundant launch evidence", async () => {
+  respond([{ ...profiles()[0], suggestionReasons: ["engine-evidence", "single-entry", "chinese-name"] }]);
+  render(<DetailSheet game={game} tags={[]} onClose={vi.fn()} onPlay={vi.fn()} onChanged={vi.fn()} initialTab="launch" supportsSuggestions />);
+  expect(await screen.findByRole("button", { name: "自动识别启动方式" })).toBeEnabled();
+  expect(await screen.findByText("中文入口名称")).toBeInTheDocument();
+  expect(screen.queryByText(/建议入口持续运行30秒/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/引擎目录证据|目录中唯一游戏入口/)).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "识别建议启动方式" })).not.toBeInTheDocument();
+});
+
 it("restores a discarded entry with the current revision", async () => {
   respond(profiles("discarded"));
   render(<DetailSheet game={game} tags={[]} onClose={vi.fn()} onPlay={vi.fn()} onChanged={vi.fn()} initialTab="launch" supportsSuggestions />);

@@ -6,7 +6,7 @@ namespace GameLibrary.Host.Hosting;
 
 internal sealed record UnityTranslationLayout(string ExecutablePath, string Root, string Data, string Managed,
     string Bootstrap, string Loader, string Core, string Translators, string Config, string? Reason = null,
-    string Runtime = "mono", string? Architecture = null);
+    string Runtime = "mono", string? Architecture = null, bool ReiConflict = false);
 
 /// <summary>Inspect actual launch EXE and managed assembly metadata; a BepInEx directory alone is not an active loader.</summary>
 internal static class UnityTranslationInspection
@@ -69,7 +69,6 @@ internal static class UnityTranslationInspection
                 return Result("unknown", "无法确认 Doorstop 加载器启用状态");
         }
         else if (proxy) return Result("unknown", "检测到未知代理 DLL，保留现有文件");
-        if (active && rei) return Result("conflict", "Rei 与 Doorstop 同时启用，需要人工确认加载器");
         if (active)
         {
             config = Path.Combine(directory, "BepInEx", "config", "AutoTranslatorConfig.ini");
@@ -81,6 +80,9 @@ internal static class UnityTranslationInspection
             var targetPath = Path.GetFullPath(Path.Combine(directory, target));
             RejectReparse(root, targetPath);
             if (!File.Exists(targetPath)) return Result("conflict", "已启用的 BepInEx 启动目标不存在");
+            if (runtime == "mono" && !(IsAssembly(targetPath, "BepInEx.Preloader")
+                || IsAssembly(targetPath, "BepInEx.Unity.Mono.Preloader")))
+                return Result("conflict", "Mono 游戏的 BepInEx 启动目标无法验证，保留现有模组");
             if (runtime == "il2cpp")
             {
                 if (!IsAssembly(targetPath, "BepInEx.Unity.IL2CPP")) return Result("conflict", "IL2CPP 游戏需要专用 BepInEx 加载器，保留现有模组");
@@ -102,6 +104,9 @@ internal static class UnityTranslationInspection
             var bepinCore = Path.Combine(directory, "BepInEx", "core");
             if (!Directory.Exists(bepinCore) || !(File.Exists(Path.Combine(bepinCore, "BepInEx.dll"))
                 || File.Exists(Path.Combine(bepinCore, "BepInEx.Core.dll")))) return Result("conflict", "检测到其他已启用的 Doorstop 加载器");
+            if (runtime == "mono" && !(IsAssembly(Path.Combine(bepinCore, "BepInEx.dll"), "BepInEx")
+                || IsAssembly(Path.Combine(bepinCore, "BepInEx.Core.dll"), "BepInEx.Core")))
+                return Result("conflict", "BepInEx Mono 核心无法验证，保留现有模组");
             if (!Directory.Exists(pluginDirectory)) return runtime == "il2cpp" ? Result("bepinex-empty")
                 : Result("conflict", "已启用的 BepInEx 未安装受支持翻译插件");
             RejectReparse(root, pluginDirectory);
@@ -115,15 +120,15 @@ internal static class UnityTranslationInspection
             if (!IsAssembly(core, "XUnity.AutoTranslator.Plugin.Core")) return Result("conflict", "现有 BepInEx 翻译核心无法验证");
             if (runtime == "il2cpp" && !IsAssembly(plugins[0], "XUnity.AutoTranslator.Plugin.BepInEx-IL2CPP"))
                 return Result("conflict", "IL2CPP 游戏不能使用 Mono 版翻译插件");
-            return Result("bepinex");
+            if (runtime == "mono" && !IsAssembly(plugins[0], "XUnity.AutoTranslator.Plugin.BepInEx"))
+                return Result("conflict", "BepInEx Mono 翻译入口无法验证，保留现有模组");
+            return Result("bepinex") with { ReiConflict = rei };
         }
         if (rei) return Result("rei");
         if (Directory.Exists(Path.Combine(root, "MelonLoader")) || File.Exists(Path.Combine(managed, "IPA.Injector.dll"))
             || File.Exists(Path.Combine(managed, "UnityInjector.dll")) || File.Exists(core)
             || Directory.Exists(Path.Combine(root, "ReiPatcher"))
-            || (runtime == "il2cpp" && new[] { "BepInEx", "dotnet" }.Any(folder => Directory.Exists(Path.Combine(directory, folder))
-                && Directory.EnumerateFiles(Path.Combine(directory, folder), "*", new EnumerationOptions
-                { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint }).Any())))
+            || (runtime == "il2cpp" && !HasOnlyInactiveIl2CppOutputs(root, directory)))
             return Result("unknown", "检测到现有或不完整的加载器，保留现有模组并等待人工检查");
         return Result("none");
     }
@@ -131,7 +136,7 @@ internal static class UnityTranslationInspection
     /// <summary>Inspect enabled Chinese configuration and a constant endpoint ID without loading plugin code.</summary>
     public static bool IsConfiguredChineseTranslator(UnityTranslationLayout layout)
     {
-        if (layout.Reason is not null || layout.Loader is not ("rei" or "bepinex")) return false;
+        if (layout.Reason is not null || layout.ReiConflict || layout.Loader is not ("rei" or "bepinex")) return false;
         RejectReparse(layout.Root, layout.Config);
         var ini = UnityTranslationIni.Read(layout.Config);
         var language = ini.Get("General", "Language")?.Trim().ToLowerInvariant();
@@ -187,30 +192,53 @@ internal static class UnityTranslationInspection
     {
         try
         {
-            using var stream = File.OpenRead(assembly);
+            return UnityTranslationAssembly.HasBootstrap(File.ReadAllBytes(assembly));
+        }
+        catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException) { return false; }
+    }
+
+    private static bool HasOnlyInactiveIl2CppOutputs(string root, string directory)
+    {
+        // Restore removes installed binaries, not generated caches. Only recognized inactive output is tolerated;
+        // no proxy/core/plugin is ignored and nothing here is deleted or overwritten on retry.
+        foreach (var folder in new[] { "BepInEx", "dotnet" })
+        {
+            var start = Path.Combine(directory, folder);
+            if (!Directory.Exists(start)) continue;
+            RejectReparse(root, start);
+            foreach (var path in Directory.EnumerateFileSystemEntries(start, "*", SearchOption.AllDirectories))
+            {
+                RejectReparse(root, path);
+                if (Directory.Exists(path)) continue;
+                var relative = Path.GetRelativePath(directory, path).Replace('\\', '/');
+                if (relative is "BepInEx/config/BepInEx.cfg" or "BepInEx/config/AutoTranslatorConfig.ini"
+                    or "BepInEx/LogOutput.log" or "BepInEx/ErrorLog.log"
+                    or "BepInEx/interop/MethodXrefScanCache.db" or "BepInEx/interop/MethodAddressToToken.db"
+                    or "BepInEx/interop/assembly-hash.txt") continue;
+                if (relative.StartsWith("BepInEx/Translation/", StringComparison.OrdinalIgnoreCase)
+                    && path.EndsWith(".txt", StringComparison.OrdinalIgnoreCase)) continue;
+                if ((Path.GetDirectoryName(relative)?.Replace('\\', '/') is "BepInEx/interop" or "BepInEx/unity-libs")
+                    && IsGeneratedLibrary(path, relative.StartsWith("BepInEx/interop/", StringComparison.Ordinal))) continue;
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static bool IsGeneratedLibrary(string path, bool interop)
+    {
+        if (!path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)) return false;
+        try
+        {
+            using var stream = File.OpenRead(path);
             using var pe = new PEReader(stream);
             var metadata = pe.GetMetadataReader();
-            // A reference alone is insufficient: verify an actual call to the pinned bootstrap entry.
-            var entries = metadata.MemberReferences.Where(handle =>
-            {
-                var member = metadata.GetMemberReference(handle);
-                if (metadata.GetString(member.Name) != "LoadThroughBootstrapper" || member.Parent.Kind != HandleKind.TypeReference) return false;
-                var type = metadata.GetTypeReference((TypeReferenceHandle)member.Parent);
-                if (metadata.GetString(type.Name) != "PluginLoader" || metadata.GetString(type.Namespace) != "XUnity.AutoTranslator.Plugin.Core"
-                    || type.ResolutionScope.Kind != HandleKind.AssemblyReference) return false;
-                return metadata.GetString(metadata.GetAssemblyReference((AssemblyReferenceHandle)type.ResolutionScope).Name) == "XUnity.AutoTranslator.Plugin.Core";
-            }).Select(h => System.Reflection.Metadata.Ecma335.MetadataTokens.GetToken(h)).ToHashSet();
-            foreach (var handle in metadata.MethodDefinitions)
-            {
-                var method = metadata.GetMethodDefinition(handle);
-                if (metadata.GetString(method.Name) != ".cctor" || method.RelativeVirtualAddress == 0) continue;
-                var type = metadata.GetTypeDefinition(method.GetDeclaringType());
-                if (metadata.GetString(type.Name) is not ("Input" or "Display")) continue;
-                var il = pe.GetMethodBody(method.RelativeVirtualAddress).GetILBytes()!;
-                for (var i = 0; i + 4 < il.Length; i++)
-                    if (il[i] == 0x28 && entries.Contains(BitConverter.ToInt32(il, i + 1))) return true;
-            }
-            return false;
+            var name = metadata.GetString(metadata.GetAssemblyDefinition().Name);
+            if (name != Path.GetFileNameWithoutExtension(path) || pe.PEHeaders.CorHeader!.EntryPointTokenOrRelativeVirtualAddress != 0) return false;
+            var references = metadata.AssemblyReferences.Select(h => metadata.GetString(metadata.GetAssemblyReference(h).Name)).ToArray();
+            return interop ? references.Contains("Il2CppInterop.Runtime", StringComparer.Ordinal)
+                : name.StartsWith("UnityEngine", StringComparison.Ordinal)
+                    && references.All(r => r is "netstandard" or "mscorlib" || r.StartsWith("UnityEngine", StringComparison.Ordinal));
         }
         catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException) { return false; }
     }

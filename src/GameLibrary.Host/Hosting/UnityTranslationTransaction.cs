@@ -6,7 +6,7 @@ using GameLibrary.Infrastructure.Backups;
 namespace GameLibrary.Host.Hosting;
 
 internal sealed record UnityTranslationFile(string RelativePath, string? BeforeHash, string? AfterHash);
-internal sealed record UnityTranslationManifest(string Root, List<UnityTranslationFile> Files, bool Committed = false);
+internal sealed record UnityTranslationManifest(string Root, List<UnityTranslationFile> Files, bool Committed = false, bool Restored = false);
 
 /// <summary>Encrypted originals outside the library; hashes prevent restore/rollback from overwriting later mod changes.</summary>
 internal sealed class UnityTranslationTransaction
@@ -36,6 +36,7 @@ internal sealed class UnityTranslationTransaction
     public void Capture(string path)
     {
         var relative = Relative(path);
+        if (_manifest.Restored) _manifest = new(_manifest.Root, []);
         if (_manifest.Files.Any(item => item.RelativePath.Equals(relative, StringComparison.OrdinalIgnoreCase))) return;
         var bytes = File.Exists(path) ? File.ReadAllBytes(path) : null;
         if (bytes is not null) UnityTranslationVault.AtomicWrite(BackupPath(relative), UnityTranslationVault.Protect(bytes));
@@ -94,6 +95,7 @@ internal sealed class UnityTranslationTransaction
 
     public void Restore()
     {
+        if (_manifest.Restored) return;
         // Preflight all files and decrypt backups before the first filesystem change.
         var originals = new List<(string Path, byte[]? Bytes)>();
         foreach (var item in _manifest.Files)
@@ -112,7 +114,7 @@ internal sealed class UnityTranslationTransaction
             if (item.Bytes is null) { if (File.Exists(item.Path)) File.Delete(item.Path); }
             else UnityTranslationVault.AtomicWrite(item.Path, item.Bytes);
         }
-        _manifest = _manifest with { Files = [], Committed = false };
+        _manifest = _manifest with { Committed = false, Restored = true };
         Save();
     }
 

@@ -1,5 +1,7 @@
 # GameLibrary 代码预览框架
 
+2026-10-11 v1.7.11：修改前查询最小上下文，修改后增量重解析 16 个变更文件，收尾再同步 6 个文件，图谱覆盖 365 文件、3,570 节点、32,153 边。重点复核 `Inspect → ConfigureOne → Transaction` 和启动时修复的调用边；静态影响提示 6 个核心文件关联 22 个文件，不能代替运行验证。沿原队列修复 Unity 6 Interop、可验证双加载器协调、恢复重试和现代 Mono TMP 字体，不新增 operation/DDL/依赖。见 [实施记录](../development/v1.7.11-loader-compatibility-plan.md)及[真实验证记录](../development/v1.7.11-validation.md)。本次尚未打包或发布。
+
 2026-10-11 v1.7.10：修改前查询最小上下文，追溯 Mono 字体消费者与详情标签更新。Mono 沿原字体事务配置 TMP 主字体，已有中文插件仍检查修复；详情拖放与下拉复用 updateTag 分类接口，无新依赖/DDL/operation。见 [实施记录](../development/v1.7.10-mono-fonts-and-tags.md)及[验证记录](../releases/v1.7.10-validation.md)。
 
 2026-10-11 v1.7.9：修改前调用最小上下文，追踪 accepted-desc → AcceptCandidate 及按钮 → 配置队列 → Profile 推荐。复用可信建议入口与 Required 策略，接受后触发自动配置，详情复用共享状态。schema 28 仅按确认事件修复历史入库时间。见 [方案](../development/v1.7.9-acceptance-and-unity.md)及[验证记录](../releases/v1.7.9-validation.md)。

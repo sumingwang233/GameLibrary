@@ -22,6 +22,7 @@ public sealed record UnityTranslationState
     public string? ExecutablePath { get; init; }
     public string? BoundTagId { get; init; }
     public string? BackupId { get; init; }
+    public string? RestoredBackupId { get; init; }
     public string? InstallRoot { get; init; }
     public bool ExplicitRequest { get; init; }
     public DateTime UpdatedUtc { get; init; } = DateTime.UtcNow;
@@ -116,7 +117,8 @@ public sealed class UnityTranslationService
                 && (ownedConfiguration && layout.Loader == "bepinex" && File.Exists(Path.Combine(layout.Root, "AutoTranslator", "Config.ini"))
                     && !UnityTranslationInspection.IsConfiguredChineseTranslator(layout)
                     || (ownedConfiguration || (tagged || required) && UnityTranslationInspection.IsConfiguredChineseTranslator(layout))
-                        && UnityTranslationFonts.NeedsRepair(layout, UnityTranslationIni.Read(layout.Config)));
+                        && UnityTranslationFonts.NeedsRepair(layout, UnityTranslationIni.Read(layout.Config))
+                    || layout.ReiConflict || UnityTranslationAssembly.NeedsInteropRepair(layout) || UnityTranslationFonts.NeedsPluginRepair(layout));
             if (!tagged && !required && !repair) return;
             if (!tagged && existing?.State == "confirmed" && !repair) return;
             if (repair && UnityTranslationInspection.IsRunning(profile!.ExecutablePath)) return;
@@ -475,6 +477,7 @@ public sealed class UnityTranslationService
             ProfileId = profile?.ProfileId,
             ExecutablePath = profile?.ExecutablePath,
             BackupId = prior?.BackupId,
+            RestoredBackupId = prior?.RestoredBackupId,
             InstallRoot = prior?.InstallRoot
         };
     }
@@ -519,7 +522,8 @@ public sealed class UnityTranslationService
             if (layout.Reason is not null) { Block(layout.Reason); return; }
             var config = UnityTranslationIni.Read(layout.Config);
             if (state.BackupId is null && UnityTranslationInspection.IsConfiguredChineseTranslator(layout)
-                && !UnityTranslationFonts.NeedsRepair(layout, config))
+                && !UnityTranslationFonts.NeedsRepair(layout, config) && !UnityTranslationAssembly.NeedsInteropRepair(layout)
+                && !UnityTranslationFonts.NeedsPluginRepair(layout))
             { CompleteExisting(store, state); return; }
             if (!settings.Configured || !Vault(store).HasKey(settings.CredentialId))
             { Save(store, state with { State = "needs_settings", Reason = "请先配置翻译服务商" }); return; }
@@ -528,15 +532,22 @@ public sealed class UnityTranslationService
             var originalBootstrapHash = FileHash(layout.Bootstrap);
             var targets = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
             var expectedFiles = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+            var upgradedPlugin = false;
             if (layout.Runtime == "il2cpp" && layout.Loader is "none" or "bepinex-empty")
             {
                 var files = await _payload.Il2CppAsync(layout.Architecture!, includeLoader: layout.Loader == "none", context.Token);
                 foreach (var pair in files)
-                    if (!AddDependency(Path.Combine(Path.GetDirectoryName(profile.ExecutablePath)!, pair.Key), pair.Value)) return;
+                {
+                    var bytes = pair.Key == UnityTranslationAssembly.InteropPath && UnityTranslationFonts.Generation(layout) == "6000"
+                        ? UnityTranslationAssembly.PatchInterop(pair.Value) : pair.Value;
+                    if (!AddDependency(Path.Combine(Path.GetDirectoryName(profile.ExecutablePath)!, pair.Key), bytes,
+                        pair.Key == UnityTranslationAssembly.InteropPath ? UnityTranslationAssembly.OriginalInteropHash : null)) return;
+                }
             }
             else if (layout.Loader == "none")
             {
-                var runtime = await _payload.RuntimeAsync(context.Token);
+                upgradedPlugin = UnityTranslationFonts.SupportsSystemTmp(layout);
+                var runtime = await _payload.RuntimeAsync(context.Token, upgradedPlugin ? "5.6.2" : "5.0.0");
                 foreach (var pair in runtime)
                 {
                     var path = Path.Combine(layout.Managed, pair.Key);
@@ -544,14 +555,32 @@ public sealed class UnityTranslationService
                 }
                 targets.Add(layout.Bootstrap, await _payload.PatchAsync(layout, runtime, context.Token));
             }
-            // Keep existing loader, core and endpoint versions; only install the endpoint if it is missing.
+            else if (UnityTranslationFonts.NeedsPluginRepair(layout))
+            {
+                var version = UnityTranslationFonts.PluginVersion(layout.Core)?.ToString(3)
+                    ?? throw new InvalidDataException("现有 Mono 翻译组件版本无法验证");
+                var originals = await _payload.RuntimeAsync(context.Token, version);
+                var updated = await _payload.RuntimeAsync(context.Token, "5.6.2");
+                foreach (var pair in updated)
+                    if (!AddDependency(Path.Combine(layout.Managed, pair.Key), pair.Value,
+                        Convert.ToHexString(SHA256.HashData(originals[pair.Key])))) return;
+                upgradedPlugin = true;
+            }
+            if (UnityTranslationAssembly.NeedsInteropRepair(layout))
+            {
+                var path = Path.Combine(Path.GetDirectoryName(profile.ExecutablePath)!, UnityTranslationAssembly.InteropPath);
+                if (!targets.ContainsKey(path) && !AddDependency(path, UnityTranslationAssembly.PatchInterop(File.ReadAllBytes(path)),
+                    UnityTranslationAssembly.OriginalInteropHash)) return;
+            }
+            if (layout.ReiConflict) targets.Add(layout.Bootstrap, UnityTranslationAssembly.RemoveBootstrap(File.ReadAllBytes(layout.Bootstrap)));
+            // Other loader/core versions are preserved; install the provider endpoint only if missing.
             var endpoint = Path.Combine(layout.Translators, "DeepSeekTranslate.dll");
             UnityTranslationInspection.RejectReparse(layout.Root, endpoint);
             expectedFiles[endpoint] = FileHash(endpoint);
             if (!File.Exists(endpoint)) targets.Add(endpoint, await _payload.EndpointAsync(context.Token));
             else if (!UnityTranslationInspection.IsAssembly(endpoint, "DeepSeekTranslate", "DeepSeekTranslateEndpoint"))
             { Block("现有 DeepSeekTranslate 无法验证，保留插件版本并等待人工检查"); return; }
-            if (UnityTranslationFonts.Configure(layout, config, out var generation))
+            if (UnityTranslationFonts.Configure(layout, config, out var generation, upgradedPlugin))
             {
                 if (!AddDependency(Path.Combine(layout.Root, UnityTranslationFonts.BundlePath(generation!)),
                     await _payload.FontAsync(generation!, context.Token))) return;
@@ -580,7 +609,7 @@ public sealed class UnityTranslationService
             { Block("运行依赖在准备期间已改变，保留文件并取消安装"); return; }
             if (UnityTranslationInspection.IsRunning(profile.ExecutablePath)) { Block("游戏已开始运行，取消配置"); return; }
             if (ReadState(store, state.GameId)?.AttemptId != state.AttemptId) return;
-            state = state with { State = "installing", BackupId = state.BackupId ?? Guid.NewGuid().ToString("N"), InstallRoot = layout.Root };
+            state = state with { State = "installing", BackupId = state.BackupId ?? state.RestoredBackupId ?? Guid.NewGuid().ToString("N"), InstallRoot = layout.Root };
             Save(store, state);
             transaction = new(Vault(store), state.BackupId!, layout.Root);
             foreach (var path in targets.Keys) transaction.Capture(path);
@@ -594,17 +623,18 @@ public sealed class UnityTranslationService
             var expectedLoader = layout.Runtime == "il2cpp" ? "bepinex" : layout.Loader == "none" ? "rei" : layout.Loader;
             var installed = UnityTranslationInspection.Inspect(profile.ExecutablePath);
             if (installed.Reason is not null || installed.Loader != expectedLoader || installed.Runtime != layout.Runtime
+                || installed.ReiConflict || UnityTranslationAssembly.NeedsInteropRepair(installed)
                 || !UnityTranslationInspection.IsConfiguredChineseTranslator(installed))
                 throw new InvalidDataException("加载器离线验证失败");
             transaction.Commit();
-            Save(store, state with { State = "configured", Reason = layout.Runtime == "il2cpp"
+            Save(store, state with { State = "configured", RestoredBackupId = null, Reason = layout.Runtime == "il2cpp"
                 ? "IL2CPP 插件已配置；首次启动可能需要联网准备组件，请耐心等待，并在游戏内确认翻译效果" : null });
 
-            bool AddDependency(string path, byte[] bytes)
+            bool AddDependency(string path, byte[] bytes, string? allowedOriginal = null)
             {
                 UnityTranslationInspection.RejectReparse(layout.Root, path);
                 var before = FileHash(path);
-                if (before is not null && before != Convert.ToHexString(SHA256.HashData(bytes)))
+                if (before is not null && before != allowedOriginal && before != Convert.ToHexString(SHA256.HashData(bytes)))
                 { Block("运行依赖与未知现有模组文件重名，保留文件并等待人工检查"); return false; }
                 expectedFiles.Add(path, before);
                 targets.Add(path, bytes);
@@ -675,7 +705,7 @@ public sealed class UnityTranslationService
             new UnityTranslationTransaction(Vault(store), state.BackupId, state.InstallRoot ?? Path.GetDirectoryName(state.ExecutablePath)!).Restore();
             if (state.BoundTagId is not null && store.TryGetTag(state.BoundTagId) is { Kind: "user" })
                 store.AssignTag(id, state.BoundTagId, DateTime.UtcNow);
-            var restored = state with { State = "restored", BackupId = null, Reason = "已恢复安装前文件；保留未翻译标签" };
+            var restored = state with { State = "restored", BackupId = null, RestoredBackupId = state.BackupId, Reason = "已恢复安装前文件；保留未翻译标签" };
             Save(store, restored);
             return Ok(request, StateDto(restored));
         }

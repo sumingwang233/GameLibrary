@@ -517,8 +517,7 @@ export function DetailSheet({
                 </div>
               </div>}
               {supportsSuggestions && <>
-                <p className="text-xs text-text-secondary">{t("建议入口持续运行30秒后自动验证；明确失败的入口会废弃，其他情况保留待确认。")}</p>
-                <Button variant="outline" disabled={busy} onClick={() => void run(async () => { await discoverLaunchProfiles(current.gameId); await load(); })}>{t("识别建议启动方式")}</Button>
+                <Button variant="outline" disabled={busy} onClick={() => void run(async () => { await discoverLaunchProfiles(current.gameId); await load(); })}>{t("自动识别启动方式")}</Button>
               </>}
               {profiles.length === 0 ? (
                 <p className="rounded-md border border-dashed border-border p-4 text-sm text-text-secondary">{t("还没有配置启动方式。")}</p>
@@ -550,7 +549,7 @@ export function DetailSheet({
                         <Button size="sm" variant="ghost" disabled={busy} onClick={() => void removeProfile(profile)}>
                           <Trash2 size={13} />{t("删除")}</Button>
                       </div>
-                      {profile.suggestionReasons?.length ? <p className="mt-2 text-xs text-text-secondary">{profile.suggestionReasons.map(reason => t(reason === "chinese-name" ? "中文入口名称" : reason === "chinese-original-pair" ? "与原版入口配对" : reason === "single-entry" ? "目录中唯一游戏入口" : reason === "multiple-launch-stages" ? "存在多个启动入口" : "引擎目录证据")).filter((value, index, values) => values.indexOf(value) === index).join(" · ")}</p> : null}
+                      {profile.suggestionReasons?.some(reason => ["chinese-name", "chinese-original-pair", "multiple-launch-stages"].includes(reason)) ? <p className="mt-2 text-xs text-text-secondary">{profile.suggestionReasons.filter(reason => ["chinese-name", "chinese-original-pair", "multiple-launch-stages"].includes(reason)).map(reason => t(reason === "chinese-name" ? "中文入口名称" : reason === "chinese-original-pair" ? "与原版入口配对" : "存在多个启动入口")).filter((value, index, values) => values.indexOf(value) === index).join(" · ")}</p> : null}
                     </li>
                   ))}
                 </ul>

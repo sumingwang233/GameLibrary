@@ -25,7 +25,7 @@ internal sealed class UnityTranslationPayload
     private static HttpClient CreateClient()
     {
         var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("GameLibrary/1.7.10");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("GameLibrary/1.7.11");
         return client;
     }
     public UnityTranslationPayload(string? cache = null) => _cache = cache ?? Path.Combine(
@@ -134,9 +134,17 @@ internal sealed class UnityTranslationPayload
         return files;
     }
 
-    public async Task<IReadOnlyDictionary<string, byte[]>> RuntimeAsync(CancellationToken ct)
+    public async Task<IReadOnlyDictionary<string, byte[]>> RuntimeAsync(CancellationToken ct, string version = "5.0.0")
     {
-        var archive = await Download("XUnity.AutoTranslator-ReiPatcher-5.0.0.zip", ReiUrl, ReiSha256, ct);
+        var hash = version switch
+        {
+            "5.0.0" => ReiSha256,
+            "5.4.5" => "915D0CC84B503475E1881D377F5F4D62A1AAC15FF3BE5A48ABD70A3B05051B1B",
+            "5.6.2" => "AFB22F24A711D820F9BAAE900E8C277A83D94C23852A6AA592881334D53D1C9B",
+            _ => throw new InvalidDataException("现有 Mono 翻译组件版本无法验证，保留现有模组")
+        };
+        var archive = await Download($"XUnity.AutoTranslator-ReiPatcher-{version}.zip",
+            $"https://github.com/bbepis/XUnity.AutoTranslator/releases/download/v{version}/XUnity.AutoTranslator-ReiPatcher-{version}.zip", hash, ct);
         var setup = ExtractSetup(archive);
         var assembly = Assembly.Load(setup); // Known pinned assembly, resources only. EntryPoint is never invoked.
         using var stream = assembly.GetManifestResourceStream("XUnity.AutoTranslator.Setup.Properties.Resources.resources")
