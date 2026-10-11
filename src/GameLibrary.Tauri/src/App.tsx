@@ -40,6 +40,7 @@ function App() {
   const [unitySettingsOpen, setUnitySettingsOpen] = useState(false);
   const [unityRequest, setUnityRequest] = useState<UnityTranslationRequest | null>(null);
   const [unityStatus, setUnityStatus] = useState<UnityTranslationItem[]>([]);
+  const [unityReviewTagId, setUnityReviewTagId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [reviewBusy, setReviewBusy] = useState(false);
   const [prompt, setPrompt] = useState<PromptKind>(null);
@@ -214,7 +215,10 @@ function App() {
         sort: "accepted-desc",
       })}
       tagId={filters.tagId}
-      onTagChange={(tagId) => patchFilters({ tagId, viewId: "", favoriteOnly: false })}
+      onTagChange={(tagId, clickedTagId) => {
+        patchFilters({ tagId, viewId: "", favoriteOnly: false });
+        setUnityReviewTagId(clickedTagId ?? tagId);
+      }}
       tags={library.tags}
       candidateTotal={library.candidateTotal}
       gameTotal={library.gameTotal}
@@ -382,6 +386,7 @@ function App() {
         <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} supportsTitleTranslation={library.supports("titles.translate")}
           onUnitySettings={library.supports("unity_translation.status") ? () => { setSettingsOpen(false); setUnitySettingsOpen(true); } : undefined} />
         <UnityTranslationDialog enabled={library.supports("unity_translation.status")} settingsOpen={unitySettingsOpen} onCloseSettings={() => setUnitySettingsOpen(false)}
+          reviewTagId={unityReviewTagId} onReviewHandled={() => setUnityReviewTagId(null)}
           onStatusChange={setUnityStatus}
           request={unityRequest} onRequestHandled={() => setUnityRequest(null)} onPlay={(gameId, profileId) => library.launch(gameId, profileId)}
           onChanged={async () => { await library.refreshMeta(); await games.reload(); }} onNavigate={openGameById} />

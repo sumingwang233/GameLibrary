@@ -137,6 +137,7 @@ internal static class UnityTranslationInspection
     public static bool IsConfiguredChineseTranslator(UnityTranslationLayout layout)
     {
         if (layout.Reason is not null || layout.ReiConflict || layout.Loader is not ("rei" or "bepinex")) return false;
+        if (UnityTranslationCompatibility.IsBepInEx6Mono(layout) && !UnityTranslationCompatibility.HasBepInEx6Entry(layout)) return false;
         RejectReparse(layout.Root, layout.Config);
         var ini = UnityTranslationIni.Read(layout.Config);
         var language = ini.Get("General", "Language")?.Trim().ToLowerInvariant();

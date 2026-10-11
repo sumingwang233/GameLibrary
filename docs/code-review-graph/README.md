@@ -1,5 +1,7 @@
 # GameLibrary 代码预览框架
 
+2026-10-11 v1.7.12：修改前查询最小上下文，修改后增量重解析 23 文件，边界收尾再解析 8 文件，解析错误 0；图谱覆盖 366 文件、3,589 节点、32,644 边。沿既有安装事务补 Mono BepInEx 6 入口契约、Unity 6 字体数组接口和原生 TMP 字体；后台修复保留 confirmed，左侧绑定标签仅按需选择单款验证并返回详情。新增兼容模块复用固定 Cecil，无新依赖/operation/DDL。见 [实施记录](../development/v1.7.12-unity-compatibility.md)及[验证记录](../development/v1.7.12-validation.md)。静态图谱不代表真实游戏验收通过。
+
 2026-10-11 v1.7.11：修改前查询最小上下文，修改后增量重解析 16 个变更文件，收尾再同步 6 个文件，图谱覆盖 365 文件、3,570 节点、32,153 边。重点复核 `Inspect → ConfigureOne → Transaction` 和启动时修复的调用边；静态影响提示 6 个核心文件关联 22 个文件，不能代替运行验证。沿原队列修复 Unity 6 Interop、可验证双加载器协调、恢复重试和现代 Mono TMP 字体，不新增 operation/DDL/依赖。见 [实施记录](../development/v1.7.11-loader-compatibility-plan.md)及[真实验证记录](../development/v1.7.11-validation.md)。本次尚未打包或发布。
 
 2026-10-11 v1.7.10：修改前查询最小上下文，追溯 Mono 字体消费者与详情标签更新。Mono 沿原字体事务配置 TMP 主字体，已有中文插件仍检查修复；详情拖放与下拉复用 updateTag 分类接口，无新依赖/DDL/operation。见 [实施记录](../development/v1.7.10-mono-fonts-and-tags.md)及[验证记录](../releases/v1.7.10-validation.md)。
@@ -28,14 +30,14 @@ v1.7.3 修改前调用最小上下文，修改后增量刷新包含 FlashLegacyR
 
 | 项目 | 结果 |
 |---|---|
-| 图谱基线 | `340133a`，v1.7.10 打包源码，2026-10-11 |
-| 源码文件 | 364 |
-| 节点 / 边 | 3,546 / 31,672 |
+| 图谱基线 | `3004bbc` + v1.7.12 工作区增量，2026-10-11 |
+| 源码文件 | 366 |
+| 节点 / 边 | 3,589 / 32,644 |
 | 执行流 | 175 |
 | 解析错误 | 0 |
 | 验证环境 | .NET SDK 10.0.401；global.json 未修改 |
 
-快照在 2026-10-11 增量更新，首次 12 个文件重新解析，标签测试修正后追加解析 1 个文件，最后推进至打包源码提交，解析错误为空。当前直接 CALLS 为 7,382，未解析 CALLS 为 18,185。图谱中的委托、动态装配和裸名匹配仍需结合源码复核；`head_matches_build=true` 只说明 Git 提交基线一致，不证明工作区没有后续变化。175 个执行流是 2026-09-30 的历史统计，未在此次重新统计。网站的架构、素材与真实验证见 [网站实施记录](website.md)；此前记录见 [建议启动方式](../launch-suggestions.md)、[优化实施记录](optimization-implementation.md) 和 [v1.6.0 构建记录](../releases/v1.6.0-validation.md)。
+快照在 2026-10-11 随 v1.7.12 增量更新，包含新兼容模块、确认状态与文件重复写入回滚边界，解析错误为空。图谱中的委托、动态装配和裸名匹配仍需结合源码复核；`head_matches_build=true` 只说明 Git 提交基线一致，不证明工作区没有后续变化。175 个执行流是 2026-09-30 的历史统计，未在此次重新统计。网站的架构、素材与真实验证见 [网站实施记录](website.md)；此前记录见 [建议启动方式](../launch-suggestions.md)、[优化实施记录](optimization-implementation.md) 和 [v1.6.0 构建记录](../releases/v1.6.0-validation.md)。
 
 ## 入口文件
 

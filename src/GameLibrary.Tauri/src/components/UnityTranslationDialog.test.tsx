@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useState } from "react";
 import { UnityTranslationDialog } from "./UnityTranslationDialog";
 
 const api = vi.hoisted(() => ({ operation: vi.fn() }));
@@ -7,14 +8,20 @@ vi.mock("../lib/api", () => ({ operation: api.operation, describeFailure: (error
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 
 let state = "configured";
-const item = { gameId: "game", title: "示例游戏", attemptId: "attempt", state: "configured", provider: "deepseek", profileId: "profile" };
+const item = { gameId: "game", title: "示例游戏", attemptId: "attempt", state: "configured", provider: "deepseek", profileId: "profile", tagged: true };
 const props = () => ({ enabled: true, settingsOpen: false, onCloseSettings: vi.fn(), request: null,
+  reviewTagId: null as string | null, onReviewHandled: vi.fn(),
   onRequestHandled: vi.fn(), onPlay: vi.fn(async (): Promise<void> => undefined), onChanged: vi.fn(async () => undefined), onNavigate: vi.fn() });
+
+function RequestedReview({ callbacks }: { callbacks: ReturnType<typeof props> }) {
+  const [tag, setTag] = useState<string | null>("tag");
+  return <UnityTranslationDialog {...callbacks} reviewTagId={tag} onReviewHandled={() => { callbacks.onReviewHandled(); setTag(null); }} />;
+}
 
 beforeEach(() => {
   state = "configured";
   api.operation.mockReset().mockImplementation(async (id: string) => {
-    if (id === "unity_translation.settings.get") return { data: { provider: "deepseek", endpoint: "https://api.deepseek.com/chat/completions", model: "deepseek-flash", hasKey: true } };
+    if (id === "unity_translation.settings.get") return { data: { provider: "deepseek", endpoint: "https://api.deepseek.com/chat/completions", model: "deepseek-flash", hasKey: true, boundTagId: "tag" } };
     if (id === "unity_translation.confirm") state = "declined";
     return { libraryInstanceId: "library", dataEpoch: "epoch", data: { items: [{ ...item, state }], needsSettings: false } };
   });
@@ -43,22 +50,33 @@ describe("Unity translation launch confirmation", () => {
     await waitFor(() => expect(onStatusChange).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ state: "blocked", reason: "Select actual game EXE" })])));
     expect(api.operation).toHaveBeenCalledWith("unity_translation.configure", { gameIds: ["game"] }, "unity_translation.configure:game");
   });
-  it("shows first-run preparation guidance without starting the game automatically", async () => {
+  it("shows first-run guidance only after selecting a game from the requested tag", async () => {
     const callbacks = props();
     const reason = "IL2CPP 插件已配置；首次启动可能需要联网准备组件，请耐心等待，并在游戏内确认翻译效果";
     api.operation.mockImplementation(async (id: string) => id === "unity_translation.settings.get"
-      ? { data: { provider: "deepseek", endpoint: "https://api.deepseek.com/chat/completions", model: "deepseek-flash", hasKey: true } }
+      ? { data: { provider: "deepseek", endpoint: "https://api.deepseek.com/chat/completions", model: "deepseek-flash", hasKey: true, boundTagId: "tag" } }
       : { libraryInstanceId: "library", dataEpoch: "epoch", data: { items: [{ ...item, reason }], needsSettings: false } });
-    render(<UnityTranslationDialog {...callbacks} />);
+    render(<RequestedReview callbacks={callbacks} />);
+    fireEvent.click(await screen.findByRole("button", { name: "尝试运行游戏" }));
     await screen.findByText(new RegExp(reason));
     expect(callbacks.onPlay).not.toHaveBeenCalled();
   });
 
-  it("recovers the prompt from the snapshot and confirms success only after launch and the user's second answer", async () => {
+  it("confirms only the selected game after launch, then opens its details without prompting the next game", async () => {
     const callbacks = props();
     let finishLaunch!: () => void;
     callbacks.onPlay.mockImplementation(() => new Promise<void>(resolve => { finishLaunch = resolve; }));
-    render(<UnityTranslationDialog {...callbacks} />);
+    const implementation = api.operation.getMockImplementation()!;
+    api.operation.mockImplementation(async (id: string, ...args: unknown[]) => {
+      const result = await implementation(id, ...args);
+      if (id === "unity_translation.status") result.data.items.push(
+        { ...item, gameId: "second", title: "另一款游戏", attemptId: "second-attempt", state: "configured" },
+        { ...item, gameId: "untagged", title: "标签外的游戏", attemptId: "untagged-attempt", state: "configured", tagged: false });
+      return result;
+    });
+    render(<RequestedReview callbacks={callbacks} />);
+    fireEvent.click((await screen.findAllByRole("button", { name: "尝试运行游戏" }))[0]);
+    expect(screen.queryByText("标签外的游戏")).not.toBeInTheDocument();
     await screen.findByText(/示例游戏 已自动配置翻译插件/);
     fireEvent.click(screen.getByRole("button", { name: "是" }));
     expect(callbacks.onPlay).toHaveBeenCalledWith("game", "profile");
@@ -70,16 +88,32 @@ describe("Unity translation launch confirmation", () => {
     await waitFor(() => expect(api.operation).toHaveBeenCalledWith("unity_translation.confirm",
       { gameId: "game", attemptId: "attempt", success: true }, "unity_translation.confirm:attempt:true"));
     await waitFor(() => expect(callbacks.onChanged).toHaveBeenCalledOnce());
+    expect(callbacks.onNavigate).toHaveBeenCalledWith("game");
+    expect(screen.queryByText(/另一款游戏 已自动配置翻译插件/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "尝试运行游戏" })).not.toBeInTheDocument();
   });
 
   it("declines without launching or submitting success", async () => {
     const callbacks = props();
-    render(<UnityTranslationDialog {...callbacks} />);
+    render(<RequestedReview callbacks={callbacks} />);
+    fireEvent.click(await screen.findByRole("button", { name: "尝试运行游戏" }));
     await screen.findByText(/示例游戏 已自动配置翻译插件/);
     fireEvent.click(screen.getByRole("button", { name: "否" }));
     await waitFor(() => expect(api.operation).toHaveBeenCalledWith("unity_translation.confirm",
       { gameId: "game", attemptId: "attempt", success: false }, "unity_translation.confirm:attempt:false"));
     expect(callbacks.onPlay).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.queryByText("尝试运行游戏")).not.toBeInTheDocument());
+    expect(callbacks.onNavigate).toHaveBeenCalledWith("game");
+  });
+
+  it("does not interrupt startup or respond to an unrelated tag, even with pending configured games", async () => {
+    const callbacks = props();
+    const view = render(<UnityTranslationDialog {...callbacks} />);
+    await waitFor(() => expect(api.operation).toHaveBeenCalledWith("unity_translation.status"));
+    expect(screen.queryByText("尝试运行游戏")).not.toBeInTheDocument();
+    view.rerender(<UnityTranslationDialog {...callbacks} reviewTagId="other" />);
+    await waitFor(() => expect(callbacks.onReviewHandled).toHaveBeenCalled());
+    expect(screen.queryByText("尝试运行游戏")).not.toBeInTheDocument();
+    expect(callbacks.onPlay).not.toHaveBeenCalled();
   });
 });

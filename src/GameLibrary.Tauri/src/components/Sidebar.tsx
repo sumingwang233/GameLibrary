@@ -26,7 +26,7 @@ export interface SidebarProps {
   favoriteOnly: boolean;
   onFavoriteChange: (value: boolean) => void;
   tagId: string;
-  onTagChange: (tagId: string) => void;
+  onTagChange: (tagId: string, clickedTagId?: string) => void;
   tags: TagItem[];
   candidateTotal: number;
   gameTotal: number;
@@ -171,7 +171,7 @@ export function Sidebar(props: SidebarProps) {
                   )}
                   onClick={() => {
                     onSectionChange("library");
-                    onTagChange(tagId === tag.tagId ? "" : tag.tagId);
+                    onTagChange(tagId === tag.tagId ? "" : tag.tagId, tag.tagId);
                   }}
                 >
                   <span className="flex min-w-0 items-center gap-2 rounded px-1" style={tagStyle(tag)}>

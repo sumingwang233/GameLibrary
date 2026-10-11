@@ -77,7 +77,7 @@ internal sealed class UnityTranslationTransaction
 
     public void RollbackAttempt()
     {
-        foreach (var item in _writes)
+        foreach (var item in _writes.AsEnumerable().Reverse().DistinctBy(item => item.Path, StringComparer.OrdinalIgnoreCase))
         {
             Relative(item.Path);
             var actual = File.Exists(item.Path) ? Hash(File.ReadAllBytes(item.Path)) : null;

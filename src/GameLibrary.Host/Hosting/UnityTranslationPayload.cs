@@ -10,7 +10,7 @@ using GameLibrary.Infrastructure.Backups;
 namespace GameLibrary.Host.Hosting;
 
 /// <summary>Public fixed releases; no provider HTTP calls. Download hashes are pinned, not trust-on-first-use.</summary>
-internal sealed class UnityTranslationPayload
+internal sealed partial class UnityTranslationPayload
 {
     internal const string ReiSha256 = "71DB63000A5487E03D2DBE692C20EB970167DB469394B5DBA2BE5F6343B9D6E8";
     internal const string DeepSeekSha256 = "8FDC8C26E0C3129350541CE84EA0C818D980626E848991A9D1C4AC8FFC4C4CA7";
@@ -25,7 +25,7 @@ internal sealed class UnityTranslationPayload
     private static HttpClient CreateClient()
     {
         var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("GameLibrary/1.7.11");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("GameLibrary/1.7.12");
         return client;
     }
     public UnityTranslationPayload(string? cache = null) => _cache = cache ?? Path.Combine(
@@ -269,7 +269,8 @@ internal sealed class UnityTranslationPayload
         var script = Path.Combine(_cache, "verify-endpoint.ps1");
         Directory.CreateDirectory(_cache);
         await File.WriteAllTextAsync(script, VerifyScript, ct);
-        await RunHelper(script, [layout.Managed, Path.GetDirectoryName(layout.Core)!, layout.Translators, endpoint], ct);
+        await RunHelper(script, [layout.Managed, Path.GetDirectoryName(layout.Core)!, layout.Translators, endpoint,
+            Path.Combine(Path.GetDirectoryName(layout.ExecutablePath)!, "BepInEx", "core")], ct);
     }
 
     private static async Task RunHelper(string script, IReadOnlyList<string> arguments, CancellationToken ct)
@@ -331,7 +332,7 @@ internal sealed class UnityTranslationPayload
         """;
 
     internal const string VerifyScript = """
-        param($managed, $coreDirectory, $translators, $endpoint)
+        param($managed, $coreDirectory, $translators, $endpoint, $loaderCore)
         $ErrorActionPreference = 'Stop'
         try {
           # CLR callbacks must not execute a PowerShell scriptblock: resolving PS dependencies can recurse.
@@ -363,7 +364,7 @@ internal sealed class UnityTranslationPayload
           }
         }
         '@
-          [GameLibraryOfflineResolver]::Install(@($coreDirectory, $managed, $translators))
+          [GameLibraryOfflineResolver]::Install([string[]]@(@($coreDirectory, $loaderCore, $managed, $translators) | Where-Object { $_ }))
           $assembly = [Reflection.Assembly]::LoadFrom($endpoint)
           $type = $assembly.GetType('DeepSeekTranslate.DeepSeekTranslateEndpoint', $true)
           if (-not ($type.GetInterfaces() | Where-Object { $_.FullName -eq 'XUnity.AutoTranslator.Plugin.Core.Endpoints.ITranslateEndpoint' })) { exit 2 }

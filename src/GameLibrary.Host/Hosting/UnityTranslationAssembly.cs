@@ -46,6 +46,35 @@ internal static class UnityTranslationAssembly
 
     internal static bool HasBootstrap(byte[] bytes) => BootstrapCalls(bytes).Count != 0;
 
+    internal static bool HasArrayFontFactory(byte[] bytes)
+    {
+        using var pe = new PEReader(new MemoryStream(bytes));
+        var metadata = pe.GetMetadataReader();
+        var methods = metadata.MethodDefinitions.Select(metadata.GetMethodDefinition).Where(m =>
+            metadata.GetString(m.Name) == "GetTextFont" && metadata.GetString(metadata.GetTypeDefinition(m.GetDeclaringType()).Name) == "FontHelper");
+        foreach (var method in methods)
+        {
+            var il = pe.GetMethodBody(method.RelativeVirtualAddress).GetILBytes()!;
+            foreach (var instruction in Instructions(il).Where(i => i.Code == OpCodes.Call))
+            {
+                var handle = MetadataTokens.EntityHandle(BitConverter.ToInt32(il, instruction.Offset + 1));
+                if (handle.Kind != HandleKind.MemberReference) continue;
+                var member = metadata.GetMemberReference((MemberReferenceHandle)handle);
+                if (metadata.GetString(member.Name) != "CreateDynamicFontFromOSFont") continue;
+                var signature = metadata.GetBlobReader(member.Signature);
+                if (signature.ReadSignatureHeader().IsInstance || signature.ReadCompressedInteger() != 2
+                    || signature.ReadSignatureTypeCode() != SignatureTypeCode.TypeHandle) continue;
+                signature.ReadTypeHandle(); // Font return type.
+                if (signature.ReadSignatureTypeCode() != SignatureTypeCode.TypeHandle) continue;
+                var parameter = signature.ReadTypeHandle();
+                if (parameter.Kind == HandleKind.TypeReference
+                    && metadata.GetString(metadata.GetTypeReference((TypeReferenceHandle)parameter).Name) == "Il2CppStringArray"
+                    && signature.ReadSignatureTypeCode() == SignatureTypeCode.Int32) return true;
+            }
+        }
+        return false;
+    }
+
     internal static byte[] RemoveBootstrap(byte[] bytes)
     {
         var calls = BootstrapCalls(bytes);

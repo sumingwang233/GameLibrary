@@ -10,15 +10,17 @@ import { UnityTranslationSettingsForm, type UnityProviderInput, type UnityProvid
 export interface UnityTranslationRequest { gameId: string; action: "configure" | "restore" }
 export interface UnityTranslationItem {
   gameId: string; title: string; attemptId: string; state: string; provider: string;
-  reason?: string | null; profileId?: string | null; jobId?: string | null;
+  reason?: string | null; profileId?: string | null; jobId?: string | null; tagged?: boolean | null;
 }
 interface UnityStatus { items: UnityTranslationItem[]; needsSettings: boolean }
 const ACTIVE = new Set(["queued", "inspecting", "installing"]);
 
-export function UnityTranslationDialog({ enabled, settingsOpen, onCloseSettings, request, onRequestHandled, onPlay, onChanged, onNavigate, onStatusChange }: {
+export function UnityTranslationDialog({ enabled, settingsOpen, onCloseSettings, reviewTagId, onReviewHandled, request, onRequestHandled, onPlay, onChanged, onNavigate, onStatusChange }: {
   enabled: boolean;
   settingsOpen: boolean;
   onCloseSettings: () => void;
+  reviewTagId: string | null;
+  onReviewHandled: () => void;
   request: UnityTranslationRequest | null;
   onRequestHandled: () => void;
   onPlay: (gameId: string, profileId?: string) => Promise<void>;
@@ -28,18 +30,16 @@ export function UnityTranslationDialog({ enabled, settingsOpen, onCloseSettings,
 }) {
   const [status, setStatus] = useState<UnityStatus>({ items: [], needsSettings: false });
   const [settings, setSettings] = useState<UnityProviderSettings | null>(null);
-  const [mode, setMode] = useState<"settings" | "demo" | null>(null);
+  const [mode, setMode] = useState<"settings" | "demo" | "review" | null>(null);
   const [prompt, setPrompt] = useState<{ item: UnityTranslationItem; result: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const dismissed = useRef(new Set<string>());
-  const wizardDismissed = useRef(false);
   const running = useRef(false);
   const alive = useRef(false);
   const identity = useRef("");
   const submitting = useRef<string | null>(null);
-  const callbacks = useRef({ onCloseSettings, onRequestHandled, onPlay, onChanged, onNavigate, onStatusChange });
-  callbacks.current = { onCloseSettings, onRequestHandled, onPlay, onChanged, onNavigate, onStatusChange };
+  const callbacks = useRef({ onCloseSettings, onReviewHandled, onRequestHandled, onPlay, onChanged, onNavigate, onStatusChange });
+  callbacks.current = { onCloseSettings, onReviewHandled, onRequestHandled, onPlay, onChanged, onNavigate, onStatusChange };
 
   useEffect(() => { callbacks.current.onStatusChange?.(status.items); }, [status.items]);
 
@@ -48,7 +48,6 @@ export function UnityTranslationDialog({ enabled, settingsOpen, onCloseSettings,
     if (!alive.current) return;
     const nextIdentity = `${result.libraryInstanceId}:${result.dataEpoch}`;
     if (identity.current && identity.current !== nextIdentity) {
-      dismissed.current.clear(); wizardDismissed.current = false;
       setPrompt(null); setMode(null); setSettings(null);
     }
     identity.current = nextIdentity;
@@ -70,7 +69,7 @@ export function UnityTranslationDialog({ enabled, settingsOpen, onCloseSettings,
     const data = result.data;
     if (!data || [data.provider, data.endpoint, data.model].some(value => typeof value !== "string") || typeof data.hasKey !== "boolean")
       throw new Error(t("翻译插件设置不完整，请刷新后重试"));
-    const next = { provider: data.provider, endpoint: data.endpoint, model: data.model, hasKey: data.hasKey };
+    const next = { provider: data.provider, endpoint: data.endpoint, model: data.model, hasKey: data.hasKey, boundTagId: data.boundTagId };
     if (alive.current) setSettings(previous => previous && JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
   }, []);
 
@@ -101,13 +100,11 @@ export function UnityTranslationDialog({ enabled, settingsOpen, onCloseSettings,
   }, [enabled, settingsOpen, readSettings]);
 
   useEffect(() => {
-    if (!enabled || !settings || mode || prompt) return;
-    if (status.needsSettings && !settings.hasKey && !wizardDismissed.current && status.items.some(item => item.state === "needs_settings")) {
-      setMode("settings"); return;
-    }
-    const ready = status.items.find(item => item.state === "configured" && !dismissed.current.has(item.attemptId));
-    if (ready) setPrompt({ item: ready, result: false });
-  }, [enabled, mode, prompt, settings, status]);
+    if (!enabled || !settings || !reviewTagId) return;
+    callbacks.current.onReviewHandled();
+    if (reviewTagId !== settings.boundTagId || prompt) return;
+    setMode(status.needsSettings && !settings.hasKey ? "settings" : "review");
+  }, [enabled, reviewTagId, prompt, settings, status.needsSettings]);
 
   useEffect(() => {
     if (!enabled || !request) return;
@@ -125,7 +122,6 @@ export function UnityTranslationDialog({ enabled, settingsOpen, onCloseSettings,
         await operation(`unity_translation.${intent.action}`, intent.action === "configure" ? { gameIds: [intent.gameId] } : { gameId: intent.gameId },
           `unity_translation.${intent.action}:${intent.gameId}`);
         submitting.current = null;
-        wizardDismissed.current = false;
         await refresh(); await callbacks.current.onChanged();
       } catch (cause) { if (alive.current) {
         submitting.current = null;
@@ -138,12 +134,12 @@ export function UnityTranslationDialog({ enabled, settingsOpen, onCloseSettings,
   }, [enabled, request, refresh]);
 
   const closeSettings = () => {
-    setMode(null); wizardDismissed.current = true; callbacks.current.onCloseSettings();
+    setMode(null); callbacks.current.onCloseSettings();
   };
   const saveSettings = async (input: UnityProviderInput) => {
     const result = await operation<UnityProviderSettings>("unity_translation.settings.set", { ...input }, "unity_translation.settings.set");
     if (!alive.current) return;
-    setSettings(result.data); setMode(null); wizardDismissed.current = false;
+    setSettings(result.data); setMode(null);
     callbacks.current.onCloseSettings(); await refresh();
   };
   const importSettings = async () => {
@@ -151,7 +147,7 @@ export function UnityTranslationDialog({ enabled, settingsOpen, onCloseSettings,
     if (typeof path !== "string") return;
     const result = await operation<UnityProviderSettings>("unity_translation.settings.import", { configPath: path }, "unity_translation.settings.import");
     if (!alive.current) return;
-    setSettings(result.data); setMode(null); wizardDismissed.current = false;
+    setSettings(result.data); setMode(null);
     callbacks.current.onCloseSettings(); await refresh();
   };
 
@@ -166,9 +162,9 @@ export function UnityTranslationDialog({ enabled, settingsOpen, onCloseSettings,
       } else {
         await operation("unity_translation.confirm", { gameId: current.item.gameId, attemptId: current.item.attemptId, success: current.result && yes },
           `unity_translation.confirm:${current.item.attemptId}:${current.result && yes}`);
-        dismissed.current.add(current.item.attemptId);
         if (alive.current) setPrompt(null);
         await refresh(); await callbacks.current.onChanged();
+        callbacks.current.onNavigate(current.item.gameId);
       }
     } catch (cause) { if (alive.current) setError(describeFailure(cause)); }
     finally { running.current = false; if (alive.current) setBusy(false); }
@@ -186,6 +182,7 @@ export function UnityTranslationDialog({ enabled, settingsOpen, onCloseSettings,
   if (!enabled) return null;
   const active = status.items.filter(item => ACTIVE.has(item.state));
   const attention = status.items.filter(item => ["blocked", "failed", "needs_settings"].includes(item.state));
+  const review = status.items.filter(item => item.state === "configured" && item.tagged === true);
   const providerLabel = prompt?.item.provider === "deepseek" ? "DeepSeek" : t("自定义 OpenAI 兼容服务");
   return <>
     {(active.length > 0 || attention.length > 0 || error) && <aside className="fixed right-4 bottom-4 z-30 max-h-[40vh] w-[min(400px,92vw)] overflow-y-auto rounded-lg border border-border bg-panel p-4 text-sm shadow-lg" aria-label={t("Unity 翻译插件")}>
@@ -195,8 +192,13 @@ export function UnityTranslationDialog({ enabled, settingsOpen, onCloseSettings,
         <ul className="mt-2 space-y-2">{attention.map(item => <li key={item.attemptId} className="break-words"><button className="text-steam underline" onClick={() => callbacks.current.onNavigate(item.gameId)}>{item.title}</button><p className="text-xs text-text-secondary">{item.reason ? t(item.reason) : item.state}</p></li>)}</ul>
       </details>}
     </aside>}
-    <Sheet open={mode !== null} onClose={closeSettings} title={mode === "demo" ? t("体验首次翻译设置") : t("Unity 翻译插件设置")}>
-      {mode === "demo" || settings ? <UnityTranslationSettingsForm key={mode} settings={mode === "demo" ? null : settings} demo={mode === "demo"} onSave={saveSettings} onImport={importSettings} onCancel={closeSettings} />
+    <Sheet open={mode !== null} onClose={closeSettings} title={mode === "review" ? t("Unity 翻译插件") : mode === "demo" ? t("体验首次翻译设置") : t("Unity 翻译插件设置")}>
+      {mode === "review" ? <div className="space-y-3">
+        {review.length === 0 && <p>{t("没有待验证的游戏")}</p>}
+        {review.map(item => <div key={item.attemptId} className="flex items-center justify-between gap-3 rounded-md border border-border p-3">
+          <span>{item.title}</span><Button onClick={() => { setMode(null); setPrompt({ item, result: false }); }}>{t("尝试运行游戏")}</Button>
+        </div>)}
+      </div> : mode === "demo" || settings ? <UnityTranslationSettingsForm key={mode} settings={mode === "demo" ? null : settings} demo={mode === "demo"} onSave={saveSettings} onImport={importSettings} onCancel={closeSettings} />
         : <p>{t("正在读取设置…")}</p>}
       {mode === "settings" && <Button className="mt-5" variant="outline" onClick={() => setMode("demo")}>{t("体验首次设置（不保存）")}</Button>}
     </Sheet>

@@ -25,6 +25,7 @@ public sealed record UnityTranslationState
     public string? RestoredBackupId { get; init; }
     public string? InstallRoot { get; init; }
     public bool ExplicitRequest { get; init; }
+    public bool PreserveConfirmation { get; init; }
     public DateTime UpdatedUtc { get; init; } = DateTime.UtcNow;
 }
 
@@ -118,10 +119,16 @@ public sealed class UnityTranslationService
                     && !UnityTranslationInspection.IsConfiguredChineseTranslator(layout)
                     || (ownedConfiguration || (tagged || required) && UnityTranslationInspection.IsConfiguredChineseTranslator(layout))
                         && UnityTranslationFonts.NeedsRepair(layout, UnityTranslationIni.Read(layout.Config))
-                    || layout.ReiConflict || UnityTranslationAssembly.NeedsInteropRepair(layout) || UnityTranslationFonts.NeedsPluginRepair(layout));
+                    || layout.ReiConflict || UnityTranslationAssembly.NeedsInteropRepair(layout) || UnityTranslationFonts.NeedsPluginRepair(layout)
+                    || UnityTranslationCompatibility.NeedsRepair(layout));
             if (!tagged && !required && !repair) return;
             if (!tagged && existing?.State == "confirmed" && !repair) return;
             if (repair && UnityTranslationInspection.IsRunning(profile!.ExecutablePath)) return;
+            if (!repair && existing?.State == "confirmed")
+            {
+                if (tagged) CompleteExisting(store, existing);
+                return;
+            }
             if (!repair && layout is not null && UnityTranslationInspection.IsConfiguredChineseTranslator(layout))
             {
                 if (existing?.State == "configured") return; // Keep first-install confirmation until the user reports actual success.
@@ -369,10 +376,12 @@ public sealed class UnityTranslationService
     {
         var gameId = String(request, "gameId");
         var settings = Settings(store);
+        var tag = BoundTag(store, settings);
         var states = UnityTranslationPersistence.States(store).Where(s => gameId is null || s.GameId == gameId)
             .Where(s => !pendingOnly || s.State is "needs_settings" or "configured")
             .Where(s => store.TryGetGame(s.GameId)?.Membership == "active")
-            .OrderBy(s => s.UpdatedUtc).Select(StateDto).ToArray();
+            .OrderBy(s => s.UpdatedUtc).Select(s => StateDto(s,
+                s.State == "configured" && s.BoundTagId == tag?.TagId && HasTag(store, store.TryGetGame(s.GameId)!, tag))).ToArray();
         return Ok(request, new { items = states, needsSettings = !settings.Configured || !Vault(store).HasKey(settings.CredentialId) });
     }
 
@@ -410,7 +419,11 @@ public sealed class UnityTranslationService
     {
         var settings = Settings(store);
         var states = ids.Select(id => NewState(store, store.TryGetGame(id)!, settings) with
-            { ExplicitRequest = explicitRequest || ReadState(store, id) is { State: "needs_settings", ExplicitRequest: true } }).ToArray();
+            {
+                ExplicitRequest = explicitRequest || ReadState(store, id) is { State: "needs_settings", ExplicitRequest: true },
+                PreserveConfirmation = !explicitRequest && ReadState(store, id) is { } prior
+                    && (prior.State == "confirmed" || prior.PreserveConfirmation)
+            }).ToArray();
         var reserved = Reserve();
         var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         string jobId;
@@ -523,7 +536,7 @@ public sealed class UnityTranslationService
             var config = UnityTranslationIni.Read(layout.Config);
             if (state.BackupId is null && UnityTranslationInspection.IsConfiguredChineseTranslator(layout)
                 && !UnityTranslationFonts.NeedsRepair(layout, config) && !UnityTranslationAssembly.NeedsInteropRepair(layout)
-                && !UnityTranslationFonts.NeedsPluginRepair(layout))
+                && !UnityTranslationFonts.NeedsPluginRepair(layout) && !UnityTranslationCompatibility.NeedsRepair(layout))
             { CompleteExisting(store, state); return; }
             if (!settings.Configured || !Vault(store).HasKey(settings.CredentialId))
             { Save(store, state with { State = "needs_settings", Reason = "请先配置翻译服务商" }); return; }
@@ -533,8 +546,16 @@ public sealed class UnityTranslationService
             var targets = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
             var expectedFiles = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
             var upgradedPlugin = false;
+            if (UnityTranslationCompatibility.IsBepInEx6Mono(layout))
+            {
+                var files = await _payload.BepInEx6MonoAsync(layout, context.Token);
+                foreach (var pair in files)
+                    if (!AddDependency(pair.Key, pair.Value.Bytes, pair.Value.OriginalHash)) return;
+                upgradedPlugin = true;
+            }
             if (layout.Runtime == "il2cpp" && layout.Loader is "none" or "bepinex-empty")
             {
+                upgradedPlugin = true; // The fixed IL2CPP package is XUnity 5.6.2, including native TMP font support.
                 var files = await _payload.Il2CppAsync(layout.Architecture!, includeLoader: layout.Loader == "none", context.Token);
                 foreach (var pair in files)
                 {
@@ -565,6 +586,11 @@ public sealed class UnityTranslationService
                     if (!AddDependency(Path.Combine(layout.Managed, pair.Key), pair.Value,
                         Convert.ToHexString(SHA256.HashData(originals[pair.Key])))) return;
                 upgradedPlugin = true;
+            }
+            if (UnityTranslationCompatibility.NeedsFontBridge(layout))
+            {
+                var bridge = await _payload.Il2CppFontBridgeAsync(layout, context.Token);
+                if (!AddDependency(layout.Core, bridge.Bytes, bridge.OriginalHash)) return;
             }
             if (UnityTranslationAssembly.NeedsInteropRepair(layout))
             {
@@ -619,15 +645,25 @@ public sealed class UnityTranslationService
                 if (pair.Key == layout.Config) transaction.WriteConfiguration(pair.Key, pair.Value, originalConfigHash);
                 else transaction.Write(pair.Key, pair.Value);
             }
-            await _payload.VerifyEndpointAsync(layout, context.Token);
             var expectedLoader = layout.Runtime == "il2cpp" ? "bepinex" : layout.Loader == "none" ? "rei" : layout.Loader;
             var installed = UnityTranslationInspection.Inspect(profile.ExecutablePath);
+            // A restored installation can retain generated font metadata while its loader/core is absent.
+            // Resolve against the newly installed runtime, within the same rollback boundary.
+            if (UnityTranslationCompatibility.NeedsFontBridge(installed))
+            {
+                var bridge = await _payload.Il2CppFontBridgeAsync(installed, context.Token);
+                if (FileHash(installed.Core) != bridge.OriginalHash) throw new InvalidDataException("现有字体组件无法安全核验，保留原始文件");
+                transaction.Capture(installed.Core);
+                transaction.Write(installed.Core, bridge.Bytes);
+            }
+            await _payload.VerifyEndpointAsync(installed, context.Token);
             if (installed.Reason is not null || installed.Loader != expectedLoader || installed.Runtime != layout.Runtime
                 || installed.ReiConflict || UnityTranslationAssembly.NeedsInteropRepair(installed)
+                || UnityTranslationCompatibility.NeedsRepair(installed)
                 || !UnityTranslationInspection.IsConfiguredChineseTranslator(installed))
                 throw new InvalidDataException("加载器离线验证失败");
             transaction.Commit();
-            Save(store, state with { State = "configured", RestoredBackupId = null, Reason = layout.Runtime == "il2cpp"
+            Save(store, state with { State = state.PreserveConfirmation ? "confirmed" : "configured", RestoredBackupId = null, Reason = layout.Runtime == "il2cpp"
                 ? "IL2CPP 插件已配置；首次启动可能需要联网准备组件，请耐心等待，并在游戏内确认翻译效果" : null });
 
             bool AddDependency(string path, byte[] bytes, string? allowedOriginal = null)
@@ -724,7 +760,7 @@ public sealed class UnityTranslationService
         _host.Events.Publish(state.State == "configured" ? "unity_translation.configured" : "unity_translation.updated",
             "game:" + state.GameId, StateDto(state), DateTime.UtcNow);
     }
-    private static object StateDto(UnityTranslationState state) => new
+    private static object StateDto(UnityTranslationState state, bool? tagged = null) => new
     {
         gameId = state.GameId,
         title = state.Title,
@@ -733,7 +769,8 @@ public sealed class UnityTranslationService
         provider = state.Provider,
         reason = state.Reason,
         jobId = state.JobId,
-        profileId = state.ProfileId
+        profileId = state.ProfileId,
+        tagged
     };
     private static string? FileHash(string path) => File.Exists(path) ? Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))) : null;
     private static string? String(IpcRequest request, string name) => IpcRequests.TryGetStringParameter(request, name, out var value) ? value : null;

@@ -9,6 +9,7 @@ export interface UnityProviderSettings {
   endpoint: string;
   model: string;
   hasKey: boolean;
+  boundTagId?: string | null;
 }
 
 export interface UnityProviderInput {

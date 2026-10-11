@@ -142,10 +142,12 @@ internal static partial class UnityTranslationFonts
 
     internal static bool SupportsSystemTmp(UnityTranslationLayout layout)
     {
-        if (layout.Runtime != "mono" || SystemFont is null) return false;
+        if (SystemFont is null) return false;
+        var directory = layout.Runtime == "il2cpp"
+            ? Path.Combine(Path.GetDirectoryName(layout.ExecutablePath)!, "BepInEx", "interop") : layout.Managed;
         foreach (var name in new[] { "Unity.TextMeshPro.dll", "TMPro.dll" })
         {
-            var path = Path.Combine(layout.Managed, name);
+            var path = Path.Combine(directory, name);
             UnityTranslationInspection.RejectReparse(layout.Root, path);
             if (!File.Exists(path)) continue;
             using var stream = File.OpenRead(path);
@@ -162,7 +164,12 @@ internal static partial class UnityTranslationFonts
                     var signature = metadata.GetBlobBytes(method.Signature);
                     // Public static CreateFontAsset(string family, string style, int pointSize), TMP 3.2+.
                     if (signature.Length >= 6 && signature[0] == 0 && signature[1] == 3
-                        && signature.AsSpan().EndsWith(new byte[] { 0x0e, 0x0e, 0x08 })) return true;
+                        && signature.AsSpan().EndsWith(new byte[] { 0x0e, 0x0e, 0x08 }) && method.RelativeVirtualAddress != 0)
+                    {
+                        var il = pe.GetMethodBody(method.RelativeVirtualAddress).GetILBytes()!;
+                        // IL2CPP can expose a method name whose unstripped body only throws.
+                        if (layout.Runtime == "mono" || il.Length > 16 && il[0] != 0x72) return true;
+                    }
                 }
         }
         return false;

@@ -1,4 +1,5 @@
 {
+  "没有待验证的游戏": ["沒有待驗證的遊戲","No games awaiting verification","動作確認待ちのゲームはありません"],
   "拖动标签到其他分类；分类调整对整个游戏库生效。": ["拖動標籤到其他分類；分類調整對整個遊戲庫生效。","Drag tags into another category. Category changes apply across the library.","タグを別の分類へドラッグできます。分類の変更はライブラリ全体に適用されます。"],
   "调整标签分类": ["調整標籤分類","Change tag category","タグの分類を変更"],
   "标签分类": ["標籤分類","Tag category","タグの分類"],
