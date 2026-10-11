@@ -218,7 +218,7 @@ public sealed class FlashLegacyRegroupTests
         Assert.Equal(selectedGame.Favorite, actualGame.Favorite);
         Assert.Equal(selectedGame.TranslationOverride, actualGame.TranslationOverride);
         Assert.Equal(selectedGame.TranslationInherited, actualGame.TranslationInherited);
-        Assert.Equal(selectedGame.AcceptedUtc, actualGame.AcceptedUtc);
+        Assert.True(actualGame.AcceptedUtc > selectedGame.AcceptedUtc); // Explicit re-accept is a new library addition.
         Assert.Equal(selectedGame.EntryPath, actualGame.EntryPath);
         Assert.Equal(otherGame, store.TryGetGame(otherGame.GameId));
         Assert.Equal("removed", store.TryGetGame("other-same-path")!.Membership);

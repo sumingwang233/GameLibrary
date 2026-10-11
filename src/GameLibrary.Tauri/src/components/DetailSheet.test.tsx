@@ -89,6 +89,23 @@ it.each(["unity", "Unity", "UNITY"])("shows plugin retry controls for engine %s"
     initialTab="launch" onUnityTranslation={configure} />);
   fireEvent.click(await screen.findByRole("button", { name: "配置或重试翻译插件" }));
   expect(configure).toHaveBeenCalledWith("game", "configure");
+  expect(screen.queryByText("先添加未翻译标签，程序将自动配置插件。配置失败或需要再次测试时可在这里重试。")).not.toBeInTheDocument();
+});
+
+it("shows shared plugin activity and failure inside game details and disables duplicate work", async () => {
+  const unityGame = { ...game, engine: "unity" };
+  operation.mockImplementation(async name => ({ data: name === "games.get" ? unityGame
+    : name === "profiles.list" ? { items: [] } : {} }));
+  const configure = vi.fn();
+  const props = { game: unityGame, tags: [], onClose: vi.fn(), onPlay: vi.fn(), onChanged: vi.fn(), initialTab: "launch" as const, onUnityTranslation: configure };
+  const state = { gameId: "game", title: "Test game", attemptId: "attempt", state: "queued", provider: "deepseek" };
+  const view = render(<DetailSheet {...props} unityTranslationState={state} />);
+  await screen.findByText("等待配置翻译插件");
+  expect(screen.getByRole("button", { name: "配置或重试翻译插件" })).toBeDisabled();
+  view.rerender(<DetailSheet {...props} unityTranslationState={{ ...state, state: "blocked", reason: "Select actual game EXE" }} />);
+  await screen.findByRole("alert");
+  expect(screen.getByRole("alert")).toHaveTextContent("Select actual game EXE");
+  expect(screen.getByRole("button", { name: "配置或重试翻译插件" })).toBeEnabled();
 });
 
 it("starts the explicitly selected suggestion without making it a default", async () => {

@@ -62,7 +62,7 @@ Get-FileHash .\GameLibrary-Setup-v1.7.5.exe -Algorithm SHA256
 <a id="faq"></a>
 ## 資料與常見問題
 
-**v1.7.8 待驗收預發布**：為 Unity 自動翻譯補齊中文字型後備，修復部分漢字顯示方框，支援舊託管安裝自動升級。[下載與說明](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.8) · [驗證記錄](docs/releases/v1.7.8-validation.md)。
+**v1.7.9 待驗收預發布**：修復最近入庫排序與 Unity 無預設入口時的自動翻譯設定，詳情頁直接顯示進度和失敗原因。[下載與說明](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.9) · [驗證記錄](docs/releases/v1.7.9-validation.md)。
 
 <details>
 <summary><strong>掃描或移出遊戲庫會刪除遊戲檔案嗎？</strong></summary>

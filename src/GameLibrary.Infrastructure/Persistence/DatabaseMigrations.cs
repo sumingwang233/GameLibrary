@@ -536,5 +536,22 @@ public static class DatabaseMigrations
                 VALUES ('v1.7.2.ignoreReset', 'completed', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
             UPDATE schema_info SET data_epoch = lower(hex(randomblob(16))) WHERE id = 1;
             """),
+        // 28: Recover explicit accept times from durable events, never from scanner refreshes
+        // or ordinary edits. Missing/pruned evidence leaves the original time unchanged.
+        new DatabaseMigration(28, """
+            WITH accepted AS (
+                SELECT substr(entity_key, 6) AS game_id, max(timestamp_utc) AS accepted_utc
+                FROM event_records
+                WHERE type='game.created'
+                    AND data_epoch=(SELECT data_epoch FROM schema_info WHERE id=1)
+                    AND entity_key LIKE 'game:%'
+                    AND json_type(payload_json, '$.fromCandidate')='text'
+                    AND json_extract(payload_json, '$.gameId')=substr(entity_key, 6)
+                GROUP BY entity_key
+            )
+            UPDATE games SET accepted_utc=accepted.accepted_utc, revision=games.revision+1
+            FROM accepted WHERE games.game_id=accepted.game_id AND games.membership='active'
+                AND accepted.accepted_utc>games.accepted_utc;
+            """),
 ];
 }

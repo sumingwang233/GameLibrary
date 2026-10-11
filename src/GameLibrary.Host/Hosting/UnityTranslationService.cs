@@ -23,6 +23,7 @@ public sealed record UnityTranslationState
     public string? BoundTagId { get; init; }
     public string? BackupId { get; init; }
     public string? InstallRoot { get; init; }
+    public bool ExplicitRequest { get; init; }
     public DateTime UpdatedUtc { get; init; } = DateTime.UtcNow;
 }
 
@@ -103,10 +104,11 @@ public sealed class UnityTranslationService
             if (!settings.Enabled || game is null || !IsActiveUnityGame(game)) return;
             var existing = ReadState(store, gameId);
             var tagged = HasTag(store, game, BoundTag(store, settings));
+            var required = TranslationLaunchRouteResolver.RequiresTranslation(game);
             var ownedConfiguration = existing is { BackupId: not null, State: "configured" or "confirmed" };
-            if (!tagged && !ownedConfiguration) return;
+            if (!tagged && !required && !ownedConfiguration) return;
             if (existing?.State is "queued" or "inspecting" or "installing" or "declined") return;
-            var profile = _host.Launches.GetDefaultProfile(gameId);
+            var profile = RecommendedProfile(gameId);
             var layout = profile is { ToolId: null } && _host.Roots.Contains(profile.ExecutablePath)
                 ? UnityTranslationInspection.Inspect(profile.ExecutablePath) : null;
             // Repair our tracked installations, including those already confirmed without the untranslated tag.
@@ -114,7 +116,8 @@ public sealed class UnityTranslationService
                 && (layout.Loader == "bepinex" && File.Exists(Path.Combine(layout.Root, "AutoTranslator", "Config.ini"))
                     && !UnityTranslationInspection.IsConfiguredChineseTranslator(layout)
                     || UnityTranslationFonts.NeedsRepair(layout, UnityTranslationIni.Read(layout.Config)));
-            if (!tagged && !repair) return;
+            if (!tagged && !required && !repair) return;
+            if (!tagged && existing?.State == "confirmed" && !repair) return;
             if (repair && UnityTranslationInspection.IsRunning(profile!.ExecutablePath)) return;
             if (!repair && layout is not null && UnityTranslationInspection.IsConfiguredChineseTranslator(layout))
             {
@@ -262,7 +265,9 @@ public sealed class UnityTranslationService
         var settings = Settings(store);
         if (!settings.Enabled) return;
         var tag = BoundTag(store, settings);
-        var ids = store.ListGames().Where(game => IsActiveUnityGame(game) && HasTag(store, game, tag)
+        var ids = store.ListGames().Where(game => IsActiveUnityGame(game)
+            && (HasTag(store, game, tag) || TranslationLaunchRouteResolver.RequiresTranslation(game)
+                || ReadState(store, game.GameId) is { State: "needs_settings", ExplicitRequest: true })
             && (ReadState(store, game.GameId)?.State is null or "needs_settings")).Select(game => game.GameId).ToArray();
         if (ids.Length > 0) Queue(store, ids);
     }
@@ -376,7 +381,7 @@ public sealed class UnityTranslationService
         if (ids.Any(id => store.TryGetGame(id) is null)) return IpcRequests.NotFound(request, "游戏不存在");
         if (ids.Any(id => ReadState(store, id)?.State is "queued" or "inspecting" or "installing"))
             return IpcRequests.InvalidArgument(request, "游戏已有配置作业，请等待或取消后重试");
-        var jobId = Queue(store, ids.Distinct(StringComparer.Ordinal).ToArray());
+        var jobId = Queue(store, ids.Distinct(StringComparer.Ordinal).ToArray(), explicitRequest: true);
         return new()
         {
             RequestId = request.RequestId,
@@ -398,10 +403,11 @@ public sealed class UnityTranslationService
         }
     }
 
-    private string Queue(SqliteLibraryStore store, IReadOnlyList<string> ids, bool allowUntaggedRepair = false)
+    private string Queue(SqliteLibraryStore store, IReadOnlyList<string> ids, bool allowUntaggedRepair = false, bool explicitRequest = false)
     {
         var settings = Settings(store);
-        var states = ids.Select(id => NewState(store, store.TryGetGame(id)!, settings)).ToArray();
+        var states = ids.Select(id => NewState(store, store.TryGetGame(id)!, settings) with
+            { ExplicitRequest = explicitRequest || ReadState(store, id) is { State: "needs_settings", ExplicitRequest: true } }).ToArray();
         var reserved = Reserve();
         var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         string jobId;
@@ -455,7 +461,7 @@ public sealed class UnityTranslationService
 
     private UnityTranslationState NewState(SqliteLibraryStore store, GameCard game, UnityTranslationSettings settings)
     {
-        var profile = _host.Launches.GetDefaultProfile(game.GameId);
+        var profile = RecommendedProfile(game.GameId);
         var prior = ReadState(store, game.GameId);
         return new()
         {
@@ -472,8 +478,12 @@ public sealed class UnityTranslationService
         };
     }
 
+    private LaunchProfile? RecommendedProfile(string gameId) =>
+        _host.Launches.RecommendedProfileId(gameId) is { } id ? _host.Launches.GetProfile(id) : null;
+
     private async Task ConfigureOne(SqliteLibraryStore store, UnityTranslationState state, JobContext context, bool allowUntaggedRepair)
     {
+        var allowUntagged = allowUntaggedRepair || state.ExplicitRequest;
         UnityTranslationTransaction? transaction = null;
         try
         {
@@ -484,11 +494,21 @@ public sealed class UnityTranslationService
             if (game is null || !IsActiveUnityGame(game)) { Block("仅支持当前库中的 Unity 游戏"); return; }
             if (!settings.Enabled || BoundTag(store, settings)?.TagId != state.BoundTagId)
             { Block("自动翻译已禁用或标签绑定已改变，保留现有配置"); return; }
-            if (!allowUntaggedRepair && !HasTag(store, game, state.BoundTagId is null ? null : store.TryGetTag(state.BoundTagId)))
+            if (!allowUntagged && !HasTag(store, game, state.BoundTagId is null ? null : store.TryGetTag(state.BoundTagId))
+                && !TranslationLaunchRouteResolver.RequiresTranslation(game))
             { Block("游戏未绑定未翻译用户标签"); return; }
+            if (state.ProfileId is null)
+            {
+                _host.Suggestions ??= new LaunchSuggestionService(_host);
+                await _host.Suggestions.DiscoverAsync(game.GameId, context.Token);
+                if (!ReferenceEquals(store, _host.Library.Store) || ReadState(store, state.GameId)?.AttemptId != state.AttemptId) return;
+                var recommended = RecommendedProfile(game.GameId);
+                state = state with { ProfileId = recommended?.ProfileId, ExecutablePath = recommended?.ExecutablePath };
+                Save(store, state);
+            }
             var profile = state.ProfileId is null ? null : _host.Launches.GetProfile(state.ProfileId);
             if (profile is null || profile.ExecutablePath != state.ExecutablePath || profile.GameId != state.GameId)
-            { Block("未找到稳定的默认启动配置；请先选择实际游戏 EXE"); return; }
+            { Block("未找到可信的游戏入口或存在多个相近入口；请在启动选项中选择实际游戏 EXE"); return; }
             if (profile.ToolId is not null) { Block("启动配置已有外部翻译工具，保留现有配置"); return; }
             if (!_host.Roots.Contains(profile.ExecutablePath)) { Block("所选 EXE 不在已注册库根内"); return; }
             if (UnityTranslationInspection.IsRunning(profile.ExecutablePath)) { Block("游戏正在运行；关闭游戏后重试"); return; }
@@ -545,10 +565,11 @@ public sealed class UnityTranslationService
             }
             context.Token.ThrowIfCancellationRequested();
             var currentGame = store.TryGetGame(state.GameId);
-            var currentProfile = _host.Launches.GetDefaultProfile(state.GameId);
+            var currentProfile = RecommendedProfile(state.GameId);
             if (!ReferenceEquals(store, _host.Library.Store) || ReadState(store, state.GameId)?.AttemptId != state.AttemptId) return;
             if (currentGame is null || !IsActiveUnityGame(currentGame)
-                || !allowUntaggedRepair && !HasTag(store, currentGame, store.TryGetTag(state.BoundTagId!))
+                || !allowUntagged && !HasTag(store, currentGame, state.BoundTagId is null ? null : store.TryGetTag(state.BoundTagId))
+                    && !TranslationLaunchRouteResolver.RequiresTranslation(currentGame)
                 || currentProfile != profile || Settings(store) != settings)
             { Block("游戏、标签或启动配置在准备期间已改变，取消安装"); return; }
             if (FileHash(layout.Config) != originalConfigHash || FileHash(layout.Bootstrap) != originalBootstrapHash)

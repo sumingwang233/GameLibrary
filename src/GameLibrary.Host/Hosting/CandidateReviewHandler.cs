@@ -9,7 +9,7 @@ using GameLibrary.Infrastructure.Persistence;
 
 namespace GameLibrary.Host.Hosting;
 
-internal sealed class CandidateReviewHandler(Func<SqliteLibraryStore?> storeAccessor, EventStream events)
+internal sealed class CandidateReviewHandler(Func<SqliteLibraryStore?> storeAccessor, EventStream events, Action<string>? onAccepted = null)
 {
     public Envelope<object> CandidateReview(IpcRequest request, string action)
     {
@@ -174,6 +174,7 @@ internal sealed class CandidateReviewHandler(Func<SqliteLibraryStore?> storeAcce
                     fromCandidate = result.CandidateId,
                     similarTo = FingerprintSuggestions.ToPayload(similar)
                 }, DateTime.UtcNow);
+            onAccepted?.Invoke(result.GameId!);
         }
         events.Publish("candidate.updated", $"candidate:{result.CandidateId}",
             new { candidateId = result.CandidateId, reviewState = result.State }, DateTime.UtcNow);

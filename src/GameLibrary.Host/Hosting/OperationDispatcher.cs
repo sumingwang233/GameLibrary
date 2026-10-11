@@ -94,7 +94,7 @@ public sealed class OperationDispatcher
         _state = state;
         _unityTranslations = state.UnityTranslations ??= new UnityTranslationService(state);
         _titles = new TitlesHandler(state);
-        _candidateReview = new CandidateReviewHandler(() => state.Library.Store, state.Events);
+        _candidateReview = new CandidateReviewHandler(() => state.Library.Store, state.Events, _unityTranslations.RequestForTaggedGame);
         _ignoreRules = new IgnoreRulesHandler(() => state.Library.Store, state.Roots);
         _tags = new TagsHandler(() => state.Library.Store, state.Events, _unityTranslations.RequestForTaggedGame);
         _verification = new VerificationHandler(() => state.Library.Store);

@@ -26,12 +26,7 @@ public static class TranslationLaunchRouteResolver
 {
     public static TranslationRouteResolution Resolve(GameCard game, LaunchProfile profile)
     {
-        var inherited = game.TranslationInherited
-            ? TranslationRequirement.Required
-            : TranslationRequirement.Auto;
-        var userOverride = ParseOverride(game.TranslationOverride);
-        var required = (userOverride != TranslationRequirement.Auto ? userOverride : inherited)
-            == TranslationRequirement.Required;
+        var required = RequiresTranslation(game);
 
         if (!required)
         {
@@ -87,6 +82,16 @@ public static class TranslationLaunchRouteResolver
             false,
             new TranslationLaunchRoute(MToolDiscovery.ToolId, discovery.Recipe.SourcePath, steps),
             null);
+    }
+
+    public static bool RequiresTranslation(GameCard game)
+    {
+        var inherited = game.TranslationInherited
+            ? TranslationRequirement.Required
+            : TranslationRequirement.Auto;
+        var userOverride = ParseOverride(game.TranslationOverride);
+        return (userOverride != TranslationRequirement.Auto ? userOverride : inherited)
+            == TranslationRequirement.Required;
     }
 
     private static TranslationRequirement ParseOverride(string? value) =>

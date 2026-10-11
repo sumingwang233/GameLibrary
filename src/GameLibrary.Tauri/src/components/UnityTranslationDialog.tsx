@@ -15,7 +15,7 @@ export interface UnityTranslationItem {
 interface UnityStatus { items: UnityTranslationItem[]; needsSettings: boolean }
 const ACTIVE = new Set(["queued", "inspecting", "installing"]);
 
-export function UnityTranslationDialog({ enabled, settingsOpen, onCloseSettings, request, onRequestHandled, onPlay, onChanged, onNavigate }: {
+export function UnityTranslationDialog({ enabled, settingsOpen, onCloseSettings, request, onRequestHandled, onPlay, onChanged, onNavigate, onStatusChange }: {
   enabled: boolean;
   settingsOpen: boolean;
   onCloseSettings: () => void;
@@ -24,6 +24,7 @@ export function UnityTranslationDialog({ enabled, settingsOpen, onCloseSettings,
   onPlay: (gameId: string, profileId?: string) => Promise<void>;
   onChanged: () => Promise<void>;
   onNavigate: (gameId: string) => void;
+  onStatusChange?: (items: UnityTranslationItem[]) => void;
 }) {
   const [status, setStatus] = useState<UnityStatus>({ items: [], needsSettings: false });
   const [settings, setSettings] = useState<UnityProviderSettings | null>(null);
@@ -36,8 +37,11 @@ export function UnityTranslationDialog({ enabled, settingsOpen, onCloseSettings,
   const running = useRef(false);
   const alive = useRef(false);
   const identity = useRef("");
-  const callbacks = useRef({ onCloseSettings, onRequestHandled, onPlay, onChanged, onNavigate });
-  callbacks.current = { onCloseSettings, onRequestHandled, onPlay, onChanged, onNavigate };
+  const submitting = useRef<string | null>(null);
+  const callbacks = useRef({ onCloseSettings, onRequestHandled, onPlay, onChanged, onNavigate, onStatusChange });
+  callbacks.current = { onCloseSettings, onRequestHandled, onPlay, onChanged, onNavigate, onStatusChange };
+
+  useEffect(() => { callbacks.current.onStatusChange?.(status.items); }, [status.items]);
 
   const refresh = useCallback(async () => {
     const result = await operation<UnityStatus>("unity_translation.status");
@@ -51,7 +55,13 @@ export function UnityTranslationDialog({ enabled, settingsOpen, onCloseSettings,
     if (!Array.isArray(result.data?.items) || result.data.items.some(item =>
       !item || [item.gameId, item.title, item.attemptId, item.state, item.provider].some(value => typeof value !== "string")))
       throw new Error(t("翻译插件状态不完整，请刷新后重试"));
-    setStatus(result.data);
+    setStatus(previous => {
+      const next = submitting.current ? { ...result.data, items: [
+        ...result.data.items.filter(item => item.gameId !== submitting.current),
+        ...previous.items.filter(item => item.gameId === submitting.current),
+      ] } : result.data;
+      return JSON.stringify(previous) === JSON.stringify(next) ? previous : next;
+    });
     setPrompt(previous => previous && result.data.items.some(item => item.attemptId === previous.item.attemptId && item.state === "configured") ? previous : null);
   }, []);
 
@@ -104,13 +114,26 @@ export function UnityTranslationDialog({ enabled, settingsOpen, onCloseSettings,
     const intent = request;
     callbacks.current.onRequestHandled();
     setError(null);
+    submitting.current = intent.action === "configure" ? intent.gameId : null;
+    if (intent.action === "configure") setStatus(previous => ({ ...previous, items: [
+      ...previous.items.filter(item => item.gameId !== intent.gameId),
+      { gameId: intent.gameId, title: previous.items.find(item => item.gameId === intent.gameId)?.title ?? intent.gameId,
+        attemptId: "submitting", state: "queued", provider: "deepseek" },
+    ] }));
     void (async () => {
       try {
         await operation(`unity_translation.${intent.action}`, intent.action === "configure" ? { gameIds: [intent.gameId] } : { gameId: intent.gameId },
           `unity_translation.${intent.action}:${intent.gameId}`);
+        submitting.current = null;
         wizardDismissed.current = false;
         await refresh(); await callbacks.current.onChanged();
-      } catch (cause) { if (alive.current) setError(describeFailure(cause)); }
+      } catch (cause) { if (alive.current) {
+        submitting.current = null;
+        const reason = describeFailure(cause);
+        setError(reason);
+        setStatus(previous => ({ ...previous, items: previous.items.map(item => item.gameId === intent.gameId
+          ? { ...item, state: "failed", reason } : item) }));
+      } }
     })();
   }, [enabled, request, refresh]);
 

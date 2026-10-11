@@ -18,6 +18,89 @@ namespace GameLibrary.IntegrationTests.Translation;
 
 public sealed class UnityTranslationTests
 {
+    [Theory]
+    [InlineData("required")]
+    [InlineData("accept")]
+    [InlineData("accept-batch")]
+    [InlineData("explicit")]
+    [InlineData("discovery")]
+    [InlineData("wizard")]
+    [InlineData("ambiguous")]
+    [InlineData("discarded")]
+    [InlineData("not-required")]
+    public async Task AutomaticEntry_ConfiguresWithoutDefaultOrTag_AndPreservesSelectionBoundaries(string trigger)
+    {
+        await using var fixture = await Fixture.Create();
+        if (trigger != "wizard") Assert.True(fixture.Invoke("settings.set", new { apiKey = fixture.Key }).Ok);
+        var engine = JsonSerializer.SerializeToElement(GameLibrary.Domain.Detection.EngineId.Unity, ContractJson.Options).GetString()!;
+        var game = fixture.AddGame("suggested-entry", engine);
+        fixture.Store.UnassignTag(game.GameId, fixture.TagId);
+        if (trigger is "required" or "accept" or "accept-batch" or "not-required") fixture.Store.WriteExclusive((connection, _) =>
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE games SET translation_inherited=1, translation_override=$override WHERE game_id=$id";
+            command.Parameters.AddWithValue("$override", trigger == "not-required" ? "NotRequired" : DBNull.Value);
+            command.Parameters.AddWithValue("$id", game.GameId);
+            command.ExecuteNonQuery();
+        });
+        var exe = Path.Combine(game.RootPath, "Game.exe");
+        File.WriteAllText(exe, "never execute");
+        await BuildSyntheticPlugins(Path.Combine(game.RootPath, "Game_Data"));
+        // Real filesystem discovery and scoring, without inserting a default or executing the EXE.
+        var suggestions = new LaunchSuggestionService(fixture.Host);
+        if (trigger is not ("discovery" or "accept" or "accept-batch")) await suggestions.DiscoverAsync(game.GameId, CancellationToken.None);
+        var profile = fixture.Host.Launches.ListProfiles(game.GameId).SingleOrDefault();
+        if (trigger is not ("discovery" or "accept" or "accept-batch"))
+        {
+            Assert.NotNull(profile);
+            Assert.Equal("automatic", profile.Source);
+            Assert.Equal("suggested", profile.ValidationStatus);
+            Assert.False(profile.IsDefault);
+        }
+        if (trigger == "ambiguous") fixture.Host.Launches.AddSuggestions(game.GameId, game.RootPath,
+            [new GameLibrary.Domain.Detection.EntryCandidate("Other.exe", profile!.SuggestionScore, [])]);
+        if (trigger == "discarded") fixture.Host.Launches.RestoreProfile(profile! with { ValidationStatus = "discarded" });
+        if (trigger is "accept" or "accept-batch")
+        {
+            fixture.Store.UpsertCandidate(new() { CandidateId = "new-accept", PhysicalPath = game.RootPath, RelativePath = "suggested-entry", Kind = "game",
+                PayloadJson = JsonSerializer.Serialize(new { engines = new[] { new { engine = GameLibrary.Domain.Detection.EngineId.Unity } },
+                    entryCandidates = new[] { new { relativePath = "Game.exe" } }, classification = new { requiredByToolNeed = true } }, ContractJson.Options),
+                ReviewState = "pendingReview", ObservedUtc = DateTime.UtcNow, UpdatedUtc = DateTime.UtcNow });
+            var result = new GameLibrary.Host.Hosting.OperationDispatcher(fixture.Host).Dispatch(new IpcRequest
+            { RequestId = Guid.NewGuid().ToString("N"), OperationId = trigger == "accept" ? "candidates.accept" : "candidates.review_batch",
+                Parameters = trigger == "accept"
+                    ? JsonSerializer.SerializeToElement(new { candidateId = "new-accept", expectedRevision = 1, idempotencyKey = Guid.NewGuid().ToString("N") }, ContractJson.Options)
+                    : JsonSerializer.SerializeToElement(new { action = "accept", items = new[] { new { candidateId = "new-accept", expectedRevision = 1 } },
+                        idempotencyKey = Guid.NewGuid().ToString("N") }, ContractJson.Options) });
+            Assert.True(result.Ok, result.Error?.Message);
+        }
+        else if (trigger is "required" or "not-required") fixture.Service.RequestForTaggedGame(game.GameId);
+        else Assert.True(fixture.Invoke("configure", new { gameIds = new[] { game.GameId } }).Ok);
+        await fixture.Host.Jobs.WaitForIdleAsync();
+        if (trigger == "wizard")
+        {
+            Assert.Equal("needs_settings", fixture.ReadState(game.GameId)?.State);
+            Assert.True(fixture.Invoke("settings.set", new { apiKey = fixture.Key }).Ok);
+            await fixture.Host.Jobs.WaitForIdleAsync();
+        }
+        if (trigger is "ambiguous" or "discarded" or "not-required")
+        {
+            if (trigger != "not-required") Assert.Equal("blocked", fixture.ReadState(game.GameId)?.State);
+            else Assert.Null(fixture.ReadState(game.GameId));
+            Assert.False(File.Exists(Path.Combine(game.RootPath, "AutoTranslator", "Config.ini")));
+        }
+        else
+        {
+            var state = fixture.ReadState(game.GameId)!;
+            Assert.True(state.State == "configured", state.Reason);
+            Assert.Equal((profile ?? Assert.Single(fixture.Host.Launches.ListProfiles(game.GameId))).ProfileId, state.ProfileId);
+            Assert.Equal("zh", UnityTranslationIni.Read(Path.Combine(game.RootPath, "AutoTranslator", "Config.ini")).Get("General", "Language"));
+        }
+        Assert.Null(fixture.Host.Launches.GetDefaultProfile(game.GameId));
+        Assert.Empty(fixture.Host.Launches.History());
+        suggestions.Dispose();
+    }
+
     [Fact]
     public async Task FontRepair_UsesBoundedUnityVersion_PreservesCustomFontsAndPreviousInstallationOnFailure()
     {

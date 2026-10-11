@@ -7,6 +7,7 @@ import { Check, ExternalLink, ImagePlus, Play, Star, Trash2 } from "lucide-react
 import { assetDataUrl, describeFailure, operation, OperationError } from "../lib/api";
 import type { TitleTranslationController } from "../lib/hooks/useTitleTranslation";
 import { TitleTranslationStatus } from "./TitleTranslationStatus";
+import type { UnityTranslationItem } from "./UnityTranslationDialog";
 import { discoverLaunchProfiles, LaunchProfileSelectionRequired } from "../lib/launchProfiles";
 import { groupTagsByCategory, tagLabel, tagStyle } from "../lib/tags";
 import type {
@@ -59,6 +60,7 @@ export function DetailSheet({
   supportsSuggestions = false,
   titleTranslation,
   onUnityTranslation,
+  unityTranslationState,
   initialTab = "overview",
 }: {
   game: GameItem | null;
@@ -69,6 +71,7 @@ export function DetailSheet({
   supportsSuggestions?: boolean;
   titleTranslation?: TitleTranslationController;
   onUnityTranslation?: (gameId: string, action: "configure" | "restore") => void;
+  unityTranslationState?: UnityTranslationItem;
   initialTab?: "overview" | "launch";
   onChanged: () => Promise<void> | void;
   /** 点击「疑似重复」条目跳到目标游戏详情；Sheet 不关闭不重建，由 App 侧换 selected 实现。 */
@@ -487,10 +490,15 @@ export function DetailSheet({
             <TabsContent value="launch" className="space-y-3">
               {current.engine?.toLowerCase() === "unity" && onUnityTranslation && <div className="space-y-2 rounded-md border border-border p-3">
                 <h3 className="text-sm font-semibold">{t("Unity 游戏内翻译")}</h3>
-                <p className="text-xs text-text-secondary">{t("先添加未翻译标签，程序将自动配置插件。配置失败或需要再次测试时可在这里重试。")}</p>
+                {unityTranslationState && <p role={['failed', 'blocked'].includes(unityTranslationState.state) ? "alert" : "status"}
+                  className="break-words text-xs text-text-secondary">
+                  {t(unityTranslationState.reason || ({ queued: "等待配置翻译插件", inspecting: "正在检查翻译插件", installing: "正在安装翻译插件",
+                    configured: "翻译插件已配置，等待运行确认", confirmed: "已确认翻译插件运行成功", failed: "翻译插件配置失败",
+                    blocked: "翻译插件配置受阻", needs_settings: "请先配置翻译服务商", restored: "已恢复安装前状态" } as Record<string, string>)[unityTranslationState.state] || unityTranslationState.state)}
+                </p>}
                 <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" disabled={busy} onClick={() => onUnityTranslation(current.gameId, "configure")}>{t("配置或重试翻译插件")}</Button>
-                  <Button variant="outline" disabled={busy} onClick={() => onUnityTranslation(current.gameId, "restore")}>{t("恢复安装前状态")}</Button>
+                  <Button variant="outline" disabled={busy || ['queued', 'inspecting', 'installing'].includes(unityTranslationState?.state ?? '')} onClick={() => onUnityTranslation(current.gameId, "configure")}>{t("配置或重试翻译插件")}</Button>
+                  <Button variant="outline" disabled={busy || ['queued', 'inspecting', 'installing'].includes(unityTranslationState?.state ?? '')} onClick={() => onUnityTranslation(current.gameId, "restore")}>{t("恢复安装前状态")}</Button>
                 </div>
               </div>}
               {supportsSuggestions && <>

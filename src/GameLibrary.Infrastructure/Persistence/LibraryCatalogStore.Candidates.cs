@@ -320,7 +320,7 @@ public static partial class LibraryCatalogStore
             {
                 using var restore = connection.CreateCommand();
                 restore.Transaction = transaction;
-                restore.CommandText = "UPDATE games SET membership='active', revision=revision+1, updated_utc=$now WHERE game_id=$id";
+                restore.CommandText = "UPDATE games SET membership='active', revision=revision+1, accepted_utc=$now, updated_utc=$now WHERE game_id=$id";
                 restore.Parameters.AddWithValue("$id", gameId);
                 restore.Parameters.AddWithValue("$now", utcNow.ToString("O", CultureInfo.InvariantCulture));
                 restore.ExecuteNonQuery();

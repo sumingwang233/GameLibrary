@@ -1,4 +1,13 @@
 {
+  "等待配置翻译插件": ["等待設定翻譯外掛","Translation plugin setup queued","翻訳プラグインの設定待ち"],
+  "正在检查翻译插件": ["正在檢查翻譯外掛","Inspecting translation plugin","翻訳プラグインを確認中"],
+  "正在安装翻译插件": ["正在安裝翻譯外掛","Installing translation plugin","翻訳プラグインをインストール中"],
+  "翻译插件已配置，等待运行确认": ["翻譯外掛已設定，等待執行確認","Plugin configured; awaiting in-game confirmation","設定完了・ゲーム内確認待ち"],
+  "已确认翻译插件运行成功": ["已確認翻譯外掛執行成功","Translation plugin confirmed working","翻訳プラグインの動作を確認済み"],
+  "翻译插件配置失败": ["翻譯外掛設定失敗","Translation plugin setup failed","翻訳プラグインの設定に失敗"],
+  "翻译插件配置受阻": ["翻譯外掛設定受阻","Translation plugin setup blocked","翻訳プラグインの設定が停止しました"],
+  "已恢复安装前状态": ["已恢復安裝前狀態","Pre-installation state restored","インストール前の状態に復元済み"],
+  "未找到可信的游戏入口或存在多个相近入口；请在启动选项中选择实际游戏 EXE": ["未找到可信的遊戲入口或存在多個相近入口；請在啟動選項中選擇實際遊戲 EXE","No trusted game entry or several similar entries were found. Select the actual game EXE in launch options.","信頼できる起動先がないか、候補が複数あります。起動オプションで実際のゲーム EXE を選択してください。"],
   "Unity 游戏内翻译": ["Unity 遊戲內翻譯","Unity in-game translation","Unity ゲーム内翻訳"],
   "先添加未翻译标签，程序将自动配置插件。配置失败或需要再次测试时可在这里重试。": ["先新增未翻譯標籤，程式將自動設定外掛。設定失敗或需要再次測試時可在這裡重試。","Add the untranslated tag to configure the plugin automatically. Retry here if setup fails or you want to test again.","未翻訳タグを付けるとプラグインを自動設定します。設定の失敗時や再テストはここから行えます。"],
   "配置或重试翻译插件": ["設定或重試翻譯外掛","Configure or retry translation plugin","翻訳プラグインの設定・再試行"],

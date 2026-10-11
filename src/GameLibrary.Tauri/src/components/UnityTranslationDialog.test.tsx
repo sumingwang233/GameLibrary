@@ -22,6 +22,27 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("Unity translation launch confirmation", () => {
+  it("reports manual submission immediately and forwards the backend block without launching", async () => {
+    let finish!: () => void;
+    let completed = false;
+    const onStatusChange = vi.fn();
+    api.operation.mockImplementation(async (id: string) => {
+      if (id === "unity_translation.settings.get") return { data: { provider: "deepseek", endpoint: "https://api.deepseek.com/chat/completions", model: "deepseek-flash", hasKey: true } };
+      if (id === "unity_translation.configure") {
+        await new Promise<void>(resolve => { finish = resolve; });
+        completed = true;
+        return { data: { jobId: "job" } };
+      }
+      return { libraryInstanceId: "library", dataEpoch: "epoch", data: { items: completed ? [{ ...item, state: "blocked", reason: "Select actual game EXE" }] : [], needsSettings: false } };
+    });
+    const callbacks = props();
+    render(<UnityTranslationDialog {...callbacks} request={{ gameId: "game", action: "configure" }} onStatusChange={onStatusChange} />);
+    await waitFor(() => expect(onStatusChange).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ gameId: "game", state: "queued" })])));
+    expect(callbacks.onPlay).not.toHaveBeenCalled();
+    finish();
+    await waitFor(() => expect(onStatusChange).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ state: "blocked", reason: "Select actual game EXE" })])));
+    expect(api.operation).toHaveBeenCalledWith("unity_translation.configure", { gameIds: ["game"] }, "unity_translation.configure:game");
+  });
   it("shows first-run preparation guidance without starting the game automatically", async () => {
     const callbacks = props();
     const reason = "IL2CPP 插件已配置；首次启动可能需要联网准备组件，请耐心等待，并在游戏内确认翻译效果";

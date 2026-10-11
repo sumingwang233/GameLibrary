@@ -1,5 +1,9 @@
 # GameLibrary 关键流程
 
+## v1.7.9 入库与 Unity 自动配置
+
+明确接受 → 新建/恢复并更新入库时间 → Required/标签判断 → 推荐入口（必要时按需发现）→ 串行安装 → 全局确认弹窗与详情状态。显式按钮无需标签；不确定入口保留人工选择。历史时间以当前纪元确认事件修复。完整图见 [实施记录](../development/v1.7.9-acceptance-and-unity.md)。
+
 ## v1.7.8 Unity 字体修复
 
 标签/旧托管安装 → 实际加载器 INI → UnityTranslationFonts 识别版本、保留自定义字体 → 固定哈希 Xiaolai 后备 → 本次事务合并与离线检查。无标签 configured/confirmed 也可迁移；失败仅回滚当前写入。详见 [流程图与边界](../development/v1.7.8-unity-fonts.md)。
