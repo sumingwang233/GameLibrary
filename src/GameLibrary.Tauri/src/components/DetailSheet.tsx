@@ -1,5 +1,5 @@
 import { t } from "../lib/i18n";
-import { useCallback, useEffect, useRef, useState, type ClipboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type DragEvent } from "react";
 import { dirname, join, pictureDir } from "@tauri-apps/api/path";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
@@ -9,7 +9,7 @@ import type { TitleTranslationController } from "../lib/hooks/useTitleTranslatio
 import { TitleTranslationStatus } from "./TitleTranslationStatus";
 import type { UnityTranslationItem } from "./UnityTranslationDialog";
 import { discoverLaunchProfiles, LaunchProfileSelectionRequired } from "../lib/launchProfiles";
-import { groupTagsByCategory, tagLabel, tagStyle } from "../lib/tags";
+import { TAG_CATEGORIES, groupTagsByCategory, tagCategory, tagLabel, tagStyle, type TagCategoryValue } from "../lib/tags";
 import type {
   GameItem,
   ProfileItem,
@@ -61,6 +61,7 @@ export function DetailSheet({
   titleTranslation,
   onUnityTranslation,
   unityTranslationState,
+  onUpdateTag,
   initialTab = "overview",
 }: {
   game: GameItem | null;
@@ -72,6 +73,7 @@ export function DetailSheet({
   titleTranslation?: TitleTranslationController;
   onUnityTranslation?: (gameId: string, action: "configure" | "restore") => void;
   unityTranslationState?: UnityTranslationItem;
+  onUpdateTag?: (tag: TagItem, changes: { category: TagCategoryValue }) => Promise<void>;
   initialTab?: "overview" | "launch";
   onChanged: () => Promise<void> | void;
   /** 点击「疑似重复」条目跳到目标游戏详情；Sheet 不关闭不重建，由 App 侧换 selected 实现。 */
@@ -94,6 +96,8 @@ export function DetailSheet({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [busy, setBusy] = useState(false);
   const [tagDraft, setTagDraft] = useState("");
+  const [dragOverCategory, setDragOverCategory] = useState<TagCategoryValue | null>(null);
+  const [categoryTagId, setCategoryTagId] = useState("");
 
   const gameId = game?.gameId ?? null;
   useEffect(() => { setTab(initialTab); }, [gameId, initialTab]);
@@ -237,6 +241,17 @@ export function DetailSheet({
       setCurrent(refreshed.data);
       await onChanged();
     });
+
+  const moveTag = (tag: TagItem, category: TagCategoryValue) => {
+    if (busy || !onUpdateTag || tagCategory(tag) === category) return;
+    void run(() => onUpdateTag(tag, { category }));
+  };
+  const dropTag = (category: TagCategoryValue, event: DragEvent) => {
+    event.preventDefault();
+    setDragOverCategory(null);
+    const tag = tags.find(item => item.tagId === event.dataTransfer.getData("text/plain"));
+    if (tag) moveTag(tag, category);
+  };
 
   const setPolicy = (value: string) =>
     run(async () => {
@@ -569,17 +584,44 @@ export function DetailSheet({
               {tags.length === 0 ? (
                 <p className="text-sm text-text-secondary">{t("还没有标签，可以直接在上方新建。")}</p>
               ) : (
-                // feat-3：按四个分类（引擎/玩法/社团/特殊）分组展示并勾选标注；
-                // 组内星标置顶（compareTags），空分组整段隐藏。
                 <div className="space-y-4">
+                  {onUpdateTag && <>
+                    <p className="text-xs text-text-secondary">{t("拖动标签到其他分类；分类调整对整个游戏库生效。")}</p>
+                    <details className="text-xs text-text-secondary">
+                      <summary className="cursor-pointer">{t("调整标签分类")}</summary>
+                      <div className="mt-2 flex gap-2">
+                        <select aria-label={t("选择标签")} disabled={busy}
+                          value={tags.some(tag => tag.tagId === categoryTagId) ? categoryTagId : tags[0].tagId}
+                          onChange={event => setCategoryTagId(event.target.value)} className="min-w-0 flex-1 rounded border border-border bg-surface p-1">
+                          {tags.map(tag => <option key={tag.tagId} value={tag.tagId}>{tagLabel(tag)}</option>)}
+                        </select>
+                        <select aria-label={t("标签分类")} disabled={busy}
+                          value={tagCategory(tags.find(tag => tag.tagId === categoryTagId) ?? tags[0])}
+                          onChange={event => moveTag(tags.find(tag => tag.tagId === categoryTagId) ?? tags[0], event.target.value as TagCategoryValue)}
+                          className="rounded border border-border bg-surface p-1">
+                          {TAG_CATEGORIES.map(category => <option key={category.value} value={category.value}>{t(category.label)}</option>)}
+                        </select>
+                      </div>
+                    </details>
+                  </>}
                   {groupTagsByCategory(tags)
-                    .filter((group) => group.items.length > 0)
+                    .filter((group) => onUpdateTag || group.items.length > 0)
                     .map((group) => (
-                      <div key={group.value}>
+                      <div key={group.value} role="group" aria-label={t(group.label)}
+                        onDragOver={event => {
+                          if (busy || !onUpdateTag) return;
+                          event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDragOverCategory(group.value);
+                        }}
+                        onDragLeave={event => {
+                          if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragOverCategory(null);
+                        }}
+                        onDrop={event => dropTag(group.value, event)}
+                        className={cn("rounded-md p-2 transition-colors", dragOverCategory === group.value && "ring-2 ring-steam bg-steam/10")}>
                         <h4 className="mb-2 text-[11px] font-semibold tracking-[0.14em] text-text-secondary uppercase">
                           {t(group.label)} · {group.items.length}
                         </h4>
                         <div className="flex flex-wrap gap-2">
+                          {group.items.length === 0 && <p className="text-xs text-text-secondary">{t("无（可把标签拖到这里）")}</p>}
                           {group.items.map((tag) => {
                             const active = hasTag(current, tag);
                             return (
@@ -588,6 +630,9 @@ export function DetailSheet({
                                 type="button"
                                 disabled={busy}
                                 aria-pressed={active}
+                                draggable={!!onUpdateTag && !busy}
+                                onDragStart={event => { event.dataTransfer.setData("text/plain", tag.tagId); event.dataTransfer.effectAllowed = "move"; }}
+                                onDragEnd={() => setDragOverCategory(null)}
                                 onClick={() => void toggleTag(tag)}
                                 className={cn(
                                   "inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition disabled:opacity-50",

@@ -1,5 +1,7 @@
 # GameLibrary 代码预览框架
 
+2026-10-11 v1.7.10：修改前查询最小上下文，追溯 Mono 字体消费者与详情标签更新。Mono 沿原字体事务配置 TMP 主字体，已有中文插件仍检查修复；详情拖放与下拉复用 updateTag 分类接口，无新依赖/DDL/operation。见 [实施记录](../development/v1.7.10-mono-fonts-and-tags.md)及[验证记录](../releases/v1.7.10-validation.md)。
+
 2026-10-11 v1.7.9：修改前调用最小上下文，追踪 accepted-desc → AcceptCandidate 及按钮 → 配置队列 → Profile 推荐。复用可信建议入口与 Required 策略，接受后触发自动配置，详情复用共享状态。schema 28 仅按确认事件修复历史入库时间。见 [方案](../development/v1.7.9-acceptance-and-unity.md)及[验证记录](../releases/v1.7.9-validation.md)。
 
 2026-10-09 v1.7.8：修改前查询图谱最小上下文，修改后增量解析共 7 个文件（含暂存新增字体模块），解析错误 0。沿既有安装流程补中文字体、旧中文配置迁移和本次失败回滚，无前端或数据库协议变化。56 项 Unity 专项通过。见 [方案](../development/v1.7.8-unity-fonts.md)与[验证记录](../releases/v1.7.8-validation.md)。
@@ -24,14 +26,14 @@ v1.7.3 修改前调用最小上下文，修改后增量刷新包含 FlashLegacyR
 
 | 项目 | 结果 |
 |---|---|
-| 图谱基线 | `7f1561b`，v1.7.9 源码，2026-10-11 |
+| 图谱基线 | `801ef1f` 加 v1.7.10 工作区修改，2026-10-11 |
 | 源码文件 | 364 |
-| 节点 / 边 | 3,537 / 31,426 |
+| 节点 / 边 | 3,546 / 31,662 |
 | 执行流 | 175 |
 | 解析错误 | 0 |
 | 验证环境 | .NET SDK 10.0.401；global.json 未修改 |
 
-快照在 2026-10-11 增量更新，24 个文件重新解析，包含 v1.7.9 入库时间和自动配置链路；解析错误为空。当前直接 CALLS 为 7,327，未解析 CALLS 为 18,060。图谱中的委托、动态装配和裸名匹配仍需结合源码复核；`head_matches_build=true` 只说明 Git 提交基线一致，不证明工作区没有后续变化。175 个执行流是 2026-09-30 的历史统计，未在此次重新统计。网站的架构、素材与真实验证见 [网站实施记录](website.md)；此前记录见 [建议启动方式](../launch-suggestions.md)、[优化实施记录](optimization-implementation.md) 和 [v1.6.0 构建记录](../releases/v1.6.0-validation.md)。
+快照在 2026-10-11 增量更新，12 个文件重新解析，包含 v1.7.10 Mono 字体修复和详情标签分类；解析错误为空。当前直接 CALLS 为 7,382，未解析 CALLS 为 18,179。图谱中的委托、动态装配和裸名匹配仍需结合源码复核；`head_matches_build=true` 只说明 Git 提交基线一致，不证明工作区没有后续变化。175 个执行流是 2026-09-30 的历史统计，未在此次重新统计。网站的架构、素材与真实验证见 [网站实施记录](website.md)；此前记录见 [建议启动方式](../launch-suggestions.md)、[优化实施记录](optimization-implementation.md) 和 [v1.6.0 构建记录](../releases/v1.6.0-validation.md)。
 
 ## 入口文件
 

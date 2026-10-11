@@ -1,5 +1,9 @@
 # GameLibrary 关键流程
 
+## v1.7.10 Mono 字体与详情标签
+
+详情标签拖放/下拉 → useTagActions.updateTag → tags.update 修订号校验 → refreshMeta；不调用 assign/unassign。Unity 队列检查中文插件的 NeedsRepair，Mono 设置受管 TMP 主字体，IL2CPP 保留后备项，然后沿既有备份写入事务；无需字体修复才提前确认。用户未确认具体游戏，实际画面仍待验收，见 [实施记录](../development/v1.7.10-mono-fonts-and-tags.md)。
+
 ## v1.7.9 入库与 Unity 自动配置
 
 明确接受 → 新建/恢复并更新入库时间 → Required/标签判断 → 推荐入口（必要时按需发现）→ 串行安装 → 全局确认弹窗与详情状态。显式按钮无需标签；不确定入口保留人工选择。历史时间以当前纪元确认事件修复。完整图见 [实施记录](../development/v1.7.9-acceptance-and-unity.md)。

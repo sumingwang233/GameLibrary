@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import type { GameItem, ProfileItem } from "../lib/types";
+import type { GameItem, ProfileItem, TagItem } from "../lib/types";
 import { DetailSheet } from "./DetailSheet";
 import { OperationError } from "../lib/api";
 
@@ -9,6 +9,45 @@ vi.mock("../lib/api", async importOriginal => ({ ...await importOriginal<typeof 
 afterEach(() => { cleanup(); operation.mockReset(); });
 
 const game: GameItem = { gameId: "game", title: "Test game", rootPath: "D:/game", kind: "folderGame", favorite: false, revision: 1 };
+
+it.each(["user", "engine"])("moves a %s tag into an empty category without changing its game assignment", async kind => {
+  respond([]);
+  const tag: TagItem = { tagId: "tag", name: "Keep tag", kind, revision: 7, category: "special" };
+  const update = vi.fn(async () => {});
+  render(<DetailSheet game={game} tags={[tag]} onClose={vi.fn()} onPlay={vi.fn()} onChanged={vi.fn()} initialTab="tags" onUpdateTag={update} />);
+  const source = await screen.findByRole("button", { name: "Keep tag" });
+  const data = new Map<string, string>();
+  const dataTransfer = { setData: (key: string, value: string) => data.set(key, value), getData: (key: string) => data.get(key) ?? "" };
+  fireEvent.dragStart(source, { dataTransfer });
+  const target = screen.getByRole("group", { name: "玩法" });
+  fireEvent.dragOver(target, { dataTransfer });
+  fireEvent.drop(target, { dataTransfer });
+  await waitFor(() => expect(update).toHaveBeenCalledWith(tag, { category: "gameplay" }));
+  expect(operation.mock.calls.some(call => ["tags.assign", "tags.unassign"].includes(call[0]))).toBe(false);
+});
+
+it("ignores unknown drops and drops into the current tag category", async () => {
+  respond([]);
+  const tag: TagItem = { tagId: "tag", name: "Keep tag", kind: "user", revision: 7, category: "special" };
+  const update = vi.fn(async () => {});
+  render(<DetailSheet game={game} tags={[tag]} onClose={vi.fn()} onPlay={vi.fn()} onChanged={vi.fn()} initialTab="tags" onUpdateTag={update} />);
+  await screen.findByRole("button", { name: "Keep tag" });
+  fireEvent.drop(screen.getByRole("group", { name: "特殊" }), { dataTransfer: { getData: () => "tag" } });
+  fireEvent.drop(screen.getByRole("group", { name: "玩法" }), { dataTransfer: { getData: () => "not-a-tag" } });
+  expect(update).not.toHaveBeenCalled();
+});
+
+it("supports category changes without dragging and reports a rejected update", async () => {
+  respond([]);
+  const tag: TagItem = { tagId: "tag", name: "Keep tag", kind: "user", revision: 7, category: "special" };
+  const update = vi.fn(async () => { throw new Error("Revision conflict"); });
+  render(<DetailSheet game={game} tags={[tag]} onClose={vi.fn()} onPlay={vi.fn()} onChanged={vi.fn()} initialTab="tags" onUpdateTag={update} />);
+  fireEvent.click(await screen.findByText("调整标签分类"));
+  fireEvent.change(screen.getByRole("combobox", { name: "标签分类" }), { target: { value: "social" } });
+  await waitFor(() => expect(update).toHaveBeenCalledWith(tag, { category: "social" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Revision conflict");
+  expect(screen.getByRole("combobox", { name: "标签分类" })).toHaveValue("special");
+});
 
 it("preserves a draft and its original editing target when a translation arrives", async () => {
   respond(profiles());

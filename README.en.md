@@ -62,7 +62,7 @@ Scanning creates candidates; it does not treat every EXE as a game. You can add 
 <a id="faq"></a>
 ## Data and FAQ
 
-**v1.7.9 prerelease awaiting acceptance** fixes recently-added ordering and Unity setup with suggested entries, showing progress and failures directly in game details. [Downloads and notes](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.9) · [Validation record](docs/releases/v1.7.9-validation.md).
+**v1.7.10 prerelease awaiting acceptance** improves Mono Chinese font compatibility and repair of existing plugins, with tag category drag-and-drop in game details. [Downloads and notes](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.10) · [Validation record](docs/releases/v1.7.10-validation.md).
 
 <details>
 <summary><strong>Does scanning or removing a record delete game files?</strong></summary>

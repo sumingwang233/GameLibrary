@@ -62,7 +62,7 @@ Get-FileHash .\GameLibrary-Setup-v1.7.5.exe -Algorithm SHA256
 <a id="faq"></a>
 ## 数据与常见问题
 
-**v1.7.9 待验收预发布**：修复最近入库排序与 Unity 无默认入口时的自动翻译配置，详情页直接显示进度和失败原因。[下载与说明](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.9) · [验证记录](docs/releases/v1.7.9-validation.md)。
+**v1.7.10 待验收预发布**：完善 Mono 中文字体兼容与已有插件字体修复，游戏详情页支持拖动标签分类。[下载与说明](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.10) · [验证记录](docs/releases/v1.7.10-validation.md)。
 
 <details>
 <summary><strong>扫描或移出游戏库会删除游戏文件吗？</strong></summary>

@@ -112,10 +112,11 @@ public sealed class UnityTranslationService
             var layout = profile is { ToolId: null } && _host.Roots.Contains(profile.ExecutablePath)
                 ? UnityTranslationInspection.Inspect(profile.ExecutablePath) : null;
             // Repair our tracked installations, including those already confirmed without the untranslated tag.
-            var repair = ownedConfiguration && layout is { Reason: null }
-                && (layout.Loader == "bepinex" && File.Exists(Path.Combine(layout.Root, "AutoTranslator", "Config.ini"))
+            var repair = layout is { Reason: null }
+                && (ownedConfiguration && layout.Loader == "bepinex" && File.Exists(Path.Combine(layout.Root, "AutoTranslator", "Config.ini"))
                     && !UnityTranslationInspection.IsConfiguredChineseTranslator(layout)
-                    || UnityTranslationFonts.NeedsRepair(layout, UnityTranslationIni.Read(layout.Config)));
+                    || (ownedConfiguration || (tagged || required) && UnityTranslationInspection.IsConfiguredChineseTranslator(layout))
+                        && UnityTranslationFonts.NeedsRepair(layout, UnityTranslationIni.Read(layout.Config)));
             if (!tagged && !required && !repair) return;
             if (!tagged && existing?.State == "confirmed" && !repair) return;
             if (repair && UnityTranslationInspection.IsRunning(profile!.ExecutablePath)) return;
@@ -131,7 +132,7 @@ public sealed class UnityTranslationService
                 Save(store, NewState(store, game, settings) with { State = "needs_settings", Reason = "请先配置翻译服务商" });
                 return;
             }
-            Queue(store, [gameId], allowUntaggedRepair: repair && !tagged);
+            Queue(store, [gameId], allowUntaggedRepair: repair && !tagged && ownedConfiguration);
         }
         catch { /* Tag mutation succeeded; automation is retried through the explicit detail operation. */ }
     }
@@ -516,12 +517,13 @@ public sealed class UnityTranslationService
             Save(store, state);
             var layout = UnityTranslationInspection.Inspect(profile.ExecutablePath);
             if (layout.Reason is not null) { Block(layout.Reason); return; }
-            if (state.BackupId is null && UnityTranslationInspection.IsConfiguredChineseTranslator(layout))
+            var config = UnityTranslationIni.Read(layout.Config);
+            if (state.BackupId is null && UnityTranslationInspection.IsConfiguredChineseTranslator(layout)
+                && !UnityTranslationFonts.NeedsRepair(layout, config))
             { CompleteExisting(store, state); return; }
             if (!settings.Configured || !Vault(store).HasKey(settings.CredentialId))
             { Save(store, state with { State = "needs_settings", Reason = "请先配置翻译服务商" }); return; }
             var key = Vault(store).ReadKey(settings.CredentialId); // Capture with metadata before awaits; provider changes must not mix credentials.
-            var config = UnityTranslationIni.Read(layout.Config);
             var originalConfigHash = FileHash(layout.Config);
             var originalBootstrapHash = FileHash(layout.Bootstrap);
             var targets = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);

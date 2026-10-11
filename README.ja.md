@@ -62,7 +62,7 @@ v1.5.5 の独立したサンプルライブラリで撮影しています。ア�
 <a id="faq"></a>
 ## データとよくある質問
 
-**v1.7.9 検証待ちプレリリース**：再追加時の並び順と推奨起動先での Unity 翻訳設定を修正し、詳細画面に進捗と失敗理由を表示します。[ダウンロードと詳細](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.9) · [検証記録](docs/releases/v1.7.9-validation.md)。
+**v1.7.10 検証待ちプレリリース**：Mono の中国語フォント互換性と既存プラグインのフォント修復を改善し、ゲーム詳細でタグを別の分類へドラッグできるようにしました。[ダウンロードと詳細](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.10) · [検証記録](docs/releases/v1.7.10-validation.md)。
 
 <details>
 <summary><strong>スキャンや一覧からの削除で、ゲームファイルも消えますか？</strong></summary>

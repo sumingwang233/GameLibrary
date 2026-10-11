@@ -362,6 +362,7 @@ function App() {
           game={selected}
           initialTab={selected?.gameId === launchSelectionGameId ? "launch" : "overview"}
           tags={library.tags}
+          onUpdateTag={library.supports("tags.update") ? library.updateTag : undefined}
           refreshToken={library.changeToken}
           supportsSuggestions={library.supports("profiles.discover")}
           onUnityTranslation={library.supports("unity_translation.status") ? (gameId, action) => setUnityRequest({ gameId, action }) : undefined}

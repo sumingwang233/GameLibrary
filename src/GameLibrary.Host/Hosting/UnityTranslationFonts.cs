@@ -39,11 +39,17 @@ internal static partial class UnityTranslationFonts
     internal static bool NeedsRepair(UnityTranslationLayout layout, UnityTranslationIni ini)
     {
         if (SystemFont is not null && string.IsNullOrWhiteSpace(ini.Get("Behaviour", "OverrideFont"))) return true;
-        if (!string.IsNullOrWhiteSpace(ini.Get("Behaviour", "OverrideFontTextMeshPro"))) return false;
-        var fallback = ini.Get("Behaviour", "FallbackFontTextMeshPro");
         var generation = Generation(layout);
-        return generation is not null && (string.IsNullOrWhiteSpace(fallback)
-            || fallback == BundlePath(generation) && !File.Exists(Path.Combine(layout.Root, fallback)));
+        if (generation is null) return false;
+        var bundle = BundlePath(generation);
+        var font = ini.Get("Behaviour", "OverrideFontTextMeshPro");
+        var fallback = ini.Get("Behaviour", "FallbackFontTextMeshPro");
+        if (!string.IsNullOrWhiteSpace(font))
+            return font == bundle && !File.Exists(Path.Combine(layout.Root, bundle));
+        if (!string.IsNullOrWhiteSpace(fallback) && fallback != bundle) return false;
+        // Mono TMP versions can lack the global fallback API; use the supported font override.
+        return layout.Runtime == "mono" || string.IsNullOrWhiteSpace(fallback)
+            || !File.Exists(Path.Combine(layout.Root, bundle));
     }
 
     internal static bool Configure(UnityTranslationLayout layout, UnityTranslationIni ini, out string? generation)
@@ -51,10 +57,19 @@ internal static partial class UnityTranslationFonts
         if (string.IsNullOrWhiteSpace(ini.Get("Behaviour", "OverrideFont")) && SystemFont is { } font)
             ini.Set("Behaviour", "OverrideFont", font);
         generation = Generation(layout);
-        if (generation is null || !string.IsNullOrWhiteSpace(ini.Get("Behaviour", "OverrideFontTextMeshPro"))) return false;
+        if (generation is null) return false;
+        var bundle = BundlePath(generation);
+        var primary = ini.Get("Behaviour", "OverrideFontTextMeshPro");
+        if (!string.IsNullOrWhiteSpace(primary)) return primary == bundle;
         var fallback = ini.Get("Behaviour", "FallbackFontTextMeshPro");
-        if (!string.IsNullOrWhiteSpace(fallback) && fallback != BundlePath(generation)) return false;
-        ini.Set("Behaviour", "FallbackFontTextMeshPro", BundlePath(generation));
+        if (!string.IsNullOrWhiteSpace(fallback) && fallback != bundle) return false;
+        if (layout.Runtime == "mono")
+        {
+            ini.Set("Behaviour", "OverrideFontTextMeshPro", bundle);
+            // Do not load the same large bundle twice through XUnity's separate font caches.
+            ini.Set("Behaviour", "FallbackFontTextMeshPro", "");
+        }
+        else ini.Set("Behaviour", "FallbackFontTextMeshPro", bundle);
         return true;
     }
 

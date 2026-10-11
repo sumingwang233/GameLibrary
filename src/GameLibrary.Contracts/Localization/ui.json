@@ -1,4 +1,7 @@
 {
+  "拖动标签到其他分类；分类调整对整个游戏库生效。": ["拖動標籤到其他分類；分類調整對整個遊戲庫生效。","Drag tags into another category. Category changes apply across the library.","タグを別の分類へドラッグできます。分類の変更はライブラリ全体に適用されます。"],
+  "调整标签分类": ["調整標籤分類","Change tag category","タグの分類を変更"],
+  "标签分类": ["標籤分類","Tag category","タグの分類"],
   "等待配置翻译插件": ["等待設定翻譯外掛","Translation plugin setup queued","翻訳プラグインの設定待ち"],
   "正在检查翻译插件": ["正在檢查翻譯外掛","Inspecting translation plugin","翻訳プラグインを確認中"],
   "正在安装翻译插件": ["正在安裝翻譯外掛","Installing translation plugin","翻訳プラグインをインストール中"],
