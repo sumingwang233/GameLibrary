@@ -14,7 +14,8 @@ it.each(["user", "engine"])("moves a %s tag into an empty category without chang
   respond([]);
   const tag: TagItem = { tagId: "tag", name: "Keep tag", kind, revision: 7, category: "special" };
   const update = vi.fn(async () => {});
-  render(<DetailSheet game={game} tags={[tag]} onClose={vi.fn()} onPlay={vi.fn()} onChanged={vi.fn()} initialTab="tags" onUpdateTag={update} />);
+  render(<DetailSheet game={game} tags={[tag]} onClose={vi.fn()} onPlay={vi.fn()} onChanged={vi.fn()} onUpdateTag={update} />);
+  fireEvent.mouseDown(await screen.findByRole("tab", { name: "标签" }), { button: 0, ctrlKey: false });
   const source = await screen.findByRole("button", { name: "Keep tag" });
   const data = new Map<string, string>();
   const dataTransfer = { setData: (key: string, value: string) => data.set(key, value), getData: (key: string) => data.get(key) ?? "" };
@@ -30,7 +31,8 @@ it("ignores unknown drops and drops into the current tag category", async () => 
   respond([]);
   const tag: TagItem = { tagId: "tag", name: "Keep tag", kind: "user", revision: 7, category: "special" };
   const update = vi.fn(async () => {});
-  render(<DetailSheet game={game} tags={[tag]} onClose={vi.fn()} onPlay={vi.fn()} onChanged={vi.fn()} initialTab="tags" onUpdateTag={update} />);
+  render(<DetailSheet game={game} tags={[tag]} onClose={vi.fn()} onPlay={vi.fn()} onChanged={vi.fn()} onUpdateTag={update} />);
+  fireEvent.mouseDown(await screen.findByRole("tab", { name: "标签" }), { button: 0, ctrlKey: false });
   await screen.findByRole("button", { name: "Keep tag" });
   fireEvent.drop(screen.getByRole("group", { name: "特殊" }), { dataTransfer: { getData: () => "tag" } });
   fireEvent.drop(screen.getByRole("group", { name: "玩法" }), { dataTransfer: { getData: () => "not-a-tag" } });
@@ -41,7 +43,8 @@ it("supports category changes without dragging and reports a rejected update", a
   respond([]);
   const tag: TagItem = { tagId: "tag", name: "Keep tag", kind: "user", revision: 7, category: "special" };
   const update = vi.fn(async () => { throw new Error("Revision conflict"); });
-  render(<DetailSheet game={game} tags={[tag]} onClose={vi.fn()} onPlay={vi.fn()} onChanged={vi.fn()} initialTab="tags" onUpdateTag={update} />);
+  render(<DetailSheet game={game} tags={[tag]} onClose={vi.fn()} onPlay={vi.fn()} onChanged={vi.fn()} onUpdateTag={update} />);
+  fireEvent.mouseDown(await screen.findByRole("tab", { name: "标签" }), { button: 0, ctrlKey: false });
   fireEvent.click(await screen.findByText("调整标签分类"));
   fireEvent.change(screen.getByRole("combobox", { name: "标签分类" }), { target: { value: "social" } });
   await waitFor(() => expect(update).toHaveBeenCalledWith(tag, { category: "social" }));
