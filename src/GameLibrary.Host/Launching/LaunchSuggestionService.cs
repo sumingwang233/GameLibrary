@@ -69,17 +69,30 @@ internal sealed class LaunchSuggestionService(HostRuntimeState state) : IDisposa
                 try
                 {
                     if (HasReparsePoint(directory)) continue;
-                    var files = Directory.EnumerateFiles(directory).Take(257).ToArray();
-                    if (files.Length > 256) continue;
-                    var directories = Directory.EnumerateDirectories(directory).Take(257).ToArray();
-                    if (directories.Length > 256 || files.Any(HasReparsePoint) || directories.Any(HasReparsePoint)) continue;
-                    var path = GamePath.TryCreate(directory);
-                    if (!path.IsValid) continue;
-                    // Shared directories may hold separately registered file games. Their known
-                    // entries belong to those games and must not influence this game's single-entry score.
-                    var ownFiles = files.Where(file => !knownEntries[file].Any(otherId => otherId != id)).ToArray();
-                    var snapshot = new FileSystemDirectorySnapshot(path.Path!, directories, ownFiles);
-                    state.Launches.AddSuggestions(id, directory, LaunchSuggestionDetector.Detect(snapshot));
+                    IReadOnlyList<EntryCandidate> entries;
+                    if (game.Kind is "manualFile" or "fileGame")
+                    {
+                        // A registered file is the selected game entry, not an ambiguous shared directory.
+                        var extension = Path.GetExtension(game.RootPath);
+                        if (!File.Exists(game.RootPath) || HasReparsePoint(game.RootPath)
+                            || !extension.Equals(".exe", StringComparison.OrdinalIgnoreCase)
+                                && !extension.Equals(".swf", StringComparison.OrdinalIgnoreCase)) continue;
+                        entries = [new(Path.GetFileName(game.RootPath), EntryCandidate.PrescoreThreshold, ["single-entry"])];
+                    }
+                    else
+                    {
+                        var files = Directory.EnumerateFiles(directory).Take(257).ToArray();
+                        if (files.Length > 256) continue;
+                        var directories = Directory.EnumerateDirectories(directory).Take(257).ToArray();
+                        if (directories.Length > 256 || files.Any(HasReparsePoint) || directories.Any(HasReparsePoint)) continue;
+                        var path = GamePath.TryCreate(directory);
+                        if (!path.IsValid) continue;
+                        // Other registered file games must not influence this game's single-entry score.
+                        var ownFiles = files.Where(file => !knownEntries[file].Any(otherId => otherId != id)).ToArray();
+                        var snapshot = new FileSystemDirectorySnapshot(path.Path!, directories, ownFiles);
+                        entries = LaunchSuggestionDetector.Detect(snapshot);
+                    }
+                    state.Launches.AddSuggestions(id, directory, entries);
                     _seen[id] = (game.RootPath, game.Revision);
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { }
