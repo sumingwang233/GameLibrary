@@ -38,6 +38,12 @@ npm --prefix website run dev
 
 2026-10-13 将 `lib/site.ts` 下载版本同步到 [v1.7.13](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.13)，四语言下载文案登记维护者已确认真机验收并授权正式发布。针对性回归与生产编译已有结果，完整自动门禁未补跑，详见[发行记录](../docs/releases/v1.7.13-validation.md)。Windows 程序仍未签名，提供 SHA-256 清单；两张截图继续标注真实版本 v1.5.5。本次仅同步网站源码，未重新构建或部署 Pages；四种网页语言不代表桌面包支持四种界面语言。
 
+## 本次交付 — 2026-10-13
+
+按用户确认的原型 `gamelibrary-marketing.html` 增补宣传内容，同步入仓库 Next.js 站点：首屏再加「独特优势 `#advantages`」与「中文翻译 `#translation`」两节（均四语言，含 `aria-labelledby`）；`nav` 增加「独特优势」锚点。文案更新：首屏 facts 移除「MIT 开源」链接、改为「离线可用 / Works offline」，保留一处本机数据 `LocalTooltip`；FAQ「需要账号或联网吗」补充 Unity 翻译需自填本机密钥；整理区新增「标签归类更顺手」，启动区 SWF 条目补充「整目录入库时生成建议启动方式」，数据区补充默认目录 `%LOCALAPPDATA%\GameLibrary`；下载区移除「关于此版本」段落、仅保留发布说明链接。同步 `globals.css` 网格与样式、`DESIGN.md` 内容顺序，以及本目录图谱记录。
+
+验证结果：`npm --prefix website run typecheck`、`npm --prefix website test`（既有 2 项主题测试）、`npm --prefix website run build`（Next.js 16.3.7 成功导出四语言）、`python scripts/check_website.py --self-test` 与 `python scripts/check_website.py` 均通过；导出 `index.html` 已含 `id="advantages"`、`id="translation"` 及新增文案。浏览器响应式与视觉验收未执行，不沿用历史结果。本次仅同步网站源码，未部署 Pages。
+
 ## 本次交付 — 2026-10-10
 
 已重排页面、重写四语言正文及搜索摘要、同步主题默认值和响应式图片宽度。TypeScript 类型检查与两项既有主题测试通过。后续经用户明确授权，已完成本地生产构建、GitHub 同步及 [Pages 发布](https://github.com/sumingwang233/GameLibrary/actions/runs/38014369936)；现有 CI 的构建、类型、主题测试、静态门禁及负例自检均通过。

@@ -1,3 +1,31 @@
+# 网站宣传内容同步 · 2026-10-13
+
+将本任务原型 `gamelibrary-marketing.html` 的宣传内容移植进仓库 Next.js 站点，仅改宣传站源码与文档，不动桌面程序、路由、依赖或状态。修改前 `code-review-graph detect-changes` 与修改后 `update --brief` 均报告：6 / 5 个变更文件、2 个变更函数（`MarketingPage`、`Header`）、0 条受影响 flow、2 项无覆盖测试缺口、风险 0.40；`MarketingPage` 与 `Header` 为优先复核入口，两者都是 JSX 内部符号，静态测试缺口不能替代构建、门禁与浏览器验收。
+
+```mermaid
+flowchart LR
+  Proto[原型 gamelibrary-marketing.html] --> Page[MarketingPage：新增两节与文案]
+  Page --> CSS[globals.css：translation / adv-grid 网格与断点]
+  Page --> Controls[GlassControls.Header：nav 增加 advantages]
+  Page --> Docs[DESIGN / README / 本图]
+```
+
+文件范围：`MarketingPage.tsx` 新增 `#advantages`（四卡：数据留本机、原文件不动、入库前人工确认、识别主流引擎）与 `#translation`（库中 Unity 游戏中文翻译：离线固定版本加载器与插件、Mono / IL2CPP 分别处理、补中文字体、先备份可回滚、翻译密钥只存本机），四语言且含 `aria-labelledby`；hero facts 移除 MIT 链接、改为「离线可用 / Works offline」，保留一处 `LocalTooltip`；FAQ、collection、launch、safety、download 文案同步 v1.7.13（标签拖放归类、Flash 合集建议启动方式、默认目录 `%LOCALAPPDATA%\GameLibrary`、下载区仅留发布说明链接）。`globals.css` 将 `.translation` 并入既有网格选择器（含断点）并新增 `.advantages` / `.adv-grid`。`GlassControls.tsx` 的 `Header` nav 增加「独特优势」。翻译功能描述依据 [unity-translation-backend.md](../unity-translation-backend.md)（XUnity.AutoTranslator + DeepSeekTranslate，Mono / IL2CPP 按 PE 位数分别处理，本机 DPAPI 保存密钥）。
+
+回滚：revert 本次 commit，恢复原首屏 facts，并移除新增两节及其样式与导航项；桌面游戏库、数据库与游戏文件不受影响。
+
+| 本次执行 | 结果 |
+|---|---|
+| `npm --prefix website run typecheck` | passed |
+| `npm --prefix website test` | passed；既有 2 项主题测试 |
+| `npm --prefix website run build` | passed；Next.js 16.3.7 成功导出四语言 |
+| `check_website.py --self-test` / `check_website.py` | passed |
+| `website/out/index.html` 内容核对 | passed；含 `id="advantages"`、`id="translation"` 及新增文案 |
+| 浏览器响应式与视觉验收 | not-run；不沿用历史结果 |
+| GitHub 推送与 Pages 部署 | 推送见本次 commit；部署 not-run |
+
+以下为历史网站记录。
+
 # 网站下载版本同步 · 2026-10-13
 
 维护者确认 v1.7.13 真机验收并授权正式发布。修改前查询图谱：2 个网站源码文件，影响 7 文件 / 18 节点，风险 medium。复用 `site.ts` 的 `stableVersion` 和现有四语言翻译函数，同步下载文件名、正式版文案、真实验收状态及版本说明链接；四语言 README 同步。无新增路由、状态、依赖或桌面源码变更，真实截图版本仍为 v1.5.5。修改后同步图谱；本次未执行网站测试、构建或 Pages 部署。发布与检查范围见 [v1.7.13 发行记录](../releases/v1.7.13-validation.md)。

@@ -27,6 +27,7 @@ export function Header({ language }: { language: Language }) {
   const [themeExpanded, setThemeExpanded] = useState(false);
   const themeLabels = { dark: t("深色", "深色", "Dark", "ダーク"), light: t("浅色", "淺色", "Light", "ライト"), system: t("跟随系统", "跟隨系統", "System", "システム") };
   const sections = [
+    ["advantages", t("独特优势", "獨特優勢", "Why GameLibrary", "独自の強み")],
     ["experience", t("如何使用", "如何使用", "How it works", "使い方")],
     ["collection", t("整理游戏", "整理遊戲", "Your library", "ゲームの整理")],
     ["questions", t("常见问题", "常見問題", "FAQ", "よくある質問")],
