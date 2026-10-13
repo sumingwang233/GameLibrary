@@ -10,26 +10,26 @@
 
 把散落在硬盘里的游戏放到一处。选好文件夹，确认启动项，就能从游戏库打开游戏。
 
-**[下载 Windows 安装版](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.5/GameLibrary-Setup-v1.7.5.exe)** · [所有版本](https://github.com/sumingwang233/GameLibrary/releases) · [反馈问题](https://github.com/sumingwang233/GameLibrary/issues)
+**[下载 Windows 安装版](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-Setup-v1.7.13.exe)** · [所有版本](https://github.com/sumingwang233/GameLibrary/releases) · [反馈问题](https://github.com/sumingwang233/GameLibrary/issues)
 
 [下载](#download) · [界面](#demo) · [开始使用](#start) · [常见问题](#faq)
 
 <a id="download"></a>
 ## 下载
 
-目前公开正式版为 **v1.7.5（未验收）**，面向 **Windows 10 / 11 x64**。维护者已明确豁免本次发布前验收；仅完成生产编译，测试、独立检查与人工验收均未执行。详见[本次记录](docs/releases/v1.7.5-validation.md)。
+目前公开正式版为 **v1.7.13**，面向 **Windows 10 / 11 x64**。已完成针对性回归和生产编译；维护者于 2026-10-13 确认真机验收并授权正式发布。完整自动门禁的执行情况见[发行记录](docs/releases/v1.7.13-validation.md)。
 
 | 文件 | 适合谁 |
 |---|---|
-| [`GameLibrary-Setup-v1.7.5.exe`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.5/GameLibrary-Setup-v1.7.5.exe) | 推荐。当前用户安装器，可选择安装目录。 |
-| [`GameLibrary-Portable-win-x64-v1.7.5.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.5/GameLibrary-Portable-win-x64-v1.7.5.zip) | 解压后运行 GameLibrary.Desktop.exe。 |
-| [`GameLibrary-Tools-win-x64-v1.7.5.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.5/GameLibrary-Tools-win-x64-v1.7.5.zip) | Host、CLI 和 MCP，供命令行与自动化使用。 |
-| [`GameLibrary-v1.7.5-SHA256SUMS.txt`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.5/GameLibrary-v1.7.5-SHA256SUMS.txt) | 上面三个下载包的 SHA-256 校验清单。 |
+| [`GameLibrary-Setup-v1.7.13.exe`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-Setup-v1.7.13.exe) | 推荐。当前用户安装器，可选择安装目录。 |
+| [`GameLibrary-Portable-win-x64-v1.7.13.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-Portable-win-x64-v1.7.13.zip) | 解压后运行 GameLibrary.Desktop.exe。 |
+| [`GameLibrary-Tools-win-x64-v1.7.13.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-Tools-win-x64-v1.7.13.zip) | Host、CLI 和 MCP，供命令行与自动化使用。 |
+| [`GameLibrary-v1.7.13-SHA256SUMS.txt`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-v1.7.13-SHA256SUMS.txt) | 上面三个下载包的 SHA-256 校验清单。 |
 
 程序与安装器未进行 Authenticode 签名，Windows 可能提示未知发布者。请从本仓库下载，并用同版本校验清单核对文件：
 
 ```powershell
-Get-FileHash .\GameLibrary-Setup-v1.7.5.exe -Algorithm SHA256
+Get-FileHash .\GameLibrary-Setup-v1.7.13.exe -Algorithm SHA256
 ```
 
 <a id="demo"></a>
@@ -62,7 +62,7 @@ Get-FileHash .\GameLibrary-Setup-v1.7.5.exe -Algorithm SHA256
 <a id="faq"></a>
 ## 数据与常见问题
 
-**v1.7.10 待验收预发布**：完善 Mono 中文字体兼容与已有插件字体修复，游戏详情页支持拖动标签分类。[下载与说明](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.10) · [验证记录](docs/releases/v1.7.10-validation.md)。
+**v1.7.13 正式版**：修复 Flash 合集入库后缺少建议启动方式的问题；包含此前的 Unity 翻译兼容修复与详情标签分类拖动。[下载与说明](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.13) · [验证记录](docs/releases/v1.7.13-validation.md)。
 
 <details>
 <summary><strong>扫描或移出游戏库会删除游戏文件吗？</strong></summary>
@@ -89,15 +89,17 @@ Get-FileHash .\GameLibrary-Setup-v1.7.5.exe -Algorithm SHA256
 </details>
 
 <details>
-<summary><strong>当前版本：v1.7.5，正式发布 / 未验收</strong></summary>
+<summary><strong>当前版本：v1.7.13，正式发布 / 已真机验收</strong></summary>
 
-v1.7.5 根据架构审查收紧恢复后的旧写请求、启动幂等、备份封面一致性和文件回收恢复协议；统一 CLI/MCP 参数与 schema 发现，将慢注入等待移至后台作业。本次仅获授权进行打包编译，测试及人工验收未执行。参阅[架构实施](docs/development/v1.7.5-architecture-plan.md)、[版本说明](docs/releases/v1.7.5.md)和[验收记录](docs/releases/v1.7.5-validation.md)。
+v1.7.13 为合集选中的每个 SWF/EXE 生成对应的建议启动方式，升级后补齐此前缺失的建议，保留手动默认方式和已删除的建议。建议仍由实际运行结果确认，不会因审核入库就标为验证成功。见[版本说明](docs/releases/v1.7.13.md)及[验收记录](docs/releases/v1.7.13-validation.md)。
+
+v1.7.5 根据架构审查收紧恢复后的旧写请求、启动幂等、备份封面一致性和文件回收恢复协议；统一 CLI/MCP 参数与 schema 发现，将慢注入等待移至后台作业。该历史版本仅获授权进行打包编译，测试及人工验收未执行。参阅[架构实施](docs/development/v1.7.5-architecture-plan.md)、[版本说明](docs/releases/v1.7.5.md)和[验收记录](docs/releases/v1.7.5-validation.md)。
 
 v1.7.4 修复 Unity 未翻译标签的自动配置触发，离线确认已有且启用的中文翻译插件后自动解除该标签；降低后台建议发现和候选核对的重复开销，退出桌面时优雅停止对应 Host，标签颜色仅用于文字和圆点。[版本说明](docs/releases/v1.7.4.md)记录变更，[验证记录](docs/releases/v1.7.4-validation.md)记录发布准备状态。
 
 v1.7.3 修复旧资源 SWF 候选没有按目录归并、导致待确认数量过大的问题。首次启动立即核对受影响的扫描根，完整目录组代替旧逐文件候选；原游戏文件、ID 与元数据保留。继续使用 schema27，不重复重置忽略规则。保留 v1.7.2 的封面粘贴、Flash 审核、标签颜色和本机 Unity 翻译配置。见[验证记录](docs/releases/v1.7.3-validation.md)。
 
-这些历史版本的功能已包含在上方 v1.7.5 正式包；旧说明和预发布链接保留供追溯。
+这些历史版本的功能已包含在上方 v1.7.13 正式包；旧说明和预发布链接保留供追溯。
 
 v1.7.1 修复翻译后的副标题标点：原文含 `-` 时，将引擎返回的连续长破折号收为 `：` 并去掉首尾包围符。旧译名可在详情重新翻译；原文和手工译名保留。[v1.7.1 预发布包](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.1)及[验证记录](docs/releases/v1.7.1-validation.md)提供本次修复和验收状态。
 </details>
