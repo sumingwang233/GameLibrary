@@ -20,13 +20,13 @@ colors:
 typography:
   h1:
     fontFamily: "Segoe UI, Microsoft YaHei, sans-serif"
-    fontSize: 76px
+    fontSize: 72px
     fontWeight: 600
     lineHeight: 1.2
     letterSpacing: -0.035em
   h1-mobile:
     fontFamily: "Segoe UI, Microsoft YaHei, sans-serif"
-    fontSize: 34px
+    fontSize: 32px
     fontWeight: 600
     lineHeight: 1.3
     letterSpacing: -0.03em
@@ -34,7 +34,7 @@ typography:
     fontFamily: "Segoe UI, Microsoft YaHei, sans-serif"
     fontSize: 44px
     fontWeight: 600
-    lineHeight: 1.35
+    lineHeight: 1.32
     letterSpacing: -0.03em
   body:
     fontFamily: "Segoe UI, Microsoft YaHei, sans-serif"
@@ -45,7 +45,7 @@ typography:
 rounded:
   button: 999px
   menu: 12px
-  figure: 14px
+  figure: 16px
 spacing:
   sm: 8px
   md: 16px
@@ -53,12 +53,12 @@ spacing:
   xl: 32px
   xxl: 48px
   section: 112px
-  section-mobile: 72px
+  section-mobile: 64px
 ---
 
 # GameLibrary 宣传网页设计规范
 
-适用网站 v1.2.0，2026-10-10。本次用户将参考改为 [Agent.Space](https://agent.space/)，替代 v1.1.0 的 Stitch 原型排版；原型保留在 `FrontEnd_Design`，作为历史设计输入。架构、迁移、回滚和执行记录见[网站实施记录](../docs/code-review-graph/website.md)。
+适用网站 v1.3.0，2026-10-13。以用户指定项目 `333cacd6-dd27-42fb-86aa-087d19e0d3ec` 的 `gamelibrary-marketing.html` 为最新设计来源，替代 v1.2.0 版式。该设计延续 [Agent.Space](https://agent.space/) 的深色与灰白层级，迁入现有 Next.js 四语言页面。架构、来源指纹、迁移和回滚记录见[网站实施记录](../docs/code-review-graph/website.md)。
 
 2026-10-13 增补「独特优势 `#advantages`」与「中文翻译 `#translation`」两个章节，并同步 v1.7.13 的功能文案（标签拖放归类、Flash 合集建议启动方式、默认数据目录、Unity 翻译密钥说明）。首屏移除 MIT 链接，下载区验收说明收敛为简要状态。设计规范以下面更新后的内容顺序为准。
 
@@ -67,9 +67,9 @@ spacing:
 以近黑背景、灰白文字、居中大标题和完整实机图为主。参考站的首页 HTML 和实际 CSS 已读取；浏览器截图接口超时，未完成参考站画面比对。只参考排版、色阶、按钮与留白，不复用其品牌素材或动画代码。
 
 - 新访客默认深色；保存过的 Light / Dark / System 偏好继续有效。三个入口的初始 HTML、绘制前脚本和主题选择器使用同一规则。
-- 页面容器最大 1200px，首屏截图最大 1080px。桌面两级标题为灰色前句、亮色后句，按钮在下方，完整实机图继续向下展开。
+- 页面容器含内边距最大 1200px，桌面两侧各 48px，首屏截图框最大 1080px。两级标题为灰色前句、亮色后句，按实际宽度自然换行；按钮在下方，完整实机图继续向下展开。
 - 字体使用本机系统字体。繁中使用 Microsoft JhengHei，日文使用 Yu Gothic；不加载远程字体。
-- 章节纵向间隔 112px，手机为 72px。大标题使用 clamp；正文 16px，手机说明 15px。
+- 章节纵向间隔为 clamp(64px, 8vw, 112px)，手机为 64px。大标题使用 clamp；正文 16px，手机说明 15px。
 - 功能说明以分隔线和文本列表呈现。截图、菜单和原生弹窗保留边界，避免每个功能都套一张卡片。
 - 使用原有彩色平面 logo，保持图片比例与色彩。网站控件以中性色为主，色彩主要来自 logo 和实机图。
 - 页面主体不使用滚动接管、Canvas 场景或持续动画。菜单和弹窗只有短过渡；减弱动画偏好下取消动画及平滑滚动。
@@ -81,7 +81,7 @@ CSS 变量由 `app/globals.css` 定义。上方 tokens 记录对应设计值；`
 | 区域 | 内容 |
 |---|---|
 | 首屏 | “游戏放在各处，在这里一起管理。”；Windows / x64 / 当前下载版本；安装按钮、实机图入口、无需账号和离线可用 |
-| 独特优势 `#advantages` | 本地优先总述；四张说明卡：数据留本机、原文件不动、入库前人工确认、识别主流引擎 |
+| 独特优势 `#advantages` | 左对齐总述；两列四项分隔线列表：数据留本机、原文件不动、入库前人工确认、识别主流引擎 |
 | 中文翻译 `#translation` | 为库中 Unity 游戏配置中文翻译；离线固定版本加载器与插件、Mono / IL2CPP 分别处理、补中文字体、先备份可回滚、翻译密钥只存本机 |
 | 实机与引擎 | 完整游戏库截图，标明实际版本、界面语言和示例库；列出识别的引擎名称 |
 | 扫描 `#experience` | 添加目录、扫描候选、逐项确认；说明只扫描指定位置 |
@@ -105,13 +105,13 @@ CSS 变量由 `app/globals.css` 定义。上方 tokens 记录对应设计值；`
 
 图片版本依据[主 README](../README.md)。不修改截图内的旧图标或控件冒充新版本，不生成伪实机图。缺少扫描审核和启动实机素材时，用操作说明代替示意窗口。
 
-下载版本沿用本次开始时 `lib/site.ts` 中的 v1.7.5，不因网站重构变更产品发布。保留 Setup、Portable-win-x64、Tools-win-x64 和版本化 SHA256SUMS 名称，以及该版本已公开但未验收、Windows 程序未签名的现有说明。发布与部署遵循[发布原则](../docs/release-policy.md)。
+下载版本沿用 `lib/site.ts` 中已正式发布的 v1.7.13，维护者于 2026-10-13 确认真机验收并授权正式发布，完整自动门禁历史 not-run 仍见发行记录。保留 Setup、Portable-win-x64、Tools-win-x64 和版本化 SHA256SUMS 名称；Windows 程序仍未签名。网站版本与桌面产品版本分开管理，发布与部署遵循[发布原则](../docs/release-policy.md)。
 
 ## 交互、响应式与边界
 
 复用 `Header`、`Screenshot` 和 `LocalTooltip`；不新增组件库、路由、全局状态或依赖。语言与主题菜单为原生 details，手机导航和截图查看器为原生 dialog，保留 Escape、焦点恢复和弹窗滚动锁定。FAQ 原生支持键盘展开，链接及按钮保留可见焦点与至少 44px 操作区。
 
-900px 以下内容改为单列，640px 以下下载区也改为单列；窄屏按钮允许换行，长文件名允许折行。截图 sizes 随新的首屏和分类区宽度同步调整。真实截图不会因主题变化而改色。
+920px 以下内容与下载区改为单列；640px 以下首屏按钮纵排并占满宽度，页头隐藏品牌文字，保留 logo 和可访问名称。长文件名允许折行。截图 sizes 随首屏和分类区宽度同步调整，图注包含在截图框内。真实截图不会因主题变化而改色。
 
 网站保留 `/`、`/zh-TW/`、`/en/`、`/ja/` 四个路径和现有锚点，正式静态路径仍带 `/GameLibrary` 前缀；保留 canonical、hreflang 和 sitemap。主内容仍为服务端组件，客户端仅处理既有交互。
 

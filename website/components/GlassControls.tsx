@@ -29,9 +29,8 @@ export function Header({ language }: { language: Language }) {
   const sections = [
     ["advantages", t("独特优势", "獨特優勢", "Why GameLibrary", "独自の強み")],
     ["experience", t("如何使用", "如何使用", "How it works", "使い方")],
-    ["collection", t("整理游戏", "整理遊戲", "Your library", "ゲームの整理")],
-    ["questions", t("常见问题", "常見問題", "FAQ", "よくある質問")],
     ["download", t("下载", "下載", "Download", "ダウンロード")],
+    ["questions", t("常见问题", "常見問題", "FAQ", "よくある質問")],
   ];
 
   useEffect(() => {
@@ -69,7 +68,7 @@ export function Header({ language }: { language: Language }) {
 
   return <>
     <header className={glass("site-header")}>
-      <a className="brand" href={home(language)} aria-label={t("GameLibrary 首页", "GameLibrary 首頁", "GameLibrary home", "GameLibrary ホーム")}><img src={asset("icon.png")} width="40" height="40" alt="" />GameLibrary</a>
+      <a className="brand" href={home(language)} aria-label={t("GameLibrary 首页", "GameLibrary 首頁", "GameLibrary home", "GameLibrary ホーム")}><img src={asset("icon.png")} width="36" height="36" alt="" /><span>GameLibrary</span></a>
       <nav className="desktop-nav" aria-label={t("主导航", "主導覽", "Main navigation", "メインナビゲーション")}>{sections.map(([id, label]) => <a href={`#${id}`} key={id}>{label}</a>)}</nav>
       <div className="header-controls">
         <details ref={menu} className="language-menu" onToggle={event => { setExpanded(event.currentTarget.open); if (event.currentTarget.open) themeMenu.current?.removeAttribute("open"); }}>
@@ -125,7 +124,7 @@ export function Screenshot({ name, alt, caption, language, priority = false }: {
   return <>
     <figure className={glass(priority ? "screenshot hero-image" : "screenshot secondary-image")}>
       <button className="screenshot-button" aria-label={`${t("放大查看", "放大檢視", "Enlarge", "拡大表示")}: ${caption}`} disabled={failed} onClick={() => modal.current?.showModal()}>
-        {failed ? <span className="image-error" role="status">{t("截图加载失败，请稍后刷新。", "截圖載入失敗，請稍後重新整理。", "Screenshot could not load. Please refresh later.", "画像を読み込めませんでした。後で再読み込みしてください。")}</span> : <img src={asset(name.replace(".png", "-1320.webp"))} srcSet={[440, 880, 1320].map(size => `${asset(name.replace(".png", `-${size}.webp`))} ${size}w`).join(", ")} sizes={priority ? "(max-width: 640px) calc(100vw - 40px), (max-width: 1080px) calc(100vw - 64px), (max-width: 1176px) calc(100vw - 96px), 1080px" : "(max-width: 640px) calc(100vw - 40px), (max-width: 900px) calc(100vw - 64px), (max-width: 1080px) 53vw, 720px"} width="1320" height="820" loading={priority ? "eager" : "lazy"} fetchPriority={priority ? "high" : undefined} decoding="async" alt={alt} onError={() => setFailed(true)} />}
+        {failed ? <span className="image-error" role="status">{t("截图加载失败，请稍后刷新。", "截圖載入失敗，請稍後重新整理。", "Screenshot could not load. Please refresh later.", "画像を読み込めませんでした。後で再読み込みしてください。")}</span> : <img src={asset(name.replace(".png", "-1320.webp"))} srcSet={[440, 880, 1320].map(size => `${asset(name.replace(".png", `-${size}.webp`))} ${size}w`).join(", ")} sizes={priority ? "(max-width: 640px) calc(100vw - 54px), (max-width: 1080px) calc(100vw - 78px), (max-width: 1176px) calc(100vw - 110px), 1066px" : "(max-width: 640px) calc(100vw - 54px), (max-width: 920px) calc(100vw - 78px), 440px"} width="1320" height="820" loading={priority ? "eager" : "lazy"} fetchPriority={priority ? "high" : undefined} decoding="async" alt={alt} onError={() => setFailed(true)} />}
         <span className={glass("expand-hint")} aria-hidden="true"><Icon kind="expand" /></span>
       </button>
       <figcaption><span>{caption}</span><span className="caption-action" aria-hidden="true">{t("查看大图", "檢視大圖", "Enlarge image", "画像を拡大")} ↗</span></figcaption>

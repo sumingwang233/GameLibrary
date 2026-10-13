@@ -1,3 +1,25 @@
+# 最新设计迁入 · 2026-10-13 · 网站 v1.3.0
+
+用户要求将设计项目 `333cacd6-dd27-42fb-86aa-087d19e0d3ec` 作为最新版网页上传 GitHub。来源文件：`C:\Users\sumingwang\AppData\Roaming\Open Design\namespaces\release-stable-win\data\projects\333cacd6-dd27-42fb-86aa-087d19e0d3ec\gamelibrary-marketing.html`；SHA-256：`bf6ef2fd669aa2ecf324ea29b4ceb065c337b0a9ea8ace2654ac96e182dd1e3c`。导出包含完整单页和七项图片资源；逐字节核对与网站现有图片一致，无需替换或生成素材。
+
+```mermaid
+flowchart LR
+  Export[最新设计 HTML 与真实图片] --> Page[MarketingPage：四语言标题与章节]
+  Export --> CSS[globals.css：容器、分栏、截图框、断点]
+  Page --> Controls[Header / Screenshot：真实路由与原生交互]
+  Page --> Build[Next.js 四语言静态导出]
+  Build --> Gate[现有主题测试与静态门禁]
+  Gate --> Pages[GitHub Pages]
+```
+
+审计基线：`6682e85d39b6839ce062b935a160eccd7b159f7d`。布局迁入现有 Next.js 组件，未嵌入整份 HTML 或新增依赖。`globals.css` 改为含侧边距的 1200px 容器、72px 最大主标题、自然换行灰白章节标题、两列优势列表、整理区文字与图片 1.15:0.85 分栏、章节底色和 920px 单列断点。`MarketingPage` 同步图注与已确认的 v1.7.13 验收状态；`Header` 导航对应设计四项，手机隐藏品牌文字但保留可访问名称；`Screenshot` 更新响应式 sizes，保留原始 PNG 弹窗、键盘与焦点逻辑。四语言、metadata、下载文件名与原有发布门禁保留。网站 package / lock 升至 1.3.0，桌面程序不变。
+
+修改前图谱同步成功；修改后增量重解析 3 个文件，更新 25 节点、392 条边，解析错误 0。依赖包含四语言 page / layout，以上为增量更新数，不是全仓总数。回滚可 revert 本次网站提交，不涉及数据库或游戏文件。
+
+本地生产构建、类型检查、既有两项主题测试、静态门禁与负例自检均 passed。浏览器视觉及响应式人工验收 not-run。源码推送与 Pages 发布执行本次用户请求，结果以对应 GitHub Actions 记录为准，不沿用历史部署结果。
+
+以下为历史记录。
+
 # 网站宣传内容同步 · 2026-10-13
 
 将本任务原型 `gamelibrary-marketing.html` 的宣传内容移植进仓库 Next.js 站点，仅改宣传站源码与文档，不动桌面程序、路由、依赖或状态。修改前 `code-review-graph detect-changes` 与修改后 `update --brief` 均报告：6 / 5 个变更文件、2 个变更函数（`MarketingPage`、`Header`）、0 条受影响 flow、2 项无覆盖测试缺口、风险 0.40；`MarketingPage` 与 `Header` 为优先复核入口，两者都是 JSX 内部符号，静态测试缺口不能替代构建、门禁与浏览器验收。

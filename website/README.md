@@ -1,6 +1,6 @@
 # GameLibrary 宣传网站
 
-网站 v1.2.0 参考 [Agent.Space](https://agent.space/) 的深色排版、灰白大标题、章节留白和简洁导航重构。文案改为具体操作说明，保留真实应用 logo 和实机图。[DESIGN.md](DESIGN.md) 记录当前设计约定，[实施记录](../docs/code-review-graph/website.md) 包含源码审计、架构图、文件范围及回滚方法。
+网站 v1.3.0 采用用户指定设计项目 `333cacd6-dd27-42fb-86aa-087d19e0d3ec` 的最新版 `gamelibrary-marketing.html`。同步容器留白、灰白标题、两列优势列表、章节底色、截图框及手机排版，保留真实应用 logo、实机图和四语言交互。[DESIGN.md](DESIGN.md) 记录当前设计约定，[实施记录](../docs/code-review-graph/website.md) 包含来源指纹、架构图、文件范围及回滚方法。
 
 网站使用现有 Next.js 16 / React 19 / Tailwind 4，导出为静态文件，不需要 Node.js 服务。支持简体中文 `/`、繁體中文 `/zh-TW/`、English `/en/` 和日本語 `/ja/`；正式路径统一带 `/GameLibrary` 前缀。
 
@@ -38,7 +38,13 @@ npm --prefix website run dev
 
 2026-10-13 将 `lib/site.ts` 下载版本同步到 [v1.7.13](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.13)，四语言下载文案登记维护者已确认真机验收并授权正式发布。针对性回归与生产编译已有结果，完整自动门禁未补跑，详见[发行记录](../docs/releases/v1.7.13-validation.md)。Windows 程序仍未签名，提供 SHA-256 清单；两张截图继续标注真实版本 v1.5.5。本次仅同步网站源码，未重新构建或部署 Pages；四种网页语言不代表桌面包支持四种界面语言。
 
-## 本次交付 — 2026-10-13
+## 最新设计迁入 — 2026-10-13 · v1.3.0
+
+来源：`C:\Users\sumingwang\AppData\Roaming\Open Design\namespaces\release-stable-win\data\projects\333cacd6-dd27-42fb-86aa-087d19e0d3ec\gamelibrary-marketing.html`，SHA-256 为 `bf6ef2fd669aa2ecf324ea29b4ceb065c337b0a9ea8ace2654ac96e182dd1e3c`。设计中的七项图片资源与现有网站素材逐字节一致，保留原始 PNG 放大查看。中文文案与设计同步，其余三语言保持相同内容，继续使用真实语言路由、主题持久化和原生弹窗，不照搬原型占位链接。
+
+本地生产构建、类型检查、既有两项主题测试、静态门禁及负例自检通过；图谱更新无解析错误。未执行浏览器视觉与响应式验收。按用户本次上传 GitHub 最新网页的要求提交并推送，在线发布结果以 GitHub Actions 为准。
+
+## 历史内容同步 — 2026-10-13 · v1.2.0
 
 按用户确认的原型 `gamelibrary-marketing.html` 增补宣传内容，同步入仓库 Next.js 站点：首屏再加「独特优势 `#advantages`」与「中文翻译 `#translation`」两节（均四语言，含 `aria-labelledby`）；`nav` 增加「独特优势」锚点。文案更新：首屏 facts 移除「MIT 开源」链接、改为「离线可用 / Works offline」，保留一处本机数据 `LocalTooltip`；FAQ「需要账号或联网吗」补充 Unity 翻译需自填本机密钥；整理区新增「标签归类更顺手」，启动区 SWF 条目补充「整目录入库时生成建议启动方式」，数据区补充默认目录 `%LOCALAPPDATA%\GameLibrary`；下载区移除「关于此版本」段落、仅保留发布说明链接。同步 `globals.css` 网格与样式、`DESIGN.md` 内容顺序，以及本目录图谱记录。
 
@@ -60,4 +66,4 @@ npm --prefix website run dev
 
 ## 发布
 
-`.github/workflows/website.yml` 沿用原有检查及 Pages 发布流程。推送、启用 Pages、部署与产品 Release 均需明确授权；本次只提交本地网站代码。产品版本仍由 `Directory.Build.props` 管理，网站版本独立为 1.2.0。
+`.github/workflows/website.yml` 沿用原有检查及 Pages 发布流程；普通推送只运行检查，在线部署使用 `workflow_dispatch` 的 `publish=true`。本次用户要求将指定设计作为最新网页上传 GitHub，据此同步源码并更新 Pages。产品 Release 不在本次范围，产品版本仍由 `Directory.Build.props` 管理，网站版本独立为 1.3.0。
