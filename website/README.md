@@ -42,7 +42,7 @@ npm --prefix website run dev
 
 来源：`C:\Users\sumingwang\AppData\Roaming\Open Design\namespaces\release-stable-win\data\projects\333cacd6-dd27-42fb-86aa-087d19e0d3ec\gamelibrary-marketing.html`，SHA-256 为 `bf6ef2fd669aa2ecf324ea29b4ceb065c337b0a9ea8ace2654ac96e182dd1e3c`。设计中的七项图片资源与现有网站素材逐字节一致，保留原始 PNG 放大查看。中文文案与设计同步，其余三语言保持相同内容，继续使用真实语言路由、主题持久化和原生弹窗，不照搬原型占位链接。
 
-本地生产构建、类型检查、既有两项主题测试、静态门禁及负例自检通过；图谱更新无解析错误。未执行浏览器视觉与响应式验收。按用户本次上传 GitHub 最新网页的要求提交并推送，在线发布结果以 GitHub Actions 为准。
+本地生产构建、类型检查、既有两项主题测试、静态门禁及负例自检通过；图谱更新无解析错误。网站提交 `8e91c79` 已推送，[Pages 发布流程](https://github.com/sumingwang233/GameLibrary/actions/runs/38357240004)检查与部署成功。[在线网站](https://sumingwang233.github.io/GameLibrary/)四语言页面、样式及图片均返回 HTTP 200，线上样式与本地生产构建逐字节一致。未执行浏览器视觉与响应式验收。
 
 ## 历史内容同步 — 2026-10-13 · v1.2.0
 
