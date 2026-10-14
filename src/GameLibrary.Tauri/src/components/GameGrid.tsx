@@ -1,5 +1,5 @@
 import { t } from "../lib/i18n";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Clock3, FolderOpen } from "lucide-react";
 import type { GameItem, TagItem } from "../lib/types";
 import { formatPlaytime } from "../lib/utils";
@@ -46,14 +46,15 @@ export function GameGrid({
   const [actionBusy, setBusy] = useState(false);
   const busy = actionBusy || !!titleTranslation?.busy;
   const chosen = games.filter(game => checked.has(game.gameId));
-  const toggle = (id: string) => setChecked(previous => {
+  const toggle = useCallback((id: string) => setChecked(previous => {
     const next = new Set(previous);
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
-  });
+  }), []);
   useEffect(() => {
     const available = new Set(games.map(game => game.gameId));
-    setChecked(previous => new Set([...previous].filter(id => available.has(id))));
+    setChecked(previous => [...previous].every(id => available.has(id))
+      ? previous : new Set([...previous].filter(id => available.has(id))));
   }, [games]);
 
   // 触底自动加载下一页，取代 v1.1.5 的 limit=500 硬上限。

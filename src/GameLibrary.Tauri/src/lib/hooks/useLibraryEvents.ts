@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { invalidateAssets, operation, OperationError, showMainWindow } from "../api";
+import { invalidateAssetChanges, invalidateAssets, operation, OperationError, showMainWindow } from "../api";
 import type { LibraryEvent } from "../types";
 import type { LaunchExitNotice } from "../state";
 import { ALL_DOMAINS, type DataDomain } from "./useLibraryMetadata";
@@ -64,7 +64,8 @@ export function useLibraryEvents(
           window.dispatchEvent(new Event("gamelibrary-settings-changed"));
         if (batch.items.some(event => event.type.startsWith("unity_translation.")))
           window.dispatchEvent(new Event("gamelibrary-unity-changed"));
-        if (batch.items.some(event => event.type.startsWith("asset."))) invalidateAssets();
+        for (const event of batch.items)
+          if (event.type.startsWith("asset.")) invalidateAssetChanges(event.payload);
         for (const event of batch.items) {
           if (event.type !== "launch.exited") continue;
           const payload = event.payload as { attemptId?: string; gameId?: string } | undefined;

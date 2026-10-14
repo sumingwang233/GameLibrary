@@ -11,6 +11,7 @@ export function ReviewBatchBar({
   onDefer,
   onIgnore,
   onToggleAll,
+  total = candidates.length,
 }: {
   candidates: CandidateItem[];
   selectedCount: number;
@@ -19,6 +20,7 @@ export function ReviewBatchBar({
   onDefer: () => void;
   onIgnore: () => void;
   onToggleAll: () => void;
+  total?: number;
 }) {
   if (candidates.length === 0) return null;
   const allSelected = selectedCount === candidates.length;
@@ -27,10 +29,10 @@ export function ReviewBatchBar({
     <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface px-4 py-3">
       <Button variant="ghost" size="sm" onClick={onToggleAll} aria-pressed={allSelected}>
         <Check size={14} />
-        {allSelected ? t("取消全选") : t("全选")}
+        {allSelected ? t("取消全选") : t("全选已加载项目")}
       </Button>
       <span className="mr-auto text-sm text-text-secondary">
-        <strong className="text-text-primary">{candidates.length.toLocaleString()}</strong>{t("个项目待确认")}{selectedCount > 0 && t(" · 已选 {0}", selectedCount.toLocaleString())}
+        {t("已加载 {0} / {1} 项待确认", candidates.length.toLocaleString(), total.toLocaleString())}{selectedCount > 0 && t(" · 已选 {0}", selectedCount.toLocaleString())}
       </span>
       <Button variant="outline" size="sm" disabled={selectedCount === 0 || busy} onClick={onAccept}>
         <Check size={15} />{t("加入")}</Button>

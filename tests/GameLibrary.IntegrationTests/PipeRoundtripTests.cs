@@ -1,3 +1,5 @@
+using System.IO.Pipes;
+using GameLibrary.Contracts;
 using GameLibrary.Contracts.Ipc;
 using GameLibrary.Host;
 using GameLibrary.Host.Hosting;
@@ -18,6 +20,18 @@ public sealed class PipeRoundtripTests : IClassFixture<PipeServerFixture>
     public PipeRoundtripTests(PipeServerFixture fixture)
     {
         _fixture = fixture;
+    }
+
+    [Fact]
+    public async Task IncompatibleHandshake_ReportsHostVersionInsteadOfEchoingClient()
+    {
+        var directory = DataDirectory.Resolve(@$"D:\Official\GameLibrary\artifacts\test-runs\{_fixture.TestId}\data");
+        await using var pipe = new NamedPipeClientStream(".", ChannelNames.PipeName(directory.ComparisonKey!), PipeDirection.InOut, PipeOptions.Asynchronous);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await pipe.ConnectAsync(timeout.Token);
+        await IpcFrame.WriteJsonAsync(pipe, new HandshakeRequest { ApiVersion = "incompatible" }, timeout.Token);
+        var response = await IpcFrame.ReadJsonAsync<HandshakeResponse>(pipe, timeout.Token);
+        Assert.Equal(ApiConstants.ApiVersion, response.ApiVersion);
     }
 
     [Fact]

@@ -52,6 +52,21 @@ it("changing a chosen project entry invalidates the inspected adjustment plan", 
   expect(screen.queryByRole("button", { name: "确认目录判断并应用" })).toBeNull();
 });
 
+it("selects only loaded candidates and drops removed selections", async () => {
+  const first = { ...candidate, candidateId: "a", relativePath: "A", flash: undefined };
+  const second = { ...first, candidateId: "b", relativePath: "B" };
+  const review = vi.fn(async () => {}), more = vi.fn();
+  const view = render(<ReviewList candidates={[first, second]} total={1001} hasMore onLoadMore={more} busy={false} onReview={review} />);
+  expect(screen.getByText("已加载 2 / 1,001 项待确认")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "全选已加载项目" }));
+  fireEvent.click(screen.getByRole("button", { name: "加载更多" }));
+  expect(more).toHaveBeenCalledOnce();
+  view.rerender(<ReviewList candidates={[second]} total={1000} hasMore loadingMore busy={false} onReview={review} />);
+  expect(screen.getByRole("button", { name: "正在加载更多…" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "加入" }));
+  await waitFor(() => expect(review).toHaveBeenCalledWith([second], "accept"));
+});
+
 it("batch review forwards the user's confirmed directory decision and adjustment revisions", async () => {
   const selection = { kind: "project" as const, entryPaths: ["main.swf"], adjustments: [{ gameId: "scene", expectedRevision: 3 }] };
   call.mockResolvedValue(envelope({ items: [{ candidateId: "flash", result: envelope({ reviewState: "accepted", revision: 2 }) }] }));

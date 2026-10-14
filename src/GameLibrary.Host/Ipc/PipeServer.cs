@@ -124,7 +124,7 @@ public sealed class PipeServer : IAsyncDisposable
                 _logger.LogWarning("客户端协议版本不匹配：{ApiVersion}", handshake.ApiVersion);
                 await IpcFrame.WriteJsonAsync(pipe, new HandshakeResponse
                 {
-                    ApiVersion = handshake.ApiVersion,
+                    ApiVersion = ApiConstants.ApiVersion,
                 }, CancellationToken.None);
                 return;
             }

@@ -95,6 +95,9 @@ interface LibraryController {
   candidates: CandidateItem[];
   gameTotal: number;
   candidateTotal: number;
+  candidateLoading: boolean;
+  candidateHasMore: boolean;
+  loadMoreCandidates: () => Promise<void>;
   metaLoading: boolean;
   error: string | null;
   /** 每次收到库事件自增，作为查询侧的失效信号。 */
@@ -133,6 +136,7 @@ const LibraryContext = createContext<LibraryController | null>(null);
 
 function useLibraryController(): LibraryController {
   const { tags, roots, views, notifications, candidates, gameTotal, candidateTotal,
+    candidateLoading, candidateHasMore, loadMoreCandidates,
     metaLoading, error, setError, refreshMeta, refreshDomains, initialize, supports } = useLibraryMetadata();
   const [changeToken, setChangeToken] = useState(0);
   const [launchExit, setLaunchExit] = useState<LaunchExitNotice | null>(null);
@@ -298,6 +302,9 @@ function useLibraryController(): LibraryController {
       candidates,
       gameTotal,
       candidateTotal,
+      candidateLoading,
+      candidateHasMore,
+      loadMoreCandidates,
       metaLoading,
       error,
       changeToken,
@@ -329,6 +336,9 @@ function useLibraryController(): LibraryController {
       candidates,
       gameTotal,
       candidateTotal,
+      candidateLoading,
+      candidateHasMore,
+      loadMoreCandidates,
       metaLoading,
       error,
       changeToken,

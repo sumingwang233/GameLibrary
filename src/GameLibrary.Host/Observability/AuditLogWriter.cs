@@ -1,5 +1,3 @@
-using System.Collections.Concurrent;
-using System.Globalization;
 using System.Text;
 
 namespace GameLibrary.Host.Observability;
@@ -52,7 +50,10 @@ public sealed class AuditLogWriter
     private readonly long _maxFileBytes;
     private readonly int _maxFiles;
     private readonly int _retentionDays;
-    private readonly ConcurrentQueue<AuditRecord> _pending = new();
+    private readonly object _gate = new();
+    private long _failureCount;
+
+    public long FailureCount => Interlocked.Read(ref _failureCount);
 
     public AuditLogWriter(
         string logDirectory,
@@ -72,31 +73,34 @@ public sealed class AuditLogWriter
     /// <summary>记录当前审计文件名与字节数（diagnostics.status 用）。</summary>
     public (string? CurrentFile, long CurrentBytes, int FileCount) Describe()
     {
-        var files = ListAuditFiles();
-        if (files.Count == 0)
+        lock (_gate)
         {
-            return (null, 0, 0);
-        }
+            var files = ListAuditFiles();
+            if (files.Count == 0)
+            {
+                return (null, 0, 0);
+            }
 
-        var current = files[^1];
-        return (Path.GetFileName(current), new FileInfo(current).Length, files.Count);
+            var current = files[^1];
+            return (Path.GetFileName(current), new FileInfo(current).Length, files.Count);
+        }
     }
 
     public void Append(AuditRecord record)
     {
-        _pending.Enqueue(record);
-        // 单宿主并发分发：逐条落盘以保持顺序；失败不拖垮业务请求。
-        while (_pending.TryDequeue(out var item))
+        lock (_gate)
         {
             try
             {
-                AppendCore(item);
+                AppendCore(record);
             }
             catch (IOException)
             {
+                Interlocked.Increment(ref _failureCount);
             }
             catch (UnauthorizedAccessException)
             {
+                Interlocked.Increment(ref _failureCount);
             }
         }
     }
@@ -111,7 +115,7 @@ public sealed class AuditLogWriter
             current = null;
         }
 
-        current ??= Path.Combine(_directory, $"audit-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("N")[..8]}.jsonl");
+        current ??= Path.Combine(_directory, $"audit-{DateTime.UtcNow:yyyyMMdd-HHmmss-fffffff}-{Guid.NewGuid().ToString("N")[..8]}.jsonl");
         File.AppendAllText(current, record.ToJsonLine() + Environment.NewLine, Encoding.UTF8);
         PruneFileCount();
     }
@@ -137,6 +141,7 @@ public sealed class AuditLogWriter
             }
             catch (IOException)
             {
+                Interlocked.Increment(ref _failureCount);
             }
         }
     }
@@ -154,16 +159,27 @@ public sealed class AuditLogWriter
                 }
                 catch (IOException)
                 {
+                    Interlocked.Increment(ref _failureCount);
                 }
             }
         }
     }
 
     /// <summary>读取最近 count 行（diagnostics.logs）：按文件序、行序返回，已脱敏后再读。</summary>
-    public IReadOnlyList<string> ReadRecentLines(int count) =>
-        ListAuditFiles()
-            .SelectMany(File.ReadAllLines)
-            .Where(l => l.Length > 0)
-            .TakeLast(count)
-            .ToArray();
+    public IReadOnlyList<string> ReadRecentLines(int count)
+    {
+        if (count <= 0) return [];
+        lock (_gate)
+        {
+            var chunks = new List<string[]>();
+            foreach (var file in ListAuditFiles().AsEnumerable().Reverse())
+            {
+                var lines = File.ReadLines(file).Where(l => l.Length > 0).TakeLast(count).ToArray();
+                chunks.Add(lines);
+                count -= lines.Length;
+                if (count == 0) break;
+            }
+            return chunks.AsEnumerable().Reverse().SelectMany(lines => lines).ToArray();
+        }
+    }
 }

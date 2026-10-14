@@ -49,7 +49,11 @@ async function screenshotsDirectory() {
 
 interface CoverAsset { assetId: string; isCurrent: boolean; importedUtc?: string }
 
-export function DetailSheet({
+export function DetailSheet(props: Parameters<typeof DetailSheetContent>[0]) {
+  return <DetailSheetContent key={props.game?.gameId ?? ""} {...props} />;
+}
+
+function DetailSheetContent({
   game,
   tags,
   onClose,
@@ -76,7 +80,7 @@ export function DetailSheet({
   onUpdateTag?: (tag: TagItem, changes: { category: TagCategoryValue }) => Promise<void>;
   initialTab?: "overview" | "launch";
   onChanged: () => Promise<void> | void;
-  /** 点击「疑似重复」条目跳到目标游戏详情；Sheet 不关闭不重建，由 App 侧换 selected 实现。 */
+  /** 点击「疑似重复」条目跳到目标游戏详情。 */
   onNavigate?: (gameId: string) => void;
 }) {
   const [current, setCurrent] = useState<GameItem | null>(game);
@@ -88,9 +92,14 @@ export function DetailSheet({
   const [error, setError] = useState<string | null>(null);
   const [titleDraft, setTitleDraft] = useState("");
   const [titleTarget, setTitleTarget] = useState<"original" | "translated">("original");
-  const titleEdit = useRef({ gameId: "", dirty: false, revision: 0 });
-  const activeId = useRef(game?.gameId);
-  activeId.current = game?.gameId;
+  const titleEdit = useRef({ dirty: false, revision: 0, version: 0 });
+  const summaryEdit = useRef({ dirty: false, revision: 0, version: 0 });
+  const currentRef = useRef(game);
+  const alive = useRef(true);
+  const session = useRef(0);
+  const loadSerial = useRef(0);
+  const profileSerial = useRef(0);
+  const actionSerial = useRef(0);
   const [summaryDraft, setSummaryDraft] = useState("");
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -100,10 +109,34 @@ export function DetailSheet({
   const [categoryTagId, setCategoryTagId] = useState("");
 
   const gameId = game?.gameId ?? null;
+  useEffect(() => {
+    alive.current = true;
+    session.current++;
+    return () => { alive.current = false; session.current++; };
+  }, []);
   useEffect(() => { setTab(initialTab); }, [gameId, initialTab]);
 
+  const mergeDetail = useCallback((detail: GameItem) => {
+    if (!alive.current || (currentRef.current && currentRef.current.revision > detail.revision)) return;
+    currentRef.current = detail;
+    setCurrent(detail);
+    if (!titleEdit.current.dirty) {
+      setTitleDraft(detail.title);
+      setTitleTarget(detail.titleDisplayMode ?? "original");
+      titleEdit.current.revision = detail.revision;
+    }
+    if (!summaryEdit.current.dirty) {
+      setSummaryDraft(detail.summary ?? "");
+      summaryEdit.current.revision = detail.revision;
+    }
+  }, []);
+
   const load = useCallback(async () => {
-    if (!gameId) return;
+    if (!gameId || !alive.current) return;
+    const epoch = session.current;
+    const request = ++loadSerial.current;
+    const profileRequest = ++profileSerial.current;
+    const valid = () => alive.current && session.current === epoch && loadSerial.current === request;
     setError(null);
     try {
       const [detail, profileResult, translationResult] = await Promise.all([
@@ -111,28 +144,23 @@ export function DetailSheet({
         operation<{ items: ProfileItem[] }>("profiles.list", { gameId }),
         operation<TranslationPolicy>("translation.get", { gameId }),
       ]);
-      if (activeId.current !== gameId) return;
-      setCurrent(detail.data);
-      if (!titleEdit.current.dirty || titleEdit.current.gameId !== gameId) {
-        setTitleDraft(detail.data.title);
-        setTitleTarget(detail.data.titleDisplayMode ?? "original");
-        titleEdit.current = { gameId, revision: detail.data.revision, dirty: false };
-      }
-      setSummaryDraft(detail.data.summary ?? "");
-      setProfiles(profileResult.data.items);
+      if (!valid()) return;
+      mergeDetail(detail.data);
+      if (profileSerial.current === profileRequest) setProfiles(profileResult.data.items);
       setTranslation(translationResult.data);
-      if (detail.data.coverAssetId) {
-        const url = await assetDataUrl(detail.data.coverAssetId).catch(() => null);
-        if (activeId.current !== gameId) return;
+      const coverAssetId = currentRef.current?.coverAssetId;
+      if (coverAssetId) {
+        const url = await assetDataUrl(coverAssetId).catch(() => null);
+        if (!valid() || currentRef.current?.coverAssetId !== coverAssetId) return;
         setCover(url);
       } else {
         setCover(null);
       }
-      return detail.data;
+      return currentRef.current ?? undefined;
     } catch (cause) {
-      setError(describeFailure(cause));
+      if (valid()) setError(describeFailure(cause));
     }
-  }, [gameId]);
+  }, [gameId, mergeDetail]);
 
   useEffect(() => {
     setCurrent(game);
@@ -141,7 +169,8 @@ export function DetailSheet({
     setTranslation(null);
     setTitleDraft(game?.title ?? "");
     setTitleTarget(game?.titleDisplayMode ?? "original");
-    titleEdit.current = { gameId: gameId ?? "", revision: game?.revision ?? 0, dirty: false };
+    titleEdit.current = { revision: game?.revision ?? 0, dirty: false, version: 0 };
+    summaryEdit.current = { revision: game?.revision ?? 0, dirty: false, version: 0 };
     setSummaryDraft(game?.summary ?? "");
     setTagDraft("");
     if (gameId) void load();
@@ -150,21 +179,18 @@ export function DetailSheet({
   }, [gameId, load]);
 
   useEffect(() => {
-    if (game && game.gameId === activeId.current) {
-      setCurrent(previous => !previous || previous.revision <= game.revision ? game : previous);
-      if (!titleEdit.current.dirty) {
-        setTitleDraft(game.title);
-        setTitleTarget(game.titleDisplayMode ?? "original");
-        titleEdit.current.revision = game.revision;
-      }
-    }
-  }, [game]);
+    if (game) mergeDetail(game);
+  }, [game, mergeDetail]);
 
+  const previousRefresh = useRef(refreshToken);
   useEffect(() => {
+    if (previousRefresh.current === refreshToken) return;
+    previousRefresh.current = refreshToken;
     if (!gameId) return;
+    const request = ++profileSerial.current;
     let cancelled = false;
     void operation<{ items: ProfileItem[] }>("profiles.list", { gameId }).then(result => {
-      if (!cancelled) setProfiles(result.data.items);
+      if (!cancelled && alive.current && profileSerial.current === request) setProfiles(result.data.items);
     }).catch(() => undefined);
     return () => { cancelled = true; };
   }, [gameId, refreshToken]);
@@ -181,25 +207,29 @@ export function DetailSheet({
 
   if (!current) return null;
 
-  const run = async (work: () => Promise<void>) => {
+  const run = async (work: (valid: () => boolean) => Promise<void>) => {
+    const epoch = session.current;
+    const request = ++actionSerial.current;
+    const valid = () => alive.current && session.current === epoch && actionSerial.current === request;
     setBusy(true);
     setError(null);
     try {
-      await work();
+      await work(valid);
     } catch (cause) {
+      if (!valid()) return;
       if (cause instanceof LaunchProfileSelectionRequired) setTab("launch");
       setError(describeFailure(cause));
     } finally {
-      setConfirmDelete(false);
-      setBusy(false);
+      if (valid()) { setConfirmDelete(false); setBusy(false); }
     }
   };
 
   const saveField = (field: "title" | "summary", value: string) =>
-    run(async () => {
+    run(async valid => {
       const translated = field === "title" && titleTarget === "translated";
       const operationId = translated ? "titles.set_translated" : "fields.set";
-      const revision = field === "title" ? titleEdit.current.revision : current.revision;
+      const edit = field === "title" ? titleEdit.current : summaryEdit.current;
+      const { revision, version } = edit;
       try {
         await operation(operationId,
           { gameId: current.gameId, ...(translated ? { title: value } : { field, value }), expectedRevision: revision },
@@ -207,14 +237,16 @@ export function DetailSheet({
       } catch (cause) {
         if (cause instanceof OperationError && cause.code === "RevisionConflict") {
           const refreshed = await load();
-          if (refreshed) titleEdit.current.revision = refreshed.revision;
+          if (refreshed && valid()) edit.revision = refreshed.revision;
         }
         throw cause;
       }
-      if (field === "title") titleEdit.current.dirty = false;
+      if (!valid()) return;
+      if (edit.version === version) edit.dirty = false;
       // fields.set 只返回字段修订回执，不是完整 GameItem；重新读取后再渲染，
       // 避免把缺少 title/rootPath 的回执写入 current 导致整页白屏。
-      await load();
+      const refreshed = await load();
+      if (refreshed && valid()) edit.revision = refreshed.revision;
       await onChanged();
     });
 
@@ -237,8 +269,7 @@ export function DetailSheet({
         { gameId: current.gameId, tagId: tag.tagId, expectedRevision: current.revision },
         `tags.${assigned ? "unassign" : "assign"}:${current.gameId}:${tag.tagId}:${current.revision}`,
       );
-      const refreshed = await operation<GameItem>("games.get", { gameId: current.gameId });
-      setCurrent(refreshed.data);
+      await load();
       await onChanged();
     });
 
@@ -254,25 +285,26 @@ export function DetailSheet({
   };
 
   const setPolicy = (value: string) =>
-    run(async () => {
+    run(async valid => {
       if (!translation) return;
       const result = await operation<TranslationPolicy>(
         "translation.set",
         { gameId: current.gameId, override: value, expectedRevision: translation.revision },
         `translation.set:${current.gameId}:${translation.revision}`,
       );
+      if (!valid()) return;
       setTranslation(result.data);
       await load();
     });
 
   const updateCover = async (result: { assetId: string; warning?: string }) => {
-    if (activeId.current !== current.gameId) return;
+    if (!alive.current) return;
     const url = await assetDataUrl(result.assetId);
-    if (activeId.current !== current.gameId) return;
+    if (!alive.current) return;
     setCover(url);
     await load();
     await onChanged();
-    if (result.warning) setError(result.warning);
+    if (alive.current && result.warning) setError(result.warning);
   };
 
   const pasteCover = (event: ClipboardEvent<HTMLButtonElement>) => {
@@ -287,7 +319,7 @@ export function DetailSheet({
         reader.onerror = () => reject(new Error(t("无法读取粘贴图片")));
         reader.readAsDataURL(file);
       });
-      if (activeId.current !== current.gameId) return;
+      if (!alive.current) return;
       const result = await operation<{ assetId: string; warning?: string }>("assets.import",
         { gameId: current.gameId, imageBase64, mimeType: file.type },
         `assets.import:${current.gameId}:paste:${imageBase64}`);
@@ -306,7 +338,7 @@ export function DetailSheet({
         filters: [{ name: t("封面图片"), extensions: ["png", "jpg", "jpeg", "webp", "gif"] }],
       });
       if (!selected) return;
-      if (activeId.current !== current.gameId) return;
+      if (!alive.current) return;
       const result = await operation<{ assetId: string; warning?: string }>(
         "assets.import",
         { gameId: current.gameId, sourcePath: String(selected) },
@@ -324,7 +356,7 @@ export function DetailSheet({
         defaultPath: await gameDirectory(current),
         filters: [{ name: t("游戏程序"), extensions: ["exe", "swf"] }],
       });
-      if (!selected) return;
+      if (!selected || !alive.current) return;
       const executablePath = String(selected);
       await operation(
         "profiles.create",
@@ -367,6 +399,7 @@ export function DetailSheet({
         { gameId: current.gameId, expectedRevision: current.revision, ...(deleteFiles ? { deleteFiles: true, confirmedPath: current.rootPath } : {}) },
         `games.remove:${current.gameId}:${current.revision}:${deleteFiles}`,
       );
+      if (!alive.current) return;
       setConfirmRemove(false);
       setConfirmDelete(false);
       onClose();
@@ -446,7 +479,7 @@ export function DetailSheet({
                 <div className="flex gap-2">
                   <Input
                     value={titleDraft}
-                    onChange={(event) => { titleEdit.current.dirty = true; setTitleDraft(event.currentTarget.value); }}
+                    onChange={(event) => { titleEdit.current.dirty = true; titleEdit.current.version++; setTitleDraft(event.currentTarget.value); }}
                     aria-label={t("游戏标题")}
                   />
                   <Button
@@ -461,7 +494,7 @@ export function DetailSheet({
                 <Textarea
                   rows={4}
                   value={summaryDraft}
-                  onChange={(event) => setSummaryDraft(event.currentTarget.value)}
+                  onChange={(event) => { summaryEdit.current.dirty = true; summaryEdit.current.version++; setSummaryDraft(event.currentTarget.value); }}
                   onBlur={() => {
                     if (summaryDraft !== (current.summary ?? "")) void saveField("summary", summaryDraft);
                   }}
@@ -573,7 +606,7 @@ export function DetailSheet({
                   } finally {
                     await onChanged();
                   }
-                  setTagDraft("");
+                   if (alive.current) setTagDraft("");
                   await load();
                 });
               }}>

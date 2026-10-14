@@ -1,4 +1,6 @@
 {
+  "全选已加载项目": ["全選已載入項目","Select all loaded items","読み込み済みをすべて選択"],
+  "已加载 {0} / {1} 项待确认": ["已載入 {0} / {1} 項待確認","Loaded {0} / {1} items to review","確認待ち {1} 件中 {0} 件を読み込み済み"],
   "没有待验证的游戏": ["沒有待驗證的遊戲","No games awaiting verification","動作確認待ちのゲームはありません"],
   "拖动标签到其他分类；分类调整对整个游戏库生效。": ["拖動標籤到其他分類；分類調整對整個遊戲庫生效。","Drag tags into another category. Category changes apply across the library.","タグを別の分類へドラッグできます。分類の変更はライブラリ全体に適用されます。"],
   "调整标签分类": ["調整標籤分類","Change tag category","タグの分類を変更"],

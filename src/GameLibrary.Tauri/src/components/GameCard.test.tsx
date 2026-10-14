@@ -1,10 +1,46 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import type { GameItem } from "../lib/types";
 import { GameCard } from "./GameCard";
 import { GameGrid } from "./GameGrid";
+import { assetDataUrl, invalidateAssetChanges, operation } from "../lib/api";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
+it("renders a pending B cover when A changes and rejects an old-library cover", async () => {
+  let finish!: (value: unknown) => void;
+  let epoch = "first";
+  const envelope = (data: unknown, dataEpoch = epoch) => ({ ok: true, data, libraryInstanceId: "cover-test", dataEpoch });
+  const invoke = vi.fn(async (_name: string, args: { request: { operationId: string } }) => {
+    if (args.request.operationId === "assets.get") return new Promise(resolve => { finish = resolve; });
+    if (args.request.operationId === "assets.choose") return envelope({ assetId: "cover-a", previousAssetId: "old-a" });
+    return envelope({});
+  });
+  vi.stubGlobal("__TAURI__", { core: { invoke } });
+  vi.stubGlobal("IntersectionObserver", class {
+    constructor(private callback: (entries: { isIntersecting: boolean }[]) => void) {}
+    observe() { this.callback([{ isIntersecting: true }]); }
+    disconnect() {}
+  });
+  await operation("host.status");
+  const game: GameItem = { gameId: "b", title: "B cover", coverAssetId: "cover-b", rootPath: "D:/example/b", kind: "folderGame", revision: 1, favorite: false };
+  render(<GameCard game={game} selected={false} checked={false} selectionDisabled={false}
+    onToggle={vi.fn()} onSelect={vi.fn()} onPlay={vi.fn()} />);
+  await act(async () => {});
+  await operation("assets.choose", { gameId: "a", assetId: "cover-a" });
+  invalidateAssetChanges({ assetId: "cover-a", previousAssetId: "old-a" });
+  await act(async () => finish(envelope({ mimeType: "image/png", dataBase64: "Yg==" })));
+  expect(screen.getByRole("presentation")).toHaveAttribute("src", "data:image/png;base64,Yg==");
+  expect(invoke.mock.calls.filter(([, args]) => args.request.operationId === "assets.get")).toHaveLength(1);
+
+  const stale = assetDataUrl("old-library-cover");
+  const rejected = expect(stale).rejects.toThrow("库已切换");
+  const oldFinish = finish;
+  epoch = "second";
+  await operation("host.status");
+  oldFinish(envelope({ mimeType: "image/png", dataBase64: "b2xk" }, "first"));
+  await rejected;
+});
 
 it("translates only checked games and keeps selection when a translated title arrives", () => {
   vi.stubGlobal("IntersectionObserver", class { observe() {} disconnect() {} });

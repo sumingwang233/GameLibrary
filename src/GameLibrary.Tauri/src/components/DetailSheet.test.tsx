@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import type { GameItem, ProfileItem, TagItem } from "../lib/types";
 import { DetailSheet } from "./DetailSheet";
@@ -9,6 +9,110 @@ vi.mock("../lib/api", async importOriginal => ({ ...await importOriginal<typeof 
 afterEach(() => { cleanup(); operation.mockReset(); });
 
 const game: GameItem = { gameId: "game", title: "Test game", rootPath: "D:/game", kind: "folderGame", favorite: false, revision: 1 };
+
+it.each([false, true])("ignores the first A session after A → B → A (reject=%s)", async reject => {
+  let settle!: (value: unknown) => void, fail!: (cause: Error) => void;
+  let reads = 0;
+  operation.mockImplementation(async (name, params) => {
+    if (name === "games.get") {
+      if (++reads === 1) return new Promise((resolve, reject) => { settle = resolve; fail = reject; });
+      return { data: { ...game, gameId: params.gameId, title: params.gameId === "other" ? "B" : "Fresh A", revision: 3 } };
+    }
+    return { data: name === "profiles.list" ? { items: [] } : {} };
+  });
+  const props = { game, tags: [], onClose: vi.fn(), onPlay: vi.fn(), onChanged: vi.fn() };
+  const view = render(<DetailSheet {...props} />);
+  view.rerender(<DetailSheet {...props} game={{ ...game, gameId: "other", title: "B" }} />);
+  await waitFor(() => expect(screen.getByRole("textbox", { name: "游戏标题" })).toHaveValue("B"));
+  view.rerender(<DetailSheet {...props} game={{ ...game, title: "Fresh A", revision: 3 }} />);
+  const input = screen.getByRole("textbox", { name: "游戏标题" });
+  await waitFor(() => expect(input).toHaveValue("Fresh A"));
+  fireEvent.change(input, { target: { value: "Current draft" } });
+  await act(async () => { if (reject) fail(new Error("old A failed")); else settle({ data: game }); });
+  expect(input).toHaveValue("Current draft");
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
+
+it.each([false, true])("ignores an old action's error and finally while B is busy (reject=%s)", async reject => {
+  let finishA!: () => void, failA!: (cause: Error) => void, finishB!: () => void;
+  operation.mockImplementation(async (name, params) => ({ data: name === "games.get"
+    ? { ...game, gameId: params.gameId, title: params.gameId === "other" ? "B" : game.title }
+    : name === "profiles.list" ? { items: [] } : {} }));
+  const onPlay = vi.fn((id: string) => new Promise<void>((resolve, reject) => {
+    if (id === "game") { finishA = resolve; failA = reject; } else finishB = resolve;
+  }));
+  const props = { game, tags: [], onClose: vi.fn(), onPlay, onChanged: vi.fn() };
+  const view = render(<DetailSheet {...props} />);
+  fireEvent.click(screen.getByRole("button", { name: "开始游戏" }));
+  view.rerender(<DetailSheet {...props} game={{ ...game, gameId: "other", title: "B" }} />);
+  await waitFor(() => expect(screen.getByRole("textbox", { name: "游戏标题" })).toHaveValue("B"));
+  const playB = screen.getByRole("button", { name: "开始游戏" });
+  fireEvent.click(playB);
+  await act(async () => { if (reject) failA(new Error("old action failed")); else finishA(); });
+  expect(playB).toBeDisabled();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  await act(async () => finishB());
+  expect(playB).toBeEnabled();
+});
+
+it("does not let an old detail response roll back a newer prop revision", async () => {
+  let finish!: (value: unknown) => void;
+  operation.mockImplementation(async name => name === "games.get"
+    ? new Promise(resolve => { finish = resolve; }) : { data: name === "profiles.list" ? { items: [] } : {} });
+  const props = { game, tags: [], onClose: vi.fn(), onPlay: vi.fn(), onChanged: vi.fn() };
+  const view = render(<DetailSheet {...props} />);
+  view.rerender(<DetailSheet {...props} game={{ ...game, title: "New title", summary: "New summary", revision: 2 }} />);
+  await act(async () => finish({ data: { ...game, summary: "Old summary" } }));
+  expect(screen.getByRole("textbox", { name: "游戏标题" })).toHaveValue("New title");
+  expect(screen.getByRole("textbox", { name: "游戏简介" })).toHaveValue("New summary");
+});
+
+it("keeps a dirty summary and its baseline through refresh and conflict retry", async () => {
+  let detail = { ...game, summary: "Original" };
+  let writes = 0;
+  operation.mockImplementation(async name => {
+    if (name === "fields.set" && ++writes === 1) {
+      detail = { ...detail, summary: "External change", revision: 3 };
+      throw new OperationError("RevisionConflict", "summary changed", { ok: false, requestId: "test", status: "failed", data: null });
+    }
+    return { data: name === "games.get" ? detail : name === "profiles.list" ? { items: [] } : {} };
+  });
+  const props = { game: detail, tags: [], onClose: vi.fn(), onPlay: vi.fn(), onChanged: vi.fn() };
+  const view = render(<DetailSheet {...props} />);
+  const input = await screen.findByRole("textbox", { name: "游戏简介" });
+  await waitFor(() => expect(input).toHaveValue("Original"));
+  fireEvent.change(input, { target: { value: "My summary" } });
+  view.rerender(<DetailSheet {...props} game={{ ...detail, summary: "Background change", revision: 2 }} />);
+  expect(input).toHaveValue("My summary");
+  fireEvent.blur(input);
+  await screen.findByRole("alert");
+  expect(input).toHaveValue("My summary");
+  expect(operation.mock.calls.filter(([name]) => name === "fields.set")).toHaveLength(1);
+  expect(operation).toHaveBeenCalledWith("fields.set", { gameId: "game", field: "summary", value: "My summary", expectedRevision: 1 }, "fields.set:game:summary:1:My summary");
+  fireEvent.blur(input);
+  await waitFor(() => expect(operation).toHaveBeenCalledWith("fields.set", { gameId: "game", field: "summary", value: "My summary", expectedRevision: 3 }, "fields.set:game:summary:3:My summary"));
+});
+
+it("keeps text typed while saving and rebases its next explicit save", async () => {
+  let finish!: (value: unknown) => void;
+  let detail = game;
+  let writes = 0;
+  operation.mockImplementation(async name => {
+    if (name === "fields.set" && ++writes === 1) return new Promise(resolve => { finish = resolve; });
+    return { data: name === "games.get" ? detail : name === "profiles.list" ? { items: [] } : {} };
+  });
+  render(<DetailSheet game={game} tags={[]} onClose={vi.fn()} onPlay={vi.fn()} onChanged={vi.fn()} />);
+  const input = await screen.findByRole("textbox", { name: "游戏标题" });
+  await waitFor(() => expect(input).toHaveValue(game.title));
+  fireEvent.change(input, { target: { value: "First edit" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+  fireEvent.change(input, { target: { value: "Second edit" } });
+  detail = { ...game, title: "First edit", revision: 2 };
+  await act(async () => finish({ data: { revision: 2 } }));
+  expect(input).toHaveValue("Second edit");
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+  await waitFor(() => expect(operation).toHaveBeenCalledWith("fields.set", { gameId: "game", field: "title", value: "Second edit", expectedRevision: 2 }, "fields.set:game:title:2:Second edit"));
+});
 
 it.each(["user", "engine"])("moves a %s tag into an empty category without changing its game assignment", async kind => {
   respond([]);
@@ -188,7 +292,7 @@ it("refreshes profile status without overwriting an unsaved game title", async (
   fireEvent.change(screen.getByRole("textbox", { name: "游戏标题" }), { target: { value: "Unsaved title" } });
   respond(profiles("verified"));
   view.rerender(<DetailSheet {...props} refreshToken={2} />);
-  await waitFor(() => expect(operation.mock.calls.filter(call => call[0] === "profiles.list").length).toBeGreaterThan(2));
+  await waitFor(() => expect(operation.mock.calls.filter(call => call[0] === "profiles.list")).toHaveLength(2));
   expect(screen.getByRole("textbox", { name: "游戏标题" })).toHaveValue("Unsaved title");
 });
 

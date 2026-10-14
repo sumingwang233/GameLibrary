@@ -1,7 +1,7 @@
 """Compile the NSIS UI and optionally smoke-test an isolated current-user install.
 
 Uses a unique uninstall key and shortcut folder, dummy payloads, and TEST_BUILD
-(no taskkill). No existing GameLibrary install or user library is touched.
+with the production process guard. No existing installation or library is touched.
 """
 
 import argparse

@@ -43,6 +43,20 @@ ShowUninstDetails show
 
 !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_ID}"
 
+; Same guard in production and isolated TEST_BUILD; never terminate by image name.
+!macro RequireClosedInstall DIRECTORY EXTRA
+  InitPluginsDir
+  File /oname=$PLUGINSDIR\CheckInstallProcesses.ps1 "${__FILEDIR__}\CheckInstallProcesses.ps1"
+  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\CheckInstallProcesses.ps1" -InstallDirectory "${DIRECTORY}\." ${EXTRA}'
+  Pop $0
+  Pop $1
+  ${If} $0 != 0
+    MessageBox MB_OK|MB_ICONSTOP "$(GL_Text42)" /SD IDOK
+    SetErrorLevel 2
+    Abort
+  ${EndIf}
+!macroend
+
 Name "${PRODUCT_NAME} ${VERSION}"
 !ifdef UI_PREVIEW
 Caption "$(GL_Text0)"
@@ -400,8 +414,10 @@ Section "GameLibrary" SecMain
   ; 避免覆盖安装后旧版残留文件与新版本冲突。游戏库数据目录不受卸载影响。
   ; 点击“安装”后重新核对卸载项；展示升级页面本身不会卸载程序。
   Call FindPreviousInstall
+  !insertmacro RequireClosedInstall $INSTDIR ""
   ${If} $PreviousUninstaller != ""
       ${If} $RemovePrevious == 1
+        !insertmacro RequireClosedInstall $PreviousLocation '-LegacyUninstaller -PreviousVersion "$PreviousVersion"'
         DetailPrint "$(GL_Text37)"
         ; _?= 指定旧安装目录并要求卸载程序原地同步执行，ExecWait 等卸载完成后再复制新文件。
         ExecWait '"$PreviousUninstaller" /S _?=$PreviousLocation' $R3
@@ -415,15 +431,6 @@ Section "GameLibrary" SecMain
   ${EndIf}
 
   SetOutPath "$INSTDIR"
-
-!ifndef TEST_BUILD
-  nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /F /IM GameLibrary.Desktop.exe'
-  Pop $0
-  Pop $1
-  nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /F /IM GameLibrary.Host.exe'
-  Pop $0
-  Pop $1
-!endif
 
   File /oname=GameLibrary.Desktop.exe "${PAYLOAD_DIR}\GameLibrary.Desktop.exe"
   File /oname=GameLibrary.TauriBridge.exe "${PAYLOAD_DIR}\GameLibrary.TauriBridge.exe"
@@ -475,14 +482,7 @@ FunctionEnd
 Section "Uninstall"
   SetShellVarContext current
 
-!ifndef TEST_BUILD
-  nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /F /IM GameLibrary.Desktop.exe'
-  Pop $0
-  Pop $1
-  nsExec::ExecToStack '"$SYSDIR\taskkill.exe" /F /IM GameLibrary.Host.exe'
-  Pop $0
-  Pop $1
-!endif
+  !insertmacro RequireClosedInstall $INSTDIR ""
 
   Delete "$SMPROGRAMS\${START_MENU_FOLDER}\${PRODUCT_NAME}.lnk"
   Delete "$SMPROGRAMS\${START_MENU_FOLDER}\卸载 ${PRODUCT_NAME}.lnk"

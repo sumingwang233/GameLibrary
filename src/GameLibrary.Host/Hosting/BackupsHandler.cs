@@ -362,8 +362,10 @@ internal sealed class BackupsHandler
             return IpcRequests.InvalidArgument(request, "库未初始化；恢复目标必须存在已初始化的库");
         }
 
+        if (!_jobs.TryFlushPendingRecords()) return IpcRequests.Failure(request, ErrorCodes.DatabaseBusy,
+            "作业结果尚未可靠记录；请检查存储后重试恢复", retryable: true);
         var drained = _state.Sessions.TryBeginMaintenance(() =>
-            _jobs.ActiveJobCount() != 0 || _state.Coordinator.IsRunning || _state.Launches.HasActiveAttempts);
+            _jobs.ActiveJobCount() != 0 || _jobs.PendingRecordCount != 0 || _state.Coordinator.IsRunning || _state.Launches.HasActiveAttempts);
         if (drained is null) return IpcRequests.Failure(request, ErrorCodes.DatabaseBusy,
             "扫描、备份、核对或游戏仍在运行；请结束后重试恢复", retryable: true);
         _setMaintenanceMode(true);
@@ -377,7 +379,7 @@ internal sealed class BackupsHandler
                 try
                 {
                     await drained;
-                    result = _state.Jobs.ActiveJobCount() > 1 || _state.Launches.HasActiveAttempts
+                    result = _state.Jobs.ActiveJobCount() > 1 || _jobs.PendingRecordCount != 0 || _state.Launches.HasActiveAttempts
                         ? IpcRequests.Failure(request, ErrorCodes.DatabaseBusy, "已有请求启动了后台活动，请结束后重试", retryable: true)
                         : await RestoreCore(request, control, backupDir, manifest, idempotencyKey, retryDigest, context.JobId);
                 }

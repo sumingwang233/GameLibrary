@@ -8,7 +8,14 @@ export class DataUrlCache {
 
   constructor(readonly budget = 64 * 1024 * 1024) {}
 
-  clear() {
+  clear(key?: string) {
+    if (key !== undefined) {
+      const value = this.values.get(key);
+      if (value !== undefined) this.bytes -= 2 * (key.length + value.length);
+      this.values.delete(key);
+      this.pending.delete(key);
+      return;
+    }
     this.generation++;
     this.values.clear();
     this.pending.clear();
@@ -26,7 +33,8 @@ export class DataUrlCache {
     if (pending) return pending;
     const generation = this.generation;
     const request = fetch().then(value => {
-      if (generation !== this.generation) throw new Error(t("封面已变化，请重新加载"));
+      if (generation !== this.generation || this.pending.get(key) !== request)
+        throw new Error(t("封面已变化，请重新加载"));
       const cost = 2 * (key.length + value.length);
       if (cost <= this.budget) {
         while (this.bytes + cost > this.budget && this.values.size > 0) {

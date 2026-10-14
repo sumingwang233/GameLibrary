@@ -162,6 +162,64 @@ it("deduplicates launch exit attempts while polling an older Host", async () => 
   expect(call.mock.calls.every(([name]) => name === "events.read")).toBe(true);
 });
 
+it("loads candidate 1001 and refreshes the consumed window after insertion and deletion", async () => {
+  let items = Array.from({ length: 1001 }, (_, i) => candidate(String(i)));
+  call.mockImplementation(async (name, params) => {
+    if (name === "host.status") return envelope({ libraryInitialized: true });
+    if (name === "capabilities.get") return envelope({ availableOperations: [] });
+    return envelope({ total: items.length, items: items.slice(params.offset, params.offset + params.limit) });
+  });
+  const hook = renderHook(() => useLibraryMetadata());
+  await act(async () => hook.result.current.refreshDomains(["candidates"]));
+  expect(hook.result.current.candidates).toHaveLength(1000);
+  expect(hook.result.current.candidateTotal).toBe(1001);
+  await act(async () => hook.result.current.loadMoreCandidates());
+  expect(hook.result.current.candidates[hook.result.current.candidates.length - 1]?.candidateId).toBe("1000");
+  expect(hook.result.current.candidateHasMore).toBe(false);
+  items = [candidate("new"), ...items.slice(1)];
+  await act(async () => hook.result.current.refreshDomains(["candidates"]));
+  expect(hook.result.current.candidates).toHaveLength(1001);
+  expect(hook.result.current.candidates[0].candidateId).toBe("new");
+  expect(hook.result.current.candidates.some(item => item.candidateId === "0")).toBe(false);
+  expect(hook.result.current.candidates[hook.result.current.candidates.length - 1]?.candidateId).toBe("1000");
+});
+
+it("stops candidate pagination when a repeated page makes no progress", async () => {
+  const items = Array.from({ length: 1000 }, (_, i) => candidate(String(i)));
+  call.mockImplementation(async name => name === "host.status" ? envelope({ libraryInitialized: true })
+    : name === "capabilities.get" ? envelope({ availableOperations: [] }) : envelope({ total: 3000, items }));
+  const hook = renderHook(() => useLibraryMetadata());
+  await act(async () => hook.result.current.refreshDomains(["candidates"]));
+  await act(async () => hook.result.current.loadMoreCandidates());
+  expect(hook.result.current.candidates).toHaveLength(1000);
+  expect(hook.result.current.candidateHasMore).toBe(false);
+  await act(async () => hook.result.current.loadMoreCandidates());
+  expect(call.mock.calls.filter(([name]) => name === "candidates.list")).toHaveLength(2);
+});
+
+it("ignores an older load-more page after a candidate refresh", async () => {
+  let items = Array.from({ length: 1001 }, (_, i) => candidate(String(i)));
+  let finish!: (value: unknown) => void;
+  call.mockImplementation(async (name, params) => {
+    if (name === "host.status") return envelope({ libraryInitialized: true });
+    if (name === "capabilities.get") return envelope({ availableOperations: [] });
+    if (params.offset === 1000) return new Promise(resolve => { finish = resolve; });
+    return envelope({ total: items.length, items: items.slice(0, params.limit) });
+  });
+  const hook = renderHook(() => useLibraryMetadata());
+  await act(async () => hook.result.current.refreshDomains(["candidates"]));
+  let older!: Promise<void>;
+  await act(async () => { older = hook.result.current.loadMoreCandidates(); });
+  expect(hook.result.current.candidateLoading).toBe(true);
+  items = [candidate("fresh")];
+  await act(async () => hook.result.current.refreshDomains(["candidates"]));
+  await act(async () => { finish(envelope({ total: 1001, items: [candidate("stale")] })); await older; });
+  expect(hook.result.current.candidates.map(item => item.candidateId)).toEqual(["fresh"]);
+  expect(hook.result.current.candidateTotal).toBe(1);
+  expect(hook.result.current.candidateLoading).toBe(false);
+  expect(hook.result.current.candidateHasMore).toBe(false);
+});
+
 it("falls back to individual candidate reviews on an older Host", async () => {
   call.mockResolvedValue(envelope({}));
   const supports = () => false;

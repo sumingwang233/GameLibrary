@@ -136,8 +136,9 @@ internal sealed class ObservabilityHandler
                     maxFileBytes = Observability.AuditLogWriter.DefaultMaxFileBytes,
                     maxFiles = Observability.AuditLogWriter.DefaultMaxFiles,
                     retentionDays = Observability.AuditLogWriter.DefaultRetentionDays,
+                    failureCount = _auditLog.FailureCount,
                 },
-                jobs = new { activeCount = _jobs.ActiveJobCount() },
+                jobs = new { activeCount = _jobs.ActiveJobCount(), pendingRecordCount = _jobs.PendingRecordCount },
                 metrics = _metrics.ToDto(),
                 eventStream = new
                 {

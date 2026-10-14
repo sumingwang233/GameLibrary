@@ -6,7 +6,15 @@ import { DataUrlCache } from "./assetCache";
 const assetCache = new DataUrlCache();
 let libraryIdentity: string | undefined;
 let libraryGeneration = 0;
-export function invalidateAssets() { assetCache.clear(); }
+export function invalidateAssets(assetId?: string) { assetCache.clear(assetId); }
+
+export function invalidateAssetChanges(data: unknown) {
+  if (!data || typeof data !== "object") return;
+  const changes = data as Record<string, unknown>;
+  // 导入和裁切创建新资产；只淘汰回执中明确受影响的资产，库切换仍全量失效。
+  for (const key of ["assetId", "newAssetId", "sourceAssetId", "previousAssetId"])
+    if (typeof changes[key] === "string") invalidateAssets(changes[key]);
+}
 
 declare global {
   interface Window {
@@ -95,7 +103,7 @@ export async function operation<T>(
     libraryIdentity = identity;
   }
   if (result.ok && operationId.startsWith("assets.") && !["assets.get", "assets.list"].includes(operationId))
-    invalidateAssets();
+    invalidateAssetChanges(result.data);
   releaseKey(intent);
   if (!result.ok) {
     throw new OperationError(

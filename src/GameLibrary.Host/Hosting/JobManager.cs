@@ -75,6 +75,8 @@ public sealed class JobManager
 
         public object? FinalData;
 
+        public JobSnapshot? PendingRecord;
+
         public TaskCompletionSource Completed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
@@ -225,6 +227,27 @@ public sealed class JobManager
     public int ActiveJobCount() =>
         _jobs.Values.Count(entry => !IsTerminal(entry.State));
 
+    public int PendingRecordCount => _jobs.Values.Count(entry => Volatile.Read(ref entry.PendingRecord) is not null);
+
+    /// <summary>只重试终态落盘，不重复执行副作用；恢复前必须清空待记录结果。</summary>
+    public bool TryFlushPendingRecords()
+    {
+        foreach (var entry in _jobs.Values)
+        {
+            lock (entry)
+            {
+                if (entry.PendingRecord is not { } snapshot) continue;
+                try { Record(entry, snapshot); }
+                catch (Exception) { return false; }
+                entry.Error = snapshot.Error;
+                entry.FinishedUtc = snapshot.FinishedUtc;
+                entry.State = snapshot.State;
+                entry.PendingRecord = null;
+            }
+        }
+        return true;
+    }
+
     public void CancelKind(string kind)
     {
         foreach (var entry in _jobs.Values.Where(entry => entry.Kind == kind)) RequestCancel(entry.Id);
@@ -261,13 +284,20 @@ public sealed class JobManager
                     FinishedUtc = DateTime.UtcNow,
                 };
                 // Publish the terminal state only after its durable result is available.
-                Record(entry, snapshot);
+                try { Record(entry, snapshot); }
+                catch (Exception ex)
+                {
+                    entry.PendingRecord = snapshot;
+                    snapshot = snapshot with { State = "failed", Error = $"作业结果持久化失败，恢复前需重试记录：{ex.Message}" };
+                }
                 entry.Error = snapshot.Error;
                 entry.FinishedUtc = snapshot.FinishedUtc;
                 entry.State = snapshot.State;
             }
 
-            OnJobFinished?.Invoke(entry.State);
+            // Metrics callbacks must not fault the detached worker or hide its recorded outcome.
+            try { OnJobFinished?.Invoke(entry.State); }
+            catch (Exception) { }
         }
         finally { entry.Completed.TrySetResult(); }
     }

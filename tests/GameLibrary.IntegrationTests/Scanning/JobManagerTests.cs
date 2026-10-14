@@ -6,6 +6,49 @@ namespace GameLibrary.IntegrationTests.Scanning;
 public sealed class JobManagerTests
 {
     [Fact]
+    public async Task RestoreHistory_FinalWriteFailureCanBeRetriedWithoutRepeatingRestore()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "GameLibrary-restore-final-" + Guid.NewGuid().ToString("N"));
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var manager = new JobManager();
+        manager.ConfigureRestoreHistory(directory);
+        var executions = 0;
+        try
+        {
+            var id = manager.Create("restore", async context =>
+            {
+                Interlocked.Increment(ref executions);
+                await release.Task;
+                context.ReportProgress("original restore result");
+                return JobOutcome.Succeeded();
+            }, ownsMaintenance: true);
+            var history = Path.Combine(directory, "control", "restore-jobs", id + ".json");
+            using (var locked = new FileStream(history, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                release.TrySetResult();
+                await manager.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(10));
+                Assert.Equal("failed", manager.Get(id)!.State);
+                Assert.Equal(1, manager.PendingRecordCount);
+                Assert.False(manager.TryFlushPendingRecords());
+            }
+            Assert.True(manager.TryFlushPendingRecords());
+            Assert.Equal(0, manager.PendingRecordCount);
+            Assert.Equal(1, executions);
+            var restarted = new JobManager();
+            restarted.ConfigureRestoreHistory(directory);
+            Assert.Equal("succeeded", restarted.Get(id)!.State);
+            Assert.Equal("original restore result", restarted.TryGetProgress(id)!.Value.Data!.ToString());
+        }
+        finally
+        {
+            release.TrySetResult();
+            await manager.WaitForIdleAsync();
+            Assert.StartsWith(Path.GetFullPath(Path.GetTempPath()), Path.GetFullPath(directory));
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task TerminalState_IsPublishedAfterFinalRecord()
     {
         var manager = new JobManager();
@@ -158,6 +201,42 @@ public sealed class JobManagerTests
 
         var final = manager.TryGetProgress(jobId);
         Assert.Equal("succeeded", final!.Value.State);
+    }
+
+    [Fact]
+    public async Task FailedFinalRecord_IsObservableAndRetriedWithoutRepeatingWork()
+    {
+        var manager = new JobManager();
+        var fail = true;
+        var executions = 0;
+        var recorded = new List<JobSnapshot>();
+        manager.OnJobRecorded = snapshot =>
+        {
+            if (snapshot.State == "succeeded" && fail) throw new IOException("disk full");
+            recorded.Add(snapshot);
+        };
+        manager.OnJobFinished = _ => throw new InvalidOperationException("metrics unavailable");
+        var result = new { value = 7 };
+        var id = manager.Create("test", context =>
+        {
+            executions++;
+            context.ReportProgress(result);
+            return Task.FromResult(JobOutcome.Succeeded());
+        });
+        await manager.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal("failed", manager.Get(id)!.State);
+        Assert.Contains("disk full", manager.Get(id)!.Error);
+        Assert.Equal(0, manager.ActiveJobCount());
+        Assert.Equal(1, manager.PendingRecordCount);
+        Assert.Same(result, manager.TryGetProgress(id)!.Value.Data);
+        Assert.False(manager.TryFlushPendingRecords());
+        fail = false;
+        Assert.True(manager.TryFlushPendingRecords());
+        Assert.True(manager.TryFlushPendingRecords());
+        Assert.Equal(0, manager.PendingRecordCount);
+        Assert.Equal("succeeded", manager.Get(id)!.State);
+        Assert.Equal(1, executions);
+        Assert.Single(recorded, snapshot => snapshot.State == "succeeded");
     }
 
     private static async Task WaitForTerminalAsync(JobManager manager, string jobId)

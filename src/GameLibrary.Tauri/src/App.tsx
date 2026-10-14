@@ -341,6 +341,10 @@ function App() {
           {section === "pending" && (
             <ReviewList
               candidates={library.candidates}
+              total={library.candidateTotal}
+              hasMore={library.candidateHasMore}
+              loadingMore={library.candidateLoading}
+              onLoadMore={() => void library.loadMoreCandidates()}
               busy={reviewBusy}
               onReview={handleReview}
             />

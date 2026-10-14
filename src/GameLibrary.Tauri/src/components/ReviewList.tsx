@@ -1,5 +1,5 @@
 import { t } from "../lib/i18n";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Inbox } from "lucide-react";
 import type { CandidateItem, FlashCandidateInspection } from "../lib/types";
 import { describeFailure, operation } from "../lib/api";
@@ -14,12 +14,25 @@ export function ReviewList({
   candidates,
   busy,
   onReview,
+  total = candidates.length,
+  hasMore = false,
+  loadingMore = false,
+  onLoadMore,
 }: {
   candidates: CandidateItem[];
   busy: boolean;
   onReview: (items: CandidateItem[], action: ReviewAction) => Promise<void>;
+  total?: number;
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    const available = new Set(candidates.map(item => item.candidateId));
+    setSelected(previous => [...previous].every(id => available.has(id)) ? previous
+      : new Set([...previous].filter(id => available.has(id))));
+  }, [candidates]);
 
   if (candidates.length === 0) {
     return (
@@ -50,6 +63,7 @@ export function ReviewList({
     <div>
       <ReviewBatchBar
         candidates={candidates}
+        total={total}
         selectedCount={chosen.length}
         busy={busy}
         onAccept={() => void apply("accept")}
@@ -57,7 +71,7 @@ export function ReviewList({
         onIgnore={() => void apply("ignore")}
         onToggleAll={() =>
           setSelected((previous) =>
-            previous.size === candidates.length
+            candidates.every(candidate => previous.has(candidate.candidateId))
               ? new Set()
               : new Set(candidates.map((candidate) => candidate.candidateId)),
           )
@@ -91,6 +105,8 @@ export function ReviewList({
           </li>
         ))}
       </ul>
+      {hasMore && <Button variant="outline" className="mt-4 w-full" disabled={busy || loadingMore}
+        onClick={onLoadMore}>{t(loadingMore ? "正在加载更多…" : "加载更多")}</Button>}
     </div>
   );
 }

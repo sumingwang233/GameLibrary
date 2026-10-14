@@ -57,6 +57,11 @@ public sealed class HostConnection : IAsyncDisposable
             await pipe.DisposeAsync();
             throw new HostClientException(HostClientErrorCodes.HostUnavailable, "宿主管道连接超时");
         }
+        catch
+        {
+            await pipe.DisposeAsync();
+            throw;
+        }
 
         var client = new HostConnection(dataDirectory, clientName, permissions) { _pipe = pipe };
         try
@@ -114,16 +119,24 @@ public sealed class HostConnection : IAsyncDisposable
     private async Task<Envelope<JsonElement>> InvokeOnceAsync(
         NamedPipeClientStream pipe, IpcRequest request, CancellationToken ct)
     {
-        await IpcFrame.WriteJsonAsync(pipe, request, ct);
-        var envelope = await IpcFrame.ReadJsonAsync<Envelope<JsonElement>>(pipe, ct);
-        if (!string.Equals(envelope.RequestId, request.RequestId, StringComparison.Ordinal))
+        try
         {
-            throw new HostClientException(
-                HostClientErrorCodes.ProtocolError,
-                $"响应 requestId 不匹配：期望 {request.RequestId}，收到 {envelope.RequestId}");
-        }
+            await IpcFrame.WriteJsonAsync(pipe, request, ct);
+            var envelope = await IpcFrame.ReadJsonAsync<Envelope<JsonElement>>(pipe, ct);
+            if (!string.Equals(envelope.RequestId, request.RequestId, StringComparison.Ordinal))
+                throw new HostClientException(HostClientErrorCodes.ProtocolError,
+                    $"响应 requestId 不匹配：期望 {request.RequestId}，收到 {envelope.RequestId}");
 
-        return envelope;
+            return envelope;
+        }
+        catch
+        {
+            // A partial frame or late response cannot be reused by the next request.
+            _pipe = null;
+            _handshake = null;
+            await pipe.DisposeAsync();
+            throw;
+        }
     }
 
     /// <summary>断线后重连并重新握手；旧连接句柄被替换，重连失败时实例保持断开状态。</summary>
