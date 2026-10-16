@@ -1,4 +1,12 @@
 {
+  "已游玩": ["已遊玩","Played","プレイ済み"],
+  "标记为已游玩": ["標記為已遊玩","Mark as played","プレイ済みにする"],
+  "游戏评分": ["遊戲評分","Game rating","ゲームの評価"],
+  "{0} / 5 星": ["{0} / 5 星","{0} / 5 stars","{0} / 5 つ星"],
+  "尚未评分": ["尚未評分","Not rated","未評価"],
+  "这次游玩体验如何？点选星星为游戏评分。": ["這次遊玩體驗如何？點選星星為遊戲評分。","How was your session? Select stars to rate this game.","今回のプレイはいかがでしたか？星を選んで評価してください。"],
+  "旧 Mono 翻译程序集与固定原版不一致，保留文件并等待人工检查": ["舊 Mono 翻譯組件與固定原版不一致，保留檔案並等待人工檢查","Legacy Mono translator assemblies differ from the pinned originals; files were preserved for manual review","旧 Mono 翻訳アセンブリが固定の原版と一致しません。ファイルを保持して手動確認を待ちます"],
+  "旧 Mono 翻译程序集仍会遮蔽 BepInEx 端点，离线验证失败": ["舊 Mono 翻譯組件仍會遮蔽 BepInEx 端點，離線驗證失敗","Legacy Mono translator assemblies still shadow the BepInEx endpoint; offline validation failed","旧 Mono 翻訳アセンブリが BepInEx のエンドポイントを遮蔽しているため、オフライン検証に失敗しました"],
   "配方脚本过大，无法安全解析": ["配方腳本過大，無法安全解析","Recipe script is too large to parse safely","レシピのスクリプトが大きすぎるため、安全に解析できません"],
   "MTool 加载器与游戏架构不匹配，请在 MTool 中生成专属配方": ["MTool 載入器與遊戲架構不符，請在 MTool 中產生專屬配方","MTool loader architecture does not match this game; generate its recipe in MTool","MTool ローダーとゲームのアーキテクチャが一致しません。MTool で専用レシピを生成してください"],
   "MTool 翻译配方": ["MTool 翻譯配方","MTool translation recipe","MTool 翻訳レシピ"],

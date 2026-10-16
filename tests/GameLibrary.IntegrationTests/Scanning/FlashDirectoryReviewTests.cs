@@ -37,7 +37,7 @@ public sealed class FlashDirectoryReviewTests
         return collector;
     }
 
-    private static SqliteLibraryStoreOptions Options(int schema = 27) => new()
+    private static SqliteLibraryStoreOptions Options(int schema = 29) => new()
     { AppVersion = "test", ApiVersion = "1", Migrations = DatabaseMigrations.All.Where(item => item.Version <= schema).ToArray() };
 
     private static PersistedCandidate Persist(SqliteLibraryStore store, ScanCandidate candidate)
@@ -273,7 +273,7 @@ public sealed class FlashDirectoryReviewTests
         Assert.NotEqual(oldEpoch, store.Info.DataEpoch);
         Assert.Equal("pendingReview", Assert.Single(store.ListCandidates()).ReviewState);
         Assert.Single(Scan(root, store).Candidates);
-        var snapshot = Assert.Single(Directory.GetFiles(Path.Combine(data, "backups"), "pre-migration-v26-to-v27-*.db"));
+        var snapshot = Assert.Single(Directory.GetFiles(Path.Combine(data, "backups"), "pre-migration-v26-to-v29-*.db"));
         using (var backup = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={snapshot};Mode=ReadOnly;Pooling=False"))
         {
             backup.Open(); using var command = backup.CreateCommand(); command.CommandText = "SELECT count(*) FROM ignore_rules";
@@ -289,7 +289,7 @@ public sealed class FlashDirectoryReviewTests
         var reopened = await SqliteLibraryStore.TryOpenAsync(data, Options(), CancellationToken.None);
         await using var reopenedStore = reopened.Store!;
         Assert.Equal("new", Assert.Single(reopenedStore.ListIgnoreRules()).IgnoreId);
-        Assert.Single(Directory.GetFiles(Path.Combine(data, "backups"), "pre-migration-v26-to-v27-*.db"));
+        Assert.Single(Directory.GetFiles(Path.Combine(data, "backups"), "pre-migration-v26-to-v29-*.db"));
     }
 
     [Fact]

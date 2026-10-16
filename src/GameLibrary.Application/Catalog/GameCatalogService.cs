@@ -7,6 +7,7 @@ public interface IGameCatalogStore
     T InTransaction<T>(Func<T> action);
     GameCard? TryGetGameByRootPath(string rootPath);
     void InsertGame(GameCard game);
+    bool EnsureEngineTagAssigned(string gameId, string engine, DateTime utcNow);
     int? SetGameField(string gameId, string fieldKey, string? value, string source, int expectedRevision, DateTime utcNow);
     int? RelinkGame(string gameId, string newRootPath, int expectedRevision, DateTime utcNow);
     void UpsertGameFingerprint(string gameId, GameFingerprintData fingerprint);
@@ -22,6 +23,7 @@ public sealed class GameCatalogService(IGameCatalogStore store, ICatalogFiles fi
             if (store.TryGetGameByRootPath(game.RootPath) is { Membership: "active" })
                 throw new InvalidOperationException("该游戏位置已入库");
             store.InsertGame(game);
+            if (game.Engine is { } engine) store.EnsureEngineTagAssigned(game.GameId, engine, game.UpdatedUtc);
             if (titleOverride)
                 game = game with { Revision = store.SetGameField(game.GameId, "title", game.Title, "user", 1, game.UpdatedUtc)!.Value };
             if (fingerprint is not null) store.UpsertGameFingerprint(game.GameId, fingerprint);

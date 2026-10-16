@@ -1162,7 +1162,7 @@ dependencies = [
 
 [[package]]
 name = "gamelibrary-desktop"
-version = "1.7.17"
+version = "1.7.18"
 dependencies = [
  "serde",
  "serde_json",

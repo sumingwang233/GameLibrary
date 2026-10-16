@@ -112,6 +112,10 @@ public sealed record CommandLine
     /// <summary>games update 的 --favorite/--unfavorite 标记。</summary>
     public bool? Favorite { get; private init; }
 
+    public bool? Played { get; private init; }
+
+    public int? Rating { get; private init; }
+
     public bool? HasCover { get; private init; }
 
     public bool HasCoverSpecified { get; private init; }
@@ -236,6 +240,8 @@ public sealed record CommandLine
         int? expectedRevision = null;
         string? overrideValue = null;
         bool? favorite = null;
+        bool? played = null;
+        int? rating = null;
         bool? hasCover = null;
         var hasCoverSpecified = false;
         string? toolId = null;
@@ -440,6 +446,16 @@ public sealed record CommandLine
                 case "--unfavorite":
                     favorite = false;
                     break;
+                case "--played":
+                    played = true;
+                    break;
+                case "--unplayed":
+                    played = false;
+                    break;
+                case "--rating" when i + 1 < args.Length && int.TryParse(args[i + 1], out var stars) && stars is >= 0 and <= 5:
+                    rating = stars;
+                    i++;
+                    break;
                 case "--with-cover":
                 case "--without-cover":
                 case "--all-covers":
@@ -579,6 +595,8 @@ public sealed record CommandLine
             Height = height,
             Override = overrideValue,
             Favorite = favorite,
+            Played = played,
+            Rating = rating,
             HasCover = hasCover,
             HasCoverSpecified = hasCoverSpecified,
             ToolId = toolId,

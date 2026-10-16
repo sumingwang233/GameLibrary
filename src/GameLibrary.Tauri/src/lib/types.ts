@@ -57,6 +57,9 @@ export interface GameItem {
   entryPath?: string | null;
   membership?: string | null;
   favorite: boolean;
+  played?: boolean;
+  /** 0 表示尚未评分。 */
+  rating?: number;
   revision: number;
   coverAssetId?: string | null;
   acceptedUtc?: string;

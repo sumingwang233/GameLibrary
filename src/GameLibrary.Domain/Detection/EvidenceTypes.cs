@@ -1,6 +1,6 @@
 namespace GameLibrary.Domain.Detection;
 
-/// <summary>首批五类引擎/格式（策划案 5.4 v1）；固定英文枚举值。</summary>
+/// <summary>引擎/格式；仅追加枚举值，公开序列化使用 camelCase。</summary>
 public enum EngineId
 {
     Unity,
@@ -12,6 +12,17 @@ public enum EngineId
     Kirikiri,
 
     Flash,
+
+    RpgMakerXp,
+    RpgMakerVx,
+    RpgMakerVxAce,
+    WolfRpg,
+    SrpgStudio,
+    PixelGameMakerMv,
+    RpgDeveloperBakin,
+    Godot,
+    Unreal,
+    Tyrano,
 }
 
 /// <summary>证据观察态：不可读不等同缺失（补充规格 2.3）。</summary>

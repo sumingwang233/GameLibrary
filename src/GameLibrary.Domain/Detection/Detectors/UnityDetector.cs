@@ -6,7 +6,7 @@ namespace GameLibrary.Domain.Detection.Detectors;
 /// </summary>
 public sealed class UnityDetector : IEngineDetector
 {
-    private const int Version = 1;
+    private const int Version = 2;
 
     public EngineId Engine => EngineId.Unity;
 
@@ -24,7 +24,11 @@ public sealed class UnityDetector : IEngineDetector
             evidence.Add(new DetectionEvidence("unity.player-dll", "UnityPlayer.dll", EvidenceObservation.Present, EvidencePolarity.Positive));
         }
 
-        var dataDir = rootDirs.FirstOrDefault(d => d.EndsWith("_Data", StringComparison.OrdinalIgnoreCase));
+        var dataDir = rootDirs.Where(d => d.EndsWith("_Data", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(d => rootFiles.Any(file => !EntryScoring.IsExcludedEntryName(file)
+                && file.Equals(d[..^"_Data".Length] + ".exe", StringComparison.OrdinalIgnoreCase)))
+            .ThenByDescending(d => snapshot.FileExists(Join(d, "globalgamemanagers")))
+            .ThenBy(d => d, StringComparer.Ordinal).FirstOrDefault();
         if (dataDir is not null)
         {
             evidence.Add(new DetectionEvidence("unity.data-dir", dataDir, EvidenceObservation.Present, EvidencePolarity.Positive));

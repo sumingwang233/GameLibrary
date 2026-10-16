@@ -5,19 +5,19 @@ namespace GameLibrary.Infrastructure.Persistence;
 
 public static partial class LibraryCatalogStore
 {
-    public static void InsertGame(SqliteConnection connection, GameCard game, SqliteTransaction? transaction = null)
+    public static void InsertGame(SqliteConnection connection, GameCard game, SqliteTransaction? transaction = null, bool includePreferences = true)
     {
         using var command = connection.CreateCommand();
         if (transaction is not null)
         {
             command.Transaction = transaction;
         }
-        command.CommandText = """
+        command.CommandText = $"""
             INSERT INTO games
                 (game_id, title, root_path, kind, engine, entry_path, membership, favorite,
-                 translation_inherited, availability, missing_since_utc, revision, accepted_utc, updated_utc)
+                 translation_inherited, availability, missing_since_utc, revision, accepted_utc, updated_utc{(includePreferences ? ", played, rating" : "")})
             VALUES ($id, $title, $root, $kind, $engine, $entry, 'active', $favorite,
-                    $inherited, $availability, $missing, 1, $accepted, $accepted)
+                    $inherited, $availability, $missing, 1, $accepted, $accepted{(includePreferences ? ", $played, $rating" : "")})
             """;
         command.Parameters.AddWithValue("$id", game.GameId);
         command.Parameters.AddWithValue("$title", game.Title);
@@ -26,6 +26,8 @@ public static partial class LibraryCatalogStore
         command.Parameters.AddWithValue("$engine", (object?)game.Engine ?? DBNull.Value);
         command.Parameters.AddWithValue("$entry", (object?)game.EntryPath ?? DBNull.Value);
         command.Parameters.AddWithValue("$favorite", game.Favorite ? 1 : 0);
+        command.Parameters.AddWithValue("$played", game.Played ? 1 : 0);
+        command.Parameters.AddWithValue("$rating", game.Rating);
         command.Parameters.AddWithValue("$inherited", game.TranslationInherited ? 1 : 0);
         command.Parameters.AddWithValue("$availability", game.Availability);
         command.Parameters.AddWithValue("$missing", game.MissingSinceUtc is { } missing
@@ -78,11 +80,12 @@ public static partial class LibraryCatalogStore
         return expectedRevision + 1;
     }
 
-    public static GameCard? TryGetGame(SqliteConnection connection, string gameId)
+    public static GameCard? TryGetGame(SqliteConnection connection, string gameId, bool includePreferences = true)
     {
         using var command = connection.CreateCommand();
-        command.CommandText = """
+        command.CommandText = $"""
             SELECT game_id, title, root_path, kind, engine, entry_path, membership, favorite, revision, accepted_utc, updated_utc, translation_inherited, translation_override, availability, missing_since_utc
+                {(includePreferences ? ", played, rating" : ", 0, 0")}
             FROM games WHERE game_id = $id
             """;
         command.Parameters.AddWithValue("$id", gameId);
@@ -90,12 +93,13 @@ public static partial class LibraryCatalogStore
         return reader.Read() ? ReadGame(reader) : null;
     }
 
-    public static IReadOnlyList<GameCard> ListGames(SqliteConnection connection)
+    public static IReadOnlyList<GameCard> ListGames(SqliteConnection connection, bool includePreferences = true)
     {
         var result = new List<GameCard>();
         using var command = connection.CreateCommand();
-        command.CommandText = """
+        command.CommandText = $"""
             SELECT game_id, title, root_path, kind, engine, entry_path, membership, favorite, revision, accepted_utc, updated_utc, translation_inherited, translation_override, availability, missing_since_utc
+                {(includePreferences ? ", played, rating" : ", 0, 0")}
             FROM games ORDER BY accepted_utc, game_id
             """;
         using var reader = command.ExecuteReader();
@@ -105,6 +109,23 @@ public static partial class LibraryCatalogStore
         }
 
         return result;
+    }
+
+    public static IReadOnlyList<GameCard> ListUnknownEngineGames(SqliteConnection connection, string afterGameId, int limit)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT game_id, title, root_path, kind, engine, entry_path, membership, favorite, revision, accepted_utc, updated_utc,
+                translation_inherited, translation_override, availability, missing_since_utc, played, rating
+            FROM games WHERE membership = 'active' AND (engine IS NULL OR trim(engine) = '' OR engine = 'unknown')
+                AND game_id > $after ORDER BY game_id LIMIT $limit
+            """;
+        command.Parameters.AddWithValue("$after", afterGameId);
+        command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 100));
+        using var reader = command.ExecuteReader();
+        var games = new List<GameCard>();
+        while (reader.Read()) games.Add(ReadGame(reader));
+        return games;
     }
 
     /// <summary>
@@ -120,7 +141,8 @@ public static partial class LibraryCatalogStore
         string? sort,
         int limit,
         int offset,
-        bool? hasCover = null)
+        bool? hasCover = null,
+        bool includePreferences = true)
     {
         const string originalTitle = "COALESCE((SELECT COALESCE(value, '') FROM game_fields gf WHERE gf.game_id = games.game_id AND gf.field_key = 'title' ORDER BY CASE gf.source WHEN 'user' THEN 0 ELSE 1 END LIMIT 1), title)";
         var where = new List<string> { "membership = 'active'" };
@@ -169,6 +191,7 @@ public static partial class LibraryCatalogStore
         {
             command.CommandText = $"""
                 SELECT game_id, title, root_path, kind, engine, entry_path, membership, favorite, revision, accepted_utc, updated_utc, translation_inherited, translation_override, availability, missing_since_utc
+                    {(includePreferences ? ", played, rating" : ", 0, 0")}
                 FROM games WHERE {string.Join(" AND ", where)}
                 ORDER BY {orderBy}
                 """ + (limit > 0 ? " LIMIT $limit OFFSET $offset" : "");
@@ -378,15 +401,16 @@ public static partial class LibraryCatalogStore
     }
 
     public static GameCard? TryGetGameByRootPath(SqliteConnection connection, string rootPath, SqliteTransaction? transaction = null,
-        bool includeRemoved = false)
+        bool includeRemoved = false, bool includePreferences = true)
     {
         using var command = connection.CreateCommand();
         if (transaction is not null)
         {
             command.Transaction = transaction;
         }
-        command.CommandText = """
+        command.CommandText = $"""
             SELECT game_id, title, root_path, kind, engine, entry_path, membership, favorite, revision, accepted_utc, updated_utc, translation_inherited, translation_override, availability, missing_since_utc
+                {(includePreferences ? ", played, rating" : ", 0, 0")}
             FROM games WHERE root_path = $root AND ($includeRemoved = 1 OR membership = 'active')
             ORDER BY CASE membership WHEN 'active' THEN 0 ELSE 1 END, updated_utc DESC, game_id LIMIT 1
             """;
@@ -397,47 +421,64 @@ public static partial class LibraryCatalogStore
     }
 
     /// <summary>收藏切换（games.update 受限字段）：期望 Revision 对齐 games.revision，事务内更新并递增；冲突返回 null。</summary>
-    public static int? SetFavorite(SqliteConnection connection, string gameId, bool favorite, int expectedRevision, DateTime utcNow, SqliteTransaction? parentTransaction = null)
+    public static int? SetFavorite(SqliteConnection connection, string gameId, bool favorite, int expectedRevision, DateTime utcNow, SqliteTransaction? parentTransaction = null, bool includePreferences = true)
+        => SetGamePreferences(connection, gameId, favorite, null, null, expectedRevision, utcNow, parentTransaction, includePreferences);
+
+    public static int? SetGamePreferences(SqliteConnection connection, string gameId, bool? favorite, bool? played, int? rating,
+        int expectedRevision, DateTime utcNow, SqliteTransaction? transaction = null, bool includePreferences = true)
     {
-        using var ownedTransaction = parentTransaction is null ? connection.BeginTransaction() : null;
-        var transaction = parentTransaction ?? ownedTransaction!;
-        int currentRevision;
-        using (var select = connection.CreateCommand())
-        {
-            select.Transaction = transaction;
-            select.CommandText = "SELECT revision FROM games WHERE game_id = $game";
-            select.Parameters.AddWithValue("$game", gameId);
-            var result = select.ExecuteScalar();
-            if (result is null)
-            {
-                ownedTransaction?.Rollback();
-                return null;
-            }
+        if (rating is < 0 or > 5 || favorite is null && played is null && rating is null)
+            throw new ArgumentException("至少提供一项游戏状态；评分必须为 0–5");
+        if (!includePreferences && (played is not null || rating is not null))
+            throw new InvalidOperationException("请先升级游戏库以保存已游玩状态和评分");
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = $"""
+            UPDATE games SET favorite = coalesce($favorite, favorite)
+                {(includePreferences ? ", played = coalesce($played, played), rating = coalesce($rating, rating)" : "")},
+                revision = revision + 1, updated_utc = $now
+            WHERE game_id = $game AND revision = $revision
+            """;
+        command.Parameters.AddWithValue("$favorite", favorite is { } f ? f ? 1 : 0 : DBNull.Value);
+        command.Parameters.AddWithValue("$played", played is { } p ? p ? 1 : 0 : DBNull.Value);
+        command.Parameters.AddWithValue("$rating", (object?)rating ?? DBNull.Value);
+        command.Parameters.AddWithValue("$revision", expectedRevision);
+        command.Parameters.AddWithValue("$now", utcNow.ToString("O", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$game", gameId);
+        return command.ExecuteNonQuery() == 1 ? expectedRevision + 1 : null;
+    }
 
-            currentRevision = Convert.ToInt32(result);
-        }
+    public static int? MarkGamePlayed(SqliteConnection connection, string gameId, DateTime utcNow, SqliteTransaction? transaction = null)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE games SET played = 1, revision = revision + 1, updated_utc = $now
+            WHERE game_id = $game AND membership = 'active' AND played = 0 RETURNING revision
+            """;
+        command.Parameters.AddWithValue("$game", gameId);
+        command.Parameters.AddWithValue("$now", utcNow.ToString("O", CultureInfo.InvariantCulture));
+        var result = command.ExecuteScalar();
+        return result is null ? null : Convert.ToInt32(result);
+    }
 
-        if (currentRevision != expectedRevision)
-        {
-            ownedTransaction?.Rollback();
-            return null;
-        }
-
-        using (var update = connection.CreateCommand())
-        {
-            update.Transaction = transaction;
-            update.CommandText = """
-                UPDATE games SET favorite = $favorite, revision = revision + 1, updated_utc = $now
-                WHERE game_id = $game
-                """;
-            update.Parameters.AddWithValue("$favorite", favorite ? 1 : 0);
-            update.Parameters.AddWithValue("$now", utcNow.ToString("O", CultureInfo.InvariantCulture));
-            update.Parameters.AddWithValue("$game", gameId);
-            update.ExecuteNonQuery();
-        }
-
-        ownedTransaction?.Commit();
-        return currentRevision + 1;
+    public static bool SetUnknownGameEngine(SqliteConnection connection, string gameId, string engine, int expectedRevision,
+        DateTime utcNow, SqliteTransaction? transaction = null)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE games SET engine = $engine, revision = revision + 1, updated_utc = $now
+            WHERE game_id = $game AND membership = 'active' AND revision = $revision
+                AND (engine IS NULL OR trim(engine) = '' OR engine = 'unknown')
+            """;
+        command.Parameters.AddWithValue("$game", gameId);
+        command.Parameters.AddWithValue("$engine", engine);
+        command.Parameters.AddWithValue("$revision", expectedRevision);
+        command.Parameters.AddWithValue("$now", utcNow.ToString("O", CultureInfo.InvariantCulture));
+        if (command.ExecuteNonQuery() != 1) return false;
+        TagStore.EnsureEngineTagAssigned(connection, gameId, engine, utcNow, transaction);
+        return true;
     }
 
     /// <summary>
@@ -581,6 +622,8 @@ public static partial class LibraryCatalogStore
         EntryPath = reader.IsDBNull(5) ? null : reader.GetString(5),
         Membership = reader.GetString(6),
         Favorite = reader.GetInt64(7) == 1,
+        Played = reader.GetInt64(15) == 1,
+        Rating = reader.GetInt32(16),
         Revision = reader.GetInt32(8),
         AcceptedUtc = DateTime.Parse(reader.GetString(9), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
         UpdatedUtc = DateTime.Parse(reader.GetString(10), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),

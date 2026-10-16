@@ -22,7 +22,12 @@ public interface IDirectorySnapshot
 
     /// <summary>读取文件前 count 字节；区分不存在/成功/不可读三态。</summary>
     FileProbe TryReadFirstBytes(string relativePath, int count);
+
+    /// <summary>只读 PE 版本资源；缺失、不可读或非 PE 返回 null，不执行文件。</summary>
+    ExecutableIdentity? ReadExecutableIdentity(string relativePath) => null;
 }
+
+public sealed record ExecutableIdentity(string? Description, string? Company, string? Product, string? OriginalFileName);
 
 /// <summary>文件探测三态：NotFound（不存在）/ Ok（读到字节）/ Unreadable（存在但读取失败）。</summary>
 public readonly record struct FileProbe

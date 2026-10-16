@@ -35,6 +35,12 @@ public static class EntryScoring
 /// <summary>检测器集合：先按 Engine 枚举值规范化顺序再运行，输出与注册顺序无关。</summary>
 public sealed class EngineDetectorSet
 {
+    public static EngineDetectorSet Default { get; } = new(
+        new IEngineDetector[] { new Detectors.UnityDetector(), new Detectors.RpgMakerMvMzDetector(),
+            new Detectors.RenpyDetector(), new Detectors.KirikiriDetector(), new Detectors.FlashDetector() }
+        .Concat(Enum.GetValues<EngineId>().Where(engine => engine > EngineId.Flash)
+            .Select(engine => new Detectors.AdditionalEngineDetector(engine))));
+
     private readonly IReadOnlyList<IEngineDetector> _detectors;
 
     public EngineDetectorSet(IEnumerable<IEngineDetector> detectors)

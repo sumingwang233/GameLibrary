@@ -7,6 +7,11 @@ internal sealed class InMemorySnapshot : IDirectorySnapshot
 {
     private readonly HashSet<string> _directories = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, (long Size, byte[]? Head, bool Unreadable)> _files = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ExecutableIdentity> _identities = new(StringComparer.OrdinalIgnoreCase);
+
+    public InMemorySnapshot Identity(string path, ExecutableIdentity identity) { _identities[path] = identity; return File(path); }
+
+    public ExecutableIdentity? ReadExecutableIdentity(string relativePath) => _identities.GetValueOrDefault(relativePath);
 
     public string RootPhysicalPath => @"X:\in-memory-root";
 

@@ -39,6 +39,9 @@ public static class ScanCandidatePersistence
         {
             var regroupRoots = store.ListLegacyFlashScanRoots();
             var existingGames = store.ListGames();
+            var unknownGames = existingGames.Where(game => game.Membership == "active"
+                    && (string.IsNullOrWhiteSpace(game.Engine) || game.Engine == "unknown"))
+                .ToLookup(game => game.RootPath, StringComparer.OrdinalIgnoreCase);
             var candidateLookup = store.ListCandidates().ToLookup(item => item.PhysicalPath, StringComparer.OrdinalIgnoreCase);
             var storedFlashDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var candidate in collector.Candidates)
@@ -80,6 +83,18 @@ public static class ScanCandidatePersistence
                 if (!stored.Stored)
                 {
                     continue;
+                }
+
+                var detected = candidate.Engines.Where(engine => engine.Confidence == GameLibrary.Domain.Detection.DetectionConfidence.High).ToArray();
+                if (detected.Length == 1)
+                {
+                    var engine = JsonSerializer.SerializeToElement(detected[0].Engine, GameLibrary.Contracts.ContractJson.Options).GetString()!;
+                    foreach (var game in unknownGames[candidate.PhysicalPath])
+                        if (store.SetUnknownGameEngine(game.GameId, engine, game.Revision, utcNow))
+                        {
+                            Publish("game.updated", $"game:{game.GameId}", new { gameId = game.GameId, engine });
+                            Publish("tag.assigned", $"game:{game.GameId}", new { gameId = game.GameId, engine });
+                        }
                 }
 
                 if (candidate.Flash is { } flash) storedFlashDirectories.Add(flash.DirectoryPath);

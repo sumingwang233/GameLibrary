@@ -10,6 +10,55 @@ afterEach(() => { cleanup(); operation.mockReset(); });
 
 const game: GameItem = { gameId: "game", title: "Test game", rootPath: "D:/game", kind: "folderGame", favorite: false, revision: 1 };
 
+it("updates played status and game stars independently while preserving favorite", async () => {
+  let detail: GameItem = { ...game, favorite: true, played: false, rating: 0 };
+  operation.mockImplementation(async (name, params) => {
+    if (name === "games.update") detail = { ...detail, ...params, revision: detail.revision + 1 };
+    return { data: name === "games.get" ? detail : name === "profiles.list" ? { items: [] } : {} };
+  });
+  render(<DetailSheet game={detail} tags={[]} onClose={vi.fn()} onPlay={vi.fn()} onChanged={vi.fn()} />);
+  fireEvent.click(await screen.findByRole("button", { name: "标记为已游玩" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "已游玩" })).toHaveAttribute("aria-pressed", "true"));
+  expect(operation).toHaveBeenCalledWith("games.update", { gameId: "game", played: true, expectedRevision: 1 }, expect.any(String));
+  expect(detail.favorite).toBe(true);
+  expect(screen.queryByRole("button", { name: "取消收藏" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "评为 5 星" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "评为 5 星" })).toHaveAttribute("aria-pressed", "true"));
+  expect(operation).toHaveBeenCalledWith("games.update", { gameId: "game", rating: 5, expectedRevision: 2 }, expect.any(String));
+  fireEvent.click(screen.getByRole("button", { name: "清除评分" }));
+  await screen.findByText("尚未评分");
+  expect(detail.played).toBe(true); expect(detail.favorite).toBe(true); expect(detail.rating).toBe(0);
+});
+
+it("highlights the rating after a fresh exit and dismisses it after rating without carrying it to another game", async () => {
+  operation.mockImplementation(async (name, params) => ({ data: name === "games.get" ? { ...game, gameId: params.gameId }
+    : name === "profiles.list" ? { items: [] } : {} }));
+  const props = { game, tags: [], onClose: vi.fn(), onPlay: vi.fn(), onChanged: vi.fn() };
+  const view = render(<DetailSheet {...props} />);
+  expect(screen.queryByText("这次游玩体验如何？点选星星为游戏评分。")).not.toBeInTheDocument();
+  view.rerender(<DetailSheet {...props} ratingPromptToken={1} />);
+  expect(await screen.findByText("这次游玩体验如何？点选星星为游戏评分。")).toBeInTheDocument();
+  expect(screen.getByRole("group", { name: "游戏评分" }).className).toContain("motion-safe:animate-pulse");
+  fireEvent.click(screen.getByRole("button", { name: "评为 4 星" }));
+  await waitFor(() => expect(screen.queryByText("这次游玩体验如何？点选星星为游戏评分。")).not.toBeInTheDocument());
+  view.rerender(<DetailSheet {...props} ratingPromptToken={2} />);
+  expect(await screen.findByText("这次游玩体验如何？点选星星为游戏评分。")).toBeInTheDocument();
+  view.rerender(<DetailSheet {...props} game={{ ...game, gameId: "other" }} />);
+  expect(screen.queryByText("这次游玩体验如何？点选星星为游戏评分。")).not.toBeInTheDocument();
+});
+
+it("keeps the saved rating when a write is rejected", async () => {
+  operation.mockImplementation(async name => {
+    if (name === "games.update") throw new Error("Revision conflict");
+    return { data: name === "games.get" ? { ...game, rating: 3 } : name === "profiles.list" ? { items: [] } : {} };
+  });
+  render(<DetailSheet game={{ ...game, rating: 3 }} tags={[]} onClose={vi.fn()} onPlay={vi.fn()} onChanged={vi.fn()} />);
+  await waitFor(() => expect(screen.getByRole("button", { name: "评为 3 星" })).toHaveAttribute("aria-pressed", "true"));
+  fireEvent.click(screen.getByRole("button", { name: "评为 5 星" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Revision conflict");
+  expect(screen.getByRole("button", { name: "评为 3 星" })).toHaveAttribute("aria-pressed", "true");
+});
+
 it.each([false, true])("ignores the first A session after A → B → A (reject=%s)", async reject => {
   let settle!: (value: unknown) => void, fail!: (cause: Error) => void;
   let reads = 0;

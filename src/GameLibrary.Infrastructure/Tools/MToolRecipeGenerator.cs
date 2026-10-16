@@ -1,7 +1,9 @@
-using System.Diagnostics;
 using System.Reflection.PortableExecutable;
 using System.Text;
+using GameLibrary.Domain.Detection;
+using GameLibrary.Domain.Paths;
 using GameLibrary.Domain.Tools;
+using GameLibrary.Infrastructure.Scanning;
 
 namespace GameLibrary.Infrastructure.Tools;
 
@@ -101,20 +103,23 @@ public static class MToolRecipeGenerator
     private static string? SelectLoader(string executable)
     {
         var directory = Path.GetDirectoryName(executable)!;
-        if (File.Exists(Path.Combine(directory, "nw.dll"))
-            && new[] { "www", "" }.Any(prefix => File.Exists(Path.Combine(directory, prefix, "data", "System.json"))
-                && new[] { "rpg_core.js", "rmmz_core.js" }.Any(core => File.Exists(Path.Combine(directory, prefix, "js", core)))))
+        var report = EngineDetectorSet.Default.DetectAll(new FileSystemDirectorySnapshot(GamePath.Create(directory)));
+        var matches = report.Results.Where(result => result.Confidence == DetectionConfidence.High
+            && result.EntryCandidates.Any(entry => entry.RelativePath.Equals(Path.GetFileName(executable), StringComparison.OrdinalIgnoreCase))).ToArray();
+        if (matches.Length != 1) return null;
+        if (matches[0].Engine == EngineId.RpgMakerMvMz && File.Exists(Path.Combine(directory, "nw.dll")))
         {
             var machine = Machine(executable);
             if (machine != Machine(Path.Combine(directory, "nw.dll"))) return null;
             return machine switch { System.Reflection.PortableExecutable.Machine.Amd64 => "mzHook.dll", System.Reflection.PortableExecutable.Machine.I386 => "mzHook32.dll", _ => null };
         }
-        var version = FileVersionInfo.GetVersionInfo(executable);
-        if (version.FileDescription == "SRPG Studio Game Engine" && version.CompanyName == "SapphireSoft"
-            && File.Exists(Path.Combine(directory, "data.dts")) && File.Exists(Path.Combine(directory, "system.dat"))) return "SRPGHook.dll";
-        if (version.FileDescription == "Pixel Game Maker MV player" && version.CompanyName == "KADOKAWA CORPORATION") return "AgtkHook.dll";
-        if (version.ProductName == "RPG Developer Bakin" && version.OriginalFilename == "bakinplayer_launcher.exe") return BatRecipeParser.BakinLauncherFileName;
-        return null;
+        return matches[0].Engine switch
+        {
+            EngineId.SrpgStudio => "SRPGHook.dll",
+            EngineId.PixelGameMakerMv => "AgtkHook.dll",
+            EngineId.RpgDeveloperBakin => BatRecipeParser.BakinLauncherFileName,
+            _ => null,
+        };
     }
 
     private static Machine Machine(string path)

@@ -8,7 +8,7 @@ namespace GameLibrary.IntegrationTests.Persistence;
 
 public sealed class CatalogAcceptanceTests
 {
-    private static SqliteLibraryStoreOptions Options(int version = 28) => new()
+    private static SqliteLibraryStoreOptions Options(int version = 29) => new()
     { AppVersion = "test", ApiVersion = "1", Migrations = DatabaseMigrations.All.Where(m => m.Version <= version).ToArray() };
 
     private static GameCard Game(string id, string directory, DateTime added, string membership = "active") => new()
@@ -86,7 +86,7 @@ public sealed class CatalogAcceptanceTests
             await using (var store = upgraded.Store!)
             {
                 Assert.True(upgraded.IsOpened, upgraded.Detail);
-                Assert.Equal(28, store.Info.SchemaVersion);
+                Assert.Equal(29, store.Info.SchemaVersion);
                 Assert.Equal(epoch, store.Info.DataEpoch);
                 Assert.Equal(accepted, store.TryGetGame("accepted")!.AcceptedUtc);
                 Assert.Equal(added, store.TryGetGame("accepted")!.UpdatedUtc);
@@ -94,7 +94,7 @@ public sealed class CatalogAcceptanceTests
             }
             var reopened = await SqliteLibraryStore.TryOpenAsync(directory, Options(), CancellationToken.None);
             await using (var store = reopened.Store!) Assert.Equal(accepted, store.TryGetGame("accepted")!.AcceptedUtc);
-            Assert.Single(Directory.GetFiles(Path.Combine(directory, "backups"), "pre-migration-v27-to-v28-*.db"));
+            Assert.Single(Directory.GetFiles(Path.Combine(directory, "backups"), "pre-migration-v27-to-v29-*.db"));
         }
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); }
     }

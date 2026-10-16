@@ -59,6 +59,10 @@ public sealed class FlashLegacyRegroupTests
         }, CancellationToken.None);
         Assert.NotNull(opened.Store);
         Assert.Equal(27, opened.Store!.Info.SchemaVersion);
+        await opened.Store.DisposeAsync();
+        opened = await SqliteLibraryStore.TryOpenAsync(Path.Combine(fixture, "db"), new()
+        { AppVersion = "test", ApiVersion = "1" }, CancellationToken.None);
+        Assert.NotNull(opened.Store);
         Assert.Equal("completed", opened.Store.ReadExclusive((connection, _) =>
         {
             using var command = connection.CreateCommand();

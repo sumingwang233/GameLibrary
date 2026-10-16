@@ -6,21 +6,24 @@ namespace GameLibrary.Infrastructure.Persistence;
 public sealed partial class SqliteLibraryStore
 {
     public void InsertGame(GameCard game)
-        => Execute((c, _) => LibraryCatalogStore.InsertGame(c, game, _writeTransaction));
+        => Execute((c, _) => LibraryCatalogStore.InsertGame(c, game, _writeTransaction, includePreferences: Info.SchemaVersion >= 29));
 
     public int? RemoveGame(string gameId, int expectedRevision, IgnoreRule ignore, DateTime utcNow)
         => Execute((c, _) => LibraryCatalogStore.RemoveGame(c, gameId, expectedRevision, ignore, utcNow, _writeTransaction));
 
     public GameCard? TryGetGame(string gameId)
-        => ReadExclusive((c, _) => LibraryCatalogStore.TryGetGame(c, gameId));
+        => ReadExclusive((c, _) => LibraryCatalogStore.TryGetGame(c, gameId, includePreferences: Info.SchemaVersion >= 29));
 
     public IReadOnlyList<GameCard> ListGames()
-        => ReadExclusive((c, _) => LibraryCatalogStore.ListGames(c));
+        => ReadExclusive((c, _) => LibraryCatalogStore.ListGames(c, includePreferences: Info.SchemaVersion >= 29));
+
+    public IReadOnlyList<GameCard> ListUnknownEngineGames(string afterGameId, int limit = 20)
+        => ReadExclusive((c, _) => LibraryCatalogStore.ListUnknownEngineGames(c, afterGameId, limit));
 
     /// <summary>数据库侧检索（阶段三）：搜索/收藏/标签过滤 + 排序 + 分页；limit &lt;= 0 全量。</summary>
     public (int Total, IReadOnlyList<GameCard> Items) QueryGames(
         string? search, bool favoriteOnly, string? tagId, string? sort, int limit, int offset, bool? hasCover = null)
-        => ReadExclusive((c, _) => LibraryCatalogStore.QueryGames(c, search, favoriteOnly, tagId, sort, limit, offset, hasCover));
+        => ReadExclusive((c, _) => LibraryCatalogStore.QueryGames(c, search, favoriteOnly, tagId, sort, limit, offset, hasCover, includePreferences: Info.SchemaVersion >= 29));
 
     /// <summary>列表页批量充实（R41）：单锁一次取回字段/封面/标签，取代逐游戏 4 次查询。</summary>
     public IReadOnlyDictionary<string, GameCardEnrichment> EnrichGameCards(
@@ -35,7 +38,7 @@ public sealed partial class SqliteLibraryStore
     public GameCard? TryGetGameByRootPath(string rootPath) => TryGetGameByRootPath(rootPath, includeRemoved: false);
 
     public GameCard? TryGetGameByRootPath(string rootPath, bool includeRemoved)
-        => ReadExclusive((c, _) => LibraryCatalogStore.TryGetGameByRootPath(c, rootPath, includeRemoved: includeRemoved));
+        => ReadExclusive((c, _) => LibraryCatalogStore.TryGetGameByRootPath(c, rootPath, includeRemoved: includeRemoved, includePreferences: Info.SchemaVersion >= 29));
 
     public void InsertIgnoreRule(IgnoreRule rule)
         => Execute((c, _) => LibraryCatalogStore.InsertIgnoreRule(c, rule));
@@ -43,7 +46,16 @@ public sealed partial class SqliteLibraryStore
     // T13 收藏与翻译策略转发。
 
     public int? SetFavorite(string gameId, bool favorite, int expectedRevision, DateTime utcNow)
-        => Execute((c, _) => LibraryCatalogStore.SetFavorite(c, gameId, favorite, expectedRevision, utcNow, _writeTransaction));
+        => Execute((c, _) => LibraryCatalogStore.SetFavorite(c, gameId, favorite, expectedRevision, utcNow, _writeTransaction, includePreferences: Info.SchemaVersion >= 29));
+
+    public int? SetGamePreferences(string gameId, bool? favorite, bool? played, int? rating, int expectedRevision, DateTime utcNow)
+        => Execute((c, _) => LibraryCatalogStore.SetGamePreferences(c, gameId, favorite, played, rating, expectedRevision, utcNow, _writeTransaction, includePreferences: Info.SchemaVersion >= 29));
+
+    public int? MarkGamePlayed(string gameId, DateTime utcNow)
+        => Execute((c, _) => LibraryCatalogStore.MarkGamePlayed(c, gameId, utcNow, _writeTransaction));
+
+    public bool SetUnknownGameEngine(string gameId, string engine, int expectedRevision, DateTime utcNow)
+        => InTransaction(() => Execute((c, _) => LibraryCatalogStore.SetUnknownGameEngine(c, gameId, engine, expectedRevision, utcNow, _writeTransaction)));
 
     public int? SetTranslationOverride(string gameId, string? overrideValue, int expectedRevision, DateTime utcNow)
         => Execute((c, _) => LibraryCatalogStore.SetTranslationOverride(c, gameId, overrideValue, expectedRevision, utcNow, _writeTransaction));

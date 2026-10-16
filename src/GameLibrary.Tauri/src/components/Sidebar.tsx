@@ -1,14 +1,12 @@
 import { t } from "../lib/i18n";
 import {
-  FolderTree,
   Gamepad2,
   Heart,
   Inbox,
   Plus,
-  Trash2,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import type { TagItem, ViewItem } from "../lib/types";
+import type { TagItem } from "../lib/types";
 import { groupTagsByCategory, tagLabel, tagStyle } from "../lib/tags";
 import { cn } from "../lib/utils";
 import { ScrollArea } from "./ui/scroll-area";
@@ -22,7 +20,6 @@ export interface SidebarProps {
   /** 当前生效的收藏夹 ID；"" 表示未按收藏夹过滤。 */
   viewId: string;
   onViewChange: (viewId: string) => void;
-  views: ViewItem[];
   favoriteOnly: boolean;
   onFavoriteChange: (value: boolean) => void;
   tagId: string;
@@ -32,8 +29,6 @@ export interface SidebarProps {
   gameTotal: number;
   notificationTotal: number;
   onCreateTag: () => void;
-  onCreateView: () => void;
-  onRemoveView: (view: ViewItem) => void;
 }
 
 export function Sidebar(props: SidebarProps) {
@@ -42,7 +37,6 @@ export function Sidebar(props: SidebarProps) {
     onSectionChange,
     viewId,
     onViewChange,
-    views,
     favoriteOnly,
     onFavoriteChange,
     tagId,
@@ -52,8 +46,6 @@ export function Sidebar(props: SidebarProps) {
     gameTotal,
     notificationTotal,
     onCreateTag,
-    onCreateView,
-    onRemoveView,
   } = props;
 
   const pendingBadge = candidateTotal + notificationTotal;
@@ -95,49 +87,6 @@ export function Sidebar(props: SidebarProps) {
           onClick={() => onSectionChange("pending")}
         />
       </nav>
-
-      <Separator />
-
-      <div className="mb-2 flex items-center justify-between px-2">
-        <SectionLabel className="mb-0">{t("收藏夹")}</SectionLabel>
-        <button
-          type="button"
-          onClick={onCreateView}
-          className="cursor-pointer rounded p-1 text-text-secondary hover:bg-surface hover:text-steam"
-          aria-label={t("新建收藏夹")}
-        >
-          <Plus size={14} />
-        </button>
-      </div>
-      {views.length === 0 ? (
-        <p className="px-2 pb-1 text-xs text-text-secondary">{t("还没有收藏夹。先把列表筛成你想要的样子，再点上面的 + 保存。")}</p>
-      ) : (
-        <nav className="space-y-1" aria-label={t("收藏夹")}>
-          {views.map((view) => (
-            <div key={view.viewId} className="group flex items-center gap-1">
-              <NavButton
-                icon={<FolderTree size={15} />}
-                label={view.name}
-                active={section === "library" && viewId === view.viewId}
-                className="flex-1"
-                onClick={() => {
-                  onSectionChange("library");
-                  onFavoriteChange(false);
-                  onViewChange(view.viewId);
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => onRemoveView(view)}
-                className="cursor-pointer rounded p-1 text-text-secondary opacity-0 group-hover:opacity-100 hover:bg-danger-soft hover:text-danger focus-visible:opacity-100"
-                aria-label={t("删除收藏夹 {0}", view.name)}
-              >
-                <Trash2 size={13} />
-              </button>
-            </div>
-          ))}
-        </nav>
-      )}
 
       <Separator />
 

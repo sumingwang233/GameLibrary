@@ -46,6 +46,11 @@ public sealed record GameCard
 
     public bool Favorite { get; init; }
 
+    public bool Played { get; init; }
+
+    /// <summary>用户游戏评分；0 表示尚未评分。</summary>
+    public int Rating { get; init; }
+
     /// <summary>祖先 [toolNeed] 继承的 Required（accept 时落库；T17 对账后更新）。</summary>
     public bool TranslationInherited { get; init; }
 

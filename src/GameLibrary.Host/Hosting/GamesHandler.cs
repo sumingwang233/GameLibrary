@@ -202,7 +202,7 @@ internal sealed class GamesHandler
         };
     }
 
-    /// <summary>手动建卡：支持未被扫描器识别的目录和独立 EXE/SWF；不猜测启动方式。</summary>
+    /// <summary>手动建卡：只读文件证据识别引擎、自动分配引擎标签；不执行入口。</summary>
     public Envelope<object> GamesCreate(IpcRequest request)
     {
         var store = _storeAccessor();
@@ -412,6 +412,7 @@ internal sealed class GamesHandler
             Title = title,
             RootPath = normalized.PhysicalPath,
             Kind = isShortcut ? "manualShortcut" : isFile ? "manualFile" : "manualDirectory",
+            Engine = GameEngineRecognition.Detect(normalized.PhysicalPath, entryPath),
             EntryPath = entryPath,
             Membership = "active",
             Availability = "available",
@@ -439,6 +440,7 @@ internal sealed class GamesHandler
                 title = game.Title,
                 rootPath = game.RootPath,
                 kind = game.Kind,
+                engine = game.Engine,
                 entryPath = game.EntryPath,
                 membership = game.Membership,
                 revision = game.Revision,
@@ -673,7 +675,7 @@ internal sealed class GamesHandler
         }
 
         var declared = new HashSet<string>(StringComparer.Ordinal)
-            { "gameId", "expectedRevision", "idempotencyKey", "favorite" };
+            { "gameId", "expectedRevision", "idempotencyKey", "favorite", "played", "rating" };
         var unknown = parameters.EnumerateObject()
             .Where(p => !declared.Contains(p.Name))
             .Select(p => p.Name)
@@ -688,17 +690,24 @@ internal sealed class GamesHandler
                 Error = new RequestError
                 {
                     Code = ErrorCodes.InvalidArgument,
-                    Message = $"未知 patch 字段：{string.Join(", ", unknown)}；games.update 当前仅支持 favorite",
+                    Message = $"未知 patch 字段：{string.Join(", ", unknown)}；games.update 支持 favorite、played、rating",
                     Retryable = false,
                 },
             };
         }
 
-        if (!parameters.TryGetProperty("favorite", out var favoriteElement)
-            || favoriteElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+        if (!IpcRequests.TryReadOptionalBoolParameter(request, "favorite", out var favorite, out _)
+            || !IpcRequests.TryReadOptionalBoolParameter(request, "played", out var played, out _))
+            return IpcRequests.InvalidArgument(request, "favorite 和 played 必须为布尔值");
+        int? rating = null;
+        if (parameters.TryGetProperty("rating", out var ratingElement) && ratingElement.ValueKind != JsonValueKind.Null)
         {
-            return IpcRequests.InvalidArgument(request, "缺少 favorite 布尔字段（games.update 当前仅支持 favorite patch）");
+            if (ratingElement.ValueKind != JsonValueKind.Number || !ratingElement.TryGetInt32(out var stars) || stars is < 0 or > 5)
+                return IpcRequests.InvalidArgument(request, "rating 必须为 0–5 的整数；0 表示尚未评分");
+            rating = stars;
         }
+        if (favorite is null && played is null && rating is null)
+            return IpcRequests.InvalidArgument(request, "至少提供 favorite、played 或 rating 之一");
 
         var game = store.TryGetGame(gameId);
         if (game is null)
@@ -706,7 +715,7 @@ internal sealed class GamesHandler
             return IpcRequests.NotFound(request, $"游戏不存在：{gameId}");
         }
 
-        var newRevision = store.SetFavorite(gameId, favoriteElement.ValueKind == JsonValueKind.True, expectedRevision.Value, DateTime.UtcNow);
+        var newRevision = store.SetGamePreferences(gameId, favorite, played, rating, expectedRevision.Value, DateTime.UtcNow);
         if (newRevision is null)
         {
             var latest = store.TryGetGame(gameId);
@@ -732,7 +741,7 @@ internal sealed class GamesHandler
             RequestId = request.RequestId,
             Ok = true,
             Status = OperationStatus.Completed,
-            Data = new { gameId, favorite = updatedGame.Favorite, revision = newRevision.Value },
+            Data = new { gameId, favorite = updatedGame.Favorite, played = updatedGame.Played, rating = updatedGame.Rating, revision = newRevision.Value },
         };
     }
 
@@ -924,6 +933,8 @@ internal sealed class GamesHandler
         {
             gameId = game.GameId,
             favorite = game.Favorite,
+            played = game.Played,
+            rating = game.Rating,
             title = enrichment.TitleTranslation is { DisplayMode: "translated" } alias ? alias.TranslatedTitle : enrichment.Title ?? "",
             originalTitle = enrichment.Title ?? "",
             translatedTitle = enrichment.TitleTranslation?.TranslatedTitle,

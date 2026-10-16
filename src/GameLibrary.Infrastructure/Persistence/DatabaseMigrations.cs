@@ -553,5 +553,14 @@ public static class DatabaseMigrations
             FROM accepted WHERE games.game_id=accepted.game_id AND games.membership='active'
                 AND accepted.accepted_utc>games.accepted_utc;
             """),
+        new DatabaseMigration(29, """
+            ALTER TABLE games ADD COLUMN played INTEGER NOT NULL DEFAULT 0 CHECK(played IN (0, 1));
+            ALTER TABLE games ADD COLUMN rating INTEGER NOT NULL DEFAULT 0 CHECK(rating IN (0, 1, 2, 3, 4, 5));
+            UPDATE games SET played = 1 WHERE EXISTS (
+                SELECT 1 FROM launch_attempts a WHERE a.game_id = games.game_id
+                    AND a.state = 'exited' AND a.process_started_utc IS NOT NULL
+                    AND a.finished_utc IS NOT NULL AND a.exit_code = 0
+            );
+            """),
 ];
 }

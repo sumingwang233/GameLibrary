@@ -1,5 +1,11 @@
 # GameLibrary 关键流程
 
+## v1.7.18 状态、评分与共享检测
+
+`EngineDetectorSet.Default → 扫描 / 手动建卡 / 入口建议 / MTool 模板选择` 共享只读证据。手动创建在建卡事务中保存 canonical engine 并分配自动引擎标签；既有未知游戏通过有预算的 metadata tick、标签赋值及扫描 CAS 补齐，已知引擎与被 suppress 的标签保持原语义。`正常 launch.exited → MarkGamePlayed + App → DetailSheet` 复用退出导航，评分区域短暂高亮，played/rating 经 games.update 的同一 Revision 与幂等收据保存。收藏夹分组移除，保留收藏筛选和原数据。见[实施与验收边界](../development/v1.7.18-game-experience-and-engines.md)。
+
+Mono 翻译仍按实际活动加载器配置；若 Managed 中存在旧 XUnity 核心，逐文件固定哈希校验后纳入同一加密备份事务停用，验证实际端点接口身份，失败回滚，恢复可重试。两款报告样本在隔离的真实 Mono 运行时均复现 5.4.5 遮蔽，并验证修复后绑定 5.6.2。见[根因与隔离证据](../development/v1.7.18-mono-endpoint-shadowing.md)。
+
 ## v1.7.17 MTool 配方生成
 
 标签赋值 → 复用未翻译标签绑定与推荐/已确认入口 → 可用配方保留 / 工具路径原子备份修复 / 文件证据与 PE 位数选择确定模板 → 解析器复检 → 写入本地 BAT。用户启动遇缺失路由时，经显式 `mtool.prepare` 后对原 Profile 重新计划，后端 execute 同样兜底；plan 保持只读。缺专属缓存、未知引擎或不安全路径显示原因，不运行原文入口，不自动请求翻译 API，不移除标签。设置和状态使用已有 app_settings，无新 schema、后台定时器或验证弹窗。[实施与验证记录](../development/v1.7.17-mtool-preparation.md)。

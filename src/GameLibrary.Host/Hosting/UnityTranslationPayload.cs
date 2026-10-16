@@ -255,6 +255,8 @@ internal sealed partial class UnityTranslationPayload
 
     public async Task VerifyEndpointAsync(UnityTranslationLayout layout, CancellationToken ct)
     {
+        if (UnityTranslationCompatibility.ShadowingMonoAssemblies(layout).Count != 0)
+            throw new InvalidDataException("旧 Mono 翻译程序集仍会遮蔽 BepInEx 端点，离线验证失败");
         var endpoint = Path.Combine(layout.Translators, "DeepSeekTranslate.dll");
         if (!UnityTranslationInspection.IsAssembly(endpoint, "DeepSeekTranslate", "DeepSeekTranslateEndpoint"))
             throw new InvalidDataException("DeepSeekTranslate 端点元数据校验失败");
@@ -366,8 +368,11 @@ internal sealed partial class UnityTranslationPayload
         '@
           [GameLibraryOfflineResolver]::Install([string[]]@(@($coreDirectory, $loaderCore, $managed, $translators) | Where-Object { $_ }))
           $assembly = [Reflection.Assembly]::LoadFrom($endpoint)
+          $assembly.GetTypes() | Out-Null
           $type = $assembly.GetType('DeepSeekTranslate.DeepSeekTranslateEndpoint', $true)
-          if (-not ($type.GetInterfaces() | Where-Object { $_.FullName -eq 'XUnity.AutoTranslator.Plugin.Core.Endpoints.ITranslateEndpoint' })) { exit 2 }
+          $core = [Reflection.Assembly]::LoadFrom((Join-Path $coreDirectory 'XUnity.AutoTranslator.Plugin.Core.dll'))
+          $contract = $core.GetType('XUnity.AutoTranslator.Plugin.Core.Endpoints.ITranslateEndpoint', $true)
+          if (-not $contract.IsAssignableFrom($type)) { exit 2 }
           # Resolve endpoint interface and all methods without constructing it or invoking Initialize/Translate.
           $type.GetMethods() | ForEach-Object { $_.ReturnType.FullName | Out-Null; $_.GetParameters() | Out-Null }
           exit 0

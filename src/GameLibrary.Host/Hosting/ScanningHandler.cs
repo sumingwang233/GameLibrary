@@ -362,12 +362,5 @@ internal sealed class ScanningHandler
         };
     }
 
-    private static IEngineDetector[] DefaultDetectors() =>
-    [
-        new UnityDetector(),
-        new RpgMakerMvMzDetector(),
-        new RenpyDetector(),
-        new KirikiriDetector(),
-        new FlashDetector(),
-    ];
+    private static IEngineDetector[] DefaultDetectors() => EngineDetectorSet.Default.Detectors.ToArray();
 }

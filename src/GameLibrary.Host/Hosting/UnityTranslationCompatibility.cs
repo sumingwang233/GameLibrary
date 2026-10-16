@@ -7,6 +7,21 @@ namespace GameLibrary.Host.Hosting;
 
 internal static class UnityTranslationCompatibility
 {
+    internal static IReadOnlyList<string> ShadowingMonoAssemblies(UnityTranslationLayout layout)
+    {
+        if (layout.Runtime != "mono" || layout.Loader != "bepinex") return [];
+        var result = new List<string>();
+        // Mono probes Managed before BepInEx's resolver. Removing only the Rei bootstrap call leaves these active.
+        foreach (var name in new[] { "XUnity.AutoTranslator.Plugin.Core.dll", "XUnity.AutoTranslator.Plugin.ExtProtocol.dll",
+            "XUnity.Common.dll", "XUnity.ResourceRedirector.dll" })
+        {
+            var path = Path.Combine(layout.Managed, name);
+            UnityTranslationInspection.RejectReparse(layout.Root, path);
+            if (File.Exists(path) && !string.Equals(path, layout.Core, StringComparison.OrdinalIgnoreCase)) result.Add(path);
+        }
+        return result;
+    }
+
     internal static bool IsBepInEx6Mono(UnityTranslationLayout layout)
     {
         if (layout.Runtime != "mono" || layout.Loader != "bepinex") return false;
@@ -46,16 +61,41 @@ internal static class UnityTranslationCompatibility
     }
 
     internal static bool NeedsRepair(UnityTranslationLayout layout) => IsBepInEx6Mono(layout) && !HasBepInEx6Entry(layout)
-        || NeedsFontBridge(layout);
+        || NeedsFontBridge(layout) || ShadowingMonoAssemblies(layout).Count != 0;
 }
 
 internal sealed partial class UnityTranslationPayload
 {
     internal sealed record CompatibilityFile(byte[] Bytes, string OriginalHash);
 
-    internal async Task<IReadOnlyDictionary<string, CompatibilityFile>> BepInEx6MonoAsync(UnityTranslationLayout layout, CancellationToken ct)
+    internal async Task<IReadOnlyDictionary<string, string>> ShadowingMonoAssembliesAsync(UnityTranslationLayout layout, CancellationToken ct)
     {
-        if (UnityTranslationCompatibility.HasBepInEx6Entry(layout)) return new Dictionary<string, CompatibilityFile>();
+        var paths = UnityTranslationCompatibility.ShadowingMonoAssemblies(layout);
+        if (paths.Count == 0) return new Dictionary<string, string>();
+        var legacyCore = Path.Combine(layout.Managed, "XUnity.AutoTranslator.Plugin.Core.dll");
+        var version = File.Exists(legacyCore) ? UnityTranslationFonts.PluginVersion(legacyCore)?.ToString(3) : null;
+        var versions = version is null ? new[] { "5.0.0", "5.4.5", "5.6.2" } : new[] { version };
+        var originals = new List<IReadOnlyDictionary<string, byte[]>>();
+        foreach (var candidate in versions) originals.Add(await RuntimeAsync(ct, candidate));
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in paths)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (new FileInfo(path).Length > 4 * 1024 * 1024)
+                throw new InvalidDataException("旧 Mono 翻译程序集与固定原版不一致，保留文件并等待人工检查");
+            var hash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)));
+            if (!originals.Any(files => files.TryGetValue(Path.GetFileName(path), out var bytes)
+                && Convert.ToHexString(SHA256.HashData(bytes)) == hash))
+                throw new InvalidDataException("旧 Mono 翻译程序集与固定原版不一致，保留文件并等待人工检查");
+            result.Add(path, hash);
+        }
+        return result;
+    }
+
+    internal async Task<IReadOnlyDictionary<string, CompatibilityFile>> BepInExMonoAsync(UnityTranslationLayout layout, CancellationToken ct)
+    {
+        var bepinex6 = UnityTranslationCompatibility.IsBepInEx6Mono(layout);
+        if (bepinex6 && UnityTranslationCompatibility.HasBepInEx6Entry(layout)) return new Dictionary<string, CompatibilityFile>();
         var version = UnityTranslationFonts.PluginVersion(layout.Core)?.ToString(3);
         var original = await MonoBepInExAsync(version ?? "", ct);
         var updated = await MonoBepInExAsync("5.6.2", ct);
@@ -68,7 +108,7 @@ internal sealed partial class UnityTranslationPayload
         foreach (var pair in updated)
         {
             var bytes = pair.Value;
-            if (pair.Key.EndsWith(".Plugin.BepInEx.dll", StringComparison.Ordinal) || pair.Key.EndsWith(".ResourceRedirector.BepInEx.dll", StringComparison.Ordinal))
+            if (bepinex6 && (pair.Key.EndsWith(".Plugin.BepInEx.dll", StringComparison.Ordinal) || pair.Key.EndsWith(".ResourceRedirector.BepInEx.dll", StringComparison.Ordinal)))
                 bytes = await RewriteCompatibility(bytes, "bepinex6", Path.Combine(directory, "BepInEx", "core"), ct);
             if (!original.TryGetValue(pair.Key, out var before))
                 throw new InvalidDataException("固定翻译包的文件清单不匹配，保留现有模组");

@@ -267,6 +267,9 @@ public sealed class HostRuntime : IAsyncDisposable
 
             if (attempt.State == "exited")
             {
+                if (attempt.ProcessStartedUtc is not null && attempt.ExitCode == 0
+                    && state.Library.Store?.MarkGamePlayed(attempt.GameId, DateTime.UtcNow) is { } revision)
+                    state.Events.Publish("game.updated", $"game:{attempt.GameId}", new { gameId = attempt.GameId, revision }, DateTime.UtcNow);
                 state.Events.Publish("launch.exited", $"launch:{attempt.AttemptId}", new
                 {
                     attemptId = attempt.AttemptId,

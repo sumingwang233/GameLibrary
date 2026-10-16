@@ -101,6 +101,7 @@ public sealed class UnityTranslationService
         {
             var store = _host.Library.Store;
             if (store is null || _host.MaintenanceMode) return;
+            new GameEngineRecognition(() => _host.Library.Store, _host.Roots, _host.Events).Refresh(gameId);
             var settings = BindTag(store, Settings(store));
             var game = store.TryGetGame(gameId);
             if (!settings.Enabled || game is null || !IsActiveUnityGame(game)) return;
@@ -545,10 +546,13 @@ public sealed class UnityTranslationService
             var originalBootstrapHash = FileHash(layout.Bootstrap);
             var targets = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
             var expectedFiles = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+            var shadowingAssemblies = await _payload.ShadowingMonoAssembliesAsync(layout, context.Token);
+            foreach (var pair in shadowingAssemblies) expectedFiles.Add(pair.Key, pair.Value);
             var upgradedPlugin = false;
-            if (UnityTranslationCompatibility.IsBepInEx6Mono(layout))
+            if (UnityTranslationCompatibility.IsBepInEx6Mono(layout)
+                || layout.Loader == "bepinex" && UnityTranslationFonts.NeedsPluginRepair(layout))
             {
-                var files = await _payload.BepInEx6MonoAsync(layout, context.Token);
+                var files = await _payload.BepInExMonoAsync(layout, context.Token);
                 foreach (var pair in files)
                     if (!AddDependency(pair.Key, pair.Value.Bytes, pair.Value.OriginalHash)) return;
                 upgradedPlugin = true;
@@ -576,7 +580,7 @@ public sealed class UnityTranslationService
                 }
                 targets.Add(layout.Bootstrap, await _payload.PatchAsync(layout, runtime, context.Token));
             }
-            else if (UnityTranslationFonts.NeedsPluginRepair(layout))
+            else if (!upgradedPlugin && UnityTranslationFonts.NeedsPluginRepair(layout))
             {
                 var version = UnityTranslationFonts.PluginVersion(layout.Core)?.ToString(3)
                     ?? throw new InvalidDataException("现有 Mono 翻译组件版本无法验证");
@@ -613,7 +617,7 @@ public sealed class UnityTranslationService
                 if (!AddDependency(Path.Combine(layout.Root, UnityTranslationFonts.FontDirectory, "NOTICE.txt"), UnityTranslationPayload.FontNotice())) return;
             }
             targets.Add(layout.Config, config.Configure(settings, key));
-            foreach (var path in targets.Keys)
+            foreach (var path in targets.Keys.Concat(shadowingAssemblies.Keys))
             {
                 UnityTranslationInspection.RejectReparse(layout.Root, path);
                 if (!_host.Roots.Contains(path)) { Block("翻译目标不在已注册库根内，拒绝修改"); return; }
@@ -638,7 +642,12 @@ public sealed class UnityTranslationService
             state = state with { State = "installing", BackupId = state.BackupId ?? state.RestoredBackupId ?? Guid.NewGuid().ToString("N"), InstallRoot = layout.Root };
             Save(store, state);
             transaction = new(Vault(store), state.BackupId!, layout.Root);
-            foreach (var path in targets.Keys) transaction.Capture(path);
+            foreach (var path in targets.Keys.Concat(shadowingAssemblies.Keys)) transaction.Capture(path);
+            foreach (var path in shadowingAssemblies.Keys)
+            {
+                context.Token.ThrowIfCancellationRequested();
+                transaction.Remove(path);
+            }
             foreach (var pair in targets)
             {
                 context.Token.ThrowIfCancellationRequested();

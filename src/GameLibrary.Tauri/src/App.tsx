@@ -35,6 +35,7 @@ function App() {
   const [filters, setFilters] = useState<GameFilters>(emptyFilters);
   const [layout, setLayout] = useState<"grid" | "compact">("grid");
   const [selected, setSelected] = useState<GameItem | null>(null);
+  const [ratingRequest, setRatingRequest] = useState<{ gameId: string; nonce: number } | null>(null);
   const [launchSelectionGameId, setLaunchSelectionGameId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [unitySettingsOpen, setUnitySettingsOpen] = useState(false);
@@ -178,6 +179,8 @@ function App() {
     const exit = library.launchExit;
     if (!exit || exit.nonce === handledExitNonce.current) return;
     handledExitNonce.current = exit.nonce;
+    setLaunchSelectionGameId(null);
+    setRatingRequest({ gameId: exit.gameId, nonce: exit.nonce });
     openGameById(exit.gameId);
   }, [library.launchExit, openGameById]);
 
@@ -206,7 +209,6 @@ function App() {
           sort: view?.sort ?? "accepted-desc",
         });
       }}
-      views={library.views}
       favoriteOnly={filters.favoriteOnly}
       onFavoriteChange={(favoriteOnly) => patchFilters({
         viewId: "",
@@ -226,8 +228,6 @@ function App() {
       gameTotal={library.gameTotal}
       notificationTotal={library.notifications.length}
       onCreateTag={() => setPrompt("tag")}
-      onCreateView={() => setPrompt("view")}
-      onRemoveView={(view: ViewItem) => void run(() => library.removeView(view))}
     />
   );
 
@@ -334,9 +334,10 @@ function App() {
                     : t("添加游戏库目录并扫描，游戏会出现在这里。")
                 }
                 onLoadMore={games.loadMore}
-                onSelect={(gameId) =>
-                  setSelected(games.games.find((game) => game.gameId === gameId) ?? null)
-                }
+                onSelect={(gameId) => {
+                  setRatingRequest(null);
+                  setSelected(games.games.find((game) => game.gameId === gameId) ?? null);
+                }}
                 onPlay={(gameId) => void launch(gameId)}
               />
             </>
@@ -372,6 +373,7 @@ function App() {
 
         <DetailSheet
           game={selected}
+          ratingPromptToken={ratingRequest?.gameId === selected?.gameId ? ratingRequest?.nonce : undefined}
           initialTab={selected?.gameId === launchSelectionGameId ? "launch" : "overview"}
           tags={library.tags}
           onUpdateTag={library.supports("tags.update") ? library.updateTag : undefined}
@@ -380,7 +382,7 @@ function App() {
           onUnityTranslation={library.supports("unity_translation.status") ? (gameId, action) => setUnityRequest({ gameId, action }) : undefined}
           unityTranslationState={unityStatus.find(item => item.gameId === selected?.gameId)}
           titleTranslation={library.supports("titles.translate") ? titleTranslation : undefined}
-          onClose={() => setSelected(null)}
+          onClose={() => { setSelected(null); setRatingRequest(null); }}
           onPlay={(gameId, profileId) => preserveLibraryScroll(() => library.launch(gameId, profileId))}
           onChanged={() => {
             return preserveLibraryScroll(async () => {
@@ -388,7 +390,7 @@ function App() {
               await games.reload();
             });
           }}
-          onNavigate={openGameById}
+          onNavigate={(gameId) => { setRatingRequest(null); openGameById(gameId); }}
         />
 
         <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} supportsTitleTranslation={library.supports("titles.translate")}

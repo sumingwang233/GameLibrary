@@ -5,7 +5,7 @@ using GameLibrary.Infrastructure.Backups;
 
 namespace GameLibrary.Host.Hosting;
 
-internal sealed record UnityTranslationFile(string RelativePath, string? BeforeHash, string? AfterHash);
+internal sealed record UnityTranslationFile(string RelativePath, string? BeforeHash, string? AfterHash, bool Removed = false);
 internal sealed record UnityTranslationManifest(string Root, List<UnityTranslationFile> Files, bool Committed = false, bool Restored = false);
 
 /// <summary>Encrypted originals outside the library; hashes prevent restore/rollback from overwriting later mod changes.</summary>
@@ -15,7 +15,7 @@ internal sealed class UnityTranslationTransaction
     private readonly string _manifestPath;
     private UnityTranslationManifest _manifest;
     private readonly UnityTranslationManifest _beforeAttempt;
-    private readonly List<(string Path, byte[]? Before, string AfterHash)> _writes = [];
+    private readonly List<(string Path, byte[]? Before, string? AfterHash)> _writes = [];
     public string Id { get; }
 
     public UnityTranslationTransaction(UnityTranslationVault vault, string id, string root)
@@ -47,6 +47,9 @@ internal sealed class UnityTranslationTransaction
     public void Write(string path, byte[] bytes)
         => WriteCore(path, bytes, null, configuration: false);
 
+    /// <summary>停用已核验的冲突程序集；先加密备份并记 WAL，恢复与失败回滚仍覆盖原文件。</summary>
+    public void Remove(string path) => WriteCore(path, null, null, configuration: false);
+
     public void WriteConfiguration(string path, byte[] bytes, string? expectedHash)
     {
         if (Path.GetFileName(path) is not ("Config.ini" or "AutoTranslatorConfig.ini"))
@@ -54,7 +57,7 @@ internal sealed class UnityTranslationTransaction
         WriteCore(path, bytes, expectedHash, configuration: true);
     }
 
-    private void WriteCore(string path, byte[] bytes, string? expectedHash, bool configuration)
+    private void WriteCore(string path, byte[]? bytes, string? expectedHash, bool configuration)
     {
         Capture(path);
         var relative = Relative(path);
@@ -64,13 +67,15 @@ internal sealed class UnityTranslationTransaction
         var actual = before is null ? null : Hash(before);
         // XUnity adds defaults to its INI on launch. The caller merges that exact snapshot;
         // original encrypted backups and strict checks for all binaries remain unchanged.
-        if (actual != (configuration ? expectedHash : item.AfterHash ?? item.BeforeHash))
+        if (actual != (configuration ? expectedHash : item.Removed ? null : item.AfterHash ?? item.BeforeHash))
             throw new InvalidDataException("目标文件被其他程序修改，拒绝覆盖");
-        _writes.Add((path, before, Hash(bytes)));
-        _manifest.Files[index] = item with { AfterHash = Hash(bytes) };
+        var afterHash = bytes is null ? null : Hash(bytes);
+        _writes.Add((path, before, afterHash));
+        _manifest.Files[index] = item with { AfterHash = afterHash, Removed = bytes is null };
         _manifest = _manifest with { Committed = false };
         Save(); // Write-ahead: an interrupted atomic replace can be recovered from either known hash.
-        UnityTranslationVault.AtomicWrite(path, bytes);
+        if (bytes is null) File.Delete(path);
+        else UnityTranslationVault.AtomicWrite(path, bytes);
     }
 
     public void Commit() { _manifest = _manifest with { Committed = true }; Save(); }

@@ -165,7 +165,7 @@ public sealed class RenpyDetector : IEngineDetector
 /// <summary>Kirikiri 检测：根级 .xp3 只支持引擎判断；+EXE 配对才 high（不推断 krkr2/z 注入 DLL）。</summary>
 public sealed class KirikiriDetector : IEngineDetector
 {
-    private const int Version = 1;
+    private const int Version = 2;
 
     public EngineId Engine => EngineId.Kirikiri;
 
@@ -177,11 +177,6 @@ public sealed class KirikiriDetector : IEngineDetector
             .Where(f => f.EndsWith(".xp3", StringComparison.OrdinalIgnoreCase))
             .OrderBy(f => f, StringComparer.Ordinal)
             .ToList();
-        if (xp3Files.Count == 0)
-        {
-            return null;
-        }
-
         var evidence = xp3Files
             .Select(f => new DetectionEvidence("krkr.xp3", f, EvidenceObservation.Present, EvidencePolarity.Positive))
             .ToList();
@@ -189,6 +184,15 @@ public sealed class KirikiriDetector : IEngineDetector
         var exes = snapshot.ListFiles("")
             .Where(f => f.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && !EntryScoring.IsExcludedEntryName(f))
             .ToList();
+        if (xp3Files.Count == 0)
+        {
+            exes = exes.Where(exe => snapshot.ReadExecutableIdentity(exe)?.Description is { } description
+                && (description.StartsWith("TVP(KIRIKIRI) 2 core", StringComparison.Ordinal)
+                    || description.StartsWith("TVP(KIRIKIRI) Z core", StringComparison.Ordinal))).ToList();
+            if (exes.Count == 0) return null;
+            evidence.AddRange(exes.Select(exe => new DetectionEvidence("krkr.pe-identity", exe,
+                EvidenceObservation.Present, EvidencePolarity.Positive, snapshot.ReadExecutableIdentity(exe)!.Description)));
+        }
         var hasExe = exes.Count > 0;
 
         var candidates = exes

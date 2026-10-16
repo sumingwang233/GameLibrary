@@ -6,8 +6,7 @@ namespace GameLibrary.Domain.Detection;
 /// <summary>只使用目录证据推荐入口，不执行程序，也不把文件名当作引擎类型。</summary>
 public static partial class LaunchSuggestionDetector
 {
-    private static readonly EngineDetectorSet Detectors = new(
-        [new UnityDetector(), new RpgMakerMvMzDetector(), new RenpyDetector(), new KirikiriDetector()]);
+    private static readonly EngineDetectorSet Detectors = EngineDetectorSet.Default;
 
     private static readonly string[] Helpers =
         ["inst", "uninst", "settings", "config", "エンジン設定", "セーブファイル設定", "アンインストール"];

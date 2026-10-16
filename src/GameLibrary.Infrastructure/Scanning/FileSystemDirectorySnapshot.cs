@@ -13,6 +13,7 @@ public sealed class FileSystemDirectorySnapshot : IDirectorySnapshot
     private readonly string _root;
     private readonly Dictionary<string, IReadOnlyList<string>> _directories = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, IReadOnlyList<string>> _files = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ExecutableIdentity?> _identities = new(StringComparer.OrdinalIgnoreCase);
 
     public FileSystemDirectorySnapshot(GamePath root)
     {
@@ -103,6 +104,7 @@ public sealed class FileSystemDirectorySnapshot : IDirectorySnapshot
 
         try
         {
+            if (count is < 1 or > 1024 * 1024 || !IsSafeProbe(fullPath)) return FileProbe.Unreadable();
             using var stream = new FileStream(
                 fullPath,
                 FileMode.Open,
@@ -133,6 +135,37 @@ public sealed class FileSystemDirectorySnapshot : IDirectorySnapshot
         {
             return FileProbe.Unreadable();
         }
+    }
+
+    public ExecutableIdentity? ReadExecutableIdentity(string relativePath)
+    {
+        if (_identities.TryGetValue(relativePath, out var cached)) return cached;
+        ExecutableIdentity? identity = null;
+        try
+        {
+            var path = Resolve(relativePath);
+            if (Path.GetExtension(path).Equals(".exe", StringComparison.OrdinalIgnoreCase) && IsSafeProbe(path))
+            {
+                var info = System.Diagnostics.FileVersionInfo.GetVersionInfo(path);
+                identity = new(info.FileDescription, info.CompanyName, info.ProductName, info.OriginalFilename);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or System.ComponentModel.Win32Exception) { }
+        _identities[relativePath] = identity;
+        return identity;
+    }
+
+    private bool IsSafeProbe(string path)
+    {
+        var root = Path.GetFullPath(_root).TrimEnd(Path.DirectorySeparatorChar);
+        var full = Path.GetFullPath(path);
+        if (!full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) return false;
+        for (var current = full; current is not null; current = Path.GetDirectoryName(current))
+        {
+            if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0) return false;
+            if (current.TrimEnd(Path.DirectorySeparatorChar).Equals(root, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
     }
 
     private string Resolve(string relativePath) =>

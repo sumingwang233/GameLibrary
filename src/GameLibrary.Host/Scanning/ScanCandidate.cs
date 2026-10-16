@@ -138,14 +138,7 @@ public sealed class CandidateRegistry
 /// <summary>单个扫描作业的候选编排器：目录级检测 + 容器归并（策划案 5.3）。</summary>
 public sealed class ScanCandidateCollector
 {
-    private static readonly EngineDetectorSet Detectors = new(
-    [
-        new Domain.Detection.Detectors.UnityDetector(),
-        new Domain.Detection.Detectors.RpgMakerMvMzDetector(),
-        new Domain.Detection.Detectors.RenpyDetector(),
-        new Domain.Detection.Detectors.KirikiriDetector(),
-        new Domain.Detection.Detectors.FlashDetector(),
-    ]);
+    private static readonly EngineDetectorSet Detectors = EngineDetectorSet.Default;
 
     private static readonly ClassificationRules Classification = new();
 

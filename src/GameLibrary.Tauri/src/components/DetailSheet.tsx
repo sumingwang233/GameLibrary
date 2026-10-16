@@ -68,6 +68,7 @@ function DetailSheetContent({
   unityTranslationState,
   onUpdateTag,
   initialTab = "overview",
+  ratingPromptToken,
 }: {
   game: GameItem | null;
   tags: TagItem[];
@@ -80,6 +81,7 @@ function DetailSheetContent({
   unityTranslationState?: UnityTranslationItem;
   onUpdateTag?: (tag: TagItem, changes: { category: TagCategoryValue }) => Promise<void>;
   initialTab?: "overview" | "launch";
+  ratingPromptToken?: number;
   onChanged: () => Promise<void> | void;
   /** 点击「疑似重复」条目跳到目标游戏详情。 */
   onNavigate?: (gameId: string) => void;
@@ -108,6 +110,7 @@ function DetailSheetContent({
   const [tagDraft, setTagDraft] = useState("");
   const [dragOverCategory, setDragOverCategory] = useState<TagCategoryValue | null>(null);
   const [categoryTagId, setCategoryTagId] = useState("");
+  const [ratingPrompt, setRatingPrompt] = useState(false);
 
   const gameId = game?.gameId ?? null;
   useEffect(() => {
@@ -116,6 +119,13 @@ function DetailSheetContent({
     return () => { alive.current = false; session.current++; };
   }, []);
   useEffect(() => { setTab(initialTab); }, [gameId, initialTab]);
+  useEffect(() => {
+    if (ratingPromptToken === undefined) { setRatingPrompt(false); return; }
+    setTab("overview");
+    setRatingPrompt(true);
+    const timer = window.setTimeout(() => setRatingPrompt(false), 12000);
+    return () => window.clearTimeout(timer);
+  }, [gameId, ratingPromptToken]);
 
   const mergeDetail = useCallback((detail: GameItem) => {
     if (!alive.current || (currentRef.current && currentRef.current.revision > detail.revision)) return;
@@ -251,13 +261,14 @@ function DetailSheetContent({
       await onChanged();
     });
 
-  const toggleFavorite = () =>
+  const updatePreference = (patch: { played?: boolean; rating?: number }) =>
     run(async () => {
       await operation(
         "games.update",
-        { gameId: current.gameId, favorite: !current.favorite, expectedRevision: current.revision },
-        `games.update:${current.gameId}:${current.revision}`,
+        { gameId: current.gameId, ...patch, expectedRevision: current.revision },
+        `games.update:${current.gameId}:${current.revision}:${JSON.stringify(patch)}`,
       );
+      setRatingPrompt(false);
       await load();
       await onChanged();
     });
@@ -449,12 +460,30 @@ function DetailSheetContent({
           <div className="grid grid-cols-2 gap-2">
             <Button className="col-span-2" size="lg" disabled={busy} onClick={() => void run(() => onPlay(current.gameId))}>
               <Play size={17} fill="currentColor" />{t("开始游戏")}</Button>
-            <Button variant="outline" disabled={busy} onClick={() => void toggleFavorite()}>
-              <Star size={15} className={current.favorite ? "fill-favorite text-favorite" : undefined} />
-              {current.favorite ? t("取消收藏") : t("收藏")}
+            <Button variant="outline" disabled={busy} aria-pressed={!!current.played} onClick={() => void updatePreference({ played: !current.played })}>
+              <Check size={15} className={current.played ? "text-steam" : "text-text-secondary"} />
+              {current.played ? t("已游玩") : t("标记为已游玩")}
             </Button>
             <Button variant="outline" disabled={busy} onClick={() => void openGameDirectory()}>
               <ExternalLink size={15} />{t("打开目录")}</Button>
+          </div>
+
+          <div key={ratingPromptToken ?? "rating"} className={cn("rounded-lg border p-3 transition-colors", ratingPrompt ? "border-favorite bg-favorite/10 ring-2 ring-favorite/30 motion-safe:animate-pulse" : "border-border")}
+            role="group" aria-label={t("游戏评分")}>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm font-medium">{t("游戏评分")}</span>
+              <span className="text-xs text-text-secondary">{current.rating ? t("{0} / 5 星", current.rating) : t("尚未评分")}</span>
+            </div>
+            <div className="mt-2 flex items-center gap-1">
+              {[1, 2, 3, 4, 5].map(stars => <button key={stars} type="button" disabled={busy}
+                aria-label={t("评为 {0} 星", stars)} aria-pressed={current.rating === stars}
+                onClick={() => void updatePreference({ rating: stars })}
+                className="cursor-pointer rounded p-2 text-text-secondary transition hover:text-favorite focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait">
+                <Star size={23} className={stars <= (current.rating ?? 0) ? "fill-favorite text-favorite" : undefined} />
+              </button>)}
+              {!!current.rating && <Button variant="ghost" size="sm" disabled={busy} onClick={() => void updatePreference({ rating: 0 })}>{t("清除评分")}</Button>}
+            </div>
+            {ratingPrompt && <p role="status" className="mt-2 text-xs text-favorite">{t("这次游玩体验如何？点选星星为游戏评分。")}</p>}
           </div>
 
           <Tabs value={tab} onValueChange={setTab}>

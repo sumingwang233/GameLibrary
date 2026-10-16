@@ -237,17 +237,21 @@ public static partial class GameLibraryTools
         });
 
     [McpServerTool(Name = "games_update")]
-    [Description("游戏受限字段 patch；当前仅支持 favorite。未知字段会被拒绝。参数：gameId、favorite、expectedRevision、idempotencyKey。")]
+    [Description("游戏受限字段 patch；favorite、played、rating 至少提供一项，rating 为 0–5。未知字段会被拒绝。")]
     public static Task<CallToolResult> GamesUpdate(
         [Description("游戏 ID")] string gameId,
-        [Description("收藏/取消收藏")] bool favorite,
         [Description("期望的游戏 Revision")] int expectedRevision,
-        [Description("幂等键")] string? idempotencyKey = null) =>
+        [Description("幂等键")] string? idempotencyKey = null,
+        [Description("收藏/取消收藏")] bool? favorite = null,
+        [Description("已游玩/未游玩")] bool? played = null,
+        [Description("游戏星级 0–5，0 表示尚未评分")] int? rating = null) =>
         InvokeOperationAsync("games.update", new
         {
             idempotencyKey = idempotencyKey ?? $"gameupd-{Guid.NewGuid():N}",
             gameId,
             favorite,
+            played,
+            rating,
             expectedRevision,
         });
 

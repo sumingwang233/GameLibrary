@@ -328,9 +328,9 @@ internal static class Program
         }
 
         if (operationId is "games.update"
-            && (cli.Favorite is null || cli.ExpectedRevision is null))
+            && (cli.Favorite is null && cli.Played is null && cli.Rating is null || cli.ExpectedRevision is null))
         {
-            Console.Error.WriteLine("games update 需要 --favorite 或 --unfavorite，以及 --expected-revision");
+            Console.Error.WriteLine("games update 需要 --favorite/--unfavorite、--played/--unplayed 或 --rating 0..5，以及 --expected-revision");
             return ExitArgumentError;
         }
 
@@ -496,6 +496,8 @@ internal static class Program
                 idempotencyKey = cli.IdempotencyKey ?? $"gameupd-{Guid.NewGuid():N}",
                 gameId = cli.GameId,
                 favorite = cli.Favorite,
+                played = cli.Played,
+                rating = cli.Rating,
                 expectedRevision = cli.ExpectedRevision,
             },
             "translation.get" => new { gameId = cli.GameId },

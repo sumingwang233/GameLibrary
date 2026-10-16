@@ -40,12 +40,116 @@ public sealed class UnityTranslationTests
     }
 
     [Fact]
+    public async Task Transaction_RemovedAssembly_RollsBackRestoresAndRejectsLaterModChanges()
+    {
+        await using var fixture = await Fixture.Create();
+        var game = fixture.AddGame("removed-assembly");
+        var path = Path.Combine(game.RootPath, "legacy.dll");
+        File.WriteAllText(path, "original");
+        var vault = new UnityTranslationVault(fixture.Host.DataDirectory, fixture.VaultBase);
+        var id = Guid.NewGuid().ToString("N");
+        var transaction = new UnityTranslationTransaction(vault, id, game.RootPath);
+        transaction.Write(path, Encoding.UTF8.GetBytes("updated"));
+        transaction.Remove(path);
+        transaction.Write(path, Encoding.UTF8.GetBytes("replacement"));
+        transaction.Remove(path);
+        transaction.RollbackAttempt();
+        Assert.Equal("original", File.ReadAllText(path));
+        transaction.Remove(path);
+        transaction.Commit();
+        Assert.False(File.Exists(path));
+        var recovered = new UnityTranslationTransaction(vault, id, game.RootPath);
+        File.WriteAllText(path, "user mod");
+        Assert.Throws<InvalidDataException>(recovered.Restore);
+        Assert.Equal("user mod", File.ReadAllText(path));
+        File.Delete(path);
+        recovered.Restore();
+        Assert.Equal("original", File.ReadAllText(path));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task BepInEx6Mono_AlreadyAdaptedEntry_RejectsLegacyShadowing_RepairsWithRollbackAndRestore(bool unknownLegacy)
+    {
+        await using var fixture = await Fixture.Create();
+        Assert.True(fixture.Invoke("settings.set", new { apiKey = fixture.Key }).Ok);
+        var game = fixture.AddGame("already-adapted-mono");
+        var exe = Path.Combine(game.RootPath, "Game.exe");
+        File.WriteAllText(exe, "never execute");
+        await BuildSyntheticPlugins(Path.Combine(game.RootPath, "Game_Data"), bepinex6: true, legacyPayload: fixture.Payload);
+        var loaderCache = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "GameLibrary/UnityTranslation/payload/BepInEx-Unity.Mono-win-x64-6.0.0-be.738.zip");
+        var loaderBytes = File.Exists(loaderCache) ? File.ReadAllBytes(loaderCache)
+            : await new HttpClient().GetByteArrayAsync("https://builds.bepinex.dev/projects/bepinex_be/738/BepInEx-Unity.Mono-win-x64-6.0.0-be.738%2Baf0cba7.zip");
+        Assert.Equal("6A29607FF1BE4EF4E5DE320C99F6F729E29CE78CE8F14DFAA8DAC33F8DEBF777", Convert.ToHexString(SHA256.HashData(loaderBytes)));
+        using (var archive = new ZipArchive(new MemoryStream(loaderBytes)))
+            foreach (var entry in archive.Entries.Where(e => e.FullName.StartsWith("BepInEx/core/", StringComparison.Ordinal) && e.FullName.EndsWith(".dll", StringComparison.Ordinal)))
+                entry.ExtractToFile(Path.Combine(game.RootPath, entry.FullName), overwrite: true);
+        var payload = fixture.Payload;
+        foreach (var pair in await payload.MonoBepInExAsync("5.4.5", CancellationToken.None))
+        {
+            var path = Path.Combine(game.RootPath, pair.Key);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllBytes(path, pair.Value);
+        }
+        var layout = UnityTranslationInspection.Inspect(exe);
+        foreach (var pair in await payload.BepInExMonoAsync(layout, CancellationToken.None)) File.WriteAllBytes(pair.Key, pair.Value.Bytes);
+        File.WriteAllBytes(layout.Bootstrap, UnityTranslationAssembly.RemoveBootstrap(File.ReadAllBytes(layout.Bootstrap)));
+        layout = UnityTranslationInspection.Inspect(exe);
+        Assert.False(layout.ReiConflict);
+        Assert.True(UnityTranslationCompatibility.HasBepInEx6Entry(layout));
+        var endpoint = Path.Combine(layout.Translators, "DeepSeekTranslate.dll");
+        File.WriteAllBytes(endpoint, await payload.EndpointAsync(CancellationToken.None));
+        Directory.CreateDirectory(Path.GetDirectoryName(layout.Config)!);
+        File.WriteAllBytes(layout.Config, new UnityTranslationIni("[OtherMod]\nKeep=yes\n").Configure(new UnityTranslationSettings(), fixture.Key));
+        var originalConfig = File.ReadAllBytes(layout.Config);
+        var legacy = UnityTranslationCompatibility.ShadowingMonoAssemblies(layout)
+            .ToDictionary(path => path, File.ReadAllBytes, StringComparer.OrdinalIgnoreCase);
+        Assert.Equal(4, legacy.Count);
+        if (unknownLegacy)
+        {
+            var path = Path.Combine(layout.Managed, "XUnity.AutoTranslator.Plugin.Core.dll");
+            File.WriteAllBytes(path, File.ReadAllBytes(path).Concat(new byte[] { 1 }).ToArray());
+            legacy[path] = File.ReadAllBytes(path);
+        }
+        Assert.False(UnityTranslationInspection.IsConfiguredChineseTranslator(layout));
+        Assert.True(UnityTranslationCompatibility.NeedsRepair(layout));
+        await Assert.ThrowsAsync<InvalidDataException>(() => payload.VerifyEndpointAsync(layout, CancellationToken.None));
+        fixture.Host.Launches.AddProfile(game.GameId, exe, [], game.RootPath, isDefault: true);
+        Assert.True(fixture.Invoke("configure", new { gameIds = new[] { game.GameId } }).Ok);
+        await fixture.Host.Jobs.WaitForIdleAsync();
+        var state = fixture.ReadState(game.GameId)!;
+        if (unknownLegacy)
+        {
+            Assert.Equal("failed", state.State);
+            Assert.Contains("固定原版", state.Reason);
+            foreach (var pair in legacy) Assert.Equal(pair.Value, File.ReadAllBytes(pair.Key));
+            Assert.Equal(originalConfig, File.ReadAllBytes(layout.Config));
+            return;
+        }
+        Assert.True(state.State == "configured", state.Reason);
+        Assert.Empty(UnityTranslationCompatibility.ShadowingMonoAssemblies(UnityTranslationInspection.Inspect(exe)));
+        Assert.True(UnityTranslationInspection.IsConfiguredChineseTranslator(UnityTranslationInspection.Inspect(exe)));
+        await payload.VerifyEndpointAsync(UnityTranslationInspection.Inspect(exe), CancellationToken.None);
+        Assert.True(fixture.Invoke("restore", new { gameId = game.GameId }).Ok);
+        foreach (var pair in legacy) Assert.Equal(pair.Value, File.ReadAllBytes(pair.Key));
+        Assert.Equal(originalConfig, File.ReadAllBytes(layout.Config));
+        fixture.RestartService();
+        Assert.True(fixture.Invoke("configure", new { gameIds = new[] { game.GameId } }).Ok);
+        await fixture.Host.Jobs.WaitForIdleAsync();
+        Assert.Equal("configured", fixture.ReadState(game.GameId)?.State);
+        Assert.Empty(UnityTranslationCompatibility.ShadowingMonoAssemblies(UnityTranslationInspection.Inspect(exe)));
+        Assert.Empty(fixture.Host.Launches.History());
+    }
+
+    [Fact]
     public async Task Il2CppFonts_UseNativeTmpAndArrayFontFactory_WithoutOverwritingCustomFonts()
     {
         await using var fixture = await Fixture.Create();
         Assert.True(fixture.Invoke("settings.set", new { apiKey = fixture.Key }).Ok);
         var game = fixture.AddGame("native-fonts");
-        var payload = new UnityTranslationPayload();
+        var payload = fixture.Payload;
         var files = await payload.Il2CppAsync("x64", true, CancellationToken.None);
         foreach (var pair in files)
         {
@@ -145,7 +249,7 @@ public sealed class UnityTranslationTests
         var game = fixture.AddGame("bepinex6-mono");
         var exe = Path.Combine(game.RootPath, "Game.exe");
         File.WriteAllText(exe, "never execute");
-        await BuildSyntheticPlugins(Path.Combine(game.RootPath, "Game_Data"), bepinex6: true);
+        await BuildSyntheticPlugins(Path.Combine(game.RootPath, "Game_Data"), bepinex6: true, legacyPayload: fixture.Payload);
         var loaderCache = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "GameLibrary/UnityTranslation/payload/BepInEx-Unity.Mono-win-x64-6.0.0-be.738.zip");
         byte[] loaderBytes;
@@ -159,7 +263,7 @@ public sealed class UnityTranslationTests
         using (var archive = new ZipArchive(new MemoryStream(loaderBytes)))
             foreach (var entry in archive.Entries.Where(e => e.FullName.StartsWith("BepInEx/core/", StringComparison.Ordinal) && e.FullName.EndsWith(".dll", StringComparison.Ordinal)))
                 entry.ExtractToFile(Path.Combine(game.RootPath, entry.FullName), overwrite: true);
-        var payload = new UnityTranslationPayload();
+        var payload = fixture.Payload;
         fixture.Host.UnityTranslations = fixture.Service = new(fixture.Host, payload, fixture.VaultBase);
         foreach (var pair in await payload.MonoBepInExAsync("5.4.5", CancellationToken.None))
         {
@@ -210,7 +314,7 @@ public sealed class UnityTranslationTests
         fixture.Store.UnassignTag(game.GameId, fixture.TagId);
         status = JsonSerializer.SerializeToElement(fixture.Invoke("status", new { }), ContractJson.Options);
         Assert.False(status.GetProperty("data").GetProperty("items")[0].GetProperty("tagged").GetBoolean());
-        Assert.Empty(await payload.BepInEx6MonoAsync(layout, CancellationToken.None));
+        Assert.Empty(await payload.BepInExMonoAsync(layout, CancellationToken.None));
         Assert.True(fixture.Invoke("restore", new { gameId = game.GameId }).Ok);
         Assert.Equal(originalCore, File.ReadAllBytes(layout.Core));
         Assert.Equal(originalBootstrap, File.ReadAllBytes(layout.Bootstrap));
@@ -248,7 +352,7 @@ public sealed class UnityTranslationTests
         Directory.CreateDirectory(Path.Combine(data, "il2cpp_data"));
         File.WriteAllText(Path.Combine(data, "globalgamemanagers"), "\0\0\0\u00146000.0.59f2\0");
         var profile = fixture.Host.Launches.AddProfile(game.GameId, exe, [], game.RootPath, isDefault: true);
-        var payload = new UnityTranslationPayload();
+        var payload = fixture.Payload;
         var id = Guid.NewGuid().ToString("N");
         var transaction = new UnityTranslationTransaction(new UnityTranslationVault(Path.GetFullPath(fixture.Host.DataDirectory).ToUpperInvariant(), fixture.VaultBase), id, game.RootPath);
         foreach (var pair in await payload.Il2CppAsync("x64", true, CancellationToken.None))
@@ -298,7 +402,7 @@ public sealed class UnityTranslationTests
         var exe = Path.Combine(game.RootPath, "Game.exe");
         File.WriteAllText(exe, "never execute");
         var data = Path.Combine(game.RootPath, "Game_Data");
-        await BuildSyntheticPlugins(data, invalidEndpoint: invalidEndpoint, dualLoader: true);
+        await BuildSyntheticPlugins(data, invalidEndpoint: invalidEndpoint, dualLoader: true, legacyPayload: fixture.Payload);
         fixture.Host.Launches.AddProfile(game.GameId, exe, [], game.RootPath, isDefault: true);
         var layout = UnityTranslationInspection.Inspect(exe);
         Assert.Null(layout.Reason);
@@ -306,6 +410,8 @@ public sealed class UnityTranslationTests
         Assert.True(layout.ReiConflict);
         Assert.False(UnityTranslationInspection.IsConfiguredChineseTranslator(layout));
         var original = File.ReadAllBytes(layout.Bootstrap);
+        var legacyAssemblies = UnityTranslationCompatibility.ShadowingMonoAssemblies(layout)
+            .ToDictionary(path => path, File.ReadAllBytes, StringComparer.OrdinalIgnoreCase);
         var mod = Path.Combine(game.RootPath, "BepInEx", "plugins", "other-mod.dat");
         File.WriteAllText(mod, "preserve existing mod");
         Assert.True(fixture.Invoke("settings.set", new { apiKey = fixture.Key }).Ok);
@@ -317,15 +423,18 @@ public sealed class UnityTranslationTests
             Assert.Equal(original, File.ReadAllBytes(layout.Bootstrap));
             Assert.True(UnityTranslationInspection.Inspect(exe).ReiConflict);
             Assert.False(File.Exists(layout.Config));
+            foreach (var pair in legacyAssemblies) Assert.Equal(pair.Value, File.ReadAllBytes(pair.Key));
             return;
         }
         Assert.True(state.State == "configured", state.Reason);
         Assert.False(UnityTranslationInspection.HasBootstrap(layout.Bootstrap));
         Assert.False(UnityTranslationInspection.Inspect(exe).ReiConflict);
+        Assert.Empty(UnityTranslationCompatibility.ShadowingMonoAssemblies(UnityTranslationInspection.Inspect(exe)));
         Assert.Equal(original, File.ReadAllBytes(layout.Bootstrap + ".untrusted.bak"));
         Assert.Equal("preserve existing mod", File.ReadAllText(mod));
         Assert.True(fixture.Invoke("restore", new { gameId = game.GameId }).Ok);
         Assert.Equal(original, File.ReadAllBytes(layout.Bootstrap));
+        foreach (var pair in legacyAssemblies) Assert.Equal(pair.Value, File.ReadAllBytes(pair.Key));
         fixture.RestartService();
         Assert.True(fixture.Invoke("configure", new { gameIds = new[] { game.GameId } }).Ok);
         await fixture.Host.Jobs.WaitForIdleAsync();
@@ -348,7 +457,7 @@ public sealed class UnityTranslationTests
         await BuildSyntheticPlugins(data, splitDependency: true, systemTmp: true);
         File.WriteAllText(Path.Combine(data, "globalgamemanagers"), "\0\0\0\u0014" + unity + "\0");
         var layout = UnityTranslationInspection.Inspect(exe);
-        var payload = new UnityTranslationPayload();
+        var payload = fixture.Payload;
         var old = await payload.RuntimeAsync(CancellationToken.None, version);
         foreach (var pair in old) File.WriteAllBytes(Path.Combine(layout.Managed, pair.Key), pair.Value);
         File.WriteAllBytes(layout.Bootstrap, await payload.PatchAsync(layout, old, CancellationToken.None));
@@ -1338,7 +1447,7 @@ public sealed class UnityTranslationTests
         File.Copy(native, Path.Combine(game.RootPath, "GameAssembly.dll"));
         Directory.CreateDirectory(Path.Combine(game.RootPath, "Game_Data", "il2cpp_data"));
         var profile = fixture.Host.Launches.AddProfile(game.GameId, exe, [], game.RootPath, isDefault: true);
-        var payload = new UnityTranslationPayload();
+        var payload = fixture.Payload;
         var backupId = Guid.NewGuid().ToString("N");
         var vault = new UnityTranslationVault(Path.GetFullPath(fixture.Host.DataDirectory).ToUpperInvariant(), fixture.VaultBase);
         var transaction = new UnityTranslationTransaction(vault, backupId, game.RootPath);
@@ -1401,7 +1510,7 @@ public sealed class UnityTranslationTests
     }
 
     private static async Task BuildSyntheticPlugins(string data, bool invalidEndpoint = false, bool splitDependency = false,
-        bool dualLoader = false, bool systemTmp = false, bool bepinex6 = false)
+        bool dualLoader = false, bool systemTmp = false, bool bepinex6 = false, UnityTranslationPayload? legacyPayload = null)
     {
         var managed = Path.Combine(data, "Managed");
         var translators = Path.Combine(managed, "Translators");
@@ -1459,6 +1568,12 @@ public sealed class UnityTranslationTests
         }
         File.WriteAllText(script, source);
         await RunSyntheticScript(script, managed, translators);
+        if (bepinex6 || dualLoader)
+        {
+            // Real legacy release bytes reproduce Mono's Managed probing and permit exact source verification.
+            foreach (var pair in await legacyPayload!.RuntimeAsync(CancellationToken.None, "5.4.5"))
+                File.WriteAllBytes(Path.Combine(managed, pair.Key), pair.Value);
+        }
     }
 
     private static async Task RunSyntheticScript(string script, params string[] arguments)
@@ -1476,6 +1591,7 @@ public sealed class UnityTranslationTests
     {
         public string DirectoryPath { get; } = Path.Combine(Path.GetTempPath(), "GameLibrary-UnityTests-" + Guid.NewGuid().ToString("N"));
         public string VaultBase => Path.Combine(DirectoryPath, "vault");
+        public UnityTranslationPayload Payload => new(Path.Combine(DirectoryPath, "empty-cache"));
         public string Key { get; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
         public string TagId { get; } = "tag-untranslated";
         public SqliteLibraryStore Store => Host.Library.Store!;

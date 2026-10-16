@@ -95,8 +95,10 @@ public sealed class OperationDispatcher
         _state = state;
         _unityTranslations = state.UnityTranslations ??= new UnityTranslationService(state);
         _mtool = new MToolHandler(state);
+        var engines = new GameEngineRecognition(() => state.Library.Store, state.Roots, state.Events);
         void RequestTranslation(string gameId)
         {
+            engines.Refresh(gameId);
             _unityTranslations.RequestForTaggedGame(gameId);
             _mtool.RequestForTaggedGame(gameId);
         }
@@ -122,11 +124,16 @@ public sealed class OperationDispatcher
         if (state.Coordinator is not null)
             state.Coordinator.ReconcileMetadata = () =>
             {
-                if (state.Library.Store is { } store) Scanning.ReconcileService.CheckCandidates(store, DateTime.UtcNow, state.Events);
+                if (state.Library.Store is { } store)
+                {
+                    Scanning.ReconcileService.CheckCandidates(store, DateTime.UtcNow, state.Events);
+                    foreach (var gameId in engines.Reconcile()) RequestTranslation(gameId);
+                }
             };
         state.Jobs.AcquireLibraryLease = () => state.Sessions.TryEnter(background: true);
         if (state.Coordinator is not null) state.Coordinator.AcquireLibraryLease = () => state.Sessions.TryEnter(background: true);
         _backups = new BackupsHandler(() => state.Library, state.BindLibraryStore, state.Jobs, state.DataDirectory, state.Identity.AppVersion, value => state.MaintenanceMode = value, state);
+        foreach (var gameId in engines.Reconcile()) RequestTranslation(gameId);
     }
 
     /// <summary>已接入收据的操作子集：catalog 声明 requiresIdempotencyKey 的已实现操作。
