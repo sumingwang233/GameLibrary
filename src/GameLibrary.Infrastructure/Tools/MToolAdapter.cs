@@ -32,7 +32,11 @@ public sealed class MToolAdapter
         string scriptText;
         try
         {
-            scriptText = File.ReadAllText(scriptPath);
+            using var reader = new StreamReader(scriptPath);
+            var buffer = new char[64 * 1024 + 1];
+            var length = reader.ReadBlock(buffer, 0, buffer.Length);
+            if (length > 64 * 1024) return MToolDiscovery.Unsupported("配方脚本过大，无法安全解析", MToolCapability.Describe());
+            scriptText = new string(buffer, 0, length);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -96,11 +100,16 @@ public sealed class MToolAdapter
             .Select(step => step with
             {
                 ExecutablePath = RemapOne(step.ExecutablePath),
-                Arguments = [.. step.Arguments.Select(RemapOne)],
+                // 游戏/专属缓存入口绝不能被同名工具文件替代；仅映射 hook 和工具自身目录。
+                Arguments = Path.GetFileName(step.ExecutablePath).Equals("inject.exe", StringComparison.OrdinalIgnoreCase)
+                    ? [step.Arguments[0], RemapOne(step.Arguments[1])]
+                    : Path.GetFileName(step.ExecutablePath).Equals(BatRecipeParser.BakinLauncherFileName, StringComparison.OrdinalIgnoreCase)
+                        ? step.Arguments : step.Arguments.Count > 0 ? [root] : [],
             })
             .ToArray();
 
-        var remappedReferenced = recipe.ReferencedFiles.Select(RemapOne).ToArray();
+        var remappedReferenced = remappedSteps.SelectMany(step => new[] { step.ExecutablePath }
+            .Concat(step.WaitForExit ? step.Arguments : [])).ToArray();
         return recipe with
         {
             Steps = remappedSteps,

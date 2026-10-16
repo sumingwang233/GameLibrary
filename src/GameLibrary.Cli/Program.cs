@@ -68,6 +68,8 @@ internal static class Program
                 "diagnostics.status" or "diagnostics.logs" or "diagnostics.cache_rebuild" or "backups.list" or "backups.create" or "backups.inspect" or "backups.restore_plan" or "backups.restore" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "tools.discover" => await ScanHostOperationAsync(parse, "tools.discover", requiresRoot: true),
+                "mtool.settings.get" or "mtool.settings.set" or "mtool.status" or "mtool.prepare" =>
+                    await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "fields.set" => await ScanHostOperationAsync(parse, "fields.set", requiresRoot: false),
                 "fields.clear" or "fields.reset" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
@@ -461,6 +463,10 @@ internal static class Program
             },
             "candidates.get" or "candidates.inspect" => new { candidateId = cli.CandidateId },
             "unity_translation.settings.get" => new { },
+            "mtool.settings.get" => new { },
+            "mtool.settings.set" => new { toolRoot = cli.RootArgument, idempotencyKey = cli.IdempotencyKey ?? Guid.NewGuid().ToString("N") },
+            "mtool.status" => new { gameId = cli.GameId },
+            "mtool.prepare" => new { gameId = cli.GameId, profileId = cli.ProfileId, idempotencyKey = cli.IdempotencyKey ?? Guid.NewGuid().ToString("N") },
             "unity_translation.settings.set" => ReadUnitySettingsInput(cli),
             "unity_translation.settings.import" => new { configPath = cli.SourcePath, idempotencyKey = cli.IdempotencyKey ?? Guid.NewGuid().ToString("N") },
             "unity_translation.status" or "unity_translation.pending" => new { gameId = cli.GameId },

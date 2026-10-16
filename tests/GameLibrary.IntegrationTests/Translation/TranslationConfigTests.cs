@@ -332,7 +332,8 @@ public sealed class TranslationConfigTests : IClassFixture<PipeServerFixture>
         Assert.Equal(ErrorCodes.TranslationRouteUnavailable, plan.Error?.Code);
         // 计划仍然返回供预览（无副作用）。
         Assert.Equal(profileId, plan.Data.GetProperty("profileId").GetString());
-        Assert.Contains(recoveryHint, Assert.Single(plan.NextActions, action => action.OperationId == "tools.discover").Reason);
+        Assert.Contains(recoveryHint, Assert.Single(plan.NextActions,
+            action => action.OperationId == (engine == "unity" ? "tools.discover" : "mtool.prepare")).Reason);
         Assert.Contains(
             plan.NextActions,
             a => a.OperationId == "translation.set");

@@ -7,6 +7,7 @@ import { Check, ExternalLink, ImagePlus, Play, Star, Trash2 } from "lucide-react
 import { assetDataUrl, describeFailure, operation, OperationError } from "../lib/api";
 import type { TitleTranslationController } from "../lib/hooks/useTitleTranslation";
 import { TitleTranslationStatus } from "./TitleTranslationStatus";
+import { MToolGameTranslation } from "./MToolTranslation";
 import type { UnityTranslationItem } from "./UnityTranslationDialog";
 import { discoverLaunchProfiles, LaunchProfileSelectionRequired } from "../lib/launchProfiles";
 import { TAG_CATEGORIES, groupTagsByCategory, tagCategory, tagLabel, tagStyle, type TagCategoryValue } from "../lib/tags";
@@ -536,6 +537,7 @@ function DetailSheetContent({
             </TabsContent>
 
             <TabsContent value="launch" className="space-y-3">
+              {current.engine?.toLowerCase() !== "unity" && <MToolGameTranslation key={current.gameId} gameId={current.gameId} />}
               {current.engine?.toLowerCase() === "unity" && onUnityTranslation && <div className="space-y-2 rounded-md border border-border p-3">
                 <h3 className="text-sm font-semibold">{t("Unity 游戏内翻译")}</h3>
                 {unityTranslationState && <p role={['failed', 'blocked'].includes(unityTranslationState.state) ? "alert" : "status"}

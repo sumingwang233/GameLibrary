@@ -11,6 +11,26 @@ namespace GameLibrary.Mcp;
 
 public static partial class GameLibraryTools
 {
+    [McpServerTool(Name = "mtool_settings_get")]
+    [Description("读取本机 MTool 安装目录，不读取工具凭据。")]
+    public static Task<CallToolResult> MToolSettingsGet() =>
+        InvokeGeneratedOperationAsync(OperationIds.MtoolSettingsGet, new Dictionary<string, object?> {  });
+
+    [McpServerTool(Name = "mtool_settings_set")]
+    [Description("登记并验证本机 MTool 安装目录，不运行工具。")]
+    public static Task<CallToolResult> MToolSettingsSet([Description("包含 MTool.exe 与 loaders 的本地目录或 MTool.exe 路径")] string toolRoot, [Description("保存幂等键")] string idempotencyKey) =>
+        InvokeGeneratedOperationAsync(OperationIds.MtoolSettingsSet, new Dictionary<string, object?> { ["toolRoot"] = toolRoot, ["idempotencyKey"] = idempotencyKey });
+
+    [McpServerTool(Name = "mtool_status")]
+    [Description("读取游戏最近一次 MTool 配方生成结果。")]
+    public static Task<CallToolResult> MToolStatus([Description("游戏 ID")] string gameId) =>
+        InvokeGeneratedOperationAsync(OperationIds.MtoolStatus, new Dictionary<string, object?> { ["gameId"] = gameId });
+
+    [McpServerTool(Name = "mtool_prepare")]
+    [Description("生成或备份修复 MTool BAT 配方；不运行游戏、工具或翻译 API。")]
+    public static Task<CallToolResult> MToolPrepare([Description("游戏 ID")] string gameId, [Description("生成幂等键")] string idempotencyKey, [Description("游戏启动方式；省略时使用推荐入口")] string? profileId = null) =>
+        InvokeGeneratedOperationAsync(OperationIds.MtoolPrepare, new Dictionary<string, object?> { ["gameId"] = gameId, ["idempotencyKey"] = idempotencyKey, ["profileId"] = profileId });
+
     [McpServerTool(Name = "titles_set_display")]
     [Description("Translate game titles to Simplified Chinese, preserving originals.")]
     public static Task<CallToolResult> TitlesSetDisplay([Description("gameId")] string gameId, [Description("mode")] string mode, [Description("expectedRevision")] int expectedRevision, [Description("idempotencyKey")] string idempotencyKey) =>

@@ -5,6 +5,10 @@ namespace GameLibrary.Contracts;
 
 public static class OperationIds
 {
+    public const string MtoolSettingsGet = "mtool.settings.get";
+    public const string MtoolSettingsSet = "mtool.settings.set";
+    public const string MtoolStatus = "mtool.status";
+    public const string MtoolPrepare = "mtool.prepare";
     public const string ProfilesDiscover = "profiles.discover";
     public const string TitlesTranslate = "titles.translate";
     public const string TitlesSetDisplay = "titles.set_display";
@@ -158,6 +162,10 @@ internal static class GeneratedOperations
 {
     internal static readonly IReadOnlySet<string> Available = new HashSet<string>(StringComparer.Ordinal)
     {
+        OperationIds.MtoolSettingsGet,
+        OperationIds.MtoolSettingsSet,
+        OperationIds.MtoolStatus,
+        OperationIds.MtoolPrepare,
         OperationIds.ProfilesDiscover,
         OperationIds.TitlesTranslate,
         OperationIds.TitlesSetDisplay,
@@ -271,6 +279,10 @@ internal static class GeneratedOperations
     internal static readonly IReadOnlyDictionary<string, ParamSpec[]> InputSpecs =
         new Dictionary<string, ParamSpec[]>(StringComparer.Ordinal)
         {
+            [OperationIds.MtoolSettingsGet] = [],
+            [OperationIds.MtoolSettingsSet] = [new("toolRoot", "string", true, "包含 MTool.exe 与 loaders 的本地目录或 MTool.exe 路径", false), new("idempotencyKey", "string", true, "保存幂等键", false)],
+            [OperationIds.MtoolStatus] = [new("gameId", "string", true, "游戏 ID", false)],
+            [OperationIds.MtoolPrepare] = [new("gameId", "string", true, "游戏 ID", false), new("profileId", "string", false, "游戏启动方式；省略时使用推荐入口", false), new("idempotencyKey", "string", true, "生成幂等键", false)],
             [OperationIds.ProfilesDiscover] = [new("gameId", "string", false, "游戏 ID；省略时回填库内游戏", false), new("idempotencyKey", "string", true, "识别幂等键", false)],
             [OperationIds.TitlesTranslate] = [new("gameIds", "array", true, "gameIds", false), new("engine", "string", false, "engine", false), new("force", "boolean", false, "force", false), new("idempotencyKey", "string", true, "idempotencyKey", false)],
             [OperationIds.TitlesSetDisplay] = [new("gameId", "string", true, "gameId", false), new("mode", "string", true, "mode", false), new("expectedRevision", "integer", true, "expectedRevision", false), new("idempotencyKey", "string", true, "idempotencyKey", false)],

@@ -47,6 +47,7 @@ public sealed class OperationCatalogTests
             ["profiles"] = ["list", "get", "create", "update", "remove", "set_default", "validate"],
             ["translation"] = ["get", "set"],
             ["unity_translation"] = ["settings.get", "settings.set", "settings.import", "status", "pending", "configure", "confirm", "restore"],
+            ["mtool"] = ["settings.get", "settings.set", "status", "prepare"],
             ["titles"] = ["translate", "set_display", "set_translated"],
             ["tools"] = ["list", "get", "discover", "register", "update", "remove", "capabilities"],
             ["verification"] = ["start", "get", "list", "report", "invalidate"],
@@ -90,7 +91,7 @@ public sealed class OperationCatalogTests
         foreach (var (operationId, op) in Operations())
         {
             var parts = operationId.Split('.');
-            Assert.True(parts.Length == 2 || parts.Length == 3 && parts[0] == "unity_translation" && parts[1] == "settings");
+            Assert.True(parts.Length == 2 || parts.Length == 3 && parts[0] is "unity_translation" or "mtool" && parts[1] == "settings");
 
             Assert.Equal(operationId.Replace('.', '_'), op.GetProperty("mcpTool").GetString());
 

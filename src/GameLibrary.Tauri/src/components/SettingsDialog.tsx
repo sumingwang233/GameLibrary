@@ -10,6 +10,7 @@ import { LANGUAGES } from "../lib/i18n";
 import { checkForUpdate, type UpdateInfo } from "../lib/update";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
+import { MToolSettings } from "./MToolTranslation";
 import { Sheet } from "./ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 
@@ -135,6 +136,7 @@ export function SettingsDialog({ open: isOpen, onClose, supportsTitleTranslation
               {onUnitySettings && <Field label={t("Unity 翻译插件")} hint={t("给 Unity 游戏添加未翻译标签后自动配置插件；供应商和密钥仅需设置一次。") }>
                 <Button variant="outline" onClick={onUnitySettings}>{t("配置翻译供应商与密钥")}</Button>
               </Field>}
+              <MToolSettings />
               {supportsTitleTranslation && <Field label={t("名称翻译")} hint={t("仅发送游戏名称，免费且无需密钥；引擎不可用时自动切换。网络或限流可能导致翻译失败。") }>
                 <select value={settings.titleTranslationEngine ?? "balanced"} disabled={busy}
                   onChange={event => void patch({ titleTranslationEngine: event.target.value })} aria-label={t("名称翻译引擎")}

@@ -88,15 +88,22 @@ public sealed class OperationDispatcher
     private readonly BackupsHandler _backups;
     private readonly TitlesHandler _titles;
     private readonly UnityTranslationService _unityTranslations;
+    private readonly MToolHandler _mtool;
 
     public OperationDispatcher(HostRuntimeState state)
     {
         _state = state;
         _unityTranslations = state.UnityTranslations ??= new UnityTranslationService(state);
+        _mtool = new MToolHandler(state);
+        void RequestTranslation(string gameId)
+        {
+            _unityTranslations.RequestForTaggedGame(gameId);
+            _mtool.RequestForTaggedGame(gameId);
+        }
         _titles = new TitlesHandler(state);
-        _candidateReview = new CandidateReviewHandler(() => state.Library.Store, state.Events, _unityTranslations.RequestForTaggedGame);
+        _candidateReview = new CandidateReviewHandler(() => state.Library.Store, state.Events, RequestTranslation);
         _ignoreRules = new IgnoreRulesHandler(() => state.Library.Store, state.Roots);
-        _tags = new TagsHandler(() => state.Library.Store, state.Events, _unityTranslations.RequestForTaggedGame);
+        _tags = new TagsHandler(() => state.Library.Store, state.Events, RequestTranslation);
         _verification = new VerificationHandler(() => state.Library.Store);
         _viewSettings = new ViewSettingsHandler(
             () => state.Library.Store,
@@ -106,7 +113,7 @@ public sealed class OperationDispatcher
             state.Roots,
             state.DataDirectory,
             () => state.StartupShortcuts);
-        _launching = new LaunchingHandler(() => state.Library.Store, state.Launches, state.Roots, state.Events, state.Jobs);
+        _launching = new LaunchingHandler(() => state.Library.Store, state.Launches, state.Roots, state.Events, state.Jobs, _mtool);
         _games = new GamesHandler(() => state.Library.Store, state.Roots, state.Events);
         _cataloging = new CatalogingHandler(() => state.Library.Store, state.Roots, state.Events, state.Candidates, state.Jobs, state.DataDirectory);
         _observability = new ObservabilityHandler(() => state.Library.Store, () => state.Library, state.Identity, state.Jobs, state.Metrics, state.Events, state.Roots, state.AuditLog, state.DataDirectory);
@@ -126,6 +133,7 @@ public sealed class OperationDispatcher
     /// scan.start 的作业收据随 T16（作业/收据同事务）接入，内存态作业先行。</summary>
     private static readonly HashSet<string> ReceiptOperations = new(StringComparer.Ordinal)
     {
+        "mtool.settings.set", "mtool.prepare",
         "unity_translation.settings.set", "unity_translation.settings.import", "unity_translation.configure",
         "unity_translation.confirm", "unity_translation.restore",
         "launch.execute",
@@ -201,6 +209,7 @@ public sealed class OperationDispatcher
 
     private static readonly HashSet<string> ReadOperations = new(StringComparer.Ordinal)
     {
+        "mtool.settings.get", "mtool.status",
         "host.status", "capabilities.get", "schema.get", "events.read", "events.wait",
         "games.list", "games.get", "candidates.list", "candidates.get", "tags.list", "roots.list",
         "candidates.inspect", "unity_translation.settings.get", "unity_translation.status", "unity_translation.pending",
@@ -822,6 +831,7 @@ public sealed class OperationDispatcher
         "backups.inspect" => _backups.BackupsInspect(request),
         "backups.restore_plan" => _backups.BackupsRestorePlan(request),
         "tools.discover" => _observability.ToolsDiscover(request),
+        "mtool.settings.get" or "mtool.settings.set" or "mtool.prepare" or "mtool.status" => _mtool.Handle(request),
         "verification.start" => _verification.VerificationStart(request),
         "verification.report" => _verification.VerificationReport(request),
         "verification.invalidate" => _verification.VerificationInvalidate(request),

@@ -395,6 +395,29 @@ public sealed partial class LaunchRegistry
             ? RunPrepared(attempt.AttemptId, translationSteps, translationStepTimeout, cancellationToken) : attempt;
     }
 
+    /// <summary>预检实际执行目标；复用同一计划优先级与修订检查，不创建启动尝试。</summary>
+    public LaunchPlan ResolveExecutionPlan(string? planId, string? profileId,
+        string? expectedRevisionProfileId, int? expectedRevision)
+    {
+        if (planId is not null)
+        {
+            if (!_plans.TryGetValue(planId, out var plan))
+                throw new LaunchException(ErrorCodes.NotFound, $"计划不存在：{planId}");
+            var current = _profiles[plan.ProfileId];
+            if (current.Revision != plan.ProfileRevision)
+                throw new LaunchException(ErrorCodes.PlanStale,
+                    $"Profile 已更新（Revision {plan.ProfileRevision} → {current.Revision}），旧计划失效");
+            ValidatePaths(current);
+            return plan;
+        }
+        var id = profileId ?? expectedRevisionProfileId;
+        if (id is null) throw new LaunchException(ErrorCodes.InvalidArgument, "launch execute 需要 planId 或 profileId");
+        if (!_profiles.TryGetValue(id, out var profile)) throw new LaunchException(ErrorCodes.NotFound, $"Profile 不存在：{id}");
+        if (expectedRevision is not null && expectedRevision.Value != profile.Revision)
+            throw new LaunchException(ErrorCodes.RevisionConflict, $"Profile Revision 不一致：期望 {expectedRevision}，当前 {profile.Revision}");
+        return CreatePlan(profile.GameId, id);
+    }
+
     public LaunchAttempt Prepare(string idempotencyKey, string? planId, string? profileId,
         string? expectedRevisionProfileId, int? expectedRevision, string? receiptScope = null, Action<LaunchAttempt>? beforeStart = null)
     {
@@ -404,43 +427,7 @@ public sealed partial class LaunchRegistry
             return _attempts[existingAttemptId];
         }
 
-        LaunchPlan plan;
-        if (planId is not null)
-        {
-            if (!_plans.TryGetValue(planId, out var storedPlan))
-            {
-                throw new LaunchException(ErrorCodes.NotFound, $"计划不存在：{planId}");
-            }
-
-            var current = _profiles[storedPlan.ProfileId];
-            if (current.Revision != storedPlan.ProfileRevision)
-            {
-                throw new LaunchException(ErrorCodes.PlanStale,
-                    $"Profile 已更新（Revision {storedPlan.ProfileRevision} → {current.Revision}），旧计划失效");
-            }
-
-            plan = storedPlan;
-        }
-        else if (profileId is not null || expectedRevisionProfileId is not null)
-        {
-            var id = profileId ?? expectedRevisionProfileId!;
-            var profile = _profiles.TryGetValue(id, out var p) ? p : null;
-            if (profile is null)
-            {
-                throw new LaunchException(ErrorCodes.NotFound, $"Profile 不存在：{id}");
-            }
-
-            if (expectedRevision is not null && expectedRevision.Value != profile.Revision)
-            {
-                throw new LaunchException(ErrorCodes.RevisionConflict, $"Profile Revision 不一致：期望 {expectedRevision}，当前 {profile.Revision}");
-            }
-
-            plan = CreatePlan(profile.GameId, id);
-        }
-        else
-        {
-            throw new LaunchException(ErrorCodes.InvalidArgument, "launch execute 需要 planId 或 profileId");
-        }
+        var plan = ResolveExecutionPlan(planId, profileId, expectedRevisionProfileId, expectedRevision);
 
         // 全入口互斥：刷新该游戏既有尝试后仍活动 → 拒绝。
         if (_activeByGame.TryGetValue(plan.GameId, out var activeAttemptId)

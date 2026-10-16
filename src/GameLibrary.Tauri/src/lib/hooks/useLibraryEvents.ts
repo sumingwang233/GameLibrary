@@ -64,6 +64,8 @@ export function useLibraryEvents(
           window.dispatchEvent(new Event("gamelibrary-settings-changed"));
         if (batch.items.some(event => event.type.startsWith("unity_translation.")))
           window.dispatchEvent(new Event("gamelibrary-unity-changed"));
+        if (batch.items.some(event => event.type.startsWith("mtool.")))
+          window.dispatchEvent(new Event("gamelibrary-mtool-changed"));
         for (const event of batch.items)
           if (event.type.startsWith("asset.")) invalidateAssetChanges(event.payload);
         for (const event of batch.items) {

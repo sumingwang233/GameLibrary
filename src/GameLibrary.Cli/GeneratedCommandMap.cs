@@ -9,6 +9,10 @@ internal static class GeneratedCommandMap
 {
     public static string? Resolve(string noun, string verb) => (noun, verb) switch
     {
+        ("mtool", "settings-get") => OperationIds.MtoolSettingsGet,
+        ("mtool", "settings-set") => OperationIds.MtoolSettingsSet,
+        ("mtool", "status") => OperationIds.MtoolStatus,
+        ("mtool", "prepare") => OperationIds.MtoolPrepare,
         ("profiles", "discover") => OperationIds.ProfilesDiscover,
         ("titles", "translate") => OperationIds.TitlesTranslate,
         ("titles", "set-display") => OperationIds.TitlesSetDisplay,

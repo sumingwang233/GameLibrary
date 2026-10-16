@@ -26,6 +26,7 @@ internal sealed class LaunchingHandler
     private readonly RootRegistry _roots;
     private readonly EventStream _events;
     private readonly JobManager _jobs;
+    private readonly MToolHandler? _mtool;
 
     /// <summary>
     /// launches/roots/events 以 init-only 引用直传：HostRuntimeState 构造后整体不可替换
@@ -36,13 +37,14 @@ internal sealed class LaunchingHandler
         GameLibrary.Host.Launching.LaunchRegistry launches,
         RootRegistry roots,
         EventStream events,
-        JobManager jobs)
+        JobManager jobs, MToolHandler? mtool = null)
     {
         _storeAccessor = storeAccessor;
         _launches = launches;
         _roots = roots;
         _events = events;
         _jobs = jobs;
+        _mtool = mtool;
     }
 
     /// <summary>profiles.set_default：切换默认启动方式（首个 Profile 创建时自动默认，替换走本操作）。</summary>
@@ -443,7 +445,7 @@ internal sealed class LaunchingHandler
             return null;
         }
 
-        return GameLibrary.Host.Launching.TranslationLaunchRouteResolver.Resolve(game, profile);
+        return GameLibrary.Host.Launching.TranslationLaunchRouteResolver.Resolve(game, profile, MToolHandler.HasUntranslatedTag(store, gameId));
     }
 
     /// <summary>
@@ -477,10 +479,10 @@ internal sealed class LaunchingHandler
             [
                 new NextAction
                 {
-                    OperationId = "tools.discover",
+                    OperationId = string.Equals(_storeAccessor()?.TryGetGame(gameId)?.Engine, "unity", StringComparison.OrdinalIgnoreCase) ? "tools.discover" : "mtool.prepare",
                     Reason = string.Equals(_storeAccessor()?.TryGetGame(gameId)?.Engine, "unity", StringComparison.OrdinalIgnoreCase)
                         ? "检查游戏中的 BepInEx/XUnity.AutoTranslator 是否完整且已启用，或配置受支持的外部翻译工具"
-                        : "检查外部翻译工具配置；使用 MTool 时请重新生成“与工具一同启动.bat”，并核对工具路径和游戏入口。",
+                        : "尝试自动生成或修复 MTool 配方；请先在设置中选择 MTool 目录。",
                 },
                 new NextAction
                 {
@@ -509,17 +511,16 @@ internal sealed class LaunchingHandler
 
         // T13 Required 不回退：执行前解析目标 Profile（显式 profileId 或计划内的），
         // 游戏 Required 且该 Profile 无工具绑定 → 拒绝执行（LA-07），不产生尝试。
-        var resolvedProfileId = profileId.Length > 0
-            ? profileId
-            : planId.Length > 0
-                ? _launches.GetPlanProfileId(planId)
-                : null;
+        GameLibrary.Host.Launching.LaunchPlan executionTarget;
+        try { executionTarget = _launches.ResolveExecutionPlan(planId.Length > 0 ? planId : null,
+            profileId.Length > 0 ? profileId : null, null, expectedRevision); }
+        catch (GameLibrary.Host.Launching.LaunchException ex) { return LaunchError(request, ex); }
+        var resolvedProfileId = executionTarget.ProfileId;
+        planId = executionTarget.PlanId;
         GameLibrary.Host.Launching.TranslationLaunchRoute? translationRoute = null;
         if (resolvedProfileId is not null)
         {
-            var resolvedGameId = profileId.Length > 0
-                ? _launches.GetProfile(resolvedProfileId)?.GameId
-                : _launches.GetPlanGameId(planId);
+            var resolvedGameId = executionTarget.GameId;
             if (resolvedGameId is not null)
             {
                 if (RejectInactiveGame(request, resolvedGameId) is { } inactive)
@@ -532,6 +533,15 @@ internal sealed class LaunchingHandler
                         "该游戏的 Unity 翻译配置或恢复正在进行，请等待完成或取消翻译作业后再启动", retryable: true);
 
                 var resolution = ResolveTranslationRoute(resolvedGameId, resolvedProfileId);
+                if (resolution is { IsRequired: true, Route: null, SatisfiedByProfileBinding: false, SatisfiedByEmbeddedPlugin: false }
+                    && _mtool?.Prepare(resolvedGameId, resolvedProfileId) is { State: "blocked" } preparation)
+                    return new Envelope<object>
+                    {
+                        RequestId = request.RequestId, Ok = false, Status = OperationStatus.NeedsUserAction,
+                        Error = new RequestError { Code = ErrorCodes.TranslationRouteUnavailable, Message = preparation.Reason, Retryable = false },
+                        NextActions = TranslationRouteBlock(request, resolvedGameId, resolvedProfileId)?.NextActions ?? [],
+                    };
+                resolution = ResolveTranslationRoute(resolvedGameId, resolvedProfileId);
                 var block = TranslationRouteBlock(request, resolvedGameId, resolvedProfileId);
                 if (block is not null)
                 {
@@ -791,9 +801,10 @@ internal sealed class LaunchingHandler
     }
 
     /// <summary>翻译策略的对外 DTO（形状不可变更：覆盖/继承/有效值分离）。</summary>
-    private static object TranslationDto(GameCard game)
+    private object TranslationDto(GameCard game)
     {
-        var inherited = game.TranslationInherited
+        var tagged = _storeAccessor() is { } store && MToolHandler.HasUntranslatedTag(store, game.GameId);
+        var inherited = game.TranslationInherited || tagged
             ? TranslationRequirement.Required
             : TranslationRequirement.Auto;
         var userOverride = game.TranslationOverride is null
@@ -808,7 +819,7 @@ internal sealed class LaunchingHandler
             gameId = game.GameId,
             userOverride = userOverride.ToString(),
             inherited = inherited.ToString(),
-            inheritedFrom = game.TranslationInherited ? "[toolNeed]" : null,
+            inheritedFrom = game.TranslationInherited ? "[toolNeed]" : tagged ? "未翻译" : null,
             effective = policy.Effective.ToString(),
             isRequired = policy.IsRequired,
             revision = game.Revision,

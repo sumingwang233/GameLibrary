@@ -24,9 +24,9 @@ public sealed record TranslationRouteResolution(
 /// </summary>
 public static class TranslationLaunchRouteResolver
 {
-    public static TranslationRouteResolution Resolve(GameCard game, LaunchProfile profile)
+    public static TranslationRouteResolution Resolve(GameCard game, LaunchProfile profile, bool untranslated = false)
     {
-        var required = RequiresTranslation(game);
+        var required = RequiresTranslation(game, untranslated);
 
         if (!required)
         {
@@ -84,9 +84,9 @@ public static class TranslationLaunchRouteResolver
             null);
     }
 
-    public static bool RequiresTranslation(GameCard game)
+    public static bool RequiresTranslation(GameCard game, bool untranslated = false)
     {
-        var inherited = game.TranslationInherited
+        var inherited = game.TranslationInherited || untranslated
             ? TranslationRequirement.Required
             : TranslationRequirement.Auto;
         var userOverride = ParseOverride(game.TranslationOverride);

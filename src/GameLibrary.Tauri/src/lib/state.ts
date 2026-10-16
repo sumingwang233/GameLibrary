@@ -11,6 +11,7 @@ import {
   type PropsWithChildren,
 } from "react";
 import { operation, OperationError } from "./api";
+import { planWithMTool } from "./mtool";
 import type { Envelope } from "./types";
 import { discoverLaunchProfiles, LaunchProfileSelectionRequired, selectLaunchProfile, type ProfileList } from "./launchProfiles";
 import { useLibraryMetadata } from "./hooks/useLibraryMetadata";
@@ -21,7 +22,6 @@ import { useTagActions } from "./hooks/useTagActions";
 export { useGamesQuery, PAGE_SIZE } from "./hooks/useGamesQuery";
 import type {
   CandidateItem,
-  LaunchPlan,
   NotificationItem,
   RootItem,
   SimilarGameSuggestion,
@@ -180,10 +180,7 @@ function useLibraryController(): LibraryController {
 
       // 先 plan 再 execute：plan 失败时后端会给出 TranslationRouteUnavailable 等错误码
       // 并附 nextActions，describeFailure 会把它拼成用户能看懂的下一步指引。
-      const plan = await operation<LaunchPlan>("launch.plan", {
-        gameId,
-        profileId: profile.profileId,
-      });
+      const plan = await planWithMTool(gameId, profile.profileId, supports("mtool.prepare"));
 
       const launched = await operation<{ attemptId: string; state: string }>(
         "launch.execute",
