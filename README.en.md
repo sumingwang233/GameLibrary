@@ -10,6 +10,8 @@
 
 Keep games scattered across your drives in one library. Choose a folder, check the launch entry, and open the game from your collection.
 
+Current source **v1.7.16** adds cover filtering and MTool launch fixes as an [acceptance prerelease](docs/releases/v1.7.16.md). Default downloads below still point to the stable release.
+
 **[Download the Windows installer](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-Setup-v1.7.13.exe)** · [All releases](https://github.com/sumingwang233/GameLibrary/releases) · [Report an issue](https://github.com/sumingwang233/GameLibrary/issues)
 
 [Download](#download) · [Screenshots](#demo) · [Get started](#start) · [FAQ](#faq)
