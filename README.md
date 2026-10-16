@@ -10,7 +10,7 @@
 
 把散落在硬盘里的游戏放到一处。选好文件夹，确认启动项，就能从游戏库打开游戏。
 
-当前源码 **v1.7.16** 包含封面筛选和 MTool 启动修复，作为[待验收预发布](docs/releases/v1.7.16.md)交付；下方默认下载仍对应稳定版。
+当前源码 **v1.7.18** 包含 Mono 翻译修复、已游玩与五星评分、手动游戏引擎识别和 MTool 自动配方，提供[待验收本地构建](docs/releases/v1.7.18.md)，尚未发布 GitHub Release；下方默认下载仍对应稳定版。
 
 **[下载 Windows 安装版](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-Setup-v1.7.13.exe)** · [所有版本](https://github.com/sumingwang233/GameLibrary/releases) · [反馈问题](https://github.com/sumingwang233/GameLibrary/issues)
 

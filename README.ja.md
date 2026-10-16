@@ -10,7 +10,7 @@
 
 ドライブに散らばったゲームを、一つのライブラリに。フォルダーを選び、起動ファイルを確認すると、一覧からゲームを開けます。
 
-現在のソース **v1.7.16** はカバーの絞り込みと MTool 起動の修正を含む[受け入れ確認待ちのプレリリース](docs/releases/v1.7.16.md)です。以下の既定のダウンロードは引き続き安定版です。
+現在のソース **v1.7.18** は Mono 翻訳の修正、プレイ済み状態と五つ星評価、手動追加時のエンジン検出、MTool レシピの自動生成を含む[受け入れ確認待ちのローカルビルド](docs/releases/v1.7.18.md)です。GitHub Release は未公開で、以下の既定のダウンロードは引き続き安定版です。
 
 **[Windows インストーラーをダウンロード](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-Setup-v1.7.13.exe)** · [すべてのリリース](https://github.com/sumingwang233/GameLibrary/releases) · [不具合の報告](https://github.com/sumingwang233/GameLibrary/issues)
 
