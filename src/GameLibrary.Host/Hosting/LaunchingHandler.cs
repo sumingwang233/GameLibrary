@@ -407,19 +407,7 @@ internal sealed class LaunchingHandler
                     Status = OperationStatus.NeedsUserAction,
                     Error = block.Error,
                     Data = plan.ToDto(),
-                    NextActions =
-                    [
-                        new NextAction
-                        {
-                            OperationId = "tools.discover",
-                            Reason = "检查游戏中的 BepInEx/XUnity.AutoTranslator 是否完整且已启用，或配置受支持的外部翻译工具",
-                        },
-                        new NextAction
-                        {
-                            OperationId = "translation.set",
-                            Reason = "如需原文直启，请显式将策略覆盖为 NotRequired（用户主动选择，不静默回退）",
-                        },
-                    ],
+                    NextActions = block.NextActions,
                 };
             }
 
@@ -490,7 +478,9 @@ internal sealed class LaunchingHandler
                 new NextAction
                 {
                     OperationId = "tools.discover",
-                    Reason = "检查游戏中的 BepInEx/XUnity.AutoTranslator 是否完整且已启用，或配置受支持的外部翻译工具",
+                    Reason = string.Equals(_storeAccessor()?.TryGetGame(gameId)?.Engine, "unity", StringComparison.OrdinalIgnoreCase)
+                        ? "检查游戏中的 BepInEx/XUnity.AutoTranslator 是否完整且已启用，或配置受支持的外部翻译工具"
+                        : "检查外部翻译工具配置；使用 MTool 时请重新生成“与工具一同启动.bat”，并核对工具路径和游戏入口。",
                 },
                 new NextAction
                 {

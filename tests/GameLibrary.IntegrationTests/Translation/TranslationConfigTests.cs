@@ -41,7 +41,7 @@ public sealed class TranslationConfigTests : IClassFixture<PipeServerFixture>
             CancellationToken.None);
     }
 
-    private string InsertGame(bool toolNeedInherited)
+    private string InsertGame(bool toolNeedInherited, string? engine = null)
     {
         var store = _fixture.State.Library.Store!;
         var gameId = $"game-{Guid.NewGuid():N}";
@@ -49,8 +49,9 @@ public sealed class TranslationConfigTests : IClassFixture<PipeServerFixture>
         {
             GameId = gameId,
             Title = "T13 测试游戏",
+            Engine = engine,
             RootPath = $@"D:\Official\GameLibrary\artifacts\test-runs\{_fixture.TestId}\games\{gameId}",
-            Kind = "GameRoot",
+            Kind = "gameRoot",
             Membership = "active",
             TranslationInherited = toolNeedInherited,
             AcceptedUtc = DateTime.UtcNow,
@@ -316,10 +317,12 @@ public sealed class TranslationConfigTests : IClassFixture<PipeServerFixture>
         Assert.True(profile.Data.GetProperty("isDefault").GetBoolean());
     }
 
-    [Fact]
-    public async Task LaunchPlan_RequiredGameNormalProfile_ReturnsNeedsUserActionWithPlan()
+    [Theory]
+    [InlineData("unity", "BepInEx")]
+    [InlineData(null, "MTool")]
+    public async Task LaunchPlan_RequiredGameNormalProfile_ReturnsNeedsUserActionWithPlan(string? engine, string recoveryHint)
     {
-        var gameId = InsertGame(toolNeedInherited: true);
+        var gameId = InsertGame(toolNeedInherited: true, engine);
         var profileId = CreateProfile(gameId);
 
         var plan = await InvokeAsync("launch.plan", new { gameId, profileId });
@@ -329,6 +332,7 @@ public sealed class TranslationConfigTests : IClassFixture<PipeServerFixture>
         Assert.Equal(ErrorCodes.TranslationRouteUnavailable, plan.Error?.Code);
         // 计划仍然返回供预览（无副作用）。
         Assert.Equal(profileId, plan.Data.GetProperty("profileId").GetString());
+        Assert.Contains(recoveryHint, Assert.Single(plan.NextActions, action => action.OperationId == "tools.discover").Reason);
         Assert.Contains(
             plan.NextActions,
             a => a.OperationId == "translation.set");
@@ -419,8 +423,44 @@ public sealed class TranslationConfigTests : IClassFixture<PipeServerFixture>
         Assert.True(execute.Ok, execute.Error?.Message);
     }
 
-    [Fact]
-    public async Task LaunchExecute_AutoRequiredGame_UsesRecipeWithOriginalGameProfile()
+    [Theory]
+    [InlineData(false, true, "MTool_Game.exe")]
+    [InlineData(true, false, "MTool_Game.exe")]
+    [InlineData(false, true, "OriginalName.exe")]
+    public void MissingOrMismatchedMToolWrapper_DoesNotFallBackToOriginalEntry(bool wrapperExists, bool matchingDirectory, string wrapperName)
+    {
+        var gameId = InsertGame(toolNeedInherited: true);
+        var game = _fixture.State.Library.Store!.TryGetGame(gameId)!;
+        var root = game.RootPath;
+        var cache = Path.Combine(root, "MTool_Game_Tmp", "fixture");
+        Directory.CreateDirectory(cache);
+        var wrapper = Path.Combine(cache, wrapperName);
+        if (wrapperExists) File.WriteAllText(wrapper, "not-executed");
+        var executable = Path.Combine(root, "Game.exe");
+        var injector = Path.Combine(root, "inject.exe");
+        var tool = Path.Combine(root, "MTool.exe");
+        var hook = Path.Combine(root, "hook.dll");
+        foreach (var path in new[] { executable, injector, tool, hook }) File.WriteAllText(path, "not-executed");
+        File.WriteAllText(Path.Combine(root, "与工具一同启动.bat"), $"""
+            @cd /d "{(matchingDirectory ? cache : root)}"
+            "{injector}" "{wrapper}" "{hook}"
+            start "" "{tool}" "{root}"
+            """);
+        var profile = _fixture.State.Launches.AddProfile(gameId, executable, [], root);
+        var result = TranslationLaunchRouteResolver.Resolve(game, profile);
+        Assert.True(result.IsRequired);
+        Assert.Null(result.Route);
+        Assert.Contains(wrapperExists ? "翻译注入器步骤" : "MTool 配方中的游戏入口不存在", result.UnavailableReason);
+        Assert.Empty(_fixture.State.Launches.History(gameId));
+    }
+
+    [Theory]
+    [InlineData("inject.exe", "MTool.exe", false, "MTool_Game.exe")]
+    [InlineData("inject.exe", "nw.exe", false, "MTool_Game.exe")]
+    [InlineData("BakinLauncher.exe", "MTool.exe", false, "MTool_Game.exe")]
+    [InlineData("inject.exe", "MTool.exe", true, "MTool_Game.exe")]
+    [InlineData("inject.exe", "MTool.exe", true, "OriginalName.exe")]
+    public async Task LaunchExecute_AutoRequiredGame_UsesRecipeWithOriginalGameProfile(string launcherName, string toolName, bool cachedWrapper, string wrapperName)
     {
         var root = Path.Combine(
             $@"D:\Official\GameLibrary\artifacts\test-runs\{_fixture.TestId}",
@@ -428,8 +468,8 @@ public sealed class TranslationConfigTests : IClassFixture<PipeServerFixture>
         Directory.CreateDirectory(root);
 
         var gameExe = Path.Combine(root, "Game.exe");
-        var injector = Path.Combine(root, "inject.exe");
-        var mtool = Path.Combine(root, "MTool.exe");
+        var injector = Path.Combine(root, launcherName);
+        var mtool = Path.Combine(root, toolName);
         var hook = Path.Combine(root, "SRPGHook.dll");
         foreach (var extension in new[] { ".exe", ".dll", ".deps.json", ".runtimeconfig.json" })
         {
@@ -440,13 +480,23 @@ public sealed class TranslationConfigTests : IClassFixture<PipeServerFixture>
             }
         }
         CopyStub(Path.Combine(root, "Game"));
-        CopyStub(Path.Combine(root, "inject"));
-        CopyStub(Path.Combine(root, "MTool"));
+        CopyStub(Path.ChangeExtension(injector, null));
+        CopyStub(Path.ChangeExtension(mtool, null));
         File.WriteAllText(hook, "stub");
+        var workingDirectory = cachedWrapper ? Path.Combine(root, "MTool_Game_Tmp", "fixture") : root;
+        Directory.CreateDirectory(workingDirectory);
+        var expectedGame = cachedWrapper ? Path.Combine(workingDirectory, wrapperName) : gameExe;
+        if (cachedWrapper) File.WriteAllText(expectedGame, "wrapper-not-executed");
+        var launcherLine = launcherName == "BakinLauncher.exe"
+            ? $"\"{injector}\" \"{Path.Combine(root, "old-game.exe")}\""
+            : $"\"{injector}\" \"{(cachedWrapper ? expectedGame : "%~dp0\\Game.exe")}\" \"{hook}\"";
         File.WriteAllText(Path.Combine(root, "与工具一同启动.bat"), $"""
-            @echo off
-            "{injector}" "{gameExe}" "{hook}"
+            @chcp 65001
+            @cd /d "{(cachedWrapper ? workingDirectory : "%~dp0")}"
+            {launcherLine}
             start "" "{mtool}" "{root}"
+            @echo "Please do not modify this file, it is automatically generated by the MTool."
+            @echo "请不要修改该文件，该文件由工具自动生成。"
             """);
 
         var gameId = $"game-{Guid.NewGuid():N}";
@@ -455,7 +505,7 @@ public sealed class TranslationConfigTests : IClassFixture<PipeServerFixture>
             GameId = gameId,
             Title = "Auto MTool 测试游戏",
             RootPath = root,
-            Kind = "GameRoot",
+            Kind = "gameRoot",
             Membership = "active",
             TranslationInherited = true,
             AcceptedUtc = DateTime.UtcNow,
@@ -469,7 +519,8 @@ public sealed class TranslationConfigTests : IClassFixture<PipeServerFixture>
         Assert.NotNull(resolution.Route);
         Assert.Equal("mtool", resolution.Route!.ToolId);
         Assert.Equal(2, resolution.Route.Steps.Count);
-        Assert.Equal(gameExe, resolution.Route.Steps[0].Arguments[0]);
+        Assert.Equal(expectedGame, resolution.Route.Steps[0].Arguments[0]);
+        Assert.Equal(workingDirectory, resolution.Route.Steps[0].WorkingDirectory);
 
         var plan = await InvokeAsync("launch.plan", new { gameId, profileId = profile.ProfileId });
         Assert.True(plan.Ok, plan.Error?.Message);

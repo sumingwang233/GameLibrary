@@ -57,12 +57,11 @@ public sealed class MToolDiscoveryTests : IClassFixture<PipeServerFixture>
         var gameExe = Path.Combine(root, "game.exe");
         File.WriteAllText(gameExe, "stub");
         File.WriteAllText(Path.Combine(root, "与工具一同启动.bat"), $"""
-            @echo off
-            chcp 65001>nul
-            cd /d "%~dp0"
+            @chcp 65001
+            @cd /d "%~dp0"
             "{Path.Combine(toolRoot, "loaders", "inject.exe")}" "{gameExe}" "{Path.Combine(toolRoot, "loaders", "SRPGHook.dll")}"
             start "" "{Path.Combine(toolRoot, "MTool.exe")}" "{toolRoot}"
-            echo done
+            @echo "请不要修改该文件，该文件由工具自动生成。"
             """);
 
         await InvokeAsync("roots.add", new { root });

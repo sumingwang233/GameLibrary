@@ -158,16 +158,26 @@ public static class TranslationLaunchRouteResolver
 
     private static RecipeProcessStep RewriteGameEntry(RecipeProcessStep step, string executablePath)
     {
-        if (!Path.GetFileName(step.ExecutablePath).Equals("inject.exe", StringComparison.OrdinalIgnoreCase)
+        var fileName = Path.GetFileName(step.ExecutablePath);
+        if (!(fileName.Equals("inject.exe", StringComparison.OrdinalIgnoreCase)
+                || fileName.Equals(BatRecipeParser.BakinLauncherFileName, StringComparison.OrdinalIgnoreCase))
             || step.Arguments.Count == 0)
         {
             return step;
         }
 
+        // MTool 生成的入口可能是临时目录中的包装程序，不能换回未经处理的原始 EXE。
+        if (IsGeneratedGameEntry(step)) return step;
+
         var arguments = step.Arguments.ToArray();
         arguments[0] = executablePath;
         return step with { Arguments = arguments };
     }
+
+    private static bool IsGeneratedGameEntry(RecipeProcessStep step) =>
+        Path.GetFileName(step.Arguments[0]).Equals("MTool_Game.exe", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(Path.GetFileName(Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(step.WorkingDirectory))),
+            "MTool_Game_Tmp", StringComparison.OrdinalIgnoreCase);
 
     private static string? ValidateSteps(IReadOnlyList<RecipeProcessStep> steps, string gameExecutablePath)
     {
@@ -176,15 +186,16 @@ public static class TranslationLaunchRouteResolver
             return "翻译配方没有可执行步骤";
         }
 
-        var hasInjector = false;
+        var hasGameLauncher = false;
         var hasTool = false;
         foreach (var step in steps)
         {
             var fileName = Path.GetFileName(step.ExecutablePath);
             var isInjector = fileName.Equals("inject.exe", StringComparison.OrdinalIgnoreCase);
+            var isBakin = fileName.Equals(BatRecipeParser.BakinLauncherFileName, StringComparison.OrdinalIgnoreCase);
             var isTool = fileName.Equals("MTool.exe", StringComparison.OrdinalIgnoreCase)
                 || fileName.Equals("nw.exe", StringComparison.OrdinalIgnoreCase);
-            if (!isInjector && !isTool)
+            if (!isInjector && !isBakin && !isTool)
             {
                 return $"翻译配方包含不受支持的程序：{fileName}";
             }
@@ -199,15 +210,26 @@ public static class TranslationLaunchRouteResolver
                 return $"翻译程序工作目录不存在：{step.WorkingDirectory}";
             }
 
-            if (isInjector)
+            if (isInjector || isBakin)
             {
-                hasInjector = true;
-                if (step.Arguments.Count < 2
-                    || !string.Equals(step.Arguments[0], gameExecutablePath, StringComparison.OrdinalIgnoreCase)
-                    || !File.Exists(step.Arguments[0])
-                    || !File.Exists(step.Arguments[1]))
+                hasGameLauncher = true;
+                if (step.Arguments.Count != (isInjector ? 2 : 1))
                 {
-                    return "翻译注入器步骤未指向当前游戏入口或 Hook 文件缺失";
+                    return "翻译配方的游戏加载器参数数量不正确";
+                }
+                if (!File.Exists(step.Arguments[0]))
+                {
+                    return $"MTool 配方中的游戏入口不存在：{step.Arguments[0]}；请在 MTool 中重新生成启动配方";
+                }
+                if (!(string.Equals(step.Arguments[0], gameExecutablePath, StringComparison.OrdinalIgnoreCase)
+                        || (IsGeneratedGameEntry(step) && Path.GetExtension(step.Arguments[0]).Equals(".exe", StringComparison.OrdinalIgnoreCase) && string.Equals(
+                            Path.GetDirectoryName(Path.GetFullPath(step.Arguments[0])),
+                            Path.TrimEndingDirectorySeparator(Path.GetFullPath(step.WorkingDirectory)),
+                            StringComparison.OrdinalIgnoreCase)))
+                    || (isInjector && !File.Exists(step.Arguments[1])))
+                {
+                    return isInjector ? "翻译注入器步骤未指向当前游戏入口或 Hook 文件缺失"
+                        : "BakinLauncher 步骤未指向当前游戏入口";
                 }
             }
             else
@@ -223,8 +245,8 @@ public static class TranslationLaunchRouteResolver
             }
         }
 
-        return !hasInjector
-            ? "翻译配方缺少注入器步骤"
+        return !hasGameLauncher
+            ? "翻译配方缺少注入器或受支持的游戏加载器步骤"
             : !hasTool
                 ? "翻译配方缺少常驻翻译工具步骤"
                 : null;

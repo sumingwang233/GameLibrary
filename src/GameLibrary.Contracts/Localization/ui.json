@@ -1,4 +1,5 @@
 {
+  "检查外部翻译工具配置；使用 MTool 时请重新生成“与工具一同启动.bat”，并核对工具路径和游戏入口。": ["檢查外部翻譯工具設定；使用 MTool 時請重新產生「与工具一同启动.bat」，並核對工具路徑和遊戲入口。","Check the external translator configuration. For MTool, regenerate 与工具一同启动.bat and check the tool paths and game executable.","外部翻訳ツールの設定を確認してください。MTool を使用する場合は「与工具一同启动.bat」を再生成し、ツールのパスとゲームの実行ファイルを確認してください。"],
   "封面筛选": ["封面篩選","Cover filter","カバーで絞り込み"],
   "不限封面": ["不限封面","All covers","カバーを問わない"],
   "有封面": ["有封面","With cover","カバーあり"],
