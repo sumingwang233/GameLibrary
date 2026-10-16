@@ -7,7 +7,7 @@ namespace GameLibrary.Infrastructure.Persistence;
 /// <summary>
 /// 自定义视图（T15-C）：搜索/筛选/排序的语义状态（契约 3.1 views.*）。
 /// 内置视图（all/favorites/pending）由 BuiltInViews 代码定义，不入库。
-/// filter_json 形如 {"search":"…","favoriteOnly":true,"tagId":"…"}；字段未出现即不启用该条件。
+/// filter_json 形如 {"search":"…","favoriteOnly":true,"tagId":"…","hasCover":false}；字段未出现即不启用该条件。
 /// </summary>
 public sealed record LibraryView
 {
@@ -21,6 +21,9 @@ public sealed record LibraryView
 
     /// <summary>可选标签筛选；保存收藏夹时与搜索、收藏条件一起持久化。</summary>
     public string? TagId { get; init; }
+
+    /// <summary>null 不限封面，true 有当前封面，false 无当前封面。</summary>
+    public bool? HasCover { get; init; }
 
     /// <summary>排序值；白名单与 games.list 一致：title/title-asc/title-desc/recent/updated-desc/accepted-desc（迁移 v21 起 CHECK 放宽为六值）。</summary>
     public string Sort { get; init; } = "title";
@@ -49,14 +52,20 @@ public sealed record LibraryView
             parts.Add($"\"tagId\":{JsonEncode(view.TagId)}");
         }
 
+        if (view.HasCover is { } hasCover)
+        {
+            parts.Add(hasCover ? "\"hasCover\":true" : "\"hasCover\":false");
+        }
+
         return "{" + string.Join(",", parts) + "}";
     }
 
-    public static (string? Search, bool FavoriteOnly, string? TagId) ParseFilter(string filterJson)
+    public static (string? Search, bool FavoriteOnly, string? TagId, bool? HasCover) ParseFilter(string filterJson)
     {
         string? search = null;
         var favoriteOnly = false;
         string? tagId = null;
+        bool? hasCover = null;
         try
         {
             using var document = JsonDocument.Parse(filterJson);
@@ -79,6 +88,12 @@ public sealed record LibraryView
                 {
                     tagId = tagElement.GetString();
                 }
+
+                if (document.RootElement.TryGetProperty("hasCover", out var coverElement)
+                    && coverElement.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                {
+                    hasCover = coverElement.GetBoolean();
+                }
             }
         }
         catch (JsonException)
@@ -86,7 +101,7 @@ public sealed record LibraryView
             // 损坏 filter 按空视图条件处理，不阻塞列表。
         }
 
-        return (search, favoriteOnly, tagId);
+        return (search, favoriteOnly, tagId, hasCover);
     }
 
     private static string JsonEncode(string value) =>
@@ -136,7 +151,8 @@ public static class LibraryViewStore
     /// <summary>受限 patch：期望 Revision 对齐，事务内更新并递增；视图不存在或冲突返回 null。未提供的字段保持不变。</summary>
     public static int? UpdateView(
         SqliteConnection connection, string viewId, string? name, string? search, bool? favoriteOnly,
-        string? tagId, string? sort, int expectedRevision, DateTime utcNow, SqliteTransaction? parentTransaction = null)
+        string? tagId, string? sort, int expectedRevision, DateTime utcNow, SqliteTransaction? parentTransaction = null,
+        bool? hasCover = null, bool updateHasCover = false)
     {
         using var ownedTransaction = parentTransaction is null ? connection.BeginTransaction() : null;
         var transaction = parentTransaction ?? ownedTransaction!;
@@ -164,8 +180,8 @@ public static class LibraryViewStore
             return null;
         }
 
-        var (existingSearch, existingFavoriteOnly, existingTagId) = LibraryView.ParseFilter(currentFilter);
-        var filterChanged = search is not null || favoriteOnly is not null || tagId is not null;
+        var (existingSearch, existingFavoriteOnly, existingTagId, existingHasCover) = LibraryView.ParseFilter(currentFilter);
+        var filterChanged = search is not null || favoriteOnly is not null || tagId is not null || updateHasCover;
         var filterJson = filterChanged
             ? LibraryView.SerializeFilter(new LibraryView
             {
@@ -174,6 +190,7 @@ public static class LibraryViewStore
                 Search = search ?? existingSearch,
                 FavoriteOnly = favoriteOnly ?? existingFavoriteOnly,
                 TagId = tagId ?? existingTagId,
+                HasCover = updateHasCover ? hasCover : existingHasCover,
                 CreatedUtc = default,
                 UpdatedUtc = default,
             })
@@ -211,7 +228,7 @@ public static class LibraryViewStore
 
     private static LibraryView ReadView(SqliteDataReader reader)
     {
-        var (search, favoriteOnly, tagId) = LibraryView.ParseFilter(reader.GetString(2));
+        var (search, favoriteOnly, tagId, hasCover) = LibraryView.ParseFilter(reader.GetString(2));
         return new LibraryView
         {
             ViewId = reader.GetString(0),
@@ -219,6 +236,7 @@ public static class LibraryViewStore
             Search = search,
             FavoriteOnly = favoriteOnly,
             TagId = tagId,
+            HasCover = hasCover,
             Sort = reader.GetString(3),
             Revision = reader.GetInt32(4),
             CreatedUtc = DateTime.Parse(reader.GetString(5), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),

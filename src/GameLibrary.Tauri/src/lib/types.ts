@@ -151,6 +151,7 @@ export interface ViewItem {
   kind?: "builtin" | "custom" | string;
   search?: string | null;
   favoriteOnly?: boolean;
+  hasCover?: boolean | null;
   tagId?: string | null;
   sort?: string | null;
   revision: number | null;

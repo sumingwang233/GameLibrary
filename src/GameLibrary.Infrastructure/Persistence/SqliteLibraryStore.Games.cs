@@ -19,8 +19,8 @@ public sealed partial class SqliteLibraryStore
 
     /// <summary>数据库侧检索（阶段三）：搜索/收藏/标签过滤 + 排序 + 分页；limit &lt;= 0 全量。</summary>
     public (int Total, IReadOnlyList<GameCard> Items) QueryGames(
-        string? search, bool favoriteOnly, string? tagId, string? sort, int limit, int offset)
-        => ReadExclusive((c, _) => LibraryCatalogStore.QueryGames(c, search, favoriteOnly, tagId, sort, limit, offset));
+        string? search, bool favoriteOnly, string? tagId, string? sort, int limit, int offset, bool? hasCover = null)
+        => ReadExclusive((c, _) => LibraryCatalogStore.QueryGames(c, search, favoriteOnly, tagId, sort, limit, offset, hasCover));
 
     /// <summary>列表页批量充实（R41）：单锁一次取回字段/封面/标签，取代逐游戏 4 次查询。</summary>
     public IReadOnlyDictionary<string, GameCardEnrichment> EnrichGameCards(

@@ -411,24 +411,26 @@ public static partial class GameLibraryTools
         InvokeOperationAsync("settings.reset", new { idempotencyKey = idempotencyKey ?? $"setreset-{Guid.NewGuid():N}" });
 
     [McpServerTool(Name = "views_create")]
-    [Description("创建自定义视图（搜索/仅收藏/排序的语义状态）。参数：name、search、favoriteOnly、sort、idempotencyKey。")]
+    [Description("创建自定义视图（搜索/收藏/封面/排序的语义状态）。")]
     public static Task<CallToolResult> ViewsCreate(
         [Description("视图名称")] string name,
         [Description("搜索词（可选）")] string? search = null,
         [Description("仅显示收藏")] bool favoriteOnly = false,
         [Description("排序：title/recent")] string? sort = null,
-        [Description("幂等键")] string? idempotencyKey = null) =>
+        [Description("幂等键")] string? idempotencyKey = null,
+        [Description("true 有封面，false 无封面，null 不限封面")] bool? hasCover = null) =>
         InvokeOperationAsync("views.create", new
         {
             idempotencyKey = idempotencyKey ?? $"viewnew-{Guid.NewGuid():N}",
             name,
             search,
             favoriteOnly,
+            hasCover,
             sort,
         });
 
     [McpServerTool(Name = "views_update")]
-    [Description("更新自定义视图的受限字段；未提供字段保持不变。参数：viewId、expectedRevision、name/search/favoriteOnly/sort、idempotencyKey。")]
+    [Description("更新自定义视图的受限字段；未提供字段保持不变，hasCover 显式 null 清除封面条件。")]
     public static Task<CallToolResult> ViewsUpdate(
         [Description("视图 ID")] string viewId,
         [Description("期望 Revision")] int expectedRevision,
@@ -436,16 +438,18 @@ public static partial class GameLibraryTools
         [Description("搜索词（可选）")] string? search = null,
         [Description("仅显示收藏（可选）")] bool? favoriteOnly = null,
         [Description("排序 title/recent（可选）")] string? sort = null,
-        [Description("幂等键")] string? idempotencyKey = null) =>
-        InvokeOperationAsync("views.update", new
+        [Description("幂等键")] string? idempotencyKey = null,
+        [DefaultValue(null)] [Description("true 有封面，false 无封面，null 清除；省略保持原值")] JsonElement hasCover = default) =>
+        InvokeGeneratedOperationAsync("views.update", new Dictionary<string, object?>
         {
-            idempotencyKey = idempotencyKey ?? $"viewupd-{Guid.NewGuid():N}",
-            viewId,
-            name,
-            search,
-            favoriteOnly,
-            sort,
-            expectedRevision,
+            ["idempotencyKey"] = idempotencyKey ?? $"viewupd-{Guid.NewGuid():N}",
+            ["viewId"] = viewId,
+            ["name"] = name,
+            ["search"] = search,
+            ["favoriteOnly"] = favoriteOnly,
+            ["sort"] = sort,
+            ["expectedRevision"] = expectedRevision,
+            ["hasCover"] = hasCover,
         });
 
     [McpServerTool(Name = "views_remove")]

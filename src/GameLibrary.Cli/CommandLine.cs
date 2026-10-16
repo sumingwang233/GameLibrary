@@ -112,6 +112,10 @@ public sealed record CommandLine
     /// <summary>games update 的 --favorite/--unfavorite 标记。</summary>
     public bool? Favorite { get; private init; }
 
+    public bool? HasCover { get; private init; }
+
+    public bool HasCoverSpecified { get; private init; }
+
     /// <summary>profiles create 的 --tool-id 参数（可选工具绑定）。</summary>
     public string? ToolId { get; private init; }
 
@@ -232,6 +236,8 @@ public sealed record CommandLine
         int? expectedRevision = null;
         string? overrideValue = null;
         bool? favorite = null;
+        bool? hasCover = null;
+        var hasCoverSpecified = false;
         string? toolId = null;
         var isDefault = false;
         string? viewId = null;
@@ -434,6 +440,17 @@ public sealed record CommandLine
                 case "--unfavorite":
                     favorite = false;
                     break;
+                case "--with-cover":
+                case "--without-cover":
+                case "--all-covers":
+                    hasCover = args[i].ToLowerInvariant() switch
+                    {
+                        "--with-cover" => true,
+                        "--without-cover" => false,
+                        _ => null,
+                    };
+                    hasCoverSpecified = true;
+                    break;
                 case "--tool-id" when i + 1 < args.Length:
                     toolId = args[++i];
                     break;
@@ -562,6 +579,8 @@ public sealed record CommandLine
             Height = height,
             Override = overrideValue,
             Favorite = favorite,
+            HasCover = hasCover,
+            HasCoverSpecified = hasCoverSpecified,
             ToolId = toolId,
             IsDefault = isDefault,
             ViewId = viewId,

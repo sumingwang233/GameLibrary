@@ -29,6 +29,8 @@ export function LibraryToolbar({
   onSearch,
   sort,
   onSort,
+  hasCover,
+  onHasCover,
   onRefresh,
   layout,
   onLayout,
@@ -39,6 +41,8 @@ export function LibraryToolbar({
   onSearch: (value: string) => void;
   sort: string;
   onSort: (value: string) => void;
+  hasCover: boolean | null;
+  onHasCover: (value: boolean | null) => void;
   onRefresh: () => void;
   layout: "grid" | "compact";
   onLayout: (value: "grid" | "compact") => void;
@@ -67,6 +71,20 @@ export function LibraryToolbar({
         <span className="text-xs whitespace-nowrap text-text-secondary" aria-live="polite">
           {shown.toLocaleString()} / {total.toLocaleString()}
         </span>
+        <Select
+          value={hasCover === null ? "all" : hasCover ? "with" : "without"}
+          onValueChange={(value) => onHasCover(value === "all" ? null : value === "with")}
+        >
+          <SelectTrigger className="w-[130px]" aria-label={t("封面筛选")}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{t("不限封面")}</SelectItem>
+            <SelectItem value="with">{t("有封面")}</SelectItem>
+            <SelectItem value="without">{t("无封面")}</SelectItem>
+          </SelectContent>
+        </Select>
+
         <Select value={displaySortValue(sort)} onValueChange={onSort}>
           <SelectTrigger className="w-[130px]" aria-label={t("排序方式")}>
             <SelectValue />

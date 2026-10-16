@@ -29,9 +29,10 @@ public sealed partial class SqliteLibraryStore
 
     public int? UpdateView(
         string viewId, string? name, string? search, bool? favoriteOnly, string? tagId, string? sort,
-        int expectedRevision, DateTime utcNow)
+        int expectedRevision, DateTime utcNow, bool? hasCover = null, bool updateHasCover = false)
         => Execute((c, _) => LibraryViewStore.UpdateView(
-            c, viewId, name, search, favoriteOnly, tagId, sort, expectedRevision, utcNow, _writeTransaction));
+            c, viewId, name, search, favoriteOnly, tagId, sort, expectedRevision, utcNow, _writeTransaction,
+            hasCover, updateHasCover));
 
     public bool DeleteView(string viewId)
         => Execute((c, _) => LibraryViewStore.DeleteView(c, viewId));

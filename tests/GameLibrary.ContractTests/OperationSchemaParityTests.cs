@@ -6,10 +6,23 @@ namespace GameLibrary.ContractTests;
 /// <summary>防止 schema.get 的参数名与实际 Host/CLI/MCP 载荷漂移。</summary>
 public sealed class OperationSchemaParityTests
 {
+    [Theory]
+    [InlineData("games.list")]
+    [InlineData("views.create")]
+    [InlineData("views.update")]
+    public void CoverFilterAcceptsNullableBoolean(string operationId)
+    {
+        var schema = OperationSchemas.BuildInputSchema(operationId);
+        var types = schema.GetProperty("properties").GetProperty("hasCover").GetProperty("type");
+        Assert.Equal(["boolean", "null"], types.EnumerateArray().Select(type => type.GetString()));
+        Assert.False(schema.TryGetProperty("required", out var required)
+            && required.EnumerateArray().Any(item => item.GetString() == "hasCover"));
+    }
+
     [Fact]
     public void OutputSchemaIncludesEverySerializedEnvelopeFieldAndCropHasCoordinates()
     {
-        var envelope = new GameLibrary.Contracts.Ipc.Envelope<object>
+        var envelope = new Envelope<object>
         {
             RequestId = "schema-boundary", Ok = true, Status = OperationStatus.Completed, Data = new { },
         };

@@ -55,6 +55,10 @@ internal sealed class GamesHandler
         string? tagId = null;
         var limit = 0;
         var offset = 0;
+        if (!IpcRequests.TryReadOptionalBoolParameter(request, "hasCover", out var hasCover, out _))
+        {
+            return IpcRequests.InvalidArgument(request, "hasCover 只支持 true、false 或 null");
+        }
         if (request.Parameters is { ValueKind: JsonValueKind.Object } glParameters)
         {
             if (glParameters.TryGetProperty("search", out var searchElement) && searchElement.ValueKind == JsonValueKind.String)
@@ -96,6 +100,7 @@ internal sealed class GamesHandler
                         search = view.Search;
                         favoriteFilter = view.FavoriteOnly;
                         tagId = view.TagId;
+                        hasCover = view.HasCover;
                         sort = view.Sort;
                     }
                 }
@@ -121,7 +126,7 @@ internal sealed class GamesHandler
             return IpcRequests.InvalidArgument(request, "sort 只支持 title/title-asc、title-desc、recent/updated-desc 或 accepted-desc");
         }
 
-        var (total, games) = store.QueryGames(search, favoriteFilter, tagId, sort, limit, offset);
+        var (total, games) = store.QueryGames(search, favoriteFilter, tagId, sort, limit, offset, hasCover);
         // R41：批量充实取代逐游戏 4 次查询（各过一次存储锁）。
         var enrichment = store.EnrichGameCards(games);
         // feat-1：游玩统计与充实同批 SQL 聚合（launch_attempts，见 QueryPlaytimeStats）。

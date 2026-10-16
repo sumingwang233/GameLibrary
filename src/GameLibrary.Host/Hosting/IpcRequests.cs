@@ -84,6 +84,18 @@ internal static class IpcRequests
         return false;
     }
 
+    /// <summary>可选布尔 patch：缺省保持原值，显式 null 清除；其他 JSON 类型返回 false。</summary>
+    public static bool TryReadOptionalBoolParameter(IpcRequest request, string name, out bool? value, out bool provided)
+    {
+        value = null;
+        provided = request.Parameters is { ValueKind: JsonValueKind.Object } parameters
+            && parameters.TryGetProperty(name, out _);
+        if (!provided) return true;
+        var element = request.Parameters!.Value.GetProperty(name);
+        if (element.ValueKind == JsonValueKind.Null) return true;
+        return TryGetBoolParameter(request, name, out value);
+    }
+
     /// <summary>取整数参数：参数为数字且可解析为 Int32 时返回 true。</summary>
     public static bool TryGetIntParameter(IpcRequest request, string name, out int? value)
     {

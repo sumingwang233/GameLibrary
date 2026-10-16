@@ -35,6 +35,7 @@ export interface GameFilters {
   sort: string;
   tagId: string;
   favoriteOnly: boolean;
+  hasCover: boolean | null;
   viewId: string;
 }
 
@@ -43,6 +44,7 @@ export const emptyFilters: GameFilters = {
   sort: "accepted-desc",
   tagId: "",
   favoriteOnly: false,
+  hasCover: null,
   viewId: "",
 };
 
@@ -253,6 +255,7 @@ function useLibraryController(): LibraryController {
           name,
           search: filters.search || undefined,
           favoriteOnly: filters.favoriteOnly || undefined,
+          hasCover: filters.hasCover ?? undefined,
           tagId: filters.tagId || undefined,
           // bug-1：views.create 的 sort 白名单与 games.list 完全一致（六值，ViewSettingsHandler.cs:375）。
           // LibraryToolbar 四个排序值均合法；未知名兜底映射到 "title"，避免保存收藏夹被后端拒绝。

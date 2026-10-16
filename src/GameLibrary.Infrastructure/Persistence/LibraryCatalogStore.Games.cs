@@ -109,7 +109,7 @@ public static partial class LibraryCatalogStore
 
     /// <summary>
     /// 数据库侧检索（阶段三：列表分页/检索下沉到 SQL）：搜索命中用户标题或原文件夹名、
-    /// 收藏过滤、标签过滤（与搜索 AND 组合）、名称/修改时间/入库时间排序、LIMIT/OFFSET 分页。
+    /// 收藏/封面/标签过滤（与搜索 AND 组合）、名称/修改时间/入库时间排序、LIMIT/OFFSET 分页。
     /// total 为过滤后的总数（分页前）。limit &lt;= 0 表示不分页（兼容旧全量语义）。
     /// </summary>
     public static (int Total, IReadOnlyList<GameCard> Items) QueryGames(
@@ -119,7 +119,8 @@ public static partial class LibraryCatalogStore
         string? tagId,
         string? sort,
         int limit,
-        int offset)
+        int offset,
+        bool? hasCover = null)
     {
         const string originalTitle = "COALESCE((SELECT COALESCE(value, '') FROM game_fields gf WHERE gf.game_id = games.game_id AND gf.field_key = 'title' ORDER BY CASE gf.source WHEN 'user' THEN 0 ELSE 1 END LIMIT 1), title)";
         var where = new List<string> { "membership = 'active'" };
@@ -133,6 +134,12 @@ public static partial class LibraryCatalogStore
         if (favoriteOnly)
         {
             where.Add("favorite = 1");
+        }
+
+        if (hasCover is { } coverRequired)
+        {
+            const string currentCover = "EXISTS (SELECT 1 FROM game_assets ga WHERE ga.game_id = games.game_id AND ga.is_current = 1)";
+            where.Add(coverRequired ? currentCover : $"NOT {currentCover}");
         }
 
         if (!string.IsNullOrWhiteSpace(tagId))

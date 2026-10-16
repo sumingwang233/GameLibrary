@@ -129,6 +129,22 @@ internal static class Program
         return ExitArgumentError;
     }
 
+    private static Dictionary<string, object?> BuildViewPatch(CommandLine cli)
+    {
+        var patch = new Dictionary<string, object?>
+        {
+            ["idempotencyKey"] = cli.IdempotencyKey ?? $"viewupd-{Guid.NewGuid():N}",
+            ["viewId"] = cli.ViewId,
+            ["name"] = cli.Name,
+            ["search"] = cli.Search,
+            ["favoriteOnly"] = cli.FavoriteOnly ? true : (bool?)null,
+            ["sort"] = cli.Sort,
+            ["expectedRevision"] = cli.ExpectedRevision,
+        };
+        if (cli.HasCoverSpecified) patch["hasCover"] = cli.HasCover;
+        return patch;
+    }
+
     private static Dictionary<string, object> BuildSettingsPatch(CommandLine cli)
     {
         var patch = new Dictionary<string, object>
@@ -367,9 +383,9 @@ internal static class Program
         }
 
         if (operationId is "views.update"
-            && (cli.Name is null && cli.Search is null && !cli.FavoriteOnly && cli.Sort is null))
+            && (cli.Name is null && cli.Search is null && !cli.FavoriteOnly && cli.Sort is null && !cli.HasCoverSpecified))
         {
-            Console.Error.WriteLine("views update 至少提供 --name/--search/--favorite-only/--sort 之一");
+            Console.Error.WriteLine("views update 至少提供 --name/--search/--favorite-only/--sort/--with-cover/--without-cover/--all-covers 之一");
             return ExitArgumentError;
         }
 
@@ -461,6 +477,7 @@ internal static class Program
             {
                 search = cli.Search,
                 favorite = cli.Favorite,
+                hasCover = cli.HasCover,
                 sort = cli.Sort,
                 viewId = cli.ViewId,
                 tagId = cli.TagId,
@@ -675,18 +692,10 @@ internal static class Program
                 name = cli.Name,
                 search = cli.Search,
                 favoriteOnly = cli.FavoriteOnly,
+                hasCover = cli.HasCover,
                 sort = cli.Sort,
             },
-            "views.update" => new
-            {
-                idempotencyKey = cli.IdempotencyKey ?? $"viewupd-{Guid.NewGuid():N}",
-                viewId = cli.ViewId,
-                name = cli.Name,
-                search = cli.Search,
-                favoriteOnly = cli.FavoriteOnly ? true : (bool?)null,
-                sort = cli.Sort,
-                expectedRevision = cli.ExpectedRevision,
-            },
+            "views.update" => BuildViewPatch(cli),
             "views.remove" => new
             {
                 idempotencyKey = cli.IdempotencyKey ?? $"viewrm-{Guid.NewGuid():N}",

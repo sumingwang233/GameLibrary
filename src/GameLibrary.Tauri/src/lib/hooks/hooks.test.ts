@@ -30,6 +30,28 @@ it("refreshes only domains affected by events", () => {
   expect([...affectedDomains([{ type: "tag.updated", sequence: 2 }])]).toEqual(["tags", "games"]);
 });
 
+it("sends both cover states to every page and resets paging when the cover filter changes", async () => {
+  call.mockImplementation(async (_operation: string, params: { offset: number; hasCover?: boolean }) =>
+    envelope({ total: params.hasCover === false ? 1 : 120,
+      items: params.hasCover === false ? [game(200)] : Array.from({ length: 60 }, (_, i) => game(params.offset + i)) }));
+  const hook = renderHook(({ hasCover }: { hasCover: boolean | null }) => useGamesQuery({ ...emptyFilters, hasCover }, 0, false),
+    { initialProps: { hasCover: true as boolean | null } });
+  await act(async () => {});
+  await act(async () => hook.result.current.loadMore());
+  expect(hook.result.current.games).toHaveLength(120);
+  expect(call.mock.lastCall?.[1]).toMatchObject({ hasCover: true, offset: 60 });
+  hook.rerender({ hasCover: false });
+  await act(async () => {});
+  expect(call.mock.lastCall?.[1]).toMatchObject({ hasCover: false, offset: 0 });
+  expect(hook.result.current.games.map(item => item.gameId)).toEqual(["200"]);
+  expect(hook.result.current.total).toBe(1);
+  expect(hook.result.current.hasMore).toBe(false);
+  hook.rerender({ hasCover: null });
+  await act(async () => {});
+  expect(call.mock.lastCall?.[1].hasCover).toBeUndefined();
+  expect(hook.result.current.games).toHaveLength(60);
+});
+
 it("patches translated titles in loaded pages while refresh is suppressed and ignores stale revisions", async () => {
   call.mockResolvedValue(envelope({ total: 120, items: Array.from({ length: 60 }, (_, i) => game(i)) }));
   const hook = renderHook(({ suppress }) => useGamesQuery(emptyFilters, 0, suppress), { initialProps: { suppress: false } });

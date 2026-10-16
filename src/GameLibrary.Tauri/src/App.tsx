@@ -201,6 +201,7 @@ function App() {
           viewId,
           search: view?.search ?? "",
           favoriteOnly: view?.favoriteOnly ?? false,
+          hasCover: view?.hasCover ?? null,
           tagId: view?.tagId ?? "",
           sort: view?.sort ?? "accepted-desc",
         });
@@ -210,6 +211,7 @@ function App() {
       onFavoriteChange={(favoriteOnly) => patchFilters({
         viewId: "",
         favoriteOnly,
+        hasCover: null,
         tagId: "",
         search: "",
         sort: "accepted-desc",
@@ -294,6 +296,8 @@ function App() {
                 onSearch={(search) => patchFilters({ search, viewId: "" })}
                 sort={filters.sort}
                 onSort={(sort) => patchFilters({ sort, viewId: "" })}
+                hasCover={filters.hasCover}
+                onHasCover={(hasCover) => patchFilters({ hasCover, viewId: "" })}
                 onRefresh={() => {
                   void games.reload();
                   void library.refreshMeta();

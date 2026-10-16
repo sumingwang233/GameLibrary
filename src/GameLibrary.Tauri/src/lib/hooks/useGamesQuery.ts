@@ -52,9 +52,10 @@ export function useGamesQuery(
       sort: filters.sort,
       tagId: filters.tagId || undefined,
       favorite: filters.favoriteOnly || undefined,
+      hasCover: filters.hasCover ?? undefined,
       viewId: filters.viewId || undefined,
     }),
-    [debouncedSearch, filters.sort, filters.tagId, filters.favoriteOnly, filters.viewId],
+    [debouncedSearch, filters.sort, filters.tagId, filters.favoriteOnly, filters.hasCover, filters.viewId],
   );
 
   const enqueue = useCallback(<T,>(task: () => Promise<T>): Promise<T> => {

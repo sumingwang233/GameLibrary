@@ -62,6 +62,7 @@ internal sealed class ViewSettingsHandler
             kind = "builtin",
             search = (string?)null,
             favoriteOnly = v.ViewId == "favorites",
+            hasCover = (bool?)null,
             tagId = (string?)null,
             sort = "title",
             revision = (int?)null,
@@ -74,6 +75,7 @@ internal sealed class ViewSettingsHandler
             kind = "custom",
             search = v.Search,
             favoriteOnly = v.FavoriteOnly,
+            hasCover = v.HasCover,
             tagId = v.TagId,
             sort = v.Sort,
             revision = (int?)v.Revision,
@@ -119,6 +121,7 @@ internal sealed class ViewSettingsHandler
                     kind = "builtin",
                     search = (string?)null,
                     favoriteOnly = builtin.ViewId == "favorites",
+                    hasCover = (bool?)null,
                     tagId = (string?)null,
                     sort = "title",
                     revision = (int?)null,
@@ -144,6 +147,7 @@ internal sealed class ViewSettingsHandler
                 kind = "custom",
                 search = view.Search,
                 favoriteOnly = view.FavoriteOnly,
+                hasCover = view.HasCover,
                 tagId = view.TagId,
                 sort = view.Sort,
                 revision = (int?)view.Revision,
@@ -167,6 +171,10 @@ internal sealed class ViewSettingsHandler
 
         IpcRequests.TryGetStringParameter(request, "search", out var search);
         IpcRequests.TryGetBoolParameter(request, "favoriteOnly", out var favoriteOnly);
+        if (!IpcRequests.TryReadOptionalBoolParameter(request, "hasCover", out var hasCover, out _))
+        {
+            return IpcRequests.InvalidArgument(request, "hasCover 只支持 true、false 或 null");
+        }
         IpcRequests.TryGetStringParameter(request, "tagId", out var tagId);
         IpcRequests.TryGetStringParameter(request, "sort", out var sort);
         if (sort.Length > 0 && !IsValidSort(sort))
@@ -181,6 +189,7 @@ internal sealed class ViewSettingsHandler
             Name = name,
             Search = search.Length > 0 ? search : null,
             FavoriteOnly = favoriteOnly == true,
+            HasCover = hasCover,
             TagId = tagId.Length > 0 ? tagId : null,
             Sort = sort.Length > 0 ? sort : "title",
             CreatedUtc = now,
@@ -224,6 +233,10 @@ internal sealed class ViewSettingsHandler
         IpcRequests.TryGetStringParameter(request, "name", out var name);
         IpcRequests.TryGetStringParameter(request, "search", out var search);
         IpcRequests.TryGetBoolParameter(request, "favoriteOnly", out var favoriteOnly);
+        if (!IpcRequests.TryReadOptionalBoolParameter(request, "hasCover", out var hasCover, out var updateHasCover))
+        {
+            return IpcRequests.InvalidArgument(request, "hasCover 只支持 true、false 或 null");
+        }
         IpcRequests.TryGetStringParameter(request, "tagId", out var tagId);
         IpcRequests.TryGetStringParameter(request, "sort", out var sort);
         if (sort.Length > 0 && !IsValidSort(sort))
@@ -239,7 +252,8 @@ internal sealed class ViewSettingsHandler
             tagId.Length > 0 ? tagId : null,
             sort.Length > 0 ? sort : null,
             expectedRevision.Value,
-            DateTime.UtcNow);
+            DateTime.UtcNow,
+            hasCover, updateHasCover);
         if (newRevision is null)
         {
             var latest = store.TryGetView(viewId);
@@ -390,6 +404,7 @@ internal sealed class ViewSettingsHandler
             kind = "custom",
             search = view.Search,
             favoriteOnly = view.FavoriteOnly,
+            hasCover = view.HasCover,
             tagId = view.TagId,
             sort = view.Sort,
             revision = (int?)view.Revision,
