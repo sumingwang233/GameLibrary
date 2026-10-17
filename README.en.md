@@ -10,7 +10,7 @@
 
 Keep games scattered across your drives in one library. Choose a folder, check the launch entry, and open the game from your collection.
 
-Current source **v1.7.21** makes Played a manual-only mark set from the game detail page: a normal exit no longer files a game under Played, and clearing the mark returns it to the main library. A [local acceptance-candidate build](docs/releases/v1.7.21.md) is available. No GitHub Release has been published; default downloads still point to the stable release.
+Current source **v1.7.22** recognizes Godot games with an embedded PCK and pins the MTool GodotHook translation rule: use Mark as translation-required and generate launch script in game details to launch through MTool. See the [implementation record](docs/development/v1.7.22-godot-mtool.md); the previous [local acceptance-candidate build](docs/releases/v1.7.21.md) remains. No GitHub Release has been published; default downloads still point to the stable release.
 
 **[Download the Windows installer](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-Setup-v1.7.13.exe)** · [All releases](https://github.com/sumingwang233/GameLibrary/releases) · [Report an issue](https://github.com/sumingwang233/GameLibrary/issues)
 

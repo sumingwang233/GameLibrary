@@ -6,7 +6,7 @@ namespace GameLibrary.UnitTests.Detection;
 internal sealed class InMemorySnapshot : IDirectorySnapshot
 {
     private readonly HashSet<string> _directories = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, (long Size, byte[]? Head, bool Unreadable)> _files = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, (long Size, byte[]? Head, bool Unreadable, byte[]? Content)> _files = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ExecutableIdentity> _identities = new(StringComparer.OrdinalIgnoreCase);
 
     public InMemorySnapshot Identity(string path, ExecutableIdentity identity) { _identities[path] = identity; return File(path); }
@@ -23,7 +23,14 @@ internal sealed class InMemorySnapshot : IDirectorySnapshot
 
     public InMemorySnapshot File(string relativePath, byte[]? head = null, bool unreadable = false)
     {
-        _files[relativePath] = (head?.Length ?? 10, head, unreadable);
+        _files[relativePath] = (head?.Length ?? 10, head, unreadable, null);
+        return this;
+    }
+
+    /// <summary>带完整内容的文件：支持按偏移读取，用于内嵌 PCK 等尾部证据。</summary>
+    public InMemorySnapshot FileContent(string relativePath, byte[] content, bool unreadable = false)
+    {
+        _files[relativePath] = (content.Length, content, unreadable, content);
         return this;
     }
 
@@ -58,6 +65,28 @@ internal sealed class InMemorySnapshot : IDirectorySnapshot
         }
 
         return FileProbe.Ok(file.Head ?? []);
+    }
+
+    public FileProbe TryReadBytesAt(string relativePath, long offset, int count)
+    {
+        if (!_files.TryGetValue(relativePath, out var file))
+        {
+            return FileProbe.NotFound();
+        }
+
+        if (file.Unreadable)
+        {
+            return FileProbe.Unreadable();
+        }
+
+        var content = file.Content ?? file.Head ?? [];
+        if (offset < 0 || offset >= content.LongLength)
+        {
+            return FileProbe.Ok([]);
+        }
+
+        var length = (int)Math.Min(count, content.LongLength - offset);
+        return FileProbe.Ok(content.AsSpan((int)offset, length).ToArray());
     }
 
     private static string ParentOf(string relativePath)

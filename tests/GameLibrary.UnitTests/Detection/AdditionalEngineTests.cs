@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using GameLibrary.Domain.Detection;
 using Xunit;
 
@@ -61,5 +62,46 @@ public sealed class AdditionalEngineTests
             .Directory("Example/Content/Paks").Directory("Example/Binaries/Win64")
             .File("Game.pck", [0x47, 0x44, 0x50, 0x43]);
         Assert.DoesNotContain(EngineDetectorSet.Default.DetectAll(empty).Results, result => result.Confidence == DetectionConfidence.High);
+    }
+
+    [Fact]
+    public void GodotEmbeddedPack_TrailerAndHeaderEvidence_DetectsEngine()
+    {
+        var snapshot = new InMemorySnapshot().FileContent("Game.exe", EmbeddedGodotExecutable());
+        var result = Assert.Single(EngineDetectorSet.Default.DetectAll(snapshot).Results, result => result.Engine == EngineId.Godot);
+        Assert.Equal(DetectionConfidence.High, result.Confidence);
+        Assert.Equal("Game.exe", Assert.Single(result.EntryCandidates).RelativePath);
+        Assert.Contains(result.Evidence, evidence => evidence.RelativePath == "Game.exe");
+        Assert.DoesNotContain(EngineDetectorSet.Default.DetectAll(new InMemorySnapshot().FileContent("Game.exe", EmbeddedGodotExecutable(packFormat: 9))).Results,
+            result => result.Engine == EngineId.Godot);
+    }
+
+    [Fact]
+    public void GodotMagicLookingCodeAndTruncatedTrailers_AreNotEmbeddedPackEvidence()
+    {
+        var code = new byte[128];
+        "GDPC"u8.CopyTo(code.AsSpan(8));
+        "GDPC"u8.CopyTo(code.AsSpan(64));
+        Assert.DoesNotContain(EngineDetectorSet.Default.DetectAll(new InMemorySnapshot().FileContent("Game.exe", code)).Results,
+            result => result.Engine == EngineId.Godot);
+        var truncated = new byte[64];
+        "GDPC"u8.CopyTo(truncated.AsSpan(60));
+        Assert.DoesNotContain(EngineDetectorSet.Default.DetectAll(new InMemorySnapshot().FileContent("Game.exe", truncated)).Results,
+            result => result.Engine == EngineId.Godot);
+    }
+
+    private static byte[] EmbeddedGodotExecutable(uint packFormat = 3, uint major = 4, uint minor = 6, uint patch = 2)
+    {
+        var pack = new byte[64];
+        "GDPC"u8.CopyTo(pack);
+        BinaryPrimitives.WriteUInt32LittleEndian(pack.AsSpan(4), packFormat);
+        BinaryPrimitives.WriteUInt32LittleEndian(pack.AsSpan(8), major);
+        BinaryPrimitives.WriteUInt32LittleEndian(pack.AsSpan(12), minor);
+        BinaryPrimitives.WriteUInt32LittleEndian(pack.AsSpan(16), patch);
+        var executable = new byte[16 + pack.Length + 12];
+        pack.CopyTo(executable, 16);
+        BinaryPrimitives.WriteUInt64LittleEndian(executable.AsSpan(executable.Length - 12), (ulong)pack.Length);
+        "GDPC"u8.CopyTo(executable.AsSpan(executable.Length - 4));
+        return executable;
     }
 }

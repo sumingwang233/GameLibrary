@@ -23,6 +23,9 @@ public interface IDirectorySnapshot
     /// <summary>读取文件前 count 字节；区分不存在/成功/不可读三态。</summary>
     FileProbe TryReadFirstBytes(string relativePath, int count);
 
+    /// <summary>读取指定偏移的定长字节，不做全文件扫描；不存在/不可读按三态返回，短读返回实际字节。</summary>
+    FileProbe TryReadBytesAt(string relativePath, long offset, int count) => FileProbe.NotFound();
+
     /// <summary>只读 PE 版本资源；缺失、不可读或非 PE 返回 null，不执行文件。</summary>
     ExecutableIdentity? ReadExecutableIdentity(string relativePath) => null;
 }

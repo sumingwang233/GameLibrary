@@ -37,13 +37,13 @@ public sealed class AdditionalEngineDetector(EngineId engine) : IEngineDetector
         else if (engine == EngineId.Godot)
         {
             var pack = files.FirstOrDefault(file => file.EndsWith(".pck", StringComparison.OrdinalIgnoreCase)
-                && snapshot.TryReadFirstBytes(file, 20).Bytes is { Length: 20 } bytes && bytes.AsSpan(0, 4).SequenceEqual("GDPC"u8)
-                && BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(4, 4)) is >= 1 and <= 4
-                && BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(8, 4)) is >= 2 and <= 4);
+                && snapshot.TryReadFirstBytes(file, 20).Bytes is { Length: 20 } bytes && IsGodotPackHeader(bytes));
             var identified = entries.Where(entry => snapshot.ReadExecutableIdentity(entry)?.Product?.Contains("Godot Engine", StringComparison.OrdinalIgnoreCase) == true).ToArray();
-            if (pack is null && identified.Length == 0) return null;
+            var embedded = entries.Where(entry => IsGodotEmbeddedPack(snapshot, entry)).ToArray();
+            if (pack is null && identified.Length == 0 && embedded.Length == 0) return null;
             if (pack is not null) Found("godot.pack-header", pack);
             if (identified.Length > 0) { entries = identified; Found("godot.pe-product", identified[0]); }
+            else if (embedded.Length > 0) { entries = embedded; Found("godot.embedded-pack", embedded[0]); }
         }
         else if (engine == EngineId.Unreal)
         {
@@ -90,4 +90,29 @@ public sealed class AdditionalEngineDetector(EngineId engine) : IEngineDetector
             && snapshot.FileExists("Game.ini") && (snapshot.FileExists("Data.wolf") || snapshot.DirectoryExists("Data/BasicData")),
         _ => false,
     };
+
+    private static bool IsGodotPackHeader(ReadOnlySpan<byte> header) =>
+        header.Length >= 12 && header[..4].SequenceEqual("GDPC"u8)
+        && BinaryPrimitives.ReadUInt32LittleEndian(header[4..8]) is >= 1 and <= 4
+        && BinaryPrimitives.ReadUInt32LittleEndian(header[8..12]) is >= 2 and <= 4;
+
+    /// <summary>
+    /// Godot 4 内嵌 PCK：独立导出包用 .pck 文件；启用内嵌时文件尾为 [uint64 包大小][GDPC]，
+    /// 包头在"包大小 + 12 字节尾部"之前。只做两次定长读取，不扫描整个可执行文件。
+    /// </summary>
+    private static bool IsGodotEmbeddedPack(IDirectorySnapshot snapshot, string relativePath)
+    {
+        if (snapshot.FileSize(relativePath) is not { } size || size < 40) return false;
+        var tail = snapshot.TryReadBytesAt(relativePath, size - 12, 12);
+        if (tail.Bytes is not { Length: 12 } trailer || !trailer.AsSpan(8, 4).SequenceEqual("GDPC"u8)) return false;
+        var packSize = BinaryPrimitives.ReadUInt64LittleEndian(trailer.AsSpan(0, 8));
+        if (packSize is < 20 || packSize > (ulong)(size - 12)) return false;
+        foreach (var offset in new[] { size - 12 - (long)packSize, size - (long)packSize })
+        {
+            var header = snapshot.TryReadBytesAt(relativePath, offset, 20);
+            if (header.Bytes is { Length: 20 } bytes && IsGodotPackHeader(bytes)) return true;
+        }
+
+        return false;
+    }
 }

@@ -2,6 +2,7 @@
   "MTool 翻译": ["MTool 翻譯","MTool translation","MTool 翻訳"],
   "正在生成启动脚本…": ["正在產生啟動腳本…","Generating launch script…","起動スクリプトを生成中…"],
   "生成或修复 MTool 启动脚本": ["產生或修復 MTool 啟動腳本","Generate or repair MTool launch script","MTool 起動スクリプトを生成・修復"],
+  "标记为需要翻译并生成启动脚本": ["標記為需要翻譯並產生啟動腳本","Mark as translation-required and generate launch script","翻訳が必要としてマークし起動スクリプトを生成"],
   "启动目标仅支持 EXE、SWF 或 BAT 文件": ["啟動目標僅支援 EXE、SWF 或 BAT 檔案","Launch targets must be EXE, SWF or BAT files","起動先は EXE、SWF、BAT ファイルに対応しています"],
   "BAT 路径或参数包含不支持的命令符号，请改用普通路径和参数": ["BAT 路徑或參數包含不支援的命令符號，請改用一般路徑和參數","The BAT path or arguments contain unsupported command symbols. Use a plain path and arguments.","BAT のパスまたは引数に未対応のコマンド記号があります。通常のパスと引数を使用してください。"],
   "BAT 翻译启动方式需要选择已生成的 MTool 配方，并先确认原始游戏入口": ["BAT 翻譯啟動方式需要選擇已產生的 MTool 配方，並先確認原始遊戲入口","For a BAT translation profile, select the generated MTool recipe and confirm the original game executable first.","BAT の翻訳起動設定では、生成済み MTool レシピを選択し、先に元のゲーム実行ファイルを確認してください。"],

@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Text.Json;
 using GameLibrary.Contracts;
 using GameLibrary.Contracts.Ipc;
@@ -53,7 +54,7 @@ public sealed class MToolPreparationTests(PipeServerFixture fixture) : IClassFix
         Directory.CreateDirectory(gameRoot);
         Directory.CreateDirectory(Path.Combine(tool, "loaders"));
         File.Copy(Stub, Path.Combine(gameRoot, "Game.exe"));
-        foreach (var file in new[] { "MTool.exe", "loaders/inject.exe", "loaders/mzHook.dll", "loaders/mzHook32.dll", "loaders/SRPGHook.dll" })
+        foreach (var file in new[] { "MTool.exe", "loaders/inject.exe", "loaders/mzHook.dll", "loaders/mzHook32.dll", "loaders/SRPGHook.dll", "loaders/GodotHook.dll" })
             File.Copy(Stub, Path.Combine(tool, file));
         foreach (var directory in new[] { tool, Path.Combine(tool, "loaders") })
             foreach (var file in Directory.GetFiles(AppContext.BaseDirectory, "GameLibrary.TestProcessStub.*").Where(file => !file.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)))
@@ -90,6 +91,41 @@ public sealed class MToolPreparationTests(PipeServerFixture fixture) : IClassFix
         }
         var assigned = await Invoke("tags.assign", new { gameId = game.GameId, tagId = tag.TagId, expectedRevision = fixture.State.Library.Store.TryGetGame(game.GameId)!.Revision });
         Assert.True(assigned.Ok, assigned.Error?.Message);
+    }
+
+    [Fact]
+    public async Task EmbeddedGodotPack_GeneratesGodotHookRecipe_AndPlansLaunch()
+    {
+        var (game, profileId, _) = await Create(rpg: false);
+        AppendEmbeddedGodotPack(Path.Combine(game.RootPath, "Game.exe"));
+        fixture.State.Library.Store!.SetTranslationOverride(game.GameId, "Required", 1, DateTime.UtcNow);
+        var prepared = await Invoke("mtool.prepare", new { gameId = game.GameId, profileId });
+        Assert.True(prepared.Ok, prepared.Error?.Message);
+        var recipe = new MToolAdapter().Discover(game.RootPath).Recipe!;
+        Assert.False(recipe.IsBroken);
+        Assert.Equal("GodotHook.dll", Path.GetFileName(recipe.Steps[0].Arguments[1]));
+        var route = GameLibrary.Host.Launching.TranslationLaunchRouteResolver.Resolve(
+            fixture.State.Library.Store.TryGetGame(game.GameId)!, fixture.State.Launches.GetProfile(profileId)!);
+        Assert.Null(route.UnavailableReason);
+        Assert.Equal("GodotHook.dll", Path.GetFileName(route.Route!.Steps[0].Arguments[1]));
+        Assert.True((await Invoke("launch.plan", new { gameId = game.GameId, profileId })).Ok);
+    }
+
+    private static void AppendEmbeddedGodotPack(string executablePath)
+    {
+        var stub = File.ReadAllBytes(executablePath);
+        var pack = new byte[64];
+        "GDPC"u8.CopyTo(pack);
+        BinaryPrimitives.WriteUInt32LittleEndian(pack.AsSpan(4), 3);
+        BinaryPrimitives.WriteUInt32LittleEndian(pack.AsSpan(8), 4);
+        BinaryPrimitives.WriteUInt32LittleEndian(pack.AsSpan(12), 6);
+        BinaryPrimitives.WriteUInt32LittleEndian(pack.AsSpan(16), 2);
+        var executable = new byte[stub.Length + pack.Length + 12];
+        stub.CopyTo(executable, 0);
+        pack.CopyTo(executable, stub.Length);
+        BinaryPrimitives.WriteUInt64LittleEndian(executable.AsSpan(executable.Length - 12), (ulong)pack.Length);
+        "GDPC"u8.CopyTo(executable.AsSpan(executable.Length - 4));
+        File.WriteAllBytes(executablePath, executable);
     }
 
     [Fact]
