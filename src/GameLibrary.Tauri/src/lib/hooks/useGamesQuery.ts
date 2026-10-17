@@ -52,10 +52,11 @@ export function useGamesQuery(
       sort: filters.sort,
       tagId: filters.tagId || undefined,
       favorite: filters.favoriteOnly || undefined,
+      played: filters.playedOnly,
       hasCover: filters.hasCover ?? undefined,
       viewId: filters.viewId || undefined,
     }),
-    [debouncedSearch, filters.sort, filters.tagId, filters.favoriteOnly, filters.hasCover, filters.viewId],
+    [debouncedSearch, filters.sort, filters.tagId, filters.favoriteOnly, filters.playedOnly, filters.hasCover, filters.viewId],
   );
 
   const enqueue = useCallback(<T,>(task: () => Promise<T>): Promise<T> => {
@@ -137,8 +138,10 @@ export function useGamesQuery(
     let cancelled = false;
     // request 引用变化 ⇒ 筛选/排序/搜索变化 ⇒ 重置分页；仅 changeToken 变化 ⇒ 保留已加载页。
     const isFilterChange = lastRequestRef.current !== request;
+    const isLibraryChange = lastRequestRef.current?.played !== request.played;
     lastRequestRef.current = request;
-    if (!hasLoadedRef.current) setLoading(true);
+    if (isLibraryChange) applyResult([], 0);
+    if (!hasLoadedRef.current || isLibraryChange) setLoading(true);
     setError(null);
     void (async () => {
       try {
@@ -157,7 +160,7 @@ export function useGamesQuery(
       cancelled = true;
     };
     // 保留调用方主动抑制自动刷新接口；扫描本身不再阻止读取。
-  }, [enqueue, refresh, changeToken, suppressAutoRefresh]);
+  }, [enqueue, refresh, request, applyResult, changeToken, suppressAutoRefresh]);
 
   const loadMore = useCallback(() => {
     if (loadingMore || gamesRef.current.length >= totalRef.current) return;

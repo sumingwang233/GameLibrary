@@ -5,6 +5,7 @@ using GameLibrary.Domain.Catalog;
 using GameLibrary.Host.Hosting;
 using GameLibrary.Host.Launching;
 using GameLibrary.HostClient;
+using GameLibrary.Infrastructure.Persistence;
 using Xunit;
 
 namespace GameLibrary.IntegrationTests.Manual;
@@ -132,6 +133,90 @@ public sealed class GameExperienceTests(PipeServerFixture fixture) : IClassFixtu
         Assert.Equal(saved.Revision, store.TryGetGame(id)!.Revision);
         Assert.Equal(played, saved.Played); Assert.True(saved.Favorite); Assert.Equal(4, saved.Rating);
         Assert.Equal(original.AcceptedUtc, saved.AcceptedUtc);
+    }
+
+    [Fact]
+    public async Task PlayedLibraries_FilterBeforePaging_CombineFilters_AndMoveGamesWithoutLosingMetadata()
+    {
+        var store = fixture.State.Library.Store!;
+        var prefix = "played-query-" + Guid.NewGuid().ToString("N");
+        var cards = Enumerable.Range(0, 6).Select(i => new GameCard
+        {
+            GameId = Guid.NewGuid().ToString("N"), Title = $"{prefix}-{i}",
+            RootPath = Path.Combine(fixture.State.DataDirectory, prefix, i.ToString()),
+            Kind = "gameRoot", Membership = "active", Engine = "unity", Favorite = i < 4, Played = i % 2 == 1, Rating = 4,
+            AcceptedUtc = DateTime.UtcNow, UpdatedUtc = DateTime.UtcNow,
+        }).ToArray();
+        foreach (var card in cards) store.InsertGame(card);
+        store.RemoveGame(cards[5].GameId, 1, new IgnoreRule
+        {
+            IgnoreId = Guid.NewGuid().ToString("N"), Scope = "ExactPath", Path = cards[5].RootPath,
+            GameId = cards[5].GameId, Reason = "isolated test", CreatedUtc = DateTime.UtcNow,
+        }, DateTime.UtcNow);
+        store.ImportAsset(cards[0].GameId, "isolated-cover.png", DateTime.UtcNow);
+        store.ImportAsset(cards[1].GameId, "isolated-cover.png", DateTime.UtcNow);
+        var tag = await Invoke("tags.create", new { name = prefix, idempotencyKey = Guid.NewGuid().ToString() });
+        Assert.True(tag.Ok, tag.Error?.Message);
+        var tagId = tag.Data.GetProperty("tagId").GetString()!;
+        foreach (var index in new[] { 0, 1, 4 }) store.AssignTag(cards[index].GameId, tagId, DateTime.UtcNow);
+
+        foreach (var played in new[] { false, true })
+        {
+            var expected = cards.Take(5).Where(game => game.Played == played).ToArray();
+            var ids = new List<string>();
+            for (var offset = 0; offset <= expected.Length; offset++)
+            {
+                var page = await Invoke("games.list", new { search = prefix, played, sort = "title-asc", limit = 1, offset });
+                Assert.True(page.Ok, page.Error?.Message);
+                Assert.Equal(expected.Length, page.Data.GetProperty("total").GetInt32());
+                foreach (var item in page.Data.GetProperty("items").EnumerateArray())
+                {
+                    Assert.Equal(played, item.GetProperty("played").GetBoolean());
+                    ids.Add(item.GetProperty("gameId").GetString()!);
+                }
+            }
+            Assert.Equal(expected.Select(game => game.GameId), ids);
+            var combined = await Invoke("games.list", new { search = prefix, played, favorite = true, hasCover = true, tagId });
+            Assert.True(combined.Ok, combined.Error?.Message);
+            Assert.Equal(1, combined.Data.GetProperty("total").GetInt32());
+            Assert.Equal(cards[played ? 1 : 0].GameId,
+                Assert.Single(combined.Data.GetProperty("items").EnumerateArray()).GetProperty("gameId").GetString());
+        }
+        foreach (var parameters in new object[] { new { search = prefix }, new { search = prefix, played = (bool?)null } })
+        {
+            var all = await Invoke("games.list", parameters);
+            Assert.True(all.Ok, all.Error?.Message);
+            Assert.Equal(5, all.Data.GetProperty("total").GetInt32());
+        }
+        var before = store.TryGetGame(cards[0].GameId)!;
+        foreach (var played in new[] { true, false })
+        {
+            var game = store.TryGetGame(before.GameId)!;
+            var updated = await Invoke("games.update", new { gameId = game.GameId, played,
+                expectedRevision = game.Revision, idempotencyKey = Guid.NewGuid().ToString() });
+            Assert.True(updated.Ok, updated.Error?.Message);
+            var destination = await Invoke("games.list", new { search = prefix + "-0", played });
+            Assert.Equal(before.GameId, Assert.Single(destination.Data.GetProperty("items").EnumerateArray()).GetProperty("gameId").GetString());
+            var other = await Invoke("games.list", new { search = prefix + "-0", played = !played });
+            Assert.Equal(0, other.Data.GetProperty("total").GetInt32());
+            var saved = store.TryGetGame(before.GameId)!;
+            Assert.Equal(before.Favorite, saved.Favorite);
+            Assert.Equal(before.Rating, saved.Rating);
+            Assert.Equal(before.AcceptedUtc, saved.AcceptedUtc);
+            Assert.Single(store.ListGameTags(saved.GameId));
+            Assert.Single(store.ListAssets(saved.GameId));
+        }
+    }
+
+    [Fact]
+    public async Task PlayedLibrary_RejectsNonBooleanInputs()
+    {
+        foreach (var raw in new[] { "\"false\"", "0", "[]" })
+        {
+            var rejected = await Invoke("games.list", new { played = JsonSerializer.Deserialize<JsonElement>(raw) });
+            Assert.False(rejected.Ok);
+            Assert.Equal(ErrorCodes.InvalidArgument, rejected.Error!.Code);
+        }
     }
 
     [Fact]

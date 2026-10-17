@@ -210,6 +210,8 @@ function App() {
         });
       }}
       favoriteOnly={filters.favoriteOnly}
+      playedOnly={filters.playedOnly}
+      onPlayedChange={(playedOnly) => patchFilters({ ...emptyFilters, playedOnly })}
       onFavoriteChange={(favoriteOnly) => patchFilters({
         viewId: "",
         favoriteOnly,
@@ -331,7 +333,9 @@ function App() {
                 emptyHint={
                   filters.search
                     ? t("没有匹配「{0}」的游戏。", filters.search)
-                    : t("添加游戏库目录并扫描，游戏会出现在这里。")
+                    : filters.playedOnly
+                      ? t("标记为已游玩的游戏会显示在这里。")
+                      : t("添加游戏，或到侧栏“已游玩”查看玩过的游戏。")
                 }
                 onLoadMore={games.loadMore}
                 onSelect={(gameId) => {
@@ -440,6 +444,7 @@ function sectionHeading(section: Section, filters: GameFilters, views: ViewItem[
     const view = views.find((item) => item.viewId === filters.viewId);
     return view?.name ?? t("收藏夹");
   }
+  if (filters.playedOnly) return t("已游玩");
   if (filters.favoriteOnly) return t("收藏");
   if (filters.tagId) return t("按标签筛选");
   return t("游戏库");

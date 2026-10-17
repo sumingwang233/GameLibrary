@@ -52,6 +52,52 @@ it("sends both cover states to every page and resets paging when the cover filte
   expect(hook.result.current.games).toHaveLength(60);
 });
 
+it("filters every page by played state, clears the old library during switches, and refreshes marked games", async () => {
+  let unplayed = Array.from({ length: 61 }, (_, i) => ({ ...game(i), played: false }));
+  let finishPlayed!: (value: unknown) => void;
+  call.mockImplementation(async (_operation, params) => params.played
+    ? new Promise(resolve => { finishPlayed = resolve; })
+    : envelope({ total: unplayed.length, items: unplayed.slice(params.offset, params.offset + params.limit) }));
+  const hook = renderHook(({ playedOnly, token }) => useGamesQuery({ ...emptyFilters, playedOnly }, token, false),
+    { initialProps: { playedOnly: false, token: 0 } });
+  await act(async () => {});
+  await act(async () => hook.result.current.loadMore());
+  expect(hook.result.current.games).toHaveLength(61);
+  expect(call.mock.lastCall?.[1]).toMatchObject({ played: false, offset: 60 });
+  hook.rerender({ playedOnly: true, token: 0 });
+  await act(async () => {});
+  expect(call.mock.lastCall?.[1]).toMatchObject({ played: true, offset: 0 });
+  expect(hook.result.current.games).toEqual([]);
+  expect(hook.result.current.loading).toBe(true);
+  await act(async () => finishPlayed(envelope({ total: 1, items: [{ ...game(200), played: true }] })));
+  expect(hook.result.current.games.map(item => item.gameId)).toEqual(["200"]);
+  expect(hook.result.current.total).toBe(1);
+  expect(hook.result.current.hasMore).toBe(false);
+  hook.rerender({ playedOnly: false, token: 0 });
+  await act(async () => {});
+  unplayed = unplayed.slice(1); // The first game was marked played by a successful session or a detail edit.
+  hook.rerender({ playedOnly: false, token: 1 });
+  await act(async () => {});
+  expect(hook.result.current.total).toBe(60);
+  expect(hook.result.current.games.some(item => item.gameId === "0")).toBe(false);
+});
+
+it("discards a late played page after returning to the main library", async () => {
+  let stale!: (value: unknown) => void;
+  call.mockImplementation(async (_operation, params) => params.played
+    ? new Promise(resolve => { stale = resolve; })
+    : envelope({ total: 1, items: [game(1)] }));
+  const hook = renderHook(({ playedOnly }) => useGamesQuery({ ...emptyFilters, playedOnly }, 0, false),
+    { initialProps: { playedOnly: false } });
+  await act(async () => {});
+  hook.rerender({ playedOnly: true });
+  await act(async () => {});
+  hook.rerender({ playedOnly: false });
+  await act(async () => stale(envelope({ total: 1, items: [game(200)] })));
+  expect(hook.result.current.games.map(item => item.gameId)).toEqual(["1"]);
+  expect(hook.result.current.total).toBe(1);
+});
+
 it("patches translated titles in loaded pages while refresh is suppressed and ignores stale revisions", async () => {
   call.mockResolvedValue(envelope({ total: 120, items: Array.from({ length: 60 }, (_, i) => game(i)) }));
   const hook = renderHook(({ suppress }) => useGamesQuery(emptyFilters, 0, suppress), { initialProps: { suppress: false } });
@@ -164,6 +210,7 @@ it("metadata ignores an older response for the same domain", async () => {
   await act(async () => hook.result.current.refreshDomains(["games"]));
   await act(async () => { old(envelope({ total: 99 })); await first; });
   expect(hook.result.current.gameTotal).toBe(2);
+  expect(call.mock.calls.filter(([name]) => name === "games.list").every(([, params]) => params.played === false)).toBe(true);
 });
 
 it("deduplicates launch exit attempts while polling an older Host", async () => {

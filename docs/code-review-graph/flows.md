@@ -1,5 +1,9 @@
 # GameLibrary 关键流程
 
+## v1.7.19 已游玩游戏库
+
+侧栏“全部游戏 / 已游玩” → `playedOnly` → 每页 `games.list.played=false / true` → 可空布尔校验 → 同一 SQL 条件计算总数和分页。主库数量仅统计未游玩；切换时清空旧列表，沿现有 request 身份判断丢弃迟到响应。详情修改与正常游玩结束后的标记复用原有事件刷新，游戏 ID 和元数据保持不变。CLI/MCP 省略或传 `null` 仍查询全部游戏，无新 DDL、路由或依赖。见[实施与验证记录](../development/v1.7.19-played-library.md)。
+
 ## v1.7.18 状态、评分与共享检测
 
 `EngineDetectorSet.Default → 扫描 / 手动建卡 / 入口建议 / MTool 模板选择` 共享只读证据。手动创建在建卡事务中保存 canonical engine 并分配自动引擎标签；既有未知游戏通过有预算的 metadata tick、标签赋值及扫描 CAS 补齐，已知引擎与被 suppress 的标签保持原语义。`正常 launch.exited → MarkGamePlayed + App → DetailSheet` 复用退出导航，评分区域短暂高亮，played/rating 经 games.update 的同一 Revision 与幂等收据保存。收藏夹分组移除，保留收藏筛选和原数据。见[实施与验收边界](../development/v1.7.18-game-experience-and-engines.md)。

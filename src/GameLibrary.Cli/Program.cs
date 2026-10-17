@@ -483,6 +483,7 @@ internal static class Program
             {
                 search = cli.Search,
                 favorite = cli.Favorite,
+                played = cli.Played,
                 hasCover = cli.HasCover,
                 sort = cli.Sort,
                 viewId = cli.ViewId,

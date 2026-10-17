@@ -99,7 +99,7 @@ export function useLibraryMetadata() {
         };
         switch (domain) {
           case "games": {
-            const result = await operation<{ total: number }>("games.list", { limit: 1, offset: 0 });
+            const result = await operation<{ total: number }>("games.list", { played: false, limit: 1, offset: 0 });
             commit(() => setGameTotal(result.data.total)); break;
           }
           case "tags": {

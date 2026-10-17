@@ -1,5 +1,6 @@
 import { t } from "../lib/i18n";
 import {
+  CheckCircle2,
   Gamepad2,
   Heart,
   Inbox,
@@ -22,6 +23,8 @@ export interface SidebarProps {
   onViewChange: (viewId: string) => void;
   favoriteOnly: boolean;
   onFavoriteChange: (value: boolean) => void;
+  playedOnly: boolean;
+  onPlayedChange: (value: boolean) => void;
   tagId: string;
   onTagChange: (tagId: string, clickedTagId?: string) => void;
   tags: TagItem[];
@@ -39,6 +42,8 @@ export function Sidebar(props: SidebarProps) {
     onViewChange,
     favoriteOnly,
     onFavoriteChange,
+    playedOnly,
+    onPlayedChange,
     tagId,
     onTagChange,
     tags,
@@ -62,19 +67,30 @@ export function Sidebar(props: SidebarProps) {
           icon={<Gamepad2 size={16} />}
           label={t("全部游戏")}
           count={gameTotal}
-          active={section === "library" && !favoriteOnly && viewId === ""}
+          active={section === "library" && !playedOnly && !favoriteOnly && viewId === ""}
           onClick={() => {
             onSectionChange("library");
+            onPlayedChange(false);
             onViewChange("");
             onFavoriteChange(false);
           }}
         />
         <NavButton
-          icon={<Heart size={16} />}
-          label={t("收藏")}
-          active={section === "library" && favoriteOnly}
+          icon={<CheckCircle2 size={16} />}
+          label={t("已游玩")}
+          active={section === "library" && playedOnly}
           onClick={() => {
             onSectionChange("library");
+            onPlayedChange(true);
+          }}
+        />
+        <NavButton
+          icon={<Heart size={16} />}
+          label={t("收藏")}
+          active={section === "library" && !playedOnly && favoriteOnly}
+          onClick={() => {
+            onSectionChange("library");
+            onPlayedChange(false);
             onViewChange("");
             onFavoriteChange(true);
           }}

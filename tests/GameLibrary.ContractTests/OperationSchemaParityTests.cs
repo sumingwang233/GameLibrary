@@ -6,6 +6,16 @@ namespace GameLibrary.ContractTests;
 /// <summary>防止 schema.get 的参数名与实际 Host/CLI/MCP 载荷漂移。</summary>
 public sealed class OperationSchemaParityTests
 {
+    [Fact]
+    public void PlayedFilterAcceptsOptionalNullableBoolean()
+    {
+        var schema = OperationSchemas.BuildInputSchema("games.list");
+        var types = schema.GetProperty("properties").GetProperty("played").GetProperty("type");
+        Assert.Equal(["boolean", "null"], types.EnumerateArray().Select(type => type.GetString()));
+        Assert.False(schema.TryGetProperty("required", out var required)
+            && required.EnumerateArray().Any(item => item.GetString() == "played"));
+    }
+
     [Theory]
     [InlineData("games.list")]
     [InlineData("views.create")]

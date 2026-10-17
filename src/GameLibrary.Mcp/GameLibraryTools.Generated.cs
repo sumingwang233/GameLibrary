@@ -98,8 +98,8 @@ public static partial class GameLibraryTools
 
     [McpServerTool(Name = "games_list")]
     [Description("列出已入库游戏卡片，可搜索、过滤、排序并分页。参数均可选。")]
-    public static Task<CallToolResult> GamesList([Description("搜索词（命中用户标题或原文件夹名，数据库侧执行）")] string? search = null, [Description("仅收藏")] bool? favorite = null, [Description("true 有当前封面，false 无当前封面，缺省或 null 不限封面")] bool? hasCover = null, [Description("title/title-asc、title-desc、recent/updated-desc 或 accepted-desc")] string? sort = null, [Description("套用视图筛选/排序")] string? viewId = null, [Description("按标签过滤（与搜索 AND 组合）")] string? tagId = null, [Description("分页大小（1–1000）")] int? limit = null, [Description("分页偏移")] int? offset = null) =>
-        InvokeGeneratedOperationAsync(OperationIds.GamesList, new Dictionary<string, object?> { ["search"] = search, ["favorite"] = favorite, ["hasCover"] = hasCover, ["sort"] = sort, ["viewId"] = viewId, ["tagId"] = tagId, ["limit"] = limit, ["offset"] = offset });
+    public static Task<CallToolResult> GamesList([Description("搜索词（命中用户标题或原文件夹名，数据库侧执行）")] string? search = null, [Description("仅收藏")] bool? favorite = null, [Description("true 仅已游玩，false 仅未游玩，缺省或 null 不限游玩状态")] bool? played = null, [Description("true 有当前封面，false 无当前封面，缺省或 null 不限封面")] bool? hasCover = null, [Description("title/title-asc、title-desc、recent/updated-desc 或 accepted-desc")] string? sort = null, [Description("套用视图筛选/排序")] string? viewId = null, [Description("按标签过滤（与搜索 AND 组合）")] string? tagId = null, [Description("分页大小（1–1000）")] int? limit = null, [Description("分页偏移")] int? offset = null) =>
+        InvokeGeneratedOperationAsync(OperationIds.GamesList, new Dictionary<string, object?> { ["search"] = search, ["favorite"] = favorite, ["played"] = played, ["hasCover"] = hasCover, ["sort"] = sort, ["viewId"] = viewId, ["tagId"] = tagId, ["limit"] = limit, ["offset"] = offset });
 
     [McpServerTool(Name = "games_get")]
     [Description("查询单个游戏卡片。参数：gameId。")]

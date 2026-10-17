@@ -35,6 +35,7 @@ export interface GameFilters {
   sort: string;
   tagId: string;
   favoriteOnly: boolean;
+  playedOnly: boolean;
   hasCover: boolean | null;
   viewId: string;
 }
@@ -44,6 +45,7 @@ export const emptyFilters: GameFilters = {
   sort: "accepted-desc",
   tagId: "",
   favoriteOnly: false,
+  playedOnly: false,
   hasCover: null,
   viewId: "",
 };

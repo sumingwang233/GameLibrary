@@ -142,7 +142,8 @@ public static partial class LibraryCatalogStore
         int limit,
         int offset,
         bool? hasCover = null,
-        bool includePreferences = true)
+        bool includePreferences = true,
+        bool? played = null)
     {
         const string originalTitle = "COALESCE((SELECT COALESCE(value, '') FROM game_fields gf WHERE gf.game_id = games.game_id AND gf.field_key = 'title' ORDER BY CASE gf.source WHEN 'user' THEN 0 ELSE 1 END LIMIT 1), title)";
         var where = new List<string> { "membership = 'active'" };
@@ -156,6 +157,11 @@ public static partial class LibraryCatalogStore
         if (favoriteOnly)
         {
             where.Add("favorite = 1");
+        }
+
+        if (played is { } playedRequired)
+        {
+            where.Add($"{(includePreferences ? "played" : "0")} = {(playedRequired ? 1 : 0)}");
         }
 
         if (hasCover is { } coverRequired)
