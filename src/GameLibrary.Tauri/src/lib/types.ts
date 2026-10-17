@@ -55,6 +55,7 @@ export interface GameItem {
   kind: string;
   engine?: string | null;
   entryPath?: string | null;
+  removalPlan?: { targetPath: string; scope: "file" | "directory"; error?: string | null };
   membership?: string | null;
   favorite: boolean;
   played?: boolean;

@@ -8,6 +8,21 @@ const { pick } = vi.hoisted(() => ({ pick: vi.fn() }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: pick }));
 afterEach(() => { cleanup(); vi.mocked(operation).mockReset(); pick.mockReset(); });
 
+it("lets the user connect MTool directly from game details before explicitly preparing a recipe", async () => {
+  vi.mocked(operation).mockImplementation((async (name: string) => ({ data:
+    name === "mtool.settings.get" ? { toolRoot: null }
+      : name === "mtool.settings.set" ? { toolRoot: "D:/MTool/Tool" }
+        : { state: "idle", reason: "ready for setup" } })) as typeof operation);
+  pick.mockResolvedValue("D:/MTool/Tool");
+  render(<MToolGameTranslation gameId="game" />);
+  fireEvent.click(screen.getByText("MTool 目录设置"));
+  fireEvent.click(await screen.findByRole("button", { name: "选择 MTool 目录" }));
+  await screen.findByText("D:/MTool/Tool");
+  expect(screen.getByText(/选择包含 MTool.exe 和 loaders/)).toBeInTheDocument();
+  expect(operation).toHaveBeenCalledWith("mtool.settings.set", { toolRoot: "D:/MTool/Tool" }, expect.any(String));
+  expect(vi.mocked(operation).mock.calls.some(([name]) => name === "mtool.prepare" || name === "launch.execute")).toBe(false);
+});
+
 it("selects and saves one MTool installation without preparing or launching games", async () => {
   vi.mocked(operation).mockResolvedValueOnce({ data: { toolRoot: null } } as never)
     .mockResolvedValueOnce({ data: { toolRoot: "D:/mock MTool" } } as never);
@@ -32,7 +47,7 @@ it("ignores an old game's status and shows preparation feedback for the current 
   await screen.findByRole("alert");
   await act(async () => old({ data: { state: "ready", reason: "stale game status" } }));
   expect(screen.queryByText("stale game status")).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "生成或修复 MTool 配方" }));
+  fireEvent.click(screen.getByRole("button", { name: "生成或修复 MTool 启动脚本" }));
   await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("已生成 MTool 启动配方"));
   expect(operation).toHaveBeenCalledWith("mtool.prepare", { gameId: "current" }, "mtool.prepare:current");
 });
@@ -43,7 +58,7 @@ it("does not let a delayed status read overwrite a newer preparation result", as
     ? new Promise<unknown>(resolve => { finish = resolve; })
     : Promise.resolve({ data: { state: "ready", reason: "MTool 配方已就绪；尚未验证游戏内翻译效果" } })) as typeof operation);
   render(<MToolGameTranslation gameId="game" />);
-  fireEvent.click(screen.getByRole("button", { name: "生成或修复 MTool 配方" }));
+  fireEvent.click(screen.getByRole("button", { name: "生成或修复 MTool 启动脚本" }));
   await screen.findByRole("status");
   await act(async () => finish({ data: { state: "blocked", reason: "old failure" } }));
   expect(screen.getByRole("status")).toHaveTextContent("MTool 配方已就绪");

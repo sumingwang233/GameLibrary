@@ -7,6 +7,14 @@ namespace GameLibrary.ContractTests;
 public sealed class OperationSchemaParityTests
 {
     [Fact]
+    public void RemovalPreviewAcceptsOptionalNullableBoolean()
+    {
+        var properties = OperationSchemas.BuildInputSchema("games.get").GetProperty("properties");
+        Assert.Equal(["boolean", "null"], properties.GetProperty("includeRemovalPlan").GetProperty("type")
+            .EnumerateArray().Select(type => type.GetString()));
+    }
+
+    [Fact]
     public void PlayedFilterAcceptsOptionalNullableBoolean()
     {
         var schema = OperationSchemas.BuildInputSchema("games.list");

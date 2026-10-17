@@ -4,6 +4,7 @@ using GameLibrary.Application.Catalog;
 using GameLibrary.Contracts;
 using GameLibrary.Contracts.Ipc;
 using GameLibrary.Domain.Identity;
+using GameLibrary.Domain.Detection;
 using GameLibrary.Host.Scanning;
 using GameLibrary.Infrastructure.Catalog;
 using GameLibrary.Infrastructure.Persistence;
@@ -171,6 +172,10 @@ internal sealed class GamesHandler
         // similarTo 塞进 DTO 会让 games.list 变 O(N²)——只在 games.get 注入，单游戏 one-vs-N 实时可算。
         var node = JsonSerializer.SerializeToNode(GameDto(store, game), ContractJson.Options)
             ?? throw new InvalidOperationException("GameDto 序列化失败");
+        if (!IpcRequests.TryReadOptionalBoolParameter(request, "includeRemovalPlan", out var includeRemovalPlan, out _))
+            return IpcRequests.InvalidArgument(request, "includeRemovalPlan 只支持 true、false 或 null");
+        if (includeRemovalPlan == true)
+            node["removalPlan"] = JsonSerializer.SerializeToNode(GetRemovalPlan(game, store), ContractJson.Options);
         var row = store.TryGetGameFingerprint(gameId);
         var entries = row is null ? null : TryDeserializeEntries(row.EntriesJson);
         if (row is not null)
@@ -458,7 +463,44 @@ internal sealed class GamesHandler
         };
     }
 
-    /// <summary>games.remove：软移除（membership=removed）并隐式创建 ExactPath 忽略规则，不删除任何文件。</summary>
+    private sealed record RemovalPlan(string TargetPath, string Scope, string? Error = null);
+
+    private static string GetRemovalPlanTarget(GameCard game) =>
+        game.Kind == "manualFile" && Path.GetExtension(game.RootPath).Equals(".exe", StringComparison.OrdinalIgnoreCase)
+            ? Path.GetDirectoryName(Path.GetFullPath(game.RootPath))! : Path.GetFullPath(game.RootPath);
+
+    private RemovalPlan GetRemovalPlan(GameCard game, SqliteLibraryStore store)
+    {
+        var target = GetRemovalPlanTarget(game);
+        var scope = game.Kind is "fileGame" or "manualShortcut"
+            || game.Kind == "manualFile" && !Path.GetExtension(game.RootPath).Equals(".exe", StringComparison.OrdinalIgnoreCase)
+                ? "file" : "directory";
+        RemovalPlan Block(string message) => new(target, scope, message);
+        if (game.Kind == "manualShortcut") return Block("快捷方式不能确定原文件范围，请在资源管理器中清理");
+        if (game.Membership != "active") return Block("游戏已从库中移除");
+        if (!_roots.Contains(target)) return Block("游戏删除范围不在已注册的目录内");
+        if (target.TrimEnd('\\', '/') == Path.GetPathRoot(target)?.TrimEnd('\\', '/')
+            || _roots.List().Any(root => root.Kind == "library" && RuntimeStateStore.ContainsPath(target, root.Path.PhysicalPath)))
+            return Block("不能删除游戏库根目录；如需删除请先移除该游戏库目录");
+        if (store.ListGames().Any(other => other.GameId != game.GameId && other.Membership == "active"
+            && (RuntimeStateStore.ContainsPath(target, other.RootPath) || RuntimeStateStore.ContainsPath(other.RootPath, target))))
+            return Block("该位置与其他游戏共用或包含其他游戏，请先整理重复记录");
+        if (HasReparseAncestor(target)) return Block("不能删除包含目录联接或符号链接的路径");
+        if (scope == "file" ? !File.Exists(target) : !Directory.Exists(target))
+            return Block("游戏文件或目录不存在或类型已变化，请重新检查路径");
+        if (target != Path.GetFullPath(game.RootPath))
+        {
+            // EXE 手动卡片只有在父目录未出现其他独立入口时才扩大回收范围。
+            var files = Directory.EnumerateFiles(target).Select(Path.GetFileName).Take(257).ToArray();
+            if (files.Length > 256 || files.Any(file => file is not null &&
+                (LaunchSuggestionDetector.IsGameEntryName(file) && !file.Equals(Path.GetFileName(game.RootPath), StringComparison.OrdinalIgnoreCase)
+                    || Path.GetExtension(file).Equals(".swf", StringComparison.OrdinalIgnoreCase))))
+                return Block("此目录可能包含多个游戏，无法自动确定完整删除范围；请从库中移除后在资源管理器中检查");
+        }
+        return new(target, scope);
+    }
+
+    /// <summary>games.remove：移除记录；显式 deleteFiles 时仅回收已预览确认的完整范围。</summary>
     public Envelope<object> GamesRemove(IpcRequest request)
         => _storeAccessor() is { } store ? store.WithWriteLock(() => GamesRemoveCore(request)) : GamesRemoveCore(request);
 
@@ -493,21 +535,17 @@ internal sealed class GamesHandler
         RequestReceipt? receipt = null;
         if (deleteFiles)
         {
-            var target = Path.GetFullPath(current.RootPath);
+            var plan = GetRemovalPlan(current, store);
+            if (plan.Error is not null) return IpcRequests.InvalidArgument(request, plan.Error);
+            var target = plan.TargetPath;
             if (current.Revision != expectedRevision.Value)
                 return IpcRequests.InvalidArgument(request, "游戏记录已变化，请重新打开详情确认删除路径");
             if (!IpcRequests.TryGetStringParameter(request, "confirmedPath", out var confirmedPath)
-                || !string.Equals(confirmedPath, current.RootPath, StringComparison.Ordinal))
+                || !string.Equals(confirmedPath, target, StringComparison.Ordinal))
                 return IpcRequests.InvalidArgument(request, "删除原文件需要确认完整游戏路径");
             if (current.Kind == "manualShortcut")
                 return IpcRequests.InvalidArgument(request, "快捷方式不能确定原文件范围，请在资源管理器中清理");
             if (IpcRequests.RejectPathOutsideRoots(request, target, _roots) is { } outside) return outside;
-            if (target.TrimEnd('\\', '/') == Path.GetPathRoot(target)?.TrimEnd('\\', '/')
-                || _roots.List().Any(root => RuntimeStateStore.ContainsPath(target, root.Path.PhysicalPath)))
-                return IpcRequests.InvalidArgument(request, "不能删除游戏库根目录；如需删除请先移除该游戏库目录");
-            if (store.ListGames().Any(game => game.GameId != gameId && game.Membership == "active"
-                && (RuntimeStateStore.ContainsPath(target, game.RootPath) || RuntimeStateStore.ContainsPath(game.RootPath, target))))
-                return IpcRequests.InvalidArgument(request, "该位置与其他游戏共用或包含其他游戏，请先整理重复记录");
             if (HasReparseAncestor(target))
                 return IpcRequests.InvalidArgument(request, "不能删除包含目录联接或符号链接的路径");
             if (Directory.Exists(target))
@@ -533,7 +571,7 @@ internal sealed class GamesHandler
             var actor = string.IsNullOrWhiteSpace(request.ClientName) ? "anonymous" : request.ClientName!;
             receipt = store.TryGetReceipt(actor, request.OperationId, key);
             if (receipt is null) return IpcRequests.InvalidArgument(request, "删除原文件前必须登记持久化意图");
-            var intent = new RemovalIntent("recycle", gameId, current.RootPath, expectedRevision.Value, store.Info.DataEpoch, "moving");
+            var intent = new RemovalIntent("recycle", gameId, target, expectedRevision.Value, store.Info.DataEpoch, "moving", current.RootPath);
             store.UpdateReceiptAttempt(receipt, JsonSerializer.Serialize(intent, ContractJson.Options));
             try
             {
@@ -551,10 +589,11 @@ internal sealed class GamesHandler
             store.UpdateReceiptAttempt(receipt, JsonSerializer.Serialize(intent with { Phase = "moved" }, ContractJson.Options));
         }
 
-        return FinalizeRemoval(request, current, expectedRevision.Value, deleteFiles, receipt);
+        return FinalizeRemoval(request, current, expectedRevision.Value, deleteFiles, receipt,
+            deleteFiles ? GetRemovalPlanTarget(current) : null);
     }
 
-    private Envelope<object> FinalizeRemoval(IpcRequest request, GameCard current, int expectedRevision, bool deleteFiles, RequestReceipt? receipt)
+    private Envelope<object> FinalizeRemoval(IpcRequest request, GameCard current, int expectedRevision, bool deleteFiles, RequestReceipt? receipt, string? recycledPath = null)
     {
         var store = _storeAccessor()!;
         return store.InTransaction(() =>
@@ -565,7 +604,7 @@ internal sealed class GamesHandler
             {
                 IgnoreId = $"ignore-{Guid.NewGuid():N}",
                 Scope = "ExactPath",
-                Path = current.RootPath,
+                Path = recycledPath ?? current.RootPath,
                 GameId = gameId,
                 Reason = "games.remove",
                 CreatedUtc = utcNow,
@@ -603,6 +642,7 @@ internal sealed class GamesHandler
                     ignoreId = ignore.IgnoreId,
                     filesDeleted = deleteFiles,
                     recycled = deleteFiles,
+                    recycledPath,
                 },
             };
             if (receipt is not null) store.CompleteReceipt(receipt, JsonSerializer.Serialize(result, ContractJson.Options));
@@ -610,7 +650,7 @@ internal sealed class GamesHandler
         });
     }
 
-    private sealed record RemovalIntent(string Kind, string GameId, string Target, int ExpectedRevision, string DataEpoch, string Phase);
+    private sealed record RemovalIntent(string Kind, string GameId, string Target, int ExpectedRevision, string DataEpoch, string Phase, string? SourcePath = null);
 
     private static bool IsRemovalAbsent(string target)
     {
@@ -631,12 +671,13 @@ internal sealed class GamesHandler
         return store.WithWriteLock(() =>
         {
             var current = store.TryGetGame(intent.GameId);
-            if (intent.DataEpoch != store.Info.DataEpoch || current is null || current.RootPath != intent.Target
+            if (intent.DataEpoch != store.Info.DataEpoch || current is null || current.RootPath != (intent.SourcePath ?? intent.Target)
+                || intent.Target != current.RootPath && intent.Target != GetRemovalPlanTarget(current)
                 || current.Revision != intent.ExpectedRevision || current.Membership != "active"
                 || !IsRemovalAbsent(intent.Target))
                 return IpcRequests.Failure(request, ErrorCodes.UnknownOutcome,
                     "上次回收结果需要人工确认；不会再次回收该路径或修改已变化的记录", retryable: false);
-            return FinalizeRemoval(request, current, intent.ExpectedRevision, deleteFiles: true, receipt);
+            return FinalizeRemoval(request, current, intent.ExpectedRevision, deleteFiles: true, receipt, intent.Target);
         });
     }
 

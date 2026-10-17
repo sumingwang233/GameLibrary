@@ -527,17 +527,7 @@ public sealed partial class LaunchRegistry
             foreach (var step in steps)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var startInfo = new ProcessStartInfo
-                {
-                    FileName = step.ExecutablePath,
-                    WorkingDirectory = step.WorkingDirectory,
-                    UseShellExecute = Path.GetExtension(step.ExecutablePath)
-                        .Equals(".swf", StringComparison.OrdinalIgnoreCase),
-                };
-                foreach (var argument in step.Arguments)
-                {
-                    startInfo.ArgumentList.Add(argument);
-                }
+                var startInfo = CreateStartInfo(step.ExecutablePath, step.Arguments, step.WorkingDirectory);
 
                 process = StartProcessWithElevationFallback(startInfo)
                     ?? throw new LaunchException(ErrorCodes.ProcessStartFailed, "进程启动返回空");
@@ -754,17 +744,38 @@ public sealed partial class LaunchRegistry
             throw new LaunchException(ErrorCodes.ToolMissing, $"启动目标不存在：{profile.ExecutablePath}");
         }
 
-        var extension = Path.GetExtension(profile.ExecutablePath);
-        if (!extension.Equals(".exe", StringComparison.OrdinalIgnoreCase)
-            && !extension.Equals(".swf", StringComparison.OrdinalIgnoreCase))
+        if (!IsSupportedLaunchTarget(profile.ExecutablePath))
         {
-            throw new LaunchException(ErrorCodes.InvalidPath, "启动目标仅支持 EXE 或 SWF 文件");
+            throw new LaunchException(ErrorCodes.InvalidPath, "启动目标仅支持 EXE、SWF 或 BAT 文件");
         }
 
         if (!Directory.Exists(profile.WorkingDirectory))
         {
             throw new LaunchException(ErrorCodes.InvalidPath, $"工作目录不存在：{profile.WorkingDirectory}");
         }
+        if (Path.GetExtension(profile.ExecutablePath).Equals(".bat", StringComparison.OrdinalIgnoreCase))
+            _ = CreateStartInfo(profile.ExecutablePath, profile.Arguments, profile.WorkingDirectory);
+    }
+
+    public static bool IsSupportedLaunchTarget(string path) =>
+        new[] { ".exe", ".swf", ".bat" }.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase);
+
+    public static ProcessStartInfo CreateStartInfo(string executablePath, IReadOnlyList<string> arguments, string workingDirectory)
+    {
+        var info = new ProcessStartInfo { FileName = executablePath, WorkingDirectory = workingDirectory,
+            UseShellExecute = Path.GetExtension(executablePath).Equals(".swf", StringComparison.OrdinalIgnoreCase) };
+        if (Path.GetExtension(executablePath).Equals(".bat", StringComparison.OrdinalIgnoreCase))
+        {
+            // cmd 有独立的展开和转义规则，不能直接复用 EXE 的 ArgumentList 编码。
+            if (executablePath.IndexOfAny(['%', '!', '"', '\r', '\n', '\0']) >= 0
+                || arguments.Any(argument => argument.IndexOfAny(['%', '!', '"', '&', '|', '<', '>', '^', '\r', '\n', '\0']) >= 0))
+                throw new LaunchException(ErrorCodes.InvalidArgument, "BAT 路径或参数包含不支持的命令符号，请改用普通路径和参数");
+            info.FileName = Path.Combine(Environment.SystemDirectory, "cmd.exe");
+            info.Arguments = "/d /s /v:off /c \"\"" + executablePath + "\""
+                + string.Concat(arguments.Select(argument => " \"" + argument + "\"")) + "\"";
+        }
+        else foreach (var argument in arguments) info.ArgumentList.Add(argument);
+        return info;
     }
 
     public static Process? StartProcessWithElevationFallback(ProcessStartInfo startInfo, Func<ProcessStartInfo, Process?>? start = null)
@@ -779,6 +790,7 @@ public sealed partial class LaunchRegistry
             var elevated = new ProcessStartInfo
             {
                 FileName = startInfo.FileName,
+                Arguments = startInfo.Arguments,
                 WorkingDirectory = startInfo.WorkingDirectory,
                 UseShellExecute = true,
                 Verb = "runas",

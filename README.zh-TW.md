@@ -10,7 +10,7 @@
 
 把散落在硬碟裡的遊戲放到同一處。選好資料夾、確認啟動項目，就能從遊戲庫開啟遊戲。
 
-目前原始碼 **v1.7.19** 新增[已遊玩遊戲庫](docs/development/v1.7.19-played-library.md)：主遊戲庫預設隱藏已遊玩遊戲，可從側欄單獨查看。本版尚未打包或發布；下方預設下載仍對應穩定版。上一版的[待驗收本機組建](docs/releases/v1.7.18.md)保留。
+目前原始碼 **v1.7.20** 修復[遊戲檔案回收、資源目錄誤掃及啟動互動](docs/development/v1.7.20-removal-scanning-and-launch.md)，補充 MTool 目錄設定入口和 BAT 啟動方式；已評分遊戲再次遊玩後不再提示評分。本版尚未打包或發布；下方預設下載仍對應穩定版。[v1.7.18 待驗收本機組建](docs/releases/v1.7.18.md)保留。
 
 **[下載 Windows 安裝版](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-Setup-v1.7.13.exe)** · [所有版本](https://github.com/sumingwang233/GameLibrary/releases) · [回報問題](https://github.com/sumingwang233/GameLibrary/issues)
 

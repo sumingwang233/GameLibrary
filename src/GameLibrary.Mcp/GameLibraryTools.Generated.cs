@@ -102,9 +102,9 @@ public static partial class GameLibraryTools
         InvokeGeneratedOperationAsync(OperationIds.GamesList, new Dictionary<string, object?> { ["search"] = search, ["favorite"] = favorite, ["played"] = played, ["hasCover"] = hasCover, ["sort"] = sort, ["viewId"] = viewId, ["tagId"] = tagId, ["limit"] = limit, ["offset"] = offset });
 
     [McpServerTool(Name = "games_get")]
-    [Description("查询单个游戏卡片。参数：gameId。")]
-    public static Task<CallToolResult> GamesGet([Description("游戏 ID")] string gameId) =>
-        InvokeGeneratedOperationAsync(OperationIds.GamesGet, new Dictionary<string, object?> { ["gameId"] = gameId });
+    [Description("查询单个游戏卡片，可选 includeRemovalPlan 预览原文件回收范围。")]
+    public static Task<CallToolResult> GamesGet([Description("游戏 ID")] string gameId, [Description("按需预览实际回收路径、范围与阻止原因，默认不读取删除范围")] bool? includeRemovalPlan = null) =>
+        InvokeGeneratedOperationAsync(OperationIds.GamesGet, new Dictionary<string, object?> { ["gameId"] = gameId, ["includeRemovalPlan"] = includeRemovalPlan });
 
     [McpServerTool(Name = "fields_set")]
     [Description("设置游戏资料字段（title/summary，用户来源）；Revision 即游戏卡片 Revision。参数：idempotencyKey、gameId、field、value、expectedRevision。")]

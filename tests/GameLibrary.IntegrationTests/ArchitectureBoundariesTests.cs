@@ -187,6 +187,41 @@ public sealed class ArchitectureBoundariesTests
         registry.FailPrepared(next.AttemptId, "test finished without launching");
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task ManualExeDirectoryRecovery_UsesTheRecordedFolder_WithoutRecyclingAgain(bool changedRevision, bool targetExists)
+    {
+        await using var fixture = new PipeServerFixture();
+        var store = fixture.State.Library.Store!;
+        var target = Path.Combine(fixture.State.DataDirectory, "recorded-game-folder");
+        var game = Game(fixture.State.DataDirectory) with { Kind = "manualFile", RootPath = Path.Combine(target, "Game.exe") };
+        store.InsertGame(game);
+        if (targetExists)
+        {
+            Directory.CreateDirectory(target);
+            File.WriteAllText(game.RootPath, "restored by user; never recycle on recovery");
+        }
+        var receipt = Receipt(store, "games.remove", "directory-recycle") with
+        {
+            AttemptJson = JsonSerializer.Serialize(new { kind = "recycle", gameId = game.GameId, target,
+                sourcePath = game.RootPath, expectedRevision = game.Revision, dataEpoch = store.Info.DataEpoch, phase = "moving" }, ContractJson.Options),
+        };
+        store.InsertPreparedReceipt(receipt);
+        if (changedRevision) store.SetFavorite(game.GameId, true, game.Revision, DateTime.UtcNow);
+        var result = new GamesHandler(() => store, fixture.State.Roots, fixture.State.Events)
+            .ResumeRemoval(new IpcRequest { RequestId = "resume-directory", OperationId = "games.remove", ClientName = receipt.Actor }, receipt)!;
+        var committed = !changedRevision && !targetExists;
+        Assert.Equal(committed, result.Ok);
+        Assert.Equal(committed ? "removed" : "active", store.TryGetGame(game.GameId)!.Membership);
+        Assert.Equal(committed ? "completed" : "prepared", store.TryGetReceipt(receipt.Actor, receipt.OperationId, receipt.IdempotencyKey)!.Status);
+        Assert.Equal(targetExists, File.Exists(game.RootPath));
+        if (committed) Assert.Equal(target, JsonSerializer.Deserialize<JsonElement>(
+            store.TryGetReceipt(receipt.Actor, receipt.OperationId, receipt.IdempotencyKey)!.ResultJson!).GetProperty("data").GetProperty("recycledPath").GetString());
+    }
+
     private static GameCard Game(string parent) => new()
     {
         GameId = "game-" + Guid.NewGuid().ToString("N"), Title = "Boundary sample",

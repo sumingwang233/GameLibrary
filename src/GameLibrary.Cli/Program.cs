@@ -491,7 +491,7 @@ internal static class Program
                 limit = cli.Limit,
                 offset = cli.Offset,
             },
-            "games.get" => new { gameId = cli.GameId },
+            "games.get" => new { gameId = cli.GameId, includeRemovalPlan = cli.IncludeRemovalPlan },
             "games.update" => new
             {
                 idempotencyKey = cli.IdempotencyKey ?? $"gameupd-{Guid.NewGuid():N}",

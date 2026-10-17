@@ -106,6 +106,7 @@ function DetailSheetContent({
   const [summaryDraft, setSummaryDraft] = useState("");
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deletePlan, setDeletePlan] = useState<(NonNullable<GameItem["removalPlan"]> & { revision: number }) | null>(null);
   const [busy, setBusy] = useState(false);
   const [tagDraft, setTagDraft] = useState("");
   const [dragOverCategory, setDragOverCategory] = useState<TagCategoryValue | null>(null);
@@ -119,6 +120,7 @@ function DetailSheetContent({
     return () => { alive.current = false; session.current++; };
   }, []);
   useEffect(() => { setTab(initialTab); }, [gameId, initialTab]);
+  useEffect(() => { setConfirmDelete(false); setDeletePlan(null); }, [gameId]);
   useEffect(() => {
     if (ratingPromptToken === undefined) { setRatingPrompt(false); return; }
     setTab("overview");
@@ -218,7 +220,7 @@ function DetailSheetContent({
 
   if (!current) return null;
 
-  const run = async (work: (valid: () => boolean) => Promise<void>) => {
+  const run = async (work: (valid: () => boolean) => Promise<void>, dismissDeleteDialog = true) => {
     const epoch = session.current;
     const request = ++actionSerial.current;
     const valid = () => alive.current && session.current === epoch && actionSerial.current === request;
@@ -231,7 +233,7 @@ function DetailSheetContent({
       if (cause instanceof LaunchProfileSelectionRequired) setTab("launch");
       setError(describeFailure(cause));
     } finally {
-      if (valid()) { setConfirmDelete(false); setBusy(false); }
+      if (valid()) { if (dismissDeleteDialog) setConfirmDelete(false); setBusy(false); }
     }
   };
 
@@ -366,7 +368,7 @@ function DetailSheetContent({
         directory: false,
         title: t("选择游戏主程序"),
         defaultPath: await gameDirectory(current),
-        filters: [{ name: t("游戏程序"), extensions: ["exe", "swf"] }],
+        filters: [{ name: t("游戏程序"), extensions: ["exe", "swf", "bat"] }],
       });
       if (!selected || !alive.current) return;
       const executablePath = String(selected);
@@ -408,8 +410,9 @@ function DetailSheetContent({
     run(async () => {
       await operation(
         "games.remove",
-        { gameId: current.gameId, expectedRevision: current.revision, ...(deleteFiles ? { deleteFiles: true, confirmedPath: current.rootPath } : {}) },
-        `games.remove:${current.gameId}:${current.revision}:${deleteFiles}`,
+        { gameId: current.gameId, expectedRevision: deleteFiles ? deletePlan!.revision : current.revision,
+          ...(deleteFiles ? { deleteFiles: true, confirmedPath: deletePlan!.targetPath } : {}) },
+        `games.remove:${current.gameId}:${deleteFiles ? deletePlan!.revision : current.revision}:${deleteFiles}`,
       );
       if (!alive.current) return;
       setConfirmRemove(false);
@@ -424,6 +427,7 @@ function DetailSheetContent({
     });
 
   const initials = current.title.slice(0, 2).toUpperCase();
+  const showRatingPrompt = ratingPrompt && !(current.rating && current.rating > 0);
   const defaultProfile = profiles.find((profile) => profile.isDefault);
 
   return (
@@ -468,7 +472,7 @@ function DetailSheetContent({
               <ExternalLink size={15} />{t("打开目录")}</Button>
           </div>
 
-          <div key={ratingPromptToken ?? "rating"} className={cn("rounded-lg border p-3 transition-colors", ratingPrompt ? "border-favorite bg-favorite/10 ring-2 ring-favorite/30 motion-safe:animate-pulse" : "border-border")}
+          <div key={ratingPromptToken ?? "rating"} className={cn("rounded-lg border p-3 transition-colors", showRatingPrompt ? "border-favorite bg-favorite/10 ring-2 ring-favorite/30 motion-safe:animate-pulse" : "border-border")}
             role="group" aria-label={t("游戏评分")}>
             <div className="flex items-center justify-between gap-2">
               <span className="text-sm font-medium">{t("游戏评分")}</span>
@@ -483,7 +487,7 @@ function DetailSheetContent({
               </button>)}
               {!!current.rating && <Button variant="ghost" size="sm" disabled={busy} onClick={() => void updatePreference({ rating: 0 })}>{t("清除评分")}</Button>}
             </div>
-            {ratingPrompt && <p role="status" className="mt-2 text-xs text-favorite">{t("这次游玩体验如何？点选星星为游戏评分。")}</p>}
+            {showRatingPrompt && <p role="status" className="mt-2 text-xs text-favorite">{t("这次游玩体验如何？点选星星为游戏评分。")}</p>}
           </div>
 
           <Tabs value={tab} onValueChange={setTab}>
@@ -561,7 +565,14 @@ function DetailSheetContent({
 
               <Button variant="danger" className="w-full" disabled={busy} onClick={() => setConfirmRemove(true)}>
                 <Trash2 size={15} />{t("从游戏库移除")}</Button>
-              <Button variant="danger" className="w-full border border-danger/40" disabled={busy} onClick={() => setConfirmDelete(true)}>
+              <Button variant="danger" className="w-full border border-danger/40" disabled={busy} onClick={() => void run(async valid => {
+                const result = await operation<GameItem>("games.get", { gameId: current.gameId, includeRemovalPlan: true });
+                if (!valid()) return;
+                if (!result.data.removalPlan) throw new Error(t("无法读取删除范围，请更新程序后重试"));
+                if (result.data.removalPlan.error) throw new Error(t(result.data.removalPlan.error));
+                setDeletePlan({ ...result.data.removalPlan, revision: result.data.revision });
+                setConfirmDelete(true);
+              }, false)}>
                 <Trash2 size={15} />{t("删除游戏及原文件")}</Button>
             </TabsContent>
 
@@ -741,7 +752,9 @@ function DetailSheetContent({
       <ConfirmDialog
         open={confirmDelete}
         title={t("删除「{0}」及原文件", current.title)}
-        description={t("将以下位置移入回收站并移除游戏记录：{0}。目录型游戏包含其中的存档、补丁和全部子文件；单文件游戏只删除该文件。请确认路径。", current.rootPath)}
+        description={t(deletePlan?.scope === "directory"
+          ? "将整个游戏文件夹移入回收站，包含资源、存档、补丁及全部子文件：{0}。请确认路径。"
+          : "将这个独立游戏文件移入回收站，不删除同目录的其他游戏：{0}。请确认路径。", deletePlan?.targetPath ?? "")}
         confirmLabel={t("确认移入回收站")}
         destructive
         busy={busy}

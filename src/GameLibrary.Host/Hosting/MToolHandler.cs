@@ -90,7 +90,8 @@ internal sealed class MToolHandler(HostRuntimeState host)
             if (profile?.GameId != gameId && (explicitProfile || profile is not null)) throw new InvalidDataException("请先自动识别或选择明确的游戏启动方式");
             if (profile?.ToolId is not null) return new("skipped", "已使用显式翻译工具启动方式");
             if (profile is { Arguments.Count: > 0 }) throw new InvalidDataException("带额外启动参数的游戏请在 MTool 中生成配方");
-            var executable = profile?.ExecutablePath ?? game.EntryPath;
+            var executable = profile is not null && Path.GetExtension(profile.ExecutablePath).Equals(".bat", StringComparison.OrdinalIgnoreCase)
+                ? game.EntryPath : profile?.ExecutablePath ?? game.EntryPath;
             if (string.IsNullOrWhiteSpace(executable)) throw new InvalidDataException("请先自动识别或选择明确的游戏启动方式");
             var root = Directory.Exists(game.RootPath) ? game.RootPath : Path.GetDirectoryName(game.RootPath)!;
             if (!host.Roots.Contains(root) || !host.Roots.Contains(executable)

@@ -67,11 +67,16 @@ public static class TranslationLaunchRouteResolver
             return new(true, false, null, reason);
         }
 
+        var batchProfile = Path.GetExtension(profile.ExecutablePath).Equals(".bat", StringComparison.OrdinalIgnoreCase);
+        if (batchProfile && (!string.Equals(Path.GetFullPath(profile.ExecutablePath), Path.GetFullPath(discovery.Recipe.SourcePath), StringComparison.OrdinalIgnoreCase)
+            || profile.Arguments.Count > 0 || string.IsNullOrWhiteSpace(game.EntryPath) || !File.Exists(game.EntryPath)))
+            return new(true, false, null, "BAT 翻译启动方式需要选择已生成的 MTool 配方，并先确认原始游戏入口");
+        var gameEntry = batchProfile ? game.EntryPath! : profile.ExecutablePath;
         var steps = discovery.Recipe.Steps
             .OrderBy(step => step.Sequence)
-            .Select(step => RewriteGameEntry(step, profile.ExecutablePath))
+            .Select(step => batchProfile ? step : RewriteGameEntry(step, gameEntry))
             .ToArray();
-        var problem = ValidateSteps(steps, profile.ExecutablePath);
+        var problem = ValidateSteps(steps, gameEntry);
         if (problem is not null)
         {
             return new(true, false, null, problem);

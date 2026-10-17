@@ -169,7 +169,7 @@ internal sealed class LaunchingHandler
     }
 
     /// <summary>
-    /// profiles.create：新增启动方式（入口仅 EXE/SWF，路径必须在已注册库根内）；
+    /// profiles.create：新增启动方式（入口为 EXE/SWF/BAT，路径必须在已注册库根内）；
     /// 可选工具绑定与 isDefault 标记（首个即默认，替代项走 profiles.set_default）。
     /// </summary>
     public Envelope<object> ProfilesCreate(IpcRequest request)
@@ -209,7 +209,7 @@ internal sealed class LaunchingHandler
 
         if (!IsSupportedLaunchTarget(executablePath))
         {
-            return IpcRequests.InvalidArgument(request, "启动目标仅支持 EXE 或 SWF 文件");
+            return IpcRequests.InvalidArgument(request, "启动目标仅支持 EXE、SWF 或 BAT 文件");
         }
 
         if (IpcRequests.RejectPathOutsideRoots(request, executablePath, _roots) is { } createOutsideRoot)
@@ -347,7 +347,7 @@ internal sealed class LaunchingHandler
 
         if (!IsSupportedLaunchTarget(executablePath))
         {
-            return IpcRequests.InvalidArgument(request, "启动目标仅支持 EXE 或 SWF 文件");
+            return IpcRequests.InvalidArgument(request, "启动目标仅支持 EXE、SWF 或 BAT 文件");
         }
 
         if (IpcRequests.RejectPathOutsideRoots(request, executablePath, _roots) is { } updateOutsideRoot)
@@ -826,10 +826,7 @@ internal sealed class LaunchingHandler
         };
     }
 
-    private static bool IsSupportedLaunchTarget(string path) =>
-        Path.GetExtension(path) is { } extension
-        && (extension.Equals(".exe", StringComparison.OrdinalIgnoreCase)
-            || extension.Equals(".swf", StringComparison.OrdinalIgnoreCase));
+    private static bool IsSupportedLaunchTarget(string path) => GameLibrary.Host.Launching.LaunchRegistry.IsSupportedLaunchTarget(path);
 
     /// <summary>启动域异常统一转失败信封（Retryable=false，码与文案透传）。</summary>
     private static Envelope<object> LaunchError(IpcRequest request, GameLibrary.Host.Launching.LaunchException ex) =>

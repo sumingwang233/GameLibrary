@@ -3,12 +3,50 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { GameItem, ProfileItem, TagItem } from "../lib/types";
 import { DetailSheet } from "./DetailSheet";
 import { OperationError } from "../lib/api";
+import { open } from "@tauri-apps/plugin-dialog";
 
 const { operation } = vi.hoisted(() => ({ operation: vi.fn() }));
 vi.mock("../lib/api", async importOriginal => ({ ...await importOriginal<typeof import("../lib/api")>(), operation, assetDataUrl: vi.fn(), describeFailure: (cause: unknown) => String(cause) }));
-afterEach(() => { cleanup(); operation.mockReset(); });
+vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
+afterEach(() => { cleanup(); operation.mockReset(); vi.mocked(open).mockReset(); });
 
 const game: GameItem = { gameId: "game", title: "Test game", rootPath: "D:/game", kind: "folderGame", favorite: false, revision: 1 };
+
+it("lets a user select a BAT file when adding a launch profile", async () => {
+  vi.mocked(open).mockResolvedValue("D:/game/Start game.bat");
+  operation.mockImplementation(async name => ({ data: name === "games.get" ? game : name === "profiles.list" ? { items: [] } : {} }));
+  render(<DetailSheet game={game} tags={[]} onClose={vi.fn()} onPlay={vi.fn()} onChanged={vi.fn()} initialTab="launch" />);
+  fireEvent.click(await screen.findByRole("button", { name: "添加启动方式" }));
+  await waitFor(() => expect(operation).toHaveBeenCalledWith("profiles.create", {
+    gameId: "game", executablePath: "D:/game/Start game.bat", argv: [], cwd: "D:/game", isDefault: true,
+  }, expect.any(String)));
+  expect(open).toHaveBeenCalledWith(expect.objectContaining({ filters: [{ name: "游戏程序", extensions: ["exe", "swf", "bat"] }] }));
+});
+
+it("previews the full project path before recycling a manually added EXE", async () => {
+  const detail = { ...game, kind: "manualFile", rootPath: "D:/game/Game.exe" };
+  operation.mockImplementation(async (name, params) => ({ data: name === "games.get"
+    ? { ...detail, ...(params.includeRemovalPlan ? { revision: 3, removalPlan: { targetPath: "D:/game", scope: "directory", error: null } } : {}) }
+    : name === "profiles.list" ? { items: [] } : {} }));
+  const close = vi.fn();
+  render(<DetailSheet game={detail} tags={[]} onClose={close} onPlay={vi.fn()} onChanged={vi.fn()} />);
+  fireEvent.click(await screen.findByRole("button", { name: "删除游戏及原文件" }));
+  expect(await screen.findByText(/将整个游戏文件夹移入回收站/)).toHaveTextContent("D:/game");
+  expect(operation.mock.calls.some(([name]) => name === "games.remove")).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "确认移入回收站" }));
+  await waitFor(() => expect(close).toHaveBeenCalledOnce());
+  expect(operation).toHaveBeenCalledWith("games.remove", { gameId: "game", expectedRevision: 3, deleteFiles: true,
+    confirmedPath: "D:/game" }, expect.any(String));
+});
+
+it("does not offer an unverified EXE-only deletion when the Host has no removal plan", async () => {
+  operation.mockImplementation(async name => ({ data: name === "games.get" ? game : name === "profiles.list" ? { items: [] } : {} }));
+  render(<DetailSheet game={game} tags={[]} onClose={vi.fn()} onPlay={vi.fn()} onChanged={vi.fn()} />);
+  fireEvent.click(await screen.findByRole("button", { name: "删除游戏及原文件" }));
+  await screen.findByText(/无法读取删除范围/);
+  expect(screen.queryByRole("button", { name: "确认移入回收站" })).not.toBeInTheDocument();
+  expect(operation.mock.calls.some(([name]) => name === "games.remove")).toBe(false);
+});
 
 it("updates played status and game stars independently while preserving favorite", async () => {
   let detail: GameItem = { ...game, favorite: true, played: false, rating: 0 };
@@ -28,6 +66,19 @@ it("updates played status and game stars independently while preserving favorite
   fireEvent.click(screen.getByRole("button", { name: "清除评分" }));
   await screen.findByText("尚未评分");
   expect(detail.played).toBe(true); expect(detail.favorite).toBe(true); expect(detail.rating).toBe(0);
+});
+
+it("does not highlight an already rated game after another play session, including a refreshed rating", async () => {
+  operation.mockImplementation(async name => ({ data: name === "games.get" ? { ...game, rating: 5 }
+    : name === "profiles.list" ? { items: [] } : {} }));
+  const props = { game: { ...game, rating: 4 }, tags: [], onClose: vi.fn(), onPlay: vi.fn(), onChanged: vi.fn() };
+  const view = render(<DetailSheet {...props} ratingPromptToken={1} />);
+  expect(screen.getByRole("group", { name: "游戏评分" }).className).not.toContain("animate-pulse");
+  await screen.findByText("5 / 5 星");
+  view.rerender(<DetailSheet {...props} ratingPromptToken={2} />);
+  expect(screen.queryByText("这次游玩体验如何？点选星星为游戏评分。")).not.toBeInTheDocument();
+  expect(screen.getByRole("group", { name: "游戏评分" }).className).not.toContain("animate-pulse");
+  expect(screen.getByRole("button", { name: "评为 3 星" })).toBeEnabled();
 });
 
 it("highlights the rating after a fresh exit and dismisses it after rating without carrying it to another game", async () => {

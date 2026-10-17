@@ -113,6 +113,7 @@ public sealed record CommandLine
     public bool? Favorite { get; private init; }
 
     public bool? Played { get; private init; }
+    public bool IncludeRemovalPlan { get; private init; }
 
     public int? Rating { get; private init; }
 
@@ -241,6 +242,7 @@ public sealed record CommandLine
         string? overrideValue = null;
         bool? favorite = null;
         bool? played = null;
+        var includeRemovalPlan = false;
         int? rating = null;
         bool? hasCover = null;
         var hasCoverSpecified = false;
@@ -449,6 +451,9 @@ public sealed record CommandLine
                 case "--played":
                     played = true;
                     break;
+                case "--include-removal-plan":
+                    includeRemovalPlan = true;
+                    break;
                 case "--unplayed":
                     played = false;
                     break;
@@ -596,6 +601,7 @@ public sealed record CommandLine
             Override = overrideValue,
             Favorite = favorite,
             Played = played,
+            IncludeRemovalPlan = includeRemovalPlan,
             Rating = rating,
             HasCover = hasCover,
             HasCoverSpecified = hasCoverSpecified,

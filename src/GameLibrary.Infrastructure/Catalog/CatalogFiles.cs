@@ -7,6 +7,7 @@ namespace GameLibrary.Infrastructure.Catalog;
 public sealed class CatalogFiles : ICatalogFiles
 {
     public bool Exists(string path) => File.Exists(path) || Directory.Exists(path);
+    public bool IsFile(string path) => File.Exists(path);
 
     public GameFingerprintData? Fingerprint(string path, string? entryPath, string? engine, DateTime utcNow)
     {

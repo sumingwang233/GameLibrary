@@ -193,7 +193,8 @@ public sealed class ScanCandidateCollector
         var snapshot = new FileSystemDirectorySnapshot(validation.Path!, directory.Directories, directory.Files);
         var report = Detectors.DetectAll(snapshot);
         var confirmed = report.Results
-            .Where(r => r.Confidence >= DetectionConfidence.Medium && r.LikelyRootRelativePaths.Count > 0)
+            .Where(r => r.Confidence >= DetectionConfidence.Medium && r.LikelyRootRelativePaths.Count > 0
+                && r.EntryCandidates.Any(entry => snapshot.FileExists(entry.RelativePath)))
             .ToArray();
         // 合集中的 SWF 已按用户选定入口处理；仍让其他引擎的独立安装根走原扫描流程。
         if (_flashCollections.Any(parent => directory.PhysicalPath.StartsWith(parent + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))

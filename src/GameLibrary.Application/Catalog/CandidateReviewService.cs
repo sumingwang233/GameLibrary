@@ -18,6 +18,7 @@ public interface ICandidateReviewStore
 public interface ICatalogFiles
 {
     bool Exists(string path);
+    bool IsFile(string path);
     GameFingerprintData? Fingerprint(string path, string? entryPath, string? engine, DateTime utcNow);
 }
 
@@ -52,6 +53,9 @@ public sealed class CandidateReviewService(ICandidateReviewStore store, ICatalog
         }
         var now = DateTime.UtcNow;
         var entry = TopEntry(candidate.PayloadJson, candidate.PhysicalPath, candidate.Kind);
+        if (candidate.Kind != "container" && (entry is null || !files.IsFile(entry)))
+            return new(candidateId, revision, action, candidate, null, null,
+                new(candidateId, ErrorCode: "InvalidArgument", ErrorMessage: "未发现有效游戏入口，请重新扫描；资源目录和补丁目录不能单独入库"));
         var engine = TopEngine(candidate.PayloadJson);
         var fingerprint = files.Fingerprint(candidate.PhysicalPath, entry, engine, now);
         return new(candidateId, revision, action, candidate, new GameCard

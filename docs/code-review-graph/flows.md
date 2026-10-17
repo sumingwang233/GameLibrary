@@ -1,5 +1,11 @@
 # GameLibrary 关键流程
 
+## v1.7.20 回收、资源筛选与 BAT
+
+详情删除 → `games.get(includeRemovalPlan=true)` 按需预览 → 目标路径和 revision 确认 → 回收前边界/共享/链接检查 → 同一持久化意图记录 SourcePath 与实际 Target → Windows 回收站 → 移除记录并登记回执。旧意图按旧范围恢复，恢复路径不执行文件回收。手动 EXE 的独立目录与合集独立文件采用不同范围。
+
+引擎证据 → collector 检查入口存在 → candidate → 审核再次检查入口是文件。资源证据继续用于引擎识别，已有确认记录保留。详情与设置复用 MTool 目录组件；已生成的 MTool BAT 仍走固定步骤，注入器接收原 EXE。普通 BAT 经系统 cmd 明确调用，评分提示只对未评分游戏显示。见[实施与验证记录](../development/v1.7.20-removal-scanning-and-launch.md)。
+
 ## v1.7.19 已游玩游戏库
 
 侧栏“全部游戏 / 已游玩” → `playedOnly` → 每页 `games.list.played=false / true` → 可空布尔校验 → 同一 SQL 条件计算总数和分页。主库数量仅统计未游玩；切换时清空旧列表，沿现有 request 身份判断丢弃迟到响应。详情修改与正常游玩结束后的标记复用原有事件刷新，游戏 ID 和元数据保持不变。CLI/MCP 省略或传 `null` 仍查询全部游戏，无新 DDL、路由或依赖。见[实施与验证记录](../development/v1.7.19-played-library.md)。

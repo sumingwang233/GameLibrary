@@ -11,6 +11,25 @@ namespace GameLibrary.IntegrationTests.Tools;
 
 public sealed class MToolPreparationTests(PipeServerFixture fixture) : IClassFixture<PipeServerFixture>
 {
+    [Fact]
+    public async Task SelectedMToolBatchProfile_KeepsTheOriginalExeForTheInjector()
+    {
+        var (game, _, _) = await Create();
+        await Tag(game);
+        var recipe = new MToolAdapter().Discover(game.RootPath).Recipe!;
+        var profile = fixture.State.Launches.AddProfile(game.GameId, recipe.SourcePath, [], game.RootPath);
+        var prepared = await Invoke("mtool.prepare", new { gameId = game.GameId, profileId = profile.ProfileId });
+        Assert.True(prepared.Ok, prepared.Error?.Message);
+        var route = GameLibrary.Host.Launching.TranslationLaunchRouteResolver.Resolve(
+            fixture.State.Library.Store!.TryGetGame(game.GameId)!, profile, untranslated: true);
+        Assert.Null(route.UnavailableReason);
+        Assert.NotNull(route.Route);
+        Assert.Equal(game.EntryPath, route.Route.Steps[0].Arguments[0]);
+        Assert.NotEqual(recipe.SourcePath, route.Route.Steps[0].Arguments[0]);
+        var plan = await Invoke("launch.plan", new { gameId = game.GameId, profileId = profile.ProfileId });
+        Assert.True(plan.Ok, plan.Error?.Message);
+    }
+
     private static string Stub => Path.Combine(AppContext.BaseDirectory, "GameLibrary.TestProcessStub.exe");
 
     private async Task<Envelope<JsonElement>> Invoke(string operation, object parameters)

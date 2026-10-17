@@ -27,8 +27,9 @@ export function MToolSettings() {
     finally { setBusy(false); }
   };
   return <div className="space-y-2 text-sm">
-    <h3 className="font-semibold">{t("MTool 翻译配方")}</h3>
-    <p className="text-xs text-text-secondary">{t("添加未翻译标签时生成配方，启动时检查和修复；不会提前启动游戏或请求翻译 API。")}</p>
+    <h3 className="font-semibold">{t("MTool 翻译")}</h3>
+    <p className="text-xs text-text-secondary">{t("选择包含 MTool.exe 和 loaders 文件夹的目录，只需设置一次。")}</p>
+    <p className="text-xs text-text-secondary">{t("给非 Unity 游戏添加“未翻译”标签，或在游戏详情中生成 MTool 启动脚本，再点击“开始游戏”。不支持自动配置的游戏会显示原因。")}</p>
     <p className="break-all text-xs text-text-secondary">{root ?? t("尚未选择 MTool 目录")}</p>
     <Button variant="outline" disabled={busy} onClick={() => void select()}>{t("选择 MTool 目录")}</Button>
     {error && <p role="alert" className="text-xs text-danger">{error}</p>}
@@ -63,11 +64,15 @@ export function MToolGameTranslation({ gameId }: { gameId: string }) {
     finally { setBusy(false); }
   };
   return <div className="space-y-2 rounded-md border border-border p-3">
-    <h3 className="text-sm font-semibold">{t("MTool 翻译配方")}</h3>
+    <h3 className="text-sm font-semibold">{t("MTool 翻译")}</h3>
+    <details>
+      <summary className="cursor-pointer text-xs text-steam">{t("MTool 目录设置")}</summary>
+      <div className="mt-2"><MToolSettings /></div>
+    </details>
     {status && <p role={status.state === "blocked" ? "alert" : "status"} className="break-words text-xs text-text-secondary">{t(status.reason)}</p>}
     {status?.scriptPath && <p className="break-all text-xs text-text-secondary">{status.scriptPath}</p>}
     {status?.backupPath && <p className="break-all text-xs text-text-secondary">{t("原配方备份")}: {status.backupPath}</p>}
-    <Button variant="outline" disabled={busy} onClick={() => void prepare()}>{t(busy ? "正在生成配方…" : "生成或修复 MTool 配方")}</Button>
+    <Button variant="outline" disabled={busy} onClick={() => void prepare()}>{t(busy ? "正在生成启动脚本…" : "生成或修复 MTool 启动脚本")}</Button>
     {error && <p role="alert" className="text-xs text-danger">{error}</p>}
   </div>;
 }

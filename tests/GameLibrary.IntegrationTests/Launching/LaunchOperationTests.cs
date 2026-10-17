@@ -14,6 +14,45 @@ namespace GameLibrary.IntegrationTests.Launching;
 /// </summary>
 public sealed class LaunchOperationTests : IClassFixture<PipeServerFixture>
 {
+    [Fact]
+    public async Task BatchProfile_CreateUpdatePlanAndExecute_UseOnlyTheSelectedSyntheticScript()
+    {
+        var root = NewRunDir("batch with spaces & 日本語");
+        Directory.CreateDirectory(root);
+        var script = Path.Combine(root, "起動 Run Game.BAT");
+        await File.WriteAllTextAsync(script, "@echo off\r\n> marker.txt echo %~1\r\nexit /b 0\r\n");
+        await EnsureRootAsync(root);
+        var gameId = "batch-" + Guid.NewGuid().ToString();
+        var created = await InvokeAsync("profiles.create", new { gameId, executablePath = script, argv = new[] { "argument with spaces" },
+            cwd = root, idempotencyKey = Guid.NewGuid().ToString() });
+        Assert.True(created.Ok, created.Error?.Message);
+        var profileId = created.Data.GetProperty("profileId").GetString()!;
+        var updated = await InvokeAsync("profiles.update", new { profileId, executablePath = script, argv = new[] { "argument with spaces" }, cwd = root, expectedRevision = 1,
+            idempotencyKey = Guid.NewGuid().ToString() });
+        Assert.True(updated.Ok, updated.Error?.Message);
+        var planned = await InvokeAsync("launch.plan", new { gameId, profileId });
+        Assert.True(planned.Ok, planned.Error?.Message);
+        Assert.Equal(script, planned.Data.GetProperty("executablePath").GetString());
+        var launched = await InvokeAsync("launch.execute", new { profileId, idempotencyKey = Guid.NewGuid().ToString() });
+        Assert.True(launched.Ok, launched.Error?.Message);
+        await _fixture.State.Jobs.WaitForIdleAsync();
+        var attempt = Assert.Single(_fixture.State.Launches.History(gameId));
+        await WaitForExitAsync(attempt.AttemptId);
+        Assert.Equal("argument with spaces", (await File.ReadAllTextAsync(Path.Combine(root, "marker.txt"))).Trim());
+    }
+
+    [Theory]
+    [InlineData("& echo injected")]
+    [InlineData("%COMSPEC%")]
+    [InlineData("\" & echo injected")]
+    [InlineData("!PATH!")]
+    [InlineData("line\nbreak")]
+    public void BatchArguments_RejectCommandExpansionBeforeAProcessCanStart(string argument)
+    {
+        Assert.Throws<GameLibrary.Host.Launching.LaunchException>(() => GameLibrary.Host.Launching.LaunchRegistry.CreateStartInfo(
+            @"C:\isolated\Game.bat", [argument], @"C:\isolated"));
+    }
+
     private readonly PipeServerFixture _fixture;
 
     public LaunchOperationTests(PipeServerFixture fixture)

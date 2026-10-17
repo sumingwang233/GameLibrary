@@ -17,6 +17,26 @@ namespace GameLibrary.IntegrationTests.Scanning;
 public sealed class CandidateOrchestrationTests
 {
     [Fact]
+    public void EngineResourcesWithoutAnEntry_AreNotGames_ButIndependentlyPlayableCopiesRemainDiscoverable()
+    {
+        var root = NewFixtureRoot();
+        var www = Path.Combine(root, "www");
+        var patch = Path.Combine(root, "patch-only");
+        WriteFile(Path.Combine(www, "js", "rpg_core.js"));
+        WriteFile(Path.Combine(www, "data", "System.json"), "{}");
+        WriteFile(Path.Combine(www, "index.html"));
+        WriteFile(Path.Combine(patch, "patch.xp3"));
+        var (empty, _) = RunScan(root);
+        Assert.DoesNotContain(empty.Candidates, candidate => candidate.Kind != CandidateKind.Container);
+        Assert.True(EngineDetectorSet.Default.DetectAll(new FileSystemDirectorySnapshot(GamePath.Create(www))).Results.Count > 0);
+        WriteFile(Path.Combine(www, "Game.exe"));
+        WriteFile(Path.Combine(patch, "Game.exe"));
+        var (playable, _) = RunScan(root);
+        Assert.Contains(playable.Candidates, candidate => candidate.PhysicalPath == www && candidate.EntryCandidates.Count > 0);
+        Assert.Contains(playable.Candidates, candidate => candidate.PhysicalPath == patch && candidate.EntryCandidates.Count > 0);
+    }
+
+    [Fact]
     public async Task MetadataPathChecks_PreserveSupersededHistory_AndReconcileRealReviews()
     {
         var root = NewFixtureRoot();
