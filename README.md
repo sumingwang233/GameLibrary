@@ -10,7 +10,7 @@
 
 把散落在硬盘里的游戏放到一处。选好文件夹，确认启动项，就能从游戏库打开游戏。
 
-当前源码 **v1.7.22** 支持 Godot 内嵌 PCK 识别并固定 MTool GodotHook 翻译规则：详情页点“标记为需要翻译并生成启动脚本”即可通过 MTool 翻译启动。参见[实施记录](docs/development/v1.7.22-godot-mtool.md)；上一版[待验收本地构建](docs/releases/v1.7.21.md)保留，尚未发布 GitHub Release；下方默认下载仍对应稳定版。
+当前源码 **v1.7.22** 支持 Godot 内嵌 PCK 识别并固定 MTool GodotHook 翻译规则：详情页点“标记为需要翻译并生成启动脚本”即可通过 MTool 翻译启动。提供[待验收本地构建](docs/releases/v1.7.22.md)，尚未发布 GitHub Release；下方默认下载仍对应稳定版。
 
 **[下载 Windows 安装版](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-Setup-v1.7.13.exe)** · [所有版本](https://github.com/sumingwang233/GameLibrary/releases) · [反馈问题](https://github.com/sumingwang233/GameLibrary/issues)
 
