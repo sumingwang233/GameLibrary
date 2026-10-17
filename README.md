@@ -10,7 +10,7 @@
 
 把散落在硬盘里的游戏放到一处。选好文件夹，确认启动项，就能从游戏库打开游戏。
 
-当前源码 **v1.7.20** 修复[游戏文件回收、资源目录误扫及启动交互](docs/development/v1.7.20-removal-scanning-and-launch.md)，补充 MTool 目录设置入口和 BAT 启动方式；已评分游戏再次游玩后不再提示评分。本版尚未打包或发布；下方默认下载仍对应稳定版。[v1.7.18 待验收本地构建](docs/releases/v1.7.18.md)保留。
+当前源码 **v1.7.20** 修复游戏文件回收、资源目录误扫及启动交互，补充 MTool 目录设置、BAT 启动和已游玩游戏库，提供[待验收本地构建](docs/releases/v1.7.20.md)，尚未发布 GitHub Release；下方默认下载仍对应稳定版。
 
 **[下载 Windows 安装版](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-Setup-v1.7.13.exe)** · [所有版本](https://github.com/sumingwang233/GameLibrary/releases) · [反馈问题](https://github.com/sumingwang233/GameLibrary/issues)
 

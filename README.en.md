@@ -10,7 +10,7 @@
 
 Keep games scattered across your drives in one library. Choose a folder, check the launch entry, and open the game from your collection.
 
-Current source **v1.7.20** fixes [game file recycling, resource-folder detection and launch interactions](docs/development/v1.7.20-removal-scanning-and-launch.md), adds MTool folder settings in game details and supports BAT launch profiles. Rated games no longer show a rating prompt after another session. This version has not been packaged or published; default downloads still point to the stable release. The [v1.7.18 local acceptance-candidate build](docs/releases/v1.7.18.md) remains available.
+Current source **v1.7.20** fixes game file recycling, resource-folder detection and launch interactions, and includes MTool folder settings, BAT profiles and the Played library as a [local acceptance-candidate build](docs/releases/v1.7.20.md). No GitHub Release has been published; default downloads still point to the stable release.
 
 **[Download the Windows installer](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-Setup-v1.7.13.exe)** · [All releases](https://github.com/sumingwang233/GameLibrary/releases) · [Report an issue](https://github.com/sumingwang233/GameLibrary/issues)
 

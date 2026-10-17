@@ -10,7 +10,7 @@
 
 ドライブに散らばったゲームを、一つのライブラリに。フォルダーを選び、起動ファイルを確認すると、一覧からゲームを開けます。
 
-現在のソース **v1.7.20** は[ゲームファイルの回収、素材フォルダーの誤検出、起動操作](docs/development/v1.7.20-removal-scanning-and-launch.md)を修正し、詳細画面に MTool フォルダー設定を追加しました。BAT 起動設定に対応し、評価済みゲームでは再プレイ後の評価案内を表示しません。この版は未パッケージ・未公開で、既定のダウンロードは安定版を指します。[v1.7.18 の確認待ちローカルビルド](docs/releases/v1.7.18.md)も残しています。
+現在のソース **v1.7.20** はゲームファイルの回収、素材フォルダーの誤検出、起動操作を修正し、MTool フォルダー設定、BAT 起動、プレイ済みライブラリを含む[確認待ちローカルビルド](docs/releases/v1.7.20.md)を提供しています。GitHub Release は未公開で、既定のダウンロードは引き続き安定版を指します。
 
 **[Windows インストーラーをダウンロード](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-Setup-v1.7.13.exe)** · [すべてのリリース](https://github.com/sumingwang233/GameLibrary/releases) · [不具合の報告](https://github.com/sumingwang233/GameLibrary/issues)
 
