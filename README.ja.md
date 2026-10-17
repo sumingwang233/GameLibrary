@@ -10,7 +10,7 @@
 
 ドライブに散らばったゲームを、一つのライブラリに。フォルダーを選び、起動ファイルを確認すると、一覧からゲームを開けます。
 
-現在のソース **v1.7.21** は「プレイ済み」を詳細ページでの手動マーク限定に変更しました。正常終了しても自動でプレイ済みライブラリへ移動せず、マークを解除するとメインライブラリに戻ります。詳細は[実施記録](docs/development/v1.7.21-manual-played.md)を参照。前バージョンの[確認待ちローカルビルド](docs/releases/v1.7.20.md)も保持し、GitHub Release は未公開で、既定のダウンロードは引き続き安定版を指します。
+現在のソース **v1.7.21** は「プレイ済み」を詳細ページでの手動マーク限定に変更しました。正常終了しても自動でプレイ済みライブラリへ移動せず、マークを解除するとメインライブラリに戻ります。[確認待ちローカルビルド](docs/releases/v1.7.21.md)を提供しています。GitHub Release は未公開で、既定のダウンロードは引き続き安定版を指します。
 
 **[Windows インストーラーをダウンロード](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-Setup-v1.7.13.exe)** · [すべてのリリース](https://github.com/sumingwang233/GameLibrary/releases) · [不具合の報告](https://github.com/sumingwang233/GameLibrary/issues)
 

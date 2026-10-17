@@ -10,7 +10,7 @@
 
 把散落在硬盘里的游戏放到一处。选好文件夹，确认启动项，就能从游戏库打开游戏。
 
-当前源码 **v1.7.21** 将“已游玩”改为仅在详情页手动标记：正常退出游戏不再自动划入已游玩库，取消标记后回到主库。参见[实施记录](docs/development/v1.7.21-manual-played.md)；上一版[待验收本地构建](docs/releases/v1.7.20.md)保留，尚未发布 GitHub Release；下方默认下载仍对应稳定版。
+当前源码 **v1.7.21** 将“已游玩”改为仅在详情页手动标记：正常退出游戏不再自动划入已游玩库，取消标记后回到主库。提供[待验收本地构建](docs/releases/v1.7.21.md)，尚未发布 GitHub Release；下方默认下载仍对应稳定版。
 
 **[下载 Windows 安装版](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-Setup-v1.7.13.exe)** · [所有版本](https://github.com/sumingwang233/GameLibrary/releases) · [反馈问题](https://github.com/sumingwang233/GameLibrary/issues)
 
