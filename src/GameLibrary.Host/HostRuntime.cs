@@ -267,9 +267,7 @@ public sealed class HostRuntime : IAsyncDisposable
 
             if (attempt.State == "exited")
             {
-                if (attempt.ProcessStartedUtc is not null && attempt.ExitCode == 0
-                    && state.Library.Store?.MarkGamePlayed(attempt.GameId, DateTime.UtcNow) is { } revision)
-                    state.Events.Publish("game.updated", $"game:{attempt.GameId}", new { gameId = attempt.GameId, revision }, DateTime.UtcNow);
+                // 已游玩仅由用户在详情页手动标记（games.update）；正常退出不再自动标记。
                 state.Events.Publish("launch.exited", $"launch:{attempt.AttemptId}", new
                 {
                     attemptId = attempt.AttemptId,

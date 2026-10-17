@@ -10,7 +10,7 @@
 
 Keep games scattered across your drives in one library. Choose a folder, check the launch entry, and open the game from your collection.
 
-Current source **v1.7.20** fixes game file recycling, resource-folder detection and launch interactions, and includes MTool folder settings, BAT profiles and the Played library as a [local acceptance-candidate build](docs/releases/v1.7.20.md). No GitHub Release has been published; default downloads still point to the stable release.
+Current source **v1.7.21** makes Played a manual-only mark set from the game detail page: a normal exit no longer files a game under Played, and clearing the mark returns it to the main library. See the [implementation record](docs/development/v1.7.21-manual-played.md); the previous [local acceptance-candidate build](docs/releases/v1.7.20.md) remains. No GitHub Release has been published; default downloads still point to the stable release.
 
 **[Download the Windows installer](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-Setup-v1.7.13.exe)** · [All releases](https://github.com/sumingwang233/GameLibrary/releases) · [Report an issue](https://github.com/sumingwang233/GameLibrary/issues)
 
