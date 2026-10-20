@@ -1,0 +1,80 @@
+{
+  "pages": [
+    {
+      "locale": "zh-CN",
+      "status": 200,
+      "lang": "zh-CN",
+      "current": true
+    },
+    {
+      "locale": "zh-TW",
+      "status": 200,
+      "lang": "zh-TW",
+      "current": true
+    },
+    {
+      "locale": "en",
+      "status": 200,
+      "lang": "en",
+      "current": true
+    },
+    {
+      "locale": "ja",
+      "status": 200,
+      "lang": "ja",
+      "current": true
+    }
+  ],
+  "styles": [
+    {
+      "file": "/GameLibrary/_next/static/chunks/3bkeirto_t4zp.css",
+      "status": 200,
+      "byteIdentical": true,
+      "paperTheme": true
+    }
+  ],
+  "images": [
+    {
+      "name": "hero-paper-pixel",
+      "status": 200,
+      "byteIdentical": true
+    },
+    {
+      "name": "pixel-journey",
+      "status": 200,
+      "byteIdentical": true
+    }
+  ],
+  "previews": [
+    {
+      "name": "hero-paper-pixel-640",
+      "status": 200,
+      "type": "image/webp"
+    },
+    {
+      "name": "hero-paper-pixel-960",
+      "status": 200,
+      "type": "image/webp"
+    },
+    {
+      "name": "hero-paper-pixel-1440",
+      "status": 200,
+      "type": "image/webp"
+    },
+    {
+      "name": "pixel-journey-640",
+      "status": 200,
+      "type": "image/webp"
+    },
+    {
+      "name": "pixel-journey-960",
+      "status": 200,
+      "type": "image/webp"
+    },
+    {
+      "name": "pixel-journey-1440",
+      "status": 200,
+      "type": "image/webp"
+    }
+  ]
+}
