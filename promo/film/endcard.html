@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>GameLibrary end card</title>
+<style>
+  :root {
+    --bg: #171a21;
+    --panel: #1b2838;
+    --surface: #1e2a38;
+    --surface-elevated: #243447;
+    --steam: #66c0f4;
+    --steam-hover: #8ed5f7;
+    --steam-soft: #2a475e;
+    --text: #c7d5e0;
+    --muted: #8f98a0;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 100%; height: 100%; background: var(--bg); overflow: hidden; }
+  #stage {
+    position: relative; width: 1440px; height: 810px; overflow: hidden;
+    background:
+      radial-gradient(1100px 620px at 50% 38%, rgba(102, 192, 244, 0.13), rgba(23, 26, 33, 0) 62%),
+      linear-gradient(180deg, #151b25 0%, #171a21 55%, #121821 100%);
+    font-family: "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
+    color: var(--text);
+  }
+  /* orderly library silhouette */
+  #shelf { position: absolute; inset: 0; opacity: 0.5; }
+  #shelf .row {
+    display: flex; gap: 22px; padding: 0 96px; margin-bottom: 22px;
+    transform: skewY(0deg);
+  }
+  #shelf .card {
+    width: 132px; height: 176px; border-radius: 8px;
+    border: 1px solid rgba(102, 192, 244, 0.10);
+    background: linear-gradient(180deg, rgba(36, 52, 71, 0.34), rgba(27, 40, 56, 0.16));
+  }
+  #shelf .card:nth-child(3n) { background: linear-gradient(180deg, rgba(42, 71, 94, 0.30), rgba(27, 40, 56, 0.12)); }
+  #veil {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(760px 420px at 50% 46%, rgba(23, 26, 33, 0.94) 0%, rgba(23, 26, 33, 0.86) 46%, rgba(23, 26, 33, 0.42) 74%, rgba(23, 26, 33, 0.10) 100%),
+      linear-gradient(180deg, rgba(23, 26, 33, 0.72) 0%, rgba(23, 26, 33, 0.28) 30%, rgba(23, 26, 33, 0.38) 70%, rgba(23, 26, 33, 0.86) 100%);
+  }
+  #content {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 0; padding-bottom: 16px;
+  }
+  .brand { display: flex; align-items: center; gap: 18px; margin-bottom: 30px; }
+  .brand .mark {
+    width: 52px; height: 52px; border-radius: 13px;
+    background: linear-gradient(145deg, #8ed5f7 0%, #66c0f4 52%, #2a7fb8 100%);
+    display: grid; place-items: center; box-shadow: 0 10px 30px rgba(102, 192, 244, 0.25);
+  }
+  .brand .mark svg { width: 30px; height: 30px; }
+  .brand .word { font-size: 44px; font-weight: 700; letter-spacing: 0.2px; color: #e6eef5; }
+  .brand .word b { font-weight: 700; color: var(--steam); }
+  h1 { margin: 0; font-size: 82px; line-height: 1.12; font-weight: 700; letter-spacing: 1px; color: #f2f6f9; }
+  h1 .accent { color: var(--steam); }
+  .sub { margin-top: 22px; font-size: 30px; line-height: 1.5; color: #a9b6c1; letter-spacing: 0.4px; }
+  .meta { margin-top: 44px; display: flex; align-items: center; gap: 14px; font-size: 20px; color: var(--muted); }
+  .chip {
+    padding: 6px 14px; border-radius: 999px; border: 1px solid rgba(102, 192, 244, 0.34);
+    background: rgba(42, 71, 94, 0.34); color: var(--steam); font-size: 19px; letter-spacing: 0.3px;
+  }
+  .url {
+    margin-top: 30px; display: inline-flex; align-items: center; gap: 14px;
+    padding: 18px 32px 18px 26px; border-radius: 12px;
+    border: 1px solid rgba(102, 192, 244, 0.30);
+    background: linear-gradient(180deg, rgba(30, 42, 56, 0.92), rgba(21, 27, 37, 0.92));
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    font-size: 33px; font-weight: 600; color: var(--steam-hover); letter-spacing: 0.2px;
+  }
+  .url svg { width: 26px; height: 26px; opacity: 0.9; }
+  .foot {
+    margin-top: 26px; font-size: 21px; line-height: 1.65; color: #7d8b96; letter-spacing: 0.4px;
+  }
+  .foot b { color: #9fb0bf; font-weight: 600; }
+</style>
+</head>
+<body>
+  <div id="stage">
+    <div id="shelf" aria-hidden="true"></div>
+    <div id="veil" aria-hidden="true"></div>
+    <div id="content">
+      <div class="brand">
+        <div class="mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#0f1a23" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4" width="18" height="14" rx="3"></rect>
+            <path d="M8 21h8"></path>
+            <path d="M9.5 8.5v5l4-2.5z" fill="#0f1a23" stroke="none"></path>
+          </svg>
+        </div>
+        <div class="word">Game<b>Library</b></div>
+      </div>
+      <h1>把时间<span class="accent">留给游戏</span>。</h1>
+      <div class="sub">把散落的游戏整理到一处，把准备工作交给工具。</div>
+      <div class="meta">
+        <span class="chip">v1.7.22 · 开发版演示</span>
+        <span>可下载功能以发布版本为准</span>
+      </div>
+      <div class="url">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M10 13a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1.2 1.2"></path>
+          <path d="M14 11a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7l1.2-1.2"></path>
+        </svg>
+        https://github.com/sumingwang233/GameLibrary
+      </div>
+      <div class="foot">MIT License · 本地游戏库<br /><b>配乐</b> Pamgaea · Kevin MacLeod · CC BY 4.0</div>
+    </div>
+  </div>
+  <script>
+    // Build a calm, orderly grid of card silhouettes behind the vignette.
+    const shelf = document.getElementById("shelf");
+    const card = '<div class="card"></div>';
+    for (let row = 0; row < 5; row += 1) {
+      const el = document.createElement("div");
+      el.className = "row";
+      el.style.paddingLeft = (96 + (row % 2) * 46) + "px";
+      el.innerHTML = card.repeat(9);
+      shelf.appendChild(el);
+    }
+  </script>
+</body>
+</html>
+
+

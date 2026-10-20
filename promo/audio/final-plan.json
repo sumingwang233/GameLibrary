@@ -1,0 +1,118 @@
+{
+  "name": "GameLibrary-promo",
+  "duration": 150,
+  "out": "out/audio/mix-final.wav",
+  "target": {
+    "lufs": -16,
+    "tp": -1.5
+  },
+  "music": {
+    "file": "assets/music/incompetech_Pamgaea.mp3",
+    "start": 10,
+    "gainDb": -2,
+    "fadeIn": 2.5,
+    "fadeOut": 3.5
+  },
+  "sfx": [
+    {
+      "file": "assets/sfx/sfx_whoosh_soft.wav",
+      "at": 12,
+      "gainDb": -15
+    },
+    {
+      "file": "assets/sfx/sfx_click_light.wav",
+      "at": 18.2,
+      "gainDb": -7
+    },
+    {
+      "file": "assets/sfx/sfx_click_light.wav",
+      "at": 20,
+      "gainDb": -7
+    },
+    {
+      "file": "assets/sfx/sfx_click_light.wav",
+      "at": 25,
+      "gainDb": -7
+    },
+    {
+      "file": "assets/sfx/sfx_click_light.wav",
+      "at": 26.8,
+      "gainDb": -7
+    },
+    {
+      "file": "assets/sfx/sfx_whoosh_soft.wav",
+      "at": 38,
+      "gainDb": -15
+    },
+    {
+      "file": "assets/sfx/sfx_click_light.wav",
+      "at": 39.5,
+      "gainDb": -7
+    },
+    {
+      "file": "assets/sfx/sfx_click_light.wav",
+      "at": 43.85,
+      "gainDb": -7
+    },
+    {
+      "file": "assets/sfx/sfx_click_light.wav",
+      "at": 45.25,
+      "gainDb": -7
+    },
+    {
+      "file": "assets/sfx/sfx_whoosh_soft.wav",
+      "at": 60,
+      "gainDb": -15
+    },
+    {
+      "file": "assets/sfx/sfx_click_light.wav",
+      "at": 61.55,
+      "gainDb": -7
+    },
+    {
+      "file": "assets/sfx/sfx_click_light.wav",
+      "at": 70,
+      "gainDb": -7
+    },
+    {
+      "file": "assets/sfx/sfx_whoosh_soft.wav",
+      "at": 78,
+      "gainDb": -15
+    },
+    {
+      "file": "assets/sfx/sfx_click_light.wav",
+      "at": 87.55,
+      "gainDb": -7
+    },
+    {
+      "file": "assets/sfx/sfx_whoosh_soft.wav",
+      "at": 105,
+      "gainDb": -15
+    },
+    {
+      "file": "assets/sfx/sfx_click_light.wav",
+      "at": 109,
+      "gainDb": -7
+    },
+    {
+      "file": "assets/sfx/sfx_click_light.wav",
+      "at": 111.2,
+      "gainDb": -7
+    },
+    {
+      "file": "assets/sfx/sfx_whoosh_soft.wav",
+      "at": 122,
+      "gainDb": -15
+    },
+    {
+      "file": "assets/sfx/sfx_click_light.wav",
+      "at": 136.1,
+      "gainDb": -7
+    },
+    {
+      "file": "assets/sfx/sfx_whoosh_soft.wav",
+      "at": 140,
+      "gainDb": -15
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+node_modules/
+out/
+tools/ffmpeg/*.exe
+tools/ffmpeg/*.dll

@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>stage-test</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0e14; overflow: hidden; }
+  #stage { position: relative; width: 1440px; height: 810px; overflow: hidden; }
+  #camera { position: absolute; inset: 0; transform-origin: 0 0; }
+  #app { position: absolute; top: 0; left: 0; width: 1440px; height: 810px; border: 0; display: block; }
+</style>
+</head>
+<body>
+  <div id="stage"><div id="camera"><iframe id="app" src="/?scene=library&embed=1" title="app"></iframe></div></div>
+  <script>
+    // Fixed framing for the sharpness test: push the library grid towards the centre.
+    const camera = document.getElementById("camera");
+    camera.style.transform = "translate(-260px, -120px) scale(1.9)";
+  </script>
+</body>
+</html>

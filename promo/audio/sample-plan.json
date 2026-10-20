@@ -1,0 +1,20 @@
+{
+  "name": "sample-15s",
+  "duration": 15,
+  "out": "out/audio/sample-15s.wav",
+  "target": { "lufs": -16, "tp": -1.5 },
+  "music": {
+    "file": "assets/music/incompetech_Pamgaea.mp3",
+    "start": 18,
+    "gainDb": 0,
+    "fadeIn": 0.4,
+    "fadeOut": 1.2
+  },
+  "sfx": [
+    { "file": "assets/sfx/sfx_click_light.wav", "at": 3.6, "gainDb": 6 },
+    { "file": "assets/sfx/sfx_confirm_up.wav", "at": 8.2, "gainDb": 2 },
+    { "file": "assets/sfx/sfx_whoosh_soft.wav", "at": 12.4, "gainDb": -2 }
+  ]
+}
+
+

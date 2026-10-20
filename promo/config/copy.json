@@ -1,0 +1,411 @@
+{
+  "brand": {
+    "name": "GameLibrary",
+    "tagline": "把散落的游戏整理到一处，把时间留给游戏。",
+    "heroLineA": "把散落的游戏",
+    "heroLineB": "整理到一处",
+    "endLine": "把时间留给游戏。"
+  },
+  "labels": {
+    "demoData": "示例数据",
+    "flowDemo": "流程演示",
+    "uiSketch": "界面示意",
+    "translationData": "示例数据（翻译结果）",
+    "supported": "受支持的 Unity 游戏",
+    "needService": "需先配置翻译服务",
+    "needMtool": "需自行准备 MTool",
+    "externalTool": "外部工具",
+    "verifyLater": "游戏内效果需启动后验证",
+    "libraryOnly": "仅更改游戏库内显示"
+  },
+  "subtitles": [
+    {
+      "start": 0.9,
+      "end": 5.8,
+      "text": "下载过的游戏，散落在不同的文件夹里。"
+    },
+    {
+      "start": 6.4,
+      "end": 11.3,
+      "text": "想玩的时候，却常常要先找一遍。"
+    },
+    {
+      "start": 12.8,
+      "end": 17.6,
+      "text": "用 GameLibrary，把它们整理到一处。"
+    },
+    {
+      "start": 18.4,
+      "end": 26.6,
+      "text": "添加游戏所在的文件夹，扫描后逐项审核，确认入库。"
+    },
+    {
+      "start": 27.6,
+      "end": 33.4,
+      "text": "下一次，直接从游戏库找到它。"
+    },
+    {
+      "start": 38.8,
+      "end": 42.6,
+      "text": "记得名字，就搜索。"
+    },
+    {
+      "start": 43.4,
+      "end": 47.6,
+      "text": "常玩的，加入收藏。"
+    },
+    {
+      "start": 48.4,
+      "end": 54.2,
+      "text": "想按自己的习惯分类，就给它们加上标签。"
+    },
+    {
+      "start": 54.8,
+      "end": 59.4,
+      "text": "整理之后，找游戏不必再从一层层文件夹开始。"
+    },
+    {
+      "start": 60.6,
+      "end": 68.4,
+      "text": "遇到不熟悉的外文游戏名，可以翻译为中文，也可以批量处理。"
+    },
+    {
+      "start": 69.2,
+      "end": 76.6,
+      "text": "原名仍然保留，需要的时候，随时切换。"
+    },
+    {
+      "start": 78.6,
+      "end": 83.8,
+      "text": "准备游戏翻译，也能少一些手动操作。"
+    },
+    {
+      "start": 84.6,
+      "end": 94,
+      "text": "设置好翻译服务后，GameLibrary 可以为受支持的 Unity 游戏自动配置翻译插件。"
+    },
+    {
+      "start": 94.6,
+      "end": 102.2,
+      "text": "兼容检查、插件准备和配置过程，都有对应的状态反馈。"
+    },
+    {
+      "start": 105.6,
+      "end": 111.4,
+      "text": "使用 MTool 的游戏，也可以接入同一个启动流程。"
+    },
+    {
+      "start": 112.2,
+      "end": 120.6,
+      "text": "设置工具目录，按支持情况准备启动方式，让游戏和翻译工具的准备工作衔接起来。"
+    },
+    {
+      "start": 122.6,
+      "end": 130.4,
+      "text": "从整理、查找，到名称翻译和翻译工具配置，把这些准备工作放到一处。"
+    },
+    {
+      "start": 131.2,
+      "end": 137.2,
+      "text": "打开游戏之前，少一点来回折腾。"
+    },
+    {
+      "start": 140.6,
+      "end": 146.2,
+      "text": "GameLibrary，把时间留给游戏。"
+    },
+    {
+      "start": 146.6,
+      "end": 149.4,
+      "text": "前往项目页面，查看版本说明并下载。"
+    }
+  ],
+  "annotations": {
+    "A": [
+      {
+        "text": "同一款游戏，三个入口",
+        "start": 1.6,
+        "end": 7.2,
+        "pos": "bottomLeft"
+      }
+    ],
+    "B": [
+      {
+        "text": "添加游戏目录后自动扫描",
+        "start": 13.6,
+        "end": 19.2,
+        "pos": "topRight"
+      }
+    ],
+    "D": [
+      {
+        "text": "示例数据（翻译结果）",
+        "start": 62,
+        "end": 78,
+        "pos": "topRight",
+        "chip": true
+      },
+      {
+        "text": "仅更改游戏库内显示",
+        "start": 63.4,
+        "end": 70,
+        "pos": "bottomLeft"
+      }
+    ],
+    "E": [
+      {
+        "text": "需先配置翻译服务",
+        "start": 78.8,
+        "end": 84.4,
+        "pos": "topRight",
+        "chip": true
+      },
+      {
+        "text": "受支持的 Unity 游戏",
+        "start": 85,
+        "end": 92,
+        "pos": "bottomLeft"
+      },
+      {
+        "text": "游戏内效果需启动后验证",
+        "start": 100.4,
+        "end": 105,
+        "pos": "bottomLeft"
+      }
+    ],
+    "F": [
+      {
+        "text": "需自行准备 MTool",
+        "start": 105.8,
+        "end": 112,
+        "pos": "topRight",
+        "chip": true
+      },
+      {
+        "text": "外部工具接入启动流程",
+        "start": 113,
+        "end": 121,
+        "pos": "bottomLeft"
+      }
+    ]
+  },
+  "demo": {
+    "libraryName": "示例游戏库",
+    "games": [
+      {
+        "title": "Hollow Tide",
+        "zh": "空潮",
+        "year": "2021",
+        "genre": "角色扮演",
+        "tags": [
+          "想重玩"
+        ],
+        "unity": true,
+        "mtool": false,
+        "favorite": true,
+        "cover": {
+          "hue": 205,
+          "motif": "rings",
+          "glyph": "H"
+        }
+      },
+      {
+        "title": "Neon Drift",
+        "zh": "霓虹漂移",
+        "year": "2023",
+        "genre": "竞速",
+        "tags": [
+          "想重玩"
+        ],
+        "unity": false,
+        "mtool": false,
+        "favorite": true,
+        "cover": {
+          "hue": 312,
+          "motif": "lights",
+          "glyph": "N"
+        }
+      },
+      {
+        "title": "Ashen Vale",
+        "zh": "灰烬谷",
+        "year": "2020",
+        "genre": "冒险",
+        "tags": [],
+        "unity": true,
+        "mtool": false,
+        "favorite": false,
+        "cover": {
+          "hue": 28,
+          "motif": "peaks",
+          "glyph": "A"
+        }
+      },
+      {
+        "title": "Starfall Tactics",
+        "zh": "星陨战术",
+        "year": "2022",
+        "genre": "策略",
+        "tags": [
+          "已通关"
+        ],
+        "unity": false,
+        "mtool": false,
+        "favorite": false,
+        "cover": {
+          "hue": 220,
+          "motif": "grid",
+          "glyph": "S"
+        }
+      },
+      {
+        "title": "Moss & Machine",
+        "zh": "苔与机械",
+        "year": "2024",
+        "genre": "模拟",
+        "tags": [
+          "想重玩"
+        ],
+        "unity": true,
+        "mtool": false,
+        "favorite": false,
+        "cover": {
+          "hue": 130,
+          "motif": "leaves",
+          "glyph": "M"
+        }
+      },
+      {
+        "title": "Paper Kingdoms",
+        "zh": "纸王国",
+        "year": "2019",
+        "genre": "策略",
+        "tags": [
+          "和朋友一起"
+        ],
+        "unity": true,
+        "mtool": false,
+        "favorite": false,
+        "cover": {
+          "hue": 45,
+          "motif": "paper",
+          "glyph": "P"
+        }
+      },
+      {
+        "title": "Iron Meridian",
+        "zh": "铁子午线",
+        "year": "2022",
+        "genre": "角色扮演",
+        "tags": [
+          "和朋友一起"
+        ],
+        "unity": false,
+        "mtool": true,
+        "favorite": false,
+        "cover": {
+          "hue": 12,
+          "motif": "bars",
+          "glyph": "I"
+        }
+      },
+      {
+        "title": "Lumen Peak",
+        "zh": "光峰",
+        "year": "2023",
+        "genre": "冒险",
+        "tags": [
+          "周末深夜"
+        ],
+        "unity": true,
+        "mtool": false,
+        "favorite": false,
+        "cover": {
+          "hue": 48,
+          "motif": "sun",
+          "glyph": "L"
+        }
+      },
+      {
+        "title": "Quiet Orbit",
+        "zh": "静轨",
+        "year": "2021",
+        "genre": "模拟",
+        "tags": [
+          "周末深夜"
+        ],
+        "unity": false,
+        "mtool": false,
+        "favorite": false,
+        "cover": {
+          "hue": 195,
+          "motif": "orbit",
+          "glyph": "Q"
+        }
+      },
+      {
+        "title": "Ember Cartography",
+        "zh": "余烬制图",
+        "year": "2024",
+        "genre": "冒险",
+        "tags": [],
+        "unity": true,
+        "mtool": false,
+        "favorite": false,
+        "cover": {
+          "hue": 355,
+          "motif": "map",
+          "glyph": "E"
+        }
+      },
+      {
+        "title": "Skyward Ledger",
+        "zh": "云端账本",
+        "year": "2020",
+        "genre": "模拟",
+        "tags": [
+          "已通关"
+        ],
+        "unity": false,
+        "mtool": false,
+        "favorite": false,
+        "cover": {
+          "hue": 260,
+          "motif": "clouds",
+          "glyph": "S"
+        }
+      },
+      {
+        "title": "Glass Harbor",
+        "zh": "玻璃港",
+        "year": "2023",
+        "genre": "冒险",
+        "tags": [],
+        "unity": true,
+        "mtool": false,
+        "favorite": false,
+        "cover": {
+          "hue": 172,
+          "motif": "water",
+          "glyph": "G"
+        }
+      }
+    ],
+    "tags": [
+      "想重玩",
+      "已通关",
+      "和朋友一起",
+      "周末深夜"
+    ],
+    "genres": [
+      "全部",
+      "动作",
+      "角色扮演",
+      "冒险",
+      "独立",
+      "策略",
+      "模拟",
+      "竞速"
+    ]
+  }
+}
