@@ -151,4 +151,17 @@ All invariant text must remain exactly:
 Only edit the middle illustration area and its caption; preserve all other type and layout.
 ```
 
+## 02-pixel-scan-review-launch-v2.png 局部修订
+
+使用内置 `image_gen` 编辑初版 `02-pixel-scan-review-launch.png`：移除挡住小人的白色鼠标箭头，补全小人。推荐使用 v2，初版保留供对照。
+
+```text
+Use case: precise-object-edit.
+Edit target: the provided clean original GameLibrary pixel-art promotional poster, 1024 x 1536 pixels, opaque portrait 2:3. This is an extremely localized repair.
+Primary request: REMOVE the large white computer mouse-pointer arrow that overlaps the tiny pixel-art backpacked adventurer near the lower-left portion of the central landscape, under the Chinese "扫描" label and just left of the central "确认" label. The white cursor currently covers the character's head and upper body around x=310..370, y=930..1005 in this 1024x1536 image.
+Reconstruct the small occluded portion of the adventurer so the whole tiny person is clearly visible: a coherent original 16-bit pixel-art traveler facing/walking toward the right, matching the existing blue clothing, brown boots, orange-brown backpack and the scene's pixel scale. Keep the existing unoccluded character body, backpack, walking pose and ground location as closely as possible. Seamlessly reconstruct the blue waterfall/sky background wherever the removed arrow extended beyond the character.
+Constraints and invariants: ONLY change the cursor footprint and the few character pixels it obscures. Preserve the entire rest of the poster as close to pixel-identical as possible: all Chinese and English copy, all branding, title, logo, footer URL, Windows symbols, fonts, text positions, illustration, shelves, folders, islands, bridges, dotted yellow path and three star markers, speech-bubble labels, colors, textures, composition, canvas resolution and crop. Do not redraw, restyle, recompose or improve any other area. Do not move the adventurer. Do not place the cursor anywhere else: REMOVE it entirely. Do not add any selection rings, red circles, outlines or annotation marks. The repaired character should look naturally integrated, unobstructed and correctly proportioned, not enlarged. Output only the corrected finished full poster.
+```
+
+
 

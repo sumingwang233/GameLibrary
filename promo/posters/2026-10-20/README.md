@@ -7,7 +7,7 @@
 ## 四个方向
 
 - `01-editorial-library.png`：极简编辑式。用纸雕文件夹与原创封面表现收藏整理，强调集中管理、扫描后确认入库，以及无需账号。图示不代表真实软件界面。
-- `02-pixel-scan-review-launch.png`：复古像素。用扫描、审核、启动的过程表现日常使用，并介绍保留原文件和设置启动参数的功能。
+- `02-pixel-scan-review-launch-v2.png`（推荐稿）：复古像素。用扫描、审核、启动的过程表现日常使用，并介绍保留原文件和设置启动参数的功能。修正版移除挡住小人的鼠标箭头，初版 `02-pixel-scan-review-launch.png` 保留供对照。
 - `03-blueprint-unity-translation.png`：工程蓝图。介绍支持的 Unity 游戏翻译插件与中文字体配置，以及修改前备份、恢复原文件的机制。
 - `04-archive-covers-tags.png`：收藏馆拼贴。用封面、标签和收藏的视觉元素，表现整理与查找游戏的用途。
 
