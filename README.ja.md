@@ -10,7 +10,7 @@
 
 ドライブに散らばったゲームを、一つのライブラリに。フォルダーを選び、起動ファイルを確認すると、一覧からゲームを開けます。
 
-現在のソース **v1.7.23** は CI の書式エラーを修正し、手動実行とテスト結果の保存に対応しました。Godot の認識と MTool 翻訳機能は維持しています。[確認待ちローカルビルド](docs/releases/v1.7.23.md)の GitHub Release は未公開で、既定のダウンロードは引き続き安定版を指します。
+現在のソース **v1.7.23** は MCP ツールの起動、タグ一括操作のロールバック、CI の書式エラーを修正しました。Godot の認識と MTool 翻訳機能は維持しています。[確認待ちローカルビルド](docs/releases/v1.7.23.md)の GitHub Release は未公開で、既定のダウンロードは引き続き安定版を指します。
 
 **[Windows インストーラーをダウンロード](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-Setup-v1.7.13.exe)** · [すべてのリリース](https://github.com/sumingwang233/GameLibrary/releases) · [不具合の報告](https://github.com/sumingwang233/GameLibrary/issues)
 

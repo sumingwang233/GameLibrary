@@ -8,7 +8,18 @@ public sealed partial class SqliteLibraryStore
     {
         lock (_sync)
         {
-            if (_writeTransaction is not null) return action();
+            if (_writeTransaction is not null)
+            {
+                var savepoint = $"nested_{Guid.NewGuid():N}";
+                _writeTransaction.Save(savepoint);
+                try { return action(); }
+                catch
+                {
+                    _writeTransaction.Rollback(savepoint);
+                    throw;
+                }
+                finally { _writeTransaction.Release(savepoint); }
+            }
             using var transaction = _connection.BeginTransaction();
             _writeTransaction = transaction;
             try

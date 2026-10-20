@@ -206,13 +206,22 @@ public sealed class LaunchSuggestionLifecycleTests
     {
         var registry = new LaunchRegistry();
         var profile = Suggest(registry);
-        var attempt = Start(registry, profile, "--hold-ms", "31500");
-        var replay = registry.Execute(attempt.IdempotencyKey, attempt.PlanId, null, null, null);
-        Assert.Equal(attempt.AttemptId, replay.AttemptId);
-        await Task.Delay(TimeSpan.FromSeconds(29));
-        Assert.False(registry.GetProfile(profile.ProfileId)!.IsDefault);
-        await Wait(() => registry.GetProfile(profile.ProfileId)?.ValidationStatus == "verified");
-        await Wait(() => registry.GetAttempt(attempt.AttemptId)!.IsTerminal);
+        var releaseFile = Path.Combine(Path.GetTempPath(), "gamelibrary-boundary-" + Guid.NewGuid().ToString("N"));
+        var attempt = Start(registry, profile, "--wait-for-file", releaseFile);
+        try
+        {
+            var replay = registry.Execute(attempt.IdempotencyKey, attempt.PlanId, null, null, null);
+            Assert.Equal(attempt.AttemptId, replay.AttemptId);
+            await Task.Delay(TimeSpan.FromSeconds(29));
+            Assert.False(registry.GetProfile(profile.ProfileId)!.IsDefault);
+            await Wait(() => registry.GetProfile(profile.ProfileId)?.ValidationStatus == "verified");
+        }
+        finally
+        {
+            File.WriteAllText(releaseFile, "exit");
+            await Wait(() => registry.GetAttempt(attempt.AttemptId)!.IsTerminal);
+            File.Delete(releaseFile);
+        }
         Assert.Single(registry.History());
     }
 

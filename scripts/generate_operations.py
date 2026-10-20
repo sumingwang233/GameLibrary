@@ -53,14 +53,17 @@ def generate(catalog):
         for param in specs:
             clr_type = param.get("csharpType", types[param["type"]])
             optional = not param["required"]
-            if optional and clr_type != "JsonElement":
+            if optional:
                 clr_type += "?"
-            default = " = default" if optional and clr_type == "JsonElement" else " = null" if optional else ""
-            # AIJsonUtilities otherwise serializes the Undefined struct while deriving a schema.
-            # A null metadata default binds to default(JsonElement), preserving omitted vs JSON null.
-            metadata_default = "[DefaultValue(null)] " if optional and clr_type == "JsonElement" else ""
-            parameters.append(f"{metadata_default}[Description({quote(param['description'])})] {clr_type} {param['name']}{default}")
-        args = ", ".join(f"[{quote(p['name'])}] = {p['name']}" for p in specs)
+            default = " = null" if optional else ""
+            parameters.append(f"[Description({quote(param['description'])})] {clr_type} {param['name']}{default}")
+        optional_json = {p["name"] for p in specs if not p["required"]
+                         and p.get("csharpType", types[p["type"]]) == "JsonElement"}
+        if optional_json:
+            parameters.insert(0, "RequestContext<CallToolRequestParams> requestContext")
+        args = ", ".join(f"[{quote(p['name'])}] = " +
+                         (f"OptionalJson(requestContext, {quote(p['name'])}, {p['name']})"
+                          if p["name"] in optional_json else p["name"]) for p in specs)
         mcp += f"    [McpServerTool(Name = {quote(op['mcpTool'])})]\n    [Description({quote(forward['description'])})]\n"
         mcp += f"    public static Task<CallToolResult> {forward['method']}({', '.join(parameters)}) =>\n"
         mcp += f"        InvokeGeneratedOperationAsync(OperationIds.{identifier(op['operationId'])}, new Dictionary<string, object?> {{ {args} }});\n\n"

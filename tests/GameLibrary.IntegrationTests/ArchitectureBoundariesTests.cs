@@ -24,6 +24,11 @@ public sealed class ArchitectureBoundariesTests
         Assert.DoesNotContain("color", required);
         Assert.DoesNotContain("displayName", required);
         Assert.Equal(JsonValueKind.Null, update.GetProperty("properties").GetProperty("color").GetProperty("default").ValueKind);
+        Assert.False(update.GetProperty("properties").TryGetProperty("requestContext", out _));
+        var view = ModelContextProtocol.Server.McpServerTool.Create(
+            typeof(GameLibrary.Mcp.GameLibraryTools).GetMethod("ViewsUpdate")!).ProtocolTool.InputSchema;
+        Assert.DoesNotContain(view.GetProperty("required").EnumerateArray(), value => value.GetString() == "hasCover");
+        Assert.False(view.GetProperty("properties").TryGetProperty("requestContext", out _));
         var crop = ModelContextProtocol.Server.McpServerTool.Create(
             typeof(GameLibrary.Mcp.GameLibraryTools).GetMethod("AssetsCrop")!).ProtocolTool.InputSchema;
         foreach (var field in new[] { "gameId", "assetId", "x", "y", "width", "height", "expectedRevision", "idempotencyKey" })
