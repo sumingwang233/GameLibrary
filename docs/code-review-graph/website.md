@@ -1,3 +1,50 @@
+# 纸雕与像素视觉重构 · 2026-10-21 · 网站 v1.4.0
+
+用户确认采用第二张复古像素海报与第五张纸雕收藏夹海报的融合方向。修改基线为 `183fa18c7ca4`。现有四语言静态入口、`MarketingPage` Server Component 与 `GlassControls` 客户端边界保留，未增加依赖或路由。
+
+```mermaid
+flowchart LR
+  Routes["四语言静态路由"] --> Page["MarketingPage：纸雕首屏 / 像素流程 / 功能说明"]
+  Page --> Art["透明概念插画 + 响应式 WebP"]
+  Page --> Controls["Header / LocalTooltip / Screenshot"]
+  Page --> Data["site.ts：稳定版下载与本地化"]
+  Controls --> Theme["theme.ts：已保存偏好 / 默认浅色"]
+  Layouts["三套布局预绘制"] --> Theme
+  Controls --> Captures["原版 v1.5.5 实机图 / 原生 dialog"]
+  Page --> CSS["globals.css：暖纸材质 / 像素细节 / 响应式"]
+```
+
+## 现状、实施与文件范围
+
+原页面采用灰白层级、居中首屏与下方实机图；主题默认深色。客户端控件已足够独立，重构集中在视觉和排版。原 `priority` 同时决定截图加载与布局宽度，本次拆成独立 `wide`，避免实机图移到下方后仍抢首屏加载优先级。
+
+- `website/components/MarketingPage.tsx`：左文右图首屏；三步像素路径；独立 `#app-preview`；收藏纸签；翻译服务前提；下载文件夹面板。其余功能、章节 ID、下载名称与四语言内容保留。
+- `website/app/globals.css`：暖纸、深蓝墨、朱橙与苔绿令牌；本机宋体标题；纸张层次；明暗主题；1180/920/640/360px 断点；原生浮层和无障碍规则。
+- `website/lib/theme.ts`、三个 `layout.tsx`、`GlassControls.tsx` 与原有 `theme.test.mjs`：默认浅色、预绘制与元颜色一致，保存偏好和主题键保留。现有测试只同步预期，未执行。
+- `website/public/assets/hero-paper-pixel.png`（1536×1024）与 `pixel-journey.png`（1774×887）：内置 `image_gen` 生成的透明无文字插画。实机图与官方 logo 未重绘。
+- `website/scripts/optimize-images.mjs`：保留截图预览，增加两张插画的 640/960/1440px WebP。
+- 网站 `package.json` / lock 更新为 1.4.0；桌面产品版本和稳定下载 v1.7.13 保持原有来源。
+
+## 图谱记录
+
+修改前使用 `code-review-graph impact` 审计页面、控件、主题和样式四文件：20 个直接节点、10 个两跳影响节点、7 个额外文件；`detect-changes --base HEAD --brief` 当时报告 0 个业务函数改动。
+
+修改后执行 `code-review-graph update --brief`：增量重解析 36 文件，237 节点、2687 边，命令退出 0；图谱状态为 403 文件、3940 节点、38171 边。缓存刷新包含工作区已有的其他改动，未把这些改动纳入本次网站提交。CLI 摘要没有单列解析错误计数。
+
+网站五个核心文件的两跳影响查询报告：22 个直接节点、10 个影响节点、6 个额外文件（四语言页面与布局）；输出保留 1 个未解析调用点。全仓风险分数和测试缺口只作为图谱线索，不代表网站测试结果。
+
+## 迁移、回滚与验收
+
+顺序：源码与图谱审计 → 用户确认设计 → 插画生成 → 页面/样式/主题并行修改 → WebP 生成 → 文案整理、源码审查和图谱更新 → 本地提交。P0 保留真实内容与交互；P1 完成纸雕/像素视觉；P2 收敛响应式和多语言排版。完整约定见 [DESIGN.md](../../website/DESIGN.md)。
+
+回滚使用本次网站提交的 `git revert`，同步回退页面、主题、素材、图片管线和网站版本，然后重新生成旧版 WebP。用户已有的安装器删除、宣传视频与其他未提交改动不在本次提交范围。
+
+已执行：素材生成、透明度和原图尺寸读取、WebP 转换、源码审查、图谱影响查询与增量更新。未执行：测试、构建、lint、类型检查、静态门禁、浏览器视觉/响应式验收、推送和 Pages 部署。
+
+实际验收仍需确认四语言锚点与下载、两主题刷新与持久化、截图放大/Escape/焦点恢复、360px 手机布局、长文件名、减弱动画及高对比。未运行项目不得登记为通过。
+
+---
+
 # 最新设计迁入 · 2026-10-13 · 网站 v1.3.0
 
 用户要求将设计项目 `333cacd6-dd27-42fb-86aa-087d19e0d3ec` 作为最新版网页上传 GitHub。来源文件：`C:\Users\sumingwang\AppData\Roaming\Open Design\namespaces\release-stable-win\data\projects\333cacd6-dd27-42fb-86aa-087d19e0d3ec\gamelibrary-marketing.html`；SHA-256：`bf6ef2fd669aa2ecf324ea29b4ceb065c337b0a9ea8ace2654ac96e182dd1e3c`。导出包含完整单页和七项图片资源；逐字节核对与网站现有图片一致，无需替换或生成素材。

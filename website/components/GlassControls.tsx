@@ -23,7 +23,7 @@ export function Header({ language }: { language: Language }) {
   const menu = useRef<HTMLDetailsElement>(null);
   const themeMenu = useRef<HTMLDetailsElement>(null);
   const [expanded, setExpanded] = useState(false);
-  const [theme, setTheme] = useState<Theme>("dark");
+  const [theme, setTheme] = useState<Theme>("light");
   const [themeExpanded, setThemeExpanded] = useState(false);
   const themeLabels = { dark: t("深色", "深色", "Dark", "ダーク"), light: t("浅色", "淺色", "Light", "ライト"), system: t("跟随系统", "跟隨系統", "System", "システム") };
   const sections = [
@@ -116,15 +116,15 @@ export function LocalTooltip({ language }: { language: Language }) {
   </span>;
 }
 
-export function Screenshot({ name, alt, caption, language, priority = false }: { name: string; alt: string; caption: string; language: Language; priority?: boolean }) {
+export function Screenshot({ name, alt, caption, language, priority = false, wide = false }: { name: string; alt: string; caption: string; language: Language; priority?: boolean; wide?: boolean }) {
   const modal = useRef<HTMLDialogElement>(null);
   const id = useId();
   const t = translate(language);
   const [failed, setFailed] = useState(false);
   return <>
-    <figure className={glass(priority ? "screenshot hero-image" : "screenshot secondary-image")}>
+    <figure className={glass(wide ? "screenshot hero-image" : "screenshot secondary-image")}>
       <button className="screenshot-button" aria-label={`${t("放大查看", "放大檢視", "Enlarge", "拡大表示")}: ${caption}`} disabled={failed} onClick={() => modal.current?.showModal()}>
-        {failed ? <span className="image-error" role="status">{t("截图加载失败，请稍后刷新。", "截圖載入失敗，請稍後重新整理。", "Screenshot could not load. Please refresh later.", "画像を読み込めませんでした。後で再読み込みしてください。")}</span> : <img src={asset(name.replace(".png", "-1320.webp"))} srcSet={[440, 880, 1320].map(size => `${asset(name.replace(".png", `-${size}.webp`))} ${size}w`).join(", ")} sizes={priority ? "(max-width: 640px) calc(100vw - 54px), (max-width: 1080px) calc(100vw - 78px), (max-width: 1176px) calc(100vw - 110px), 1066px" : "(max-width: 640px) calc(100vw - 54px), (max-width: 920px) calc(100vw - 78px), 440px"} width="1320" height="820" loading={priority ? "eager" : "lazy"} fetchPriority={priority ? "high" : undefined} decoding="async" alt={alt} onError={() => setFailed(true)} />}
+        {failed ? <span className="image-error" role="status">{t("截图加载失败，请稍后刷新。", "截圖載入失敗，請稍後重新整理。", "Screenshot could not load. Please refresh later.", "画像を読み込めませんでした。後で再読み込みしてください。")}</span> : <img src={asset(name.replace(".png", "-1320.webp"))} srcSet={[440, 880, 1320].map(size => `${asset(name.replace(".png", `-${size}.webp`))} ${size}w`).join(", ")} sizes={wide ? "(max-width: 640px) calc(100vw - 60px), (max-width: 1080px) calc(100vw - 80px), (max-width: 1280px) calc(100vw - 112px), 1120px" : "(max-width: 640px) calc(100vw - 60px), (max-width: 920px) calc(100vw - 80px), 500px"} width="1320" height="820" loading={priority ? "eager" : "lazy"} fetchPriority={priority ? "high" : undefined} decoding="async" alt={alt} onError={() => setFailed(true)} />}
         <span className={glass("expand-hint")} aria-hidden="true"><Icon kind="expand" /></span>
       </button>
       <figcaption><span>{caption}</span><span className="caption-action" aria-hidden="true">{t("查看大图", "檢視大圖", "Enlarge image", "画像を拡大")} ↗</span></figcaption>

@@ -4,7 +4,7 @@ import { runInNewContext } from "node:vm";
 import { themeBootstrap, themeKey } from "../lib/theme.ts";
 
 function boot(saved, systemDark, storageBlocked = false) {
-  const classes = new Set(["dark"]);
+  const classes = new Set();
   const root = { classList: { toggle: (name, enabled) => enabled ? classes.add(name) : classes.delete(name) }, dataset: {}, style: {} };
   const meta = {};
   runInNewContext(themeBootstrap, {
@@ -21,14 +21,14 @@ test("explicit themes override the system; system follows both preferences", () 
     assert.equal(result.root.dataset.theme, mode);
     assert.equal(result.dark, dark);
     assert.equal(result.root.style.colorScheme, dark ? "dark" : "light");
-    assert.equal(result.meta.content, dark ? "#111214" : "#f5f5f4");
+    assert.equal(result.meta.content, dark ? "#1c242b" : "#f7f2e7");
   }
 });
 
-test("new visitors, invalid values, and blocked storage use dark with either system preference", () => {
+test("new visitors, invalid values, and blocked storage use light with either system preference", () => {
   for (const [saved, blocked] of [[null, false], ["unexpected", false], ["dark", true]]) {
-    assert.equal(boot(saved, false, blocked).root.dataset.theme, "dark");
-    assert.equal(boot(saved, false, blocked).dark, true);
-    assert.equal(boot(saved, true, blocked).dark, true);
+    assert.equal(boot(saved, false, blocked).root.dataset.theme, "light");
+    assert.equal(boot(saved, false, blocked).dark, false);
+    assert.equal(boot(saved, true, blocked).dark, false);
   }
 });

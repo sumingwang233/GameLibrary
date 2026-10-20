@@ -1,42 +1,45 @@
 # GameLibrary 宣传网站
 
-网站 v1.3.0 采用用户指定设计项目 `333cacd6-dd27-42fb-86aa-087d19e0d3ec` 的最新版 `gamelibrary-marketing.html`。同步容器留白、灰白标题、两列优势列表、章节底色、截图框及手机排版，保留真实应用 logo、实机图和四语言交互。[DESIGN.md](DESIGN.md) 记录当前设计约定，[实施记录](../docs/code-review-graph/website.md) 包含来源指纹、架构图、文件范围及回滚方法。
+网站 v1.4.0 采用用户确认的“纸雕为底、像素点睛”：首屏纸雕收藏夹收纳像素风景，流程区用同组像素插画串起扫描、确认、启动。暖纸色、宋体标题、朱橙按钮、纸签和下载文件夹延续两张海报的风格。[DESIGN.md](DESIGN.md) 记录布局、改动范围、迁移与回滚；[网站实施记录](../docs/code-review-graph/website.md) 记录架构与图谱影响。
 
-网站使用现有 Next.js 16 / React 19 / Tailwind 4，导出为静态文件，不需要 Node.js 服务。支持简体中文 `/`、繁體中文 `/zh-TW/`、English `/en/` 和日本語 `/ja/`；正式路径统一带 `/GameLibrary` 前缀。
+沿用 Next.js 16 / React 19 / Tailwind 4 静态导出，无新增依赖。简中 `/`、繁中 `/zh-TW/`、英文 `/en/`、日文 `/ja/` 继续共用页面；生产路径前缀仍为 `/GameLibrary`。
 
-## 检查与预览
+## 页面与交互
 
-以下命令供明确要求检查或预览时使用；不表示本次均已执行。从仓库根目录运行，使用 Node.js 24 和可用的 Python 3：
+- 左文右图首屏 → 三步像素路径 → 完整实机图 → 本地优势、标签收藏、Unity 翻译、启动与数据 → 文件夹下载区 → FAQ。
+- 新访客默认浅色，保存过的浅色、深色和跟随系统偏好继续生效。三套布局、预绘制脚本和选择器共用原主题键与逻辑。
+- 菜单仍为原生 `details`，手机导航与截图查看器仍为原生 `dialog`。保留键盘、Escape、菜单互斥、焦点恢复和弹窗滚动锁定。
+- 两张无文字透明插画与真实截图分开展示。手机布局、长文件名折行、减弱动画、高对比和强制配色规则已在源码中配置。
+- `GlassControls.tsx` 的截图 `wide` 决定显示宽度，`priority` 只决定加载优先级。首屏插画优先加载，后续插画与截图延后加载。
+
+## 素材与版本
+
+`public/assets/icon.png` 仍为官方平面 logo。`library.png` 和 `tags.png` 保留原版内容：v1.5.5、简体中文、隔离示例库、默认封面；点击放大读取 1320×820 PNG，不重绘成新版界面。
+
+`hero-paper-pixel.png` 与 `pixel-journey.png` 为内置 `image_gen` 生成的透明概念插画。图中封面不是具体游戏资产，页面不以插画冒充实机。完整输入与提示词见 [素材生成记录](design/2026-10-21-art-prompts.md)。
+
+图片管线使用已有 Sharp：截图生成 440/880/1320px WebP，插画生成 640/960/1440px WebP。PNG 源文件提交，派生 WebP 和构建文件按现有忽略规则保留在本机。
+
+下载版本继续读取 `lib/site.ts` 的稳定版 v1.7.13，提供安装版、便携版、工具包和 SHA-256。桌面源码版本独立，未发布的 Godot/MTool 新功能不作为本页卖点。
+
+## 本次交付与后续验收
+
+2026-10-21：完成网页源码、主题一致性、两张插画、WebP 转换及图谱/设计文档同步，按仓库约定做本地提交。本次未推送或部署。
+
+遵守用户的验证策略，本次没有运行测试、构建、lint、类型检查、静态门禁或浏览器验收。现有主题用例只同步了新默认值与颜色预期；下方历史通过记录不适用于本次改动。视觉排版、四语言溢出、手机交互和主题刷新仍需按 [DESIGN.md](DESIGN.md) 的标准做实际验收。
+
+明确要求预览或检查时，可在仓库根目录使用以下命令；此处列出不代表已执行：
 
 ```powershell
-npm --prefix website ci
-npm --prefix website run build
+npm --prefix website run dev
 npm --prefix website run typecheck
 npm --prefix website test
+npm --prefix website run build
 python scripts/check_website.py --self-test
 python scripts/check_website.py
-npm --prefix website run dev
 ```
 
-开发地址为 `http://127.0.0.1:4173/`。若 Windows 的 `python` 指向无可用解释器的应用执行别名，请使用已安装 Python 的明确路径，不修改系统 PATH。构建前用已有的 Sharp 从真实 PNG 生成 440、880、1320px WebP 预览；原图、尺寸和比例保持不变，生成预览与构建文件不提交。
-
-## 外观与交互
-
-- 灰白层级、居中首屏、下方完整实机图；功能区改为标题与分隔列表，下载区保留主要安装入口。
-- 新访客默认深色；已有浅色、深色或跟随系统偏好继续保留。使用原有 localStorage 键，首次绘制与选择器共享逻辑。
-- `GlassControls.tsx` 与 `glass()` 保留现有文件和调用名；实际样式已改为 `surface`，不使用玻璃模糊或背景光球。
-- 语言/主题菜单使用原生 `details`；截图与手机导航复用原生 `dialog`。支持 Escape、焦点恢复、滚动锁定；FAQ 支持键盘展开。
-- 使用本机字体，不加载远程字体、分析脚本或图片。设置 `prefers-reduced-motion` 时取消移动与平滑滚动。
-
-## 真实素材与版本
-
-页头、下载区和页脚使用 `public/assets/icon.png`，它来自已认可的 GameLibrary 应用 logo。用户确认“真实游戏图标”指应用 logo，不额外引入具体游戏封面。
-
-`library.png` 和 `tags.png` 是仓库已有的真实应用截图：v1.5.5、简体中文、隔离示例库、默认封面。来源依据是[主 README 的截图说明](../README.md)。网页逐图说明版本、界面语言和示例数据性质；截图保留原来的标题栏图标，不修改图片冒充新版软件。点击查看原始 1320×820 PNG，图片加载失败显示明确说明。
-
-扫描区使用三步操作说明；游戏库和标签管理使用真实截图。缺少对应版本的审核/启动截图时，用准确文字说明，不生成示意软件窗口。
-
-2026-10-13 将 `lib/site.ts` 下载版本同步到 [v1.7.13](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.13)，四语言下载文案登记维护者已确认真机验收并授权正式发布。针对性回归与生产编译已有结果，完整自动门禁未补跑，详见[发行记录](../docs/releases/v1.7.13-validation.md)。Windows 程序仍未签名，提供 SHA-256 清单；两张截图继续标注真实版本 v1.5.5。本次仅同步网站源码，未重新构建或部署 Pages；四种网页语言不代表桌面包支持四种界面语言。
+开发地址为 `http://127.0.0.1:4173/`。开发/构建前由现有 predev/prebuild 自动生成 WebP，无需修改系统环境变量。
 
 ## 最新设计迁入 — 2026-10-13 · v1.3.0
 
@@ -66,4 +69,4 @@ npm --prefix website run dev
 
 ## 发布
 
-`.github/workflows/website.yml` 沿用原有检查及 Pages 发布流程；普通推送只运行检查，在线部署使用 `workflow_dispatch` 的 `publish=true`。本次用户要求将指定设计作为最新网页上传 GitHub，据此同步源码并更新 Pages。产品 Release 不在本次范围，产品版本仍由 `Directory.Build.props` 管理，网站版本独立为 1.3.0。
+`.github/workflows/website.yml` 沿用现有检查与 Pages 发布流程。推送、上传和 `workflow_dispatch publish=true` 部署需要用户单独授权；网站版本独立于桌面产品。以上历史发布结果只适用于各自标明的版本，不代表 v1.4.0 已发布。
