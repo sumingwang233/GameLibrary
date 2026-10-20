@@ -19,12 +19,13 @@ const args = Object.fromEntries(
 );
 const out = path.resolve(ROOT, args.out || "out/film/film-silent.mp4");
 const captions = args.captions !== "0" ? 1 : 0;
+const theme = args.theme || "dark";
 const from = Number(args.from || 0);
 const to = Number(args.to || 0);
 
 const portFile = path.join(ROOT, "out", "host-port.txt");
 const port = fs.existsSync(portFile) ? fs.readFileSync(portFile, "utf8").trim() : "18471";
-const url = `http://127.0.0.1:${port}/promo/film/index.html?captions=${captions}`;
+const url = `http://127.0.0.1:${port}/promo/film/index.html?captions=${captions}&theme=${theme}`;
 
 fs.mkdirSync(path.dirname(out), { recursive: true });
 
@@ -37,7 +38,7 @@ const info = await page.evaluate("window.__FILM_INFO__");
 const fps = info.fps;
 const end = to > 0 ? Math.min(to, info.duration) : info.duration;
 const total = Math.max(1, Math.round((end - from) * fps));
-console.log(`[film] ${info.duration}s @ ${fps}fps  captions=${captions}  frames=${total}`);
+console.log(`[film] ${info.duration}s @ ${fps}fps  captions=${captions}  theme=${theme}  frames=${total}`);
 
 const ffmpeg = spawn(
   FFMPEG,

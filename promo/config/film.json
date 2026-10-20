@@ -1,13 +1,16 @@
 {
   "film": {
     "title": "GameLibrary 产品宣传片",
-    "duration": 150,
+    "duration": 146,
     "fps": 60,
     "width": 1920,
     "height": 1080,
     "renderWidth": 2560,
     "renderHeight": 1440,
-    "appViewport": { "width": 1440, "height": 810 },
+    "appViewport": {
+      "width": 1440,
+      "height": 810
+    },
     "deviceScaleFactor": 2
   },
   "product": {
@@ -26,14 +29,54 @@
     "downloadNote": "可下载功能以发布版本为准 · 当前公开版本 v1.7.13"
   },
   "segments": [
-    { "id": "A", "name": "问题", "start": 0, "end": 12 },
-    { "id": "B", "name": "收进游戏库", "start": 12, "end": 38 },
-    { "id": "C", "name": "找到想玩的", "start": 38, "end": 60 },
-    { "id": "D", "name": "看懂游戏名", "start": 60, "end": 78 },
-    { "id": "E", "name": "Unity 插件自动化", "start": 78, "end": 105 },
-    { "id": "F", "name": "MTool 接入", "start": 105, "end": 122 },
-    { "id": "G", "name": "回到游戏", "start": 122, "end": 140 },
-    { "id": "H", "name": "下载指引", "start": 140, "end": 150 }
+    {
+      "id": "A",
+      "name": "问题",
+      "start": 0,
+      "end": 12
+    },
+    {
+      "id": "B",
+      "name": "收进游戏库",
+      "start": 12,
+      "end": 38
+    },
+    {
+      "id": "C",
+      "name": "找到想玩的",
+      "start": 38,
+      "end": 60
+    },
+    {
+      "id": "D",
+      "name": "看懂游戏名",
+      "start": 60,
+      "end": 78
+    },
+    {
+      "id": "E",
+      "name": "Unity 插件自动化",
+      "start": 78,
+      "end": 105
+    },
+    {
+      "id": "F",
+      "name": "MTool 接入",
+      "start": 105,
+      "end": 122
+    },
+    {
+      "id": "G",
+      "name": "回到游戏",
+      "start": 122,
+      "end": 140
+    },
+    {
+      "id": "H",
+      "name": "下载指引",
+      "start": 140,
+      "end": 150
+    }
   ],
   "safeArea": {
     "marginX": 96,

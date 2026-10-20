@@ -13,7 +13,9 @@ import path from "node:path";
 import { chromium } from "playwright-core";
 
 const ROOT = path.dirname(import.meta.dirname);
-const OUT = path.join(ROOT, "out", "plates");
+const THEME = process.argv.includes("--theme=light") ? "light" : "dark";
+const OUT = path.join(ROOT, "out", "plates", THEME);
+fs.mkdirSync(OUT, { recursive: true });
 const PORT = fs.readFileSync(path.join(ROOT, "out", "host-port.txt"), "utf8").trim();
 const BASE = `http://127.0.0.1:${PORT}/`;
 
@@ -25,11 +27,11 @@ async function openScene(browser, scene) {
     deviceScaleFactor: 2,
     locale: "zh-CN",
     timezoneId: "Asia/Shanghai",
-    colorScheme: "dark",
+    colorScheme: THEME,
   });
   const page = await context.newPage();
   page.on("pageerror", (error) => console.error("[pageerror]", scene, error.message));
-  await page.goto(`${BASE}?scene=${scene}`, { waitUntil: "networkidle" });
+  await page.goto(`${BASE}?scene=${scene}&theme=${THEME}`, { waitUntil: "networkidle" });
   await page.waitForSelector("main", { timeout: 15000 });
   await page.waitForTimeout(500);
   return { context, page };
@@ -287,7 +289,7 @@ async function sceneG(browser) {
 
 const scenes = { b: sceneB, c: sceneC, d: sceneD, e: sceneE, f: sceneF, g: sceneG };
 
-const pick = process.argv.slice(2);
+const pick = process.argv.slice(2).filter((arg) => !arg.startsWith("--"));
 fs.mkdirSync(OUT, { recursive: true });
 const browser = await chromium.launch({ channel: "chrome", headless: true });
 try {
@@ -305,4 +307,6 @@ const merged = new Map(previous.map((entry) => [entry.name, entry]));
 for (const entry of results) merged.set(entry.name, entry);
 fs.writeFileSync(manifestPath, JSON.stringify([...merged.values()], null, 2));
 console.log("plates", merged.size);
+
+
 

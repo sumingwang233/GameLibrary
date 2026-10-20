@@ -5,6 +5,8 @@
  *
  * Canvas is 1920x1080 CSS pixels backed by 3840x2160 device pixels, so the
  * frame that Playwright screenshots at 1920x1080 is a clean downsample.
+ *
+ * Theme: ?theme=light renders the light build (light plates + light palette).
  */
 const W = 1920;
 const H = 1080;
@@ -18,12 +20,114 @@ canvas.style.width = W + "px";
 canvas.style.height = H + "px";
 
 const FONT = "'Microsoft YaHei UI', 'Microsoft YaHei', 'Noto Sans SC', sans-serif";
+const PARAMS = new URLSearchParams(location.search);
+const THEME = PARAMS.get("theme") === "light" ? "light" : "dark";
+const OTHER_THEME = THEME === "light" ? "dark" : "light";
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const lerp = (a, b, p) => a + (b - a) * p;
 const easeInOut = (p) => (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
 const easeOut = (p) => 1 - Math.pow(1 - p, 3);
 const smooth = (p) => p * p * (3 - 2 * p);
+const fadeWindow = (t, a, b) => clamp((t - a) / Math.max(0.001, b - a), 0, 1);
+
+// ------------------------------------------------------------------ palette
+const DARK = {
+  bg: ["#181c24", "#14171f", "#0f1218"],
+  grid: "rgba(120,160,200,0.045)",
+  vignette: "rgba(0,0,0,0.30)",
+  card: "#1b2838",
+  cardTab: "#243447",
+  cardUnknown: "#202630",
+  cardStroke: "rgba(48,71,94,0.95)",
+  cardGlowStroke: "rgba(102,192,244,0.85)",
+  cardGlow: "rgba(102,192,244,0.55)",
+  ink: "#e6eef5",
+  inkSoft: "#c7d5e0",
+  inkFaint: "#8f98a0",
+  accent: "#66c0f4",
+  accentBright: "#8ed5f7",
+  accentSoft: "rgba(102,192,244,0.12)",
+  accentStroke: "rgba(102,192,244,0.55)",
+  panel: "#1b2838",
+  panelStroke: "#30475e",
+  panelShadow: "rgba(0,0,0,0.45)",
+  field: "#121821",
+  fieldStroke: "#30475e",
+  row: "#1e2a38",
+  rowActive: "rgba(102,192,244,0.12)",
+  rowActiveStroke: "rgba(102,192,244,0.7)",
+  rowIcon: "#2a475e",
+  node: "#1b2838",
+  nodeActive: "#22354a",
+  nodeStroke: "rgba(48,71,94,0.9)",
+  good: "#a4d007",
+  goodSoft: "rgba(164,208,7,0.16)",
+  goodStroke: "rgba(164,208,7,0.85)",
+  brandText: "#ffffff",
+  brandSub: "#8f98a0",
+  brandGlow: "rgba(11,14,19,1)",
+  chipBg: "rgba(102,192,244,0.12)",
+  chipStroke: "rgba(102,192,244,0.45)",
+  chipText: "#8ed5f7",
+  caption: ["rgba(6,9,13,0)", "rgba(6,9,13,0.62)", "rgba(6,9,13,0.9)"],
+  captionText: "#f2f6fa",
+  captionShadow: "rgba(0,0,0,0.55)",
+  labelBg: "rgba(9,13,19,0.95)",
+  labelText: "#dfe9f2",
+  cursorFill: "#ffffff",
+  cursorStroke: "rgba(9,12,17,0.85)",
+};
+
+const LIGHT = {
+  bg: ["#f9fbfd", "#eef3f8", "#e4ebf3"],
+  grid: "rgba(60,90,120,0.065)",
+  vignette: "rgba(40,70,100,0.10)",
+  card: "#ffffff",
+  cardTab: "#e2eaf3",
+  cardUnknown: "#eef2f7",
+  cardStroke: "rgba(150,170,190,0.55)",
+  cardGlowStroke: "rgba(26,115,184,0.75)",
+  cardGlow: "rgba(26,115,184,0.28)",
+  ink: "#1b2838",
+  inkSoft: "#3d4c5c",
+  inkFaint: "#64748a",
+  accent: "#1a73b8",
+  accentBright: "#155e96",
+  accentSoft: "rgba(26,115,184,0.10)",
+  accentStroke: "rgba(26,115,184,0.45)",
+  panel: "#ffffff",
+  panelStroke: "#cbd8e4",
+  panelShadow: "rgba(40,70,100,0.18)",
+  field: "#f3f7fb",
+  fieldStroke: "#cbd8e4",
+  row: "#f7fafc",
+  rowActive: "rgba(26,115,184,0.10)",
+  rowActiveStroke: "rgba(26,115,184,0.55)",
+  rowIcon: "#d7e6f4",
+  node: "#ffffff",
+  nodeActive: "#eaf3fb",
+  nodeStroke: "rgba(180,198,215,0.9)",
+  good: "#4c8c0a",
+  goodSoft: "rgba(76,140,10,0.12)",
+  goodStroke: "rgba(76,140,10,0.7)",
+  brandText: "#16202b",
+  brandSub: "#5a6b7d",
+  brandGlow: "rgba(249,251,253,1)",
+  chipBg: "rgba(26,115,184,0.10)",
+  chipStroke: "rgba(26,115,184,0.40)",
+  chipText: "#155e96",
+  caption: ["rgba(247,250,253,0)", "rgba(247,250,253,0.55)", "rgba(247,250,253,0.80)"],
+  captionText: "#1b2838",
+  captionShadow: "rgba(255,255,255,0.85)",
+  labelBg: "rgba(255,255,255,0.96)",
+  labelText: "#16202b",
+  cursorFill: "#1b2838",
+  cursorStroke: "rgba(255,255,255,0.9)",
+};
+
+const P = THEME === "light" ? LIGHT : DARK;
+let OVERLAY = P;
 
 async function loadJSON(url) {
   const response = await fetch(url, { cache: "no-store" });
@@ -44,21 +148,28 @@ const [FILM, COPY, SHOTS, PLATE_MANIFEST] = await Promise.all([
   loadJSON("../config/film.json"),
   loadJSON("../config/copy.json"),
   loadJSON("../config/shots.json"),
-  loadJSON("../out/plates/plates.json"),
+  loadJSON("../out/plates/" + THEME + "/plates.json"),
 ]);
 
-const theme = FILM.theme;
-const SUBTITLES = COPY.subtitles || [];
+const SUBTITLES = (COPY.subtitles || []).map((item) => ({
+  ...item,
+  text: String(item.text || "").replace(/[。]\s*$/, ""),
+}));
 const CHUNKS = SHOTS.chunks;
 const BOXES = new Map(PLATE_MANIFEST.map((entry) => [entry.name, entry.boxes || []]));
 
 const plateNames = [...new Set(CHUNKS.map((chunk) => chunk.plate).filter(Boolean))];
 const PLATES = new Map();
-await Promise.all(
-  plateNames.map(async (name) => {
-    PLATES.set(name, await loadImage("../out/plates/" + name + ".png"));
+const CROSS_PLATES = new Map();
+await Promise.all([
+  ...plateNames.map(async (name) => {
+    PLATES.set(name, await loadImage("../out/plates/" + THEME + "/" + name + ".png"));
   }),
-);
+  ...plateNames.map(async (name) => {
+    CROSS_PLATES.set(name, await loadImage("../out/plates/" + OTHER_THEME + "/" + name + ".png"));
+  }),
+  loadImage("assets/app-icon.png").then((image) => PLATES.set("__icon", image)),
+]);
 
 function boxOf(plateName, label) {
   const list = BOXES.get(plateName) || [];
@@ -112,8 +223,7 @@ function drawText(text, x, y, size, color, weight = 400, align = "left") {
 }
 
 // ------------------------------------------------------------------ plate
-function drawPlate(chunk, t) {
-  const image = PLATES.get(chunk.plate);
+function drawPlateImage(image, chunk, t) {
   if (!image) return;
   const cam = cameraOf(chunk, t);
   const sw = cam.size * image.width;
@@ -121,6 +231,10 @@ function drawPlate(chunk, t) {
   const sx = clamp(cam.x, 0, 1 - cam.size) * image.width;
   const sy = clamp(cam.y, 0, 1 - cam.size) * image.height;
   ctx.drawImage(image, sx, sy, sw, sh, 0, 0, W, H);
+}
+
+function drawPlate(chunk, t) {
+  drawPlateImage(PLATES.get(chunk.plate), chunk, t);
 }
 
 function plateToScreen(cam, nx, ny) {
@@ -133,87 +247,86 @@ function plateToScreen(cam, nx, ny) {
 function cursorEntries(chunk) {
   const entries = [];
   for (const entry of chunk.cursor || []) {
-    if (!entry.target) continue;
-    const box = boxOf(entry.target[0], entry.target[1]);
-    if (!box) continue;
-    entries.push({ t: chunk.t0 + entry.t, x: box.x + box.w / 2, y: box.y + box.h / 2, click: !!entry.click });
+    let point = null;
+    if (entry.at) point = entry.at;
+    else if (entry.box) {
+      const box = boxOf(chunk.plate, entry.box);
+      if (box) point = [box.x + box.w / 2, box.y + box.h / 2];
+    }
+    if (point) entries.push({ t: entry.t, at: point, click: entry.click });
   }
-  entries.sort((a, b) => a.t - b.t);
-  return entries;
+  return entries.sort((a, b) => a.t - b.t);
 }
 
 function drawCursor(chunk, t) {
   const entries = cursorEntries(chunk);
   if (!entries.length) return;
-  if (t < chunk.t0 + 0.2) return;
-
-  let index = entries.findIndex((entry) => entry.t >= t);
-  if (index === -1) index = entries.length - 1;
-  const current = entries[index];
-  const previous = index > 0 ? entries[index - 1] : current;
-  const moveStart = current.t - 0.5;
-  let nx = current.x;
-  let ny = current.y;
-  if (t < moveStart) {
-    nx = previous.x;
-    ny = previous.y;
-  } else {
-    const p = clamp((t - moveStart) / 0.5, 0, 1);
-    const e = easeInOut(p);
-    nx = lerp(previous.x, current.x, e);
-    ny = lerp(previous.y, current.y, e);
-  }
-
+  const local = t - chunk.t0;
   const cam = cameraOf(chunk, t);
-  const point = plateToScreen(cam, nx, ny);
+
+  let from = null;
+  let to = null;
+  let prev = null;
+  for (const entry of entries) {
+    if (entry.t <= local) {
+      from = prev ? prev.at : entry.at;
+      to = entry.at;
+      prev = entry;
+    } else break;
+  }
+  if (!prev) {
+    from = to = entries[0].at;
+  }
+  const startMove = prev ? Math.max(0, prev.t - 0.5) : 0;
+  const p = prev ? easeInOut(clamp((local - startMove) / 0.5, 0, 1)) : 1;
+  const nx = lerp(from[0], to[0], p);
+  const ny = lerp(from[1], to[1], p);
+  const screen = plateToScreen(cam, nx, ny);
 
   for (const entry of entries) {
-    if (!entry.click) continue;
-    const age = t - entry.t;
-    if (age < 0 || age > 0.5) continue;
-    const center = plateToScreen(cam, entry.x, entry.y);
-    const p = age / 0.5;
-    ctx.beginPath();
-    ctx.arc(center.x, center.y, 10 + 30 * easeOut(p), 0, Math.PI * 2);
-    ctx.strokeStyle = "rgba(102,192,244," + (0.85 * (1 - p)).toFixed(3) + ")";
-    ctx.lineWidth = 3;
-    ctx.stroke();
+    const age = local - entry.t;
+    if (entry.click && age >= 0 && age < 0.5) {
+      const rp = age / 0.5;
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, 12 + 26 * rp, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(" + hexToRgb(P.accent) + "," + (0.7 * (1 - rp)).toFixed(3) + ")";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
   }
 
   ctx.save();
-  ctx.translate(point.x, point.y);
-  ctx.scale(1.25, 1.25);
+  ctx.translate(screen.x, screen.y);
   ctx.beginPath();
   ctx.moveTo(0, 0);
-  ctx.lineTo(0, 17);
-  ctx.lineTo(4.4, 12.4);
-  ctx.lineTo(9.9, 20.4);
-  ctx.lineTo(13.4, 18.4);
-  ctx.lineTo(8.1, 10.9);
-  ctx.lineTo(14.6, 9.2);
+  ctx.lineTo(0, 26);
+  ctx.lineTo(7, 20);
+  ctx.lineTo(12, 31);
+  ctx.lineTo(17, 29);
+  ctx.lineTo(12, 18);
+  ctx.lineTo(21, 18);
   ctx.closePath();
-  ctx.fillStyle = "#ffffff";
-  ctx.shadowColor = "rgba(0,0,0,0.55)";
-  ctx.shadowBlur = 8;
-  ctx.shadowOffsetY = 2;
+  ctx.fillStyle = P.cursorFill;
+  ctx.shadowColor = "rgba(0,0,0,0.45)";
+  ctx.shadowBlur = 6;
   ctx.fill();
   ctx.shadowColor = "transparent";
-  ctx.strokeStyle = "rgba(9,12,17,0.85)";
-  ctx.lineWidth = 1.4;
+  ctx.strokeStyle = P.cursorStroke;
+  ctx.lineWidth = 1.6;
   ctx.stroke();
   ctx.restore();
 }
 
 // ------------------------------------------------------------------ scenes
-function sceneBackground(t) {
+function sceneBackground() {
   const gradient = ctx.createLinearGradient(0, 0, 0, H);
-  gradient.addColorStop(0, "#181c24");
-  gradient.addColorStop(0.55, "#14171f");
-  gradient.addColorStop(1, "#0f1218");
+  gradient.addColorStop(0, P.bg[0]);
+  gradient.addColorStop(0.55, P.bg[1]);
+  gradient.addColorStop(1, P.bg[2]);
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, W, H);
 
-  ctx.strokeStyle = "rgba(120,160,200,0.045)";
+  ctx.strokeStyle = P.grid;
   ctx.lineWidth = 1;
   for (let x = 120; x < W; x += 120) {
     ctx.beginPath();
@@ -250,18 +363,18 @@ function drawFolderCard(x, y, w, h, label, alpha, glow, kind) {
   ctx.save();
   ctx.globalAlpha = alpha;
   if (glow) {
-    ctx.shadowColor = "rgba(102,192,244,0.55)";
+    ctx.shadowColor = P.cardGlow;
     ctx.shadowBlur = 34;
   }
-  fillRound(x, y, w, h, 12, kind === "unknown" ? "#202630" : "#1b2838");
+  fillRound(x, y, w, h, 12, kind === "unknown" ? P.cardUnknown : P.card);
   ctx.shadowColor = "transparent";
-  fillRound(x + 14, y - 12, 74, 22, 6, "#243447");
-  strokeRound(x, y, w, h, 12, glow ? "rgba(102,192,244,0.85)" : "rgba(48,71,94,0.95)", glow ? 2 : 1);
+  fillRound(x + 14, y - 12, 74, 22, 6, P.cardTab);
+  strokeRound(x, y, w, h, 12, glow ? P.cardGlowStroke : P.cardStroke, glow ? 2 : 1);
 
   if (kind === "shortcut") {
     ctx.beginPath();
     ctx.arc(x + w - 26, y + h - 26, 12, 0, Math.PI * 2);
-    ctx.strokeStyle = "rgba(102,192,244,0.5)";
+    ctx.strokeStyle = P.accentStroke;
     ctx.lineWidth = 2;
     ctx.stroke();
     ctx.beginPath();
@@ -272,126 +385,201 @@ function drawFolderCard(x, y, w, h, label, alpha, glow, kind) {
     ctx.moveTo(x + w - 22, y + h - 30);
     ctx.lineTo(x + w - 22, y + h - 24);
     ctx.stroke();
-    fillRound(x + 20, y + 22, 34, 26, 4, "rgba(102,192,244,0.18)");
-    drawText("快捷方式", x + 20, y + h - 20, 18, "#8f98a0");
+    fillRound(x + 20, y + 22, 34, 26, 4, P.accentSoft);
+    drawText("快捷方式", x + 20, y + h - 20, 18, P.inkFaint);
   } else if (kind === "unknown") {
-    fillRound(x + 20, y + 20, 34, 26, 4, "rgba(143,152,160,0.16)");
-    drawText("?", x + 37, y + 41, 22, "#8f98a0", 600, "center");
-    drawText("安装包 · 记不清是哪个", x + 20, y + h - 20, 17, "#8f98a0");
+    fillRound(x + 20, y + 20, 34, 26, 4, THEME === "light" ? "rgba(100,116,138,0.12)" : "rgba(143,152,160,0.16)");
+    drawText("?", x + 37, y + 41, 22, P.inkFaint, 600, "center");
+    drawText("安装包 · 记不清是哪个", x + 20, y + h - 20, 17, P.inkFaint);
   } else {
-    drawFolderGlyph(x + 20, y + 20, 36, 28, "rgba(102,192,244,0.32)");
+    drawFolderGlyph(x + 20, y + 20, 36, 28, THEME === "light" ? "rgba(26,115,184,0.28)" : "rgba(102,192,244,0.32)");
   }
 
   const text = label.length > 20 ? label.slice(0, 19) + "…" : label;
-  drawText(text, x + 20, y + h - (kind === "folder" ? 22 : 46), 20, kind === "unknown" ? "#8f98a0" : "#c7d5e0");
+  drawText(text, x + 20, y + h - (kind === "folder" ? 22 : 46), 20, kind === "unknown" ? P.inkFaint : P.inkSoft);
   ctx.restore();
 }
 
+const FOLDER_CARDS = [
+  [140, 196, "D:\\Games\\Old"],
+  [470, 136, "D:\\Backup\\Indie"],
+  [800, 262, "E:\\Downloads\\2023"],
+  [1122, 172, "桌面\\新建文件夹"],
+  [1452, 286, "D:\\Games\\Indie"],
+  [244, 586, "迅雷下载\\游戏"],
+  [640, 642, "D:\\Games\\Classics"],
+  [1030, 562, "F:\\Games\\New"],
+  [1432, 618, "桌面\\游戏快捷方式"],
+  [878, 400, "D:\\Games\\Old\\start.exe", "shortcut"],
+  [1560, 470, "E:\\Downloads\\2023\\setup.exe", "shortcut"],
+  [466, 402, "setup_final(3).exe", "unknown"],
+];
+
 function sceneProblem(t) {
-  sceneBackground(t);
-  const folders = [
-    [140, 196, "D:\\Games\\Old", "folder"],
-    [470, 136, "D:\\Backup\\Indie", "folder"],
-    [800, 262, "E:\\Downloads\\2023", "folder"],
-    [1122, 172, "桌面\\新建文件夹", "folder"],
-    [1452, 286, "D:\\Games\\Indie", "folder"],
-    [244, 586, "迅雷下载\\游戏", "folder"],
-    [640, 642, "D:\\Games\\Classics", "folder"],
-    [1030, 562, "F:\\Games\\New", "folder"],
-    [1432, 618, "桌面\\游戏快捷方式", "folder"],
-    [878, 400, "D:\\Games\\Old\\start.exe", "shortcut"],
-    [1560, 470, "E:\\Downloads\\2023\\setup.exe", "shortcut"],
-    [466, 402, "setup_final(3).exe", "unknown"],
-  ];
+  sceneBackground();
+  const gather = fadeWindow(t, 4.9, 6.0);
+  const travel = fadeWindow(t, 6.0, 7.25);
+  const burst = fadeWindow(t, 7.15, 7.55);
+  const brandIn = fadeWindow(t, 7.55, 8.6);
 
-  const dimAll = t > 9.4;
-  const brandOut = clamp((t - 10.1) / 0.8, 0, 1);
-  const brandIn = clamp((t - 10.7) / 0.7, 0, 1);
-  const sceneAlpha = 1 - brandOut;
-
-  if (sceneAlpha > 0.01) {
-    ctx.save();
-    ctx.globalAlpha = sceneAlpha;
-    folders.forEach(([x, y, label, kind], index) => {
-      const drift = Math.sin(t * 0.45 + index * 1.7) * 5;
-      const alpha = dimAll ? (index === 5 ? 0.55 : 0.16) : 0.94;
-      drawFolderCard(x, y + drift, 220, 132, label, alpha, dimAll && index === 5, kind);
-
-      if (t > 5.2 && index % 3 === 0) {
-        const ghost = clamp((t - 5.2 - index * 0.12) / 0.8, 0, 1);
-        drawFolderCard(x + 58, y + drift + 40, 220, 132, label, 0.2 * ghost, false, kind);
-      }
-    });
-
-    if (t > 5.2 && t < 9.8) {
-      const stops = [0, 2, 5, 1, 4, 8];
-      const step = 0.62;
-      const raw = (t - 5.2) / step;
-      const at = Math.min(stops.length - 1, Math.floor(raw));
-      const target = folders[stops[at]];
-      const pulse = 1 - clamp(raw - at, 0, 1);
-      const x = target[0] + 110;
-      const y = target[1] + 66 + Math.sin(t * 0.45 + stops[at] * 1.7) * 5;
-      ctx.beginPath();
-      ctx.arc(x, y, 92, 0, Math.PI * 2);
-      ctx.strokeStyle = "rgba(102,192,244," + (0.5 + 0.4 * pulse).toFixed(2) + ")";
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(x, y, 118 + 10 * pulse, 0, Math.PI * 2);
-      ctx.strokeStyle = "rgba(102,192,244,0.16)";
-      ctx.stroke();
+  // 1. scattered cards drift, all of them start to glow together
+  const cardAlpha = 0.94 * (1 - 0.86 * travel);
+  FOLDER_CARDS.forEach(([x, y, label, kind], index) => {
+    const drift = Math.sin(t * 0.45 + index * 1.7) * 5;
+    const appear = clamp((t - index * 0.09) / 0.5, 0, 1);
+    const glow = gather > 0.02 && travel < 0.98;
+    drawFolderCard(x, y + drift, 220, 132, label, cardAlpha * appear, glow, kind);
+    if (t > 5.2 && index % 3 === 0 && travel < 0.4) {
+      const ghost = clamp((t - 5.2 - index * 0.12) / 0.8, 0, 1);
+      drawFolderCard(x + 58, y + drift + 40, 220, 132, label, 0.18 * ghost * (1 - travel), false, kind);
     }
+  });
+
+  if (gather > 0) {
+    ctx.save();
+    ctx.globalAlpha = 0.35 * gather * (1 - burst);
+    const ring = ctx.createRadialGradient(W / 2, 520, 120, W / 2, 520, 760);
+    ring.addColorStop(0, P.accentSoft);
+    ring.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = ring;
+    ctx.fillRect(0, 0, W, H);
     ctx.restore();
   }
 
+  // 2. every card sends a light dot to the centre
+  if (travel > 0) {
+    FOLDER_CARDS.forEach(([x, y], index) => {
+      const local = clamp((travel - index * 0.014) / 0.86, 0, 1);
+      if (local <= 0) return;
+      const e = easeInOut(local);
+      const fromX = x + 110;
+      const fromY = y + 66;
+      const toX = W / 2;
+      const toY = 520;
+      const px = lerp(fromX, toX, e);
+      const py = lerp(fromY, toY, e) - Math.sin(local * Math.PI) * 74;
+      const size = lerp(5.5, 3.2, e);
+      ctx.beginPath();
+      ctx.arc(px, py, size, 0, Math.PI * 2);
+      ctx.fillStyle = P.accentBright;
+      ctx.shadowColor = P.accent;
+      ctx.shadowBlur = 18;
+      ctx.fill();
+      ctx.shadowColor = "transparent";
+
+      ctx.beginPath();
+      ctx.moveTo(fromX, fromY);
+      ctx.lineTo(px, py);
+      ctx.strokeStyle = "rgba(" + hexToRgb(P.accent) + "," + (0.16 * (1 - e)).toFixed(3) + ")";
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+    });
+  }
+
+  // 3. the dots merge, then open like a small firework
+  if (burst > 0) {
+    const core = clamp((t - 7.15) / 0.42, 0, 1);
+    const glowRadius = 26 + 120 * easeOut(core);
+    const glowAlpha = 0.35 + 0.5 * Math.sin(Math.PI * clamp(core, 0, 1));
+    const coreGlow = ctx.createRadialGradient(W / 2, 520, 0, W / 2, 520, glowRadius * 2.2);
+    coreGlow.addColorStop(0, "rgba(" + hexToRgb(P.accentBright) + "," + glowAlpha.toFixed(3) + ")");
+    coreGlow.addColorStop(0.45, "rgba(" + hexToRgb(P.accent) + "," + (glowAlpha * 0.5).toFixed(3) + ")");
+    coreGlow.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = coreGlow;
+    ctx.fillRect(W / 2 - 480, 520 - 480, 960, 960);
+
+    for (let i = 0; i < 3; i += 1) {
+      const ringP = clamp((t - 7.2 - i * 0.09) / 0.72, 0, 1);
+      if (ringP <= 0) continue;
+      ctx.beginPath();
+      ctx.arc(W / 2, 520, 30 + 520 * easeOut(ringP), 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(" + hexToRgb(P.accent) + "," + (0.55 * (1 - ringP)).toFixed(3) + ")";
+      ctx.lineWidth = 2.5 * (1 - ringP) + 0.4;
+      ctx.stroke();
+    }
+
+    for (let i = 0; i < 34; i += 1) {
+      const angle = (i / 34) * Math.PI * 2 + (i % 3) * 0.13;
+      const speed = 320 + ((i * 37) % 260);
+      const p = clamp((t - 7.22 - (i % 5) * 0.012) / 0.95, 0, 1);
+      if (p <= 0) continue;
+      const dist = speed * easeOut(p) + 18;
+      const px = W / 2 + Math.cos(angle) * dist;
+      const py = 520 + Math.sin(angle) * dist * 0.82;
+      const size = (i % 4 === 0 ? 3.6 : 2.2) * (1 - p * 0.6);
+      ctx.beginPath();
+      ctx.arc(px, py, Math.max(0.4, size), 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(" + hexToRgb(P.accentBright) + "," + (0.95 * (1 - p)).toFixed(3) + ")";
+      ctx.fill();
+    }
+  }
+
+  // 4. brand card, with the product icon
   if (brandIn > 0) {
-    const glow = ctx.createRadialGradient(W / 2, 520, 60, W / 2, 520, 640);
-    glow.addColorStop(0, "rgba(11,14,19," + (0.92 * brandIn).toFixed(3) + ")");
-    glow.addColorStop(1, "rgba(11,14,19,0)");
-    ctx.fillStyle = glow;
+    const veil = ctx.createRadialGradient(W / 2, 500, 80, W / 2, 500, 720);
+    veil.addColorStop(0, hexA(P.bg[1], 0.94 * brandIn));
+    veil.addColorStop(0.62, hexA(P.bg[1], 0.82 * brandIn));
+    veil.addColorStop(1, hexA(P.bg[1], 0));
+    ctx.fillStyle = veil;
     ctx.fillRect(0, 0, W, H);
 
     ctx.save();
     ctx.globalAlpha = brandIn;
-    const lift = (1 - brandIn) * 18;
-    drawText("GameLibrary", W / 2, 512 + lift, 88, "#ffffff", 700, "center");
-    const chip = "v1.7.22 · 开发版演示";
+    const lift = (1 - brandIn) * 22;
+    const icon = PLATES.get("__icon");
+    const iconSize = 96;
+    if (icon) {
+      const ix = W / 2 - iconSize / 2;
+      roundRect(ix, 286 + lift, iconSize, iconSize, 22);
+      ctx.save();
+      ctx.shadowColor = THEME === "light" ? "rgba(26,115,184,0.28)" : "rgba(102,192,244,0.35)";
+      ctx.shadowBlur = 36;
+      ctx.clip();
+      ctx.drawImage(icon, ix, 286 + lift, iconSize, iconSize);
+      ctx.restore();
+    }
+    drawText("GameLibrary", W / 2, 496 + lift, 92, P.brandText, 700, "center");
+
+    const chip = (COPY.brand && COPY.brand.versionChip) || "v1.7.22 · 开发版演示";
     ctx.font = "400 30px " + FONT;
     const chipWidth = ctx.measureText(chip).width + 44;
-    fillRound(W / 2 - chipWidth / 2, 548 + lift, chipWidth, 52, 26, "rgba(102,192,244,0.12)");
-    strokeRound(W / 2 - chipWidth / 2, 548 + lift, chipWidth, 52, 26, "rgba(102,192,244,0.45)");
-    drawText(chip, W / 2, 583 + lift, 30, "#8ed5f7", 400, "center");
-    drawText("把散落的游戏整理到一处", W / 2, 664 + lift, 34, "#8f98a0", 400, "center");
+    fillRound(W / 2 - chipWidth / 2, 540 + lift, chipWidth, 52, 26, P.chipBg);
+    strokeRound(W / 2 - chipWidth / 2, 540 + lift, chipWidth, 52, 26, P.chipStroke);
+    drawText(chip, W / 2, 575 + lift, 30, P.chipText, 400, "center");
+    drawText("把散落的游戏整理到一处，把准备工作交给工具", W / 2, 664 + lift, 34, P.brandSub, 400, "center");
     ctx.restore();
   }
 }
 
+function hexA(hex, alpha) {
+  return "rgba(" + hexToRgb(hex) + "," + alpha.toFixed(3) + ")";
+}
+
 function sceneFolderPanel(t) {
-  sceneBackground(t);
+  sceneBackground();
   const panelX = 470;
   const panelY = 236;
   const panelW = 980;
   const panelH = 430;
 
   ctx.save();
-  ctx.shadowColor = "rgba(0,0,0,0.5)";
+  ctx.shadowColor = P.panelShadow;
   ctx.shadowBlur = 40;
-  fillRound(panelX, panelY, panelW, panelH, 18, "#1b2838");
+  fillRound(panelX, panelY, panelW, panelH, 18, P.panel);
   ctx.restore();
-  strokeRound(panelX, panelY, panelW, panelH, 18, "#30475e", 1.5);
+  strokeRound(panelX, panelY, panelW, panelH, 18, P.panelStroke, 1.5);
 
-  drawText("选择游戏库目录", panelX + 32, panelY + 52, 32, "#c7d5e0", 600);
-  drawText("系统文件夹选择器", panelX + 32, panelY + 84, 18, "#8f98a0");
-  drawText("×", panelX + panelW - 42, panelY + 56, 30, "#8f98a0", 400, "center");
+  drawText("选择游戏库目录", panelX + 32, panelY + 52, 32, P.ink, 600);
+  drawText("系统文件夹选择器", panelX + 32, panelY + 84, 18, P.inkFaint);
+  drawText("×", panelX + panelW - 42, panelY + 56, 30, P.inkFaint, 400, "center");
 
-  fillRound(panelX + 32, panelY + 104, panelW - 64, 58, 8, "#121821");
-  strokeRound(panelX + 32, panelY + 104, panelW - 64, 58, 8, "#30475e");
+  fillRound(panelX + 32, panelY + 104, panelW - 64, 58, 8, P.field);
+  strokeRound(panelX + 32, panelY + 104, panelW - 64, 58, 8, P.fieldStroke);
   const pathIn = clamp((t - 1.2) / 0.4, 0, 1);
   if (pathIn > 0) {
     ctx.save();
     ctx.globalAlpha = pathIn;
-    drawText("D:\\Games\\Library", panelX + 52, panelY + 142, 26, "#c7d5e0");
+    drawText("D:\\Games\\Library", panelX + 52, panelY + 142, 26, P.ink);
     ctx.restore();
   }
 
@@ -402,19 +590,19 @@ function sceneFolderPanel(t) {
   rows.forEach(([name, meta], index) => {
     const y = panelY + 190 + index * 84;
     const active = index === 1;
-    fillRound(panelX + 32, y, panelW - 64, 68, 10, active ? "rgba(102,192,244,0.12)" : "#1e2a38");
-    strokeRound(panelX + 32, y, panelW - 64, 68, 10, active ? "rgba(102,192,244,0.7)" : "#30475e");
-    fillRound(panelX + 50, y + 20, 30, 24, 4, active ? "#66c0f4" : "#2a475e");
-    drawText(name, panelX + 98, y + 44, 26, "#e6eef5", 500);
-    drawText(meta, panelX + panelW - 64, y + 44, 22, "#8f98a0", 400, "right");
+    fillRound(panelX + 32, y, panelW - 64, 68, 10, active ? P.rowActive : P.row);
+    strokeRound(panelX + 32, y, panelW - 64, 68, 10, active ? P.rowActiveStroke : P.panelStroke);
+    fillRound(panelX + 50, y + 20, 30, 24, 4, active ? P.accent : P.rowIcon);
+    drawText(name, panelX + 98, y + 44, 26, P.ink, 500);
+    drawText(meta, panelX + panelW - 64, y + 44, 22, P.inkFaint, 400, "right");
   });
 
   const fly = clamp((t - 0.3) / 0.9, 0, 1);
   if (fly < 1) {
     const e = easeOut(fly);
-    const x = lerp(120, panelX + 300, e);
-    const y = lerp(780, panelY + 118, e);
-    const scale = lerp(0.75, 0.3, e);
+    const x = lerp(1330, panelX + 300, e);
+    const y = lerp(150, panelY + 118, e);
+    const scale = lerp(0.55, 0.22, e);
     ctx.save();
     ctx.globalAlpha = 1 - Math.pow(fly, 3);
     ctx.translate(x, y);
@@ -431,130 +619,128 @@ function sceneFolderPanel(t) {
     const cy = panelY + panelH - 44;
     ctx.beginPath();
     ctx.arc(cx, cy, 17, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(164,208,7,0.16)";
+    ctx.fillStyle = P.goodSoft;
     ctx.fill();
-    ctx.strokeStyle = "rgba(164,208,7,0.85)";
+    ctx.strokeStyle = P.goodStroke;
     ctx.lineWidth = 2;
     ctx.stroke();
     ctx.beginPath();
     ctx.moveTo(cx - 7, cy);
     ctx.lineTo(cx - 1, cy + 6);
     ctx.lineTo(cx + 8, cy - 6);
-    ctx.strokeStyle = "#a4d007";
+    ctx.strokeStyle = P.good;
     ctx.lineWidth = 3;
     ctx.stroke();
-    drawText("已选择该目录", panelX + 32, panelY + panelH - 36, 20, "#a4d007", 500);
+    drawText("已选择该目录", panelX + 32, panelY + panelH - 36, 20, P.good, 500);
     ctx.restore();
   }
 }
 
 function sceneFlowchart(t) {
-  sceneBackground(t);
+  sceneBackground();
+  sceneChapter("流程示意图", t, 0.2, 4.4);
   const nodes = [
     ["兼容检查", "识别引擎与版本"],
     ["插件准备", "准备插件文件"],
     ["配置写入", "写入游戏目录"],
   ];
-  const startX = 210;
-  const y = 440;
-  const nodeW = 430;
-  const gap = 85;
-  const active = t < 2.3 ? 0 : t < 4.4 ? 1 : 2;
+  const nodeW = 460;
+  const nodeH = 168;
+  const gap = 90;
+  const totalW = nodes.length * nodeW + (nodes.length - 1) * gap;
+  const startX = (W - totalW) / 2;
+  const y = 430;
+  const active = Math.min(nodes.length - 1, Math.floor(clamp((t - 0.5) / 1.15, 0, 2.999)));
 
   nodes.forEach(([title, sub], index) => {
     const x = startX + index * (nodeW + gap);
+    const done = index < active;
     const isActive = index === active;
-    const done = index < active || (index === 2 && t > 6.2);
-    fillRound(x, y, nodeW, 160, 16, isActive ? "#22354a" : "#1b2838");
-    strokeRound(x, y, nodeW, 160, 16, isActive ? "rgba(102,192,244,0.85)" : "rgba(48,71,94,0.9)", isActive ? 2 : 1);
+    fillRound(x, y, nodeW, nodeH, 16, isActive ? P.nodeActive : P.node);
+    strokeRound(x, y, nodeW, nodeH, 16, isActive ? P.cardGlowStroke : P.nodeStroke, isActive ? 2 : 1);
 
     ctx.beginPath();
-    ctx.arc(x + 44, y + 52, 17, 0, Math.PI * 2);
-    ctx.fillStyle = done ? "rgba(164,208,7,0.18)" : isActive ? "rgba(102,192,244,0.22)" : "rgba(143,152,160,0.14)";
+    ctx.arc(x + 46, y + 58, 22, 0, Math.PI * 2);
+    ctx.fillStyle = done ? P.goodSoft : isActive ? P.accentSoft : (THEME === "light" ? "rgba(100,116,138,0.10)" : "rgba(143,152,160,0.14)");
     ctx.fill();
-    ctx.strokeStyle = done ? "#a4d007" : isActive ? "#66c0f4" : "#30475e";
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = done ? P.good : isActive ? P.accent : P.panelStroke;
+    ctx.lineWidth = 1.5;
     ctx.stroke();
     if (done) {
       ctx.beginPath();
-      ctx.moveTo(x + 36, y + 52);
-      ctx.lineTo(x + 42, y + 59);
-      ctx.lineTo(x + 53, y + 45);
-      ctx.strokeStyle = "#a4d007";
-      ctx.lineWidth = 3;
+      ctx.moveTo(x + 39, y + 58);
+      ctx.lineTo(x + 44, y + 64);
+      ctx.lineTo(x + 53, y + 51);
+      ctx.strokeStyle = P.good;
+      ctx.lineWidth = 2.5;
       ctx.stroke();
     } else {
-      drawText(String(index + 1), x + 44, y + 60, 20, isActive ? "#8ed5f7" : "#8f98a0", 600, "center");
+      drawText(String(index + 1), x + 46, y + 65, 20, isActive ? P.accentBright : P.inkFaint, 600, "center");
     }
-    drawText(title, x + 78, y + 66, 34, "#e6eef5", 600);
-    drawText(sub, x + 32, y + 118, 22, "#8f98a0");
+    drawText(title, x + 84, y + 68, 36, P.ink, 600);
+    drawText(sub, x + 32, y + 126, 23, P.inkFaint);
 
     if (index < nodes.length - 1) {
-      const ax = x + nodeW + 16;
-      const bx = x + nodeW + gap - 18;
+      const ax = x + nodeW + 22;
+      const ay = y + nodeH / 2;
       ctx.beginPath();
-      ctx.moveTo(ax, y + 80);
-      ctx.lineTo(bx, y + 80);
-      ctx.strokeStyle = index < active ? "rgba(164,208,7,0.65)" : "rgba(102,192,244,0.45)";
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(ax + gap - 44, ay);
+      ctx.strokeStyle = index < active ? P.goodStroke : P.accentStroke;
       ctx.lineWidth = 2;
       ctx.stroke();
       ctx.beginPath();
-      ctx.moveTo(bx, y + 80);
-      ctx.lineTo(bx - 12, y + 73);
-      ctx.lineTo(bx - 12, y + 87);
-      ctx.closePath();
-      ctx.fillStyle = index < active ? "rgba(164,208,7,0.65)" : "rgba(102,192,244,0.45)";
-      ctx.fill();
+      ctx.moveTo(ax + gap - 44, ay);
+      ctx.lineTo(ax + gap - 54, ay - 6);
+      ctx.moveTo(ax + gap - 44, ay);
+      ctx.lineTo(ax + gap - 54, ay + 6);
+      ctx.strokeStyle = index < active ? P.goodStroke : P.accentStroke;
+      ctx.lineWidth = 2;
+      ctx.stroke();
     }
   });
-
 }
 
 function sceneCollapse(t) {
-  sceneBackground(t);
+  sceneBackground();
   const cards = [
-    ["#1f3a2e", 300, 300],
-    ["#2b2140", 640, 300],
-    ["#3a2320", 980, 300],
-    ["#1d2f3d", 1320, 300],
-    ["#372b1c", 300, 560],
-    ["#22352b", 640, 560],
-    ["#2a2438", 980, 560],
-    ["#37222c", 1320, 560],
+    ["#1f3a2e", 300, 300], ["#2b2140", 640, 300], ["#3a2320", 980, 300], ["#1d2f3d", 1320, 300],
+    ["#372b1c", 300, 560], ["#22352b", 640, 560], ["#2a2438", 980, 560], ["#37222c", 1320, 560],
   ];
-  const gather = clamp(t / 0.9, 0, 1);
-  const shrink = clamp((t - 1.0) / 1.2, 0, 1);
-
+  const p = easeInOut(clamp(t / 2.2, 0, 1));
+  ctx.save();
   cards.forEach(([color, x, y], index) => {
-    const e = easeInOut(gather);
-    const cx = lerp(x, 960 - 60, e) + (index % 2 ? 6 : -6);
-    const cy = lerp(y, 470, e);
-    const scale = lerp(1, 0.9, e) * lerp(1, 0.15, easeInOut(shrink));
+    const scale = lerp(1, 0.18, p);
+    const tx = lerp(x, W / 2, p);
+    const ty = lerp(y, H / 2, p) + Math.sin(index) * 10 * (1 - p);
     ctx.save();
-    ctx.globalAlpha = lerp(0.95, 0.0, easeInOut(shrink));
-    ctx.translate(cx, cy);
+    ctx.translate(tx, ty);
     ctx.scale(scale, scale);
     fillRound(0, 0, 200, 260, 14, color);
-    strokeRound(0, 0, 200, 260, 14, "rgba(102,192,244,0.22)");
+    strokeRound(0, 0, 200, 260, 14, P.cardStroke);
     ctx.restore();
   });
+  ctx.restore();
 
-  const glow = clamp((t - 1.6) / 0.8, 0, 1);
+  const glow = clamp((t - 1.4) / 0.8, 0, 1);
   if (glow > 0) {
-    const gradient = ctx.createRadialGradient(960, 470, 10, 960, 470, 260);
-    gradient.addColorStop(0, "rgba(102,192,244," + (0.22 * glow).toFixed(3) + ")");
-    gradient.addColorStop(1, "rgba(102,192,244,0)");
+    const gradient = ctx.createRadialGradient(W / 2, H / 2, 10, W / 2, H / 2, 240);
+    gradient.addColorStop(0, "rgba(" + hexToRgb(P.accent) + "," + (0.22 * glow).toFixed(3) + ")");
+    gradient.addColorStop(1, "rgba(0,0,0,0)");
     ctx.fillStyle = gradient;
-    ctx.fillRect(640, 150, 640, 640);
+    ctx.fillRect(0, 0, W, H);
   }
 }
 
-// ------------------------------------------------------------------ overlays
-function currentSubtitle(t) {
-  return SUBTITLES.find((subtitle) => t >= subtitle.start - 0.001 && t <= subtitle.end + 0.001) || null;
-}
+// ------------------------------------------------------------------ captions
+const SHOW_CAPTIONS = PARAMS.get("captions") !== "0";
 
-const SHOW_CAPTIONS = new URLSearchParams(location.search).get("captions") !== "0";
+function currentSubtitle(t) {
+  for (const subtitle of SUBTITLES) {
+    if (t >= subtitle.start && t < subtitle.end) return subtitle;
+  }
+  return null;
+}
 
 function drawCaption(t) {
   if (!SHOW_CAPTIONS) return;
@@ -564,9 +750,9 @@ function drawCaption(t) {
   if (alpha <= 0) return;
 
   const scrim = ctx.createLinearGradient(0, 790, 0, H);
-  scrim.addColorStop(0, "rgba(6,9,13,0)");
-  scrim.addColorStop(0.32, "rgba(6,9,13,0.62)");
-  scrim.addColorStop(1, "rgba(6,9,13,0.9)");
+  scrim.addColorStop(0, OVERLAY.caption[0]);
+  scrim.addColorStop(0.32, OVERLAY.caption[1]);
+  scrim.addColorStop(1, OVERLAY.caption[2]);
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.fillStyle = scrim;
@@ -579,9 +765,9 @@ function drawCaption(t) {
     const y = baseY + index * 56;
     ctx.font = "600 42px " + FONT;
     ctx.textAlign = "center";
-    ctx.fillStyle = "rgba(0,0,0,0.55)";
+    ctx.fillStyle = OVERLAY.captionShadow;
     ctx.fillText(line, W / 2 + 2, y + 2);
-    ctx.fillStyle = "#f2f6fa";
+    ctx.fillStyle = OVERLAY.captionText;
     ctx.fillText(line, W / 2, y);
   });
   ctx.restore();
@@ -607,40 +793,88 @@ function wrapText(text, maxWidth, maxLines) {
     if (joined.length < text.length) {
       let last = lines[maxLines - 1];
       while (ctx.measureText(last + "…").width > maxWidth && last.length > 1) last = last.slice(0, -1);
-      lines[maxLines - 1] = last.replace(/[，。、]$/, "") + "…";
+      lines[maxLines - 1] = last.replace(/[，、]$/, "") + "…";
     }
   }
   return lines;
 }
 
-function drawLabel(chunk, t) {
+// ------------------------------------------------------------------ labels
+// kind: "chapter" -> highlighted subtitle at the top-left
+// kind: "tag"     -> highlighted pill pinned to a product element (at: [nx, ny])
+function labelVisible(chunk, t) {
   const label = chunk.label;
-  if (!label) return;
+  if (!label) return null;
   const local = t - chunk.t0;
-  if (local < label.from || local > label.to) return;
-  const alpha = Math.min(1, (local - label.from) / 0.3, (label.to - local) / 0.3);
-  if (alpha <= 0) return;
+  if (local < label.from || local > label.to) return null;
+  const alpha = Math.min(1, (local - label.from) / 0.35, (label.to - local) / 0.35);
+  return alpha > 0 ? alpha : null;
+}
 
-  const subtitle = SHOW_CAPTIONS ? currentSubtitle(t) : null;
-  const captionLines = subtitle ? wrapText(subtitle.text, 1560, 2).length : 1;
-  const baseY = captionLines > 1 ? 900 : 950;
+function tagWidth(text) {
+  ctx.font = "600 27px " + FONT;
+  return ctx.measureText(text).width + 66;
+}
 
-  const tone = label.tone === "warn" ? "#f5c542" : label.tone === "demo" ? "#c7d5e0" : "#66c0f4";
+function drawChapter(text, alpha) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.font = "700 34px " + FONT;
+  const width = ctx.measureText(text).width + 46;
+  fillRound(72, 52, width, 58, 12, P.labelBg);
+  fillRound(72, 52, 7, 58, 3.5, P.accent);
+  strokeRound(72, 52, width, 58, 12, hexA(P.accent, 0.35), 1);
+  drawText(text, 100, 91, 34, P.labelText, 700);
+  ctx.restore();
+}
+
+function sceneChapter(text, t, from, to) {
+  const alpha = Math.min(1, (t - from) / 0.35, (to - t) / 0.35);
+  if (alpha > 0) drawChapter(text, alpha);
+}
+
+function drawTag(text, nx, ny, cam, alpha, align = "left") {
+  if (!text) return;
+  const point = plateToScreen(cam, nx, ny);
+  const width = tagWidth(text);
+  let x = align === "right" ? point.x - width - 14 : point.x + 14;
+  x = clamp(x, 24, W - width - 24);
+  const y = clamp(point.y - 23, 24, 780);
 
   ctx.save();
   ctx.globalAlpha = alpha;
-  ctx.font = "500 28px " + FONT;
-  const width = ctx.measureText(label.text).width + 74;
-  const x = W / 2 - width / 2;
-  const y = baseY - 40;
-  fillRound(x, y, width, 46, 23, "rgba(9,13,19,0.95)");
-  strokeRound(x, y, width, 46, 23, "rgba(" + hexToRgb(tone) + ",0.62)");
+  const dotX = clamp(point.x, 20, W - 20);
+  const dotY = clamp(point.y, 20, 860);
   ctx.beginPath();
-  ctx.arc(x + 28, y + 23, 5, 0, Math.PI * 2);
-  ctx.fillStyle = tone;
+  ctx.arc(dotX, dotY, 4, 0, Math.PI * 2);
+  ctx.fillStyle = P.accent;
   ctx.fill();
-  drawText(label.text, x + 46, y + 32, 28, "#dfe9f2", 500);
+  ctx.beginPath();
+  ctx.moveTo(dotX, dotY);
+  ctx.lineTo(align === "right" ? x + width : x, y + 23);
+  ctx.strokeStyle = hexA(P.accent, 0.5);
+  ctx.lineWidth = 1.4;
+  ctx.stroke();
+
+  ctx.shadowColor = P.panelShadow;
+  ctx.shadowBlur = 18;
+  fillRound(x, y, width, 46, 23, P.labelBg);
+  ctx.shadowColor = "transparent";
+  strokeRound(x, y, width, 46, 23, hexA(P.accent, 0.75), 1.5);
+  fillRound(x + 16, y + 15, 7, 16, 3.5, P.accent);
+  drawText(text, x + 34, y + 31, 27, P.labelText, 600);
   ctx.restore();
+}
+
+function drawLabel(chunk, t) {
+  const alpha = labelVisible(chunk, t);
+  if (!alpha) return;
+  const label = chunk.label;
+  if (label.kind === "chapter") {
+    drawChapter(label.text, alpha);
+  } else if (label.kind === "tag" && label.at) {
+    drawTag(label.text, label.at[0], label.at[1], cameraOf(chunk, t), alpha, label.align);
+  }
 }
 
 function hexToRgb(hex) {
@@ -649,20 +883,102 @@ function hexToRgb(hex) {
 }
 
 function drawVignette() {
+  if (OVERLAY === LIGHT) {
+    const gradient = ctx.createRadialGradient(W / 2, H / 2, H * 0.5, W / 2, H / 2, H * 1.15);
+    gradient.addColorStop(0, "rgba(0,0,0,0)");
+    gradient.addColorStop(1, OVERLAY.vignette);
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, W, H);
+    return;
+  }
   const gradient = ctx.createRadialGradient(W / 2, H / 2, H * 0.45, W / 2, H / 2, H * 1.05);
   gradient.addColorStop(0, "rgba(0,0,0,0)");
-  gradient.addColorStop(1, "rgba(0,0,0,0.28)");
+  gradient.addColorStop(1, P.vignette);
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, W, H);
 }
 
+// ------------------------------------------------------------------ theme toggle
+function sceneThemeToggle(t) {
+  const baseImage = PLATES.get("c-library");
+  const otherImage = CROSS_PLATES.get("c-library");
+  // Short eased crossfades instead of hard cuts: a one-frame dark->light cut measures
+  // as a ~100/255 average-luma jump, which reads as a flash. 0.26 s keeps it calm.
+  const blendIn = clamp((t - 0.9) / 0.26, 0, 1);
+  const blendOut = clamp((t - 2.3) / 0.26, 0, 1);
+  const mix = blendIn - blendOut;
+  // One neutral (dark) scrim for the whole toggle, in both builds: switching the
+  // palette mid-blend produced a second ~40/255 luma step that read as a flicker.
+  OVERLAY = DARK;
+  if (baseImage) ctx.drawImage(baseImage, 0, 0, W, H);
+  const eased = mix <= 0 ? 0 : mix >= 1 ? 1 : smooth(mix);
+  if (otherImage && eased > 0) {
+    ctx.save();
+    ctx.globalAlpha = eased;
+    ctx.drawImage(otherImage, 0, 0, W, H);
+    ctx.restore();
+  }
+
+  const flashes = [1.05, 2.45];
+  for (const at of flashes) {
+    const age = t - at;
+    if (age < 0 || age > 0.34) continue;
+    const p = age / 0.34;
+    ctx.save();
+    ctx.globalAlpha = 0.32 * (1 - p);
+    ctx.fillStyle = P.accent;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  }
+
+  const cam = { x: 0, y: 0, size: 1 };
+  const point = plateToScreen(cam, 0.8834, 0.029);
+  drawClickRing(point.x, point.y, t - 0.55);
+  drawClickRing(point.x, point.y, t - 1.95);
+  drawPointer(point.x, point.y);
+}
+function drawClickRing(x, y, age) {
+  if (age < 0 || age > 0.55) return;
+  const p = age / 0.55;
+  ctx.beginPath();
+  ctx.arc(x, y, 12 + 30 * p, 0, Math.PI * 2);
+  ctx.strokeStyle = "rgba(" + hexToRgb(P.accent) + "," + (0.75 * (1 - p)).toFixed(3) + ")";
+  ctx.lineWidth = 2.4;
+  ctx.stroke();
+}
+
+function drawPointer(x, y) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(0, 26);
+  ctx.lineTo(7, 20);
+  ctx.lineTo(12, 31);
+  ctx.lineTo(17, 29);
+  ctx.lineTo(12, 18);
+  ctx.lineTo(21, 18);
+  ctx.closePath();
+  ctx.fillStyle = P.cursorFill;
+  ctx.shadowColor = "rgba(0,0,0,0.45)";
+  ctx.shadowBlur = 6;
+  ctx.fill();
+  ctx.shadowColor = "transparent";
+  ctx.strokeStyle = P.cursorStroke;
+  ctx.lineWidth = 1.6;
+  ctx.stroke();
+  ctx.restore();
+}
+
 // ------------------------------------------------------------------ chunk
 function drawChunk(chunk, t) {
+  OVERLAY = P;
   window.__lastDrawn = { id: chunk.id, scene: chunk.scene || null, plate: chunk.plate || null, t };
   if (chunk.scene === "problem") sceneProblem(t);
   else if (chunk.scene === "folder-panel") sceneFolderPanel(t - chunk.t0);
   else if (chunk.scene === "flowchart") sceneFlowchart(t - chunk.t0);
   else if (chunk.scene === "collapse") sceneCollapse(t - chunk.t0);
+  else if (chunk.scene === "theme-toggle") sceneThemeToggle(t - chunk.t0);
   else if (chunk.plate) {
     drawPlate(chunk, t);
     drawCursor(chunk, t);
@@ -681,7 +997,7 @@ function renderAt(time) {
   const t = clamp(Number(time) || 0, 0, FILM.film.duration - 0.0001);
   ctx.setTransform(DSF, 0, 0, DSF, 0, 0);
   ctx.globalAlpha = 1;
-  ctx.fillStyle = "#0b0e13";
+  ctx.fillStyle = P.bg[2];
   ctx.fillRect(0, 0, W, H);
 
   const index = chunkAt(t);
@@ -706,8 +1022,10 @@ function renderAt(time) {
 
 window.renderAt = renderAt;
 window.__debugScenes = { sceneProblem, drawCaption, SUBTITLES, CHUNKS, drawFolderCard };
+
 window.__FILM_READY__ = true;
 window.__FILM_INFO__ = {
+  theme: THEME,
   duration: FILM.film.duration,
   fps: FILM.film.fps,
   chunks: CHUNKS.map((chunk) => [chunk.id, chunk.t0, chunk.t1]),
@@ -717,4 +1035,7 @@ window.__FILM_INFO__ = {
   ),
 };
 renderAt(0);
+
+
+
 

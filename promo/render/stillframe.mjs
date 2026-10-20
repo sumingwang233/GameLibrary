@@ -11,7 +11,9 @@ const PORT = fs.readFileSync(path.join(ROOT, "out", "host-port.txt"), "utf8").tr
 const OUT = path.join(ROOT, "out", "frames-test");
 fs.mkdirSync(OUT, { recursive: true });
 
-const times = process.argv.slice(2).map(Number).filter((value) => Number.isFinite(value));
+const themeArg = process.argv.find((arg) => arg.startsWith("--theme="));
+const THEME = themeArg ? themeArg.split("=")[1] : "dark";
+const times = process.argv.slice(2).filter((arg) => !arg.startsWith("--")).map(Number).filter((value) => Number.isFinite(value));
 if (!times.length) times.push(0);
 
 const browser = await chromium.launch({ channel: "chrome", headless: true });
@@ -20,14 +22,16 @@ page.on("console", (message) => {
   if (message.type() === "error") console.error("[console]", message.text());
 });
 page.on("pageerror", (error) => console.error("[pageerror]", error.message));
-await page.goto(`http://127.0.0.1:${PORT}/promo/film/index.html`, { waitUntil: "networkidle" });
+await page.goto(`http://127.0.0.1:${PORT}/promo/film/index.html?theme=${THEME}`, { waitUntil: "networkidle" });
 await page.waitForFunction(() => window.__FILM_READY__ === true, null, { timeout: 30000 });
 
 for (const t of times) {
   const started = Date.now();
   await page.evaluate((time) => window.renderAt(time), t);
-  const file = path.join(OUT, "t" + t.toFixed(2).replace(".", "_") + ".png");
+  const file = path.join(OUT, THEME + "-t" + t.toFixed(2).replace(".", "_") + ".png");
   await page.screenshot({ path: file });
   console.log("[frame]", t, (Date.now() - started) + " ms", file);
 }
 await browser.close();
+
+

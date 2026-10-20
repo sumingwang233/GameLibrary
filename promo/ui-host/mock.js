@@ -8,7 +8,9 @@
   "use strict";
 
   var DEMO = window.__PROMO_DEMO__ || { demo: { games: [], tags: [] } };
-  var SCENE = new URLSearchParams(location.search).get("scene") || "library";
+  var PARAMS = new URLSearchParams(location.search);
+  var SCENE = PARAMS.get("scene") || "library";
+  var THEME = PARAMS.get("theme") === "light" ? "light" : "dark";
   var CLASSICS = "D:\\Games\\Classics";
   var LIBRARY = "D:\\Games\\Library";
   var MTOOL_ROOT = "D:\\Tools\\MTool";
@@ -133,7 +135,7 @@
     });
     state.tags = tagItems();
     state.settings = {
-      revision: 3, theme: "dark", uiLanguage: "zh-CN",
+      revision: 3, theme: THEME, uiLanguage: "zh-CN",
       uiFontFamily: "Microsoft YaHei UI", closeToTray: false, autostartEnabled: false,
       scanIntervalMinutes: 30, titleTranslationEngine: "balanced",
       cacheParentDirectory: null, activeViewId: null
@@ -710,3 +712,4 @@
   };
   console.info("[promo mock] scene=" + SCENE + " games=" + state.games.length + " roots=" + state.roots.length);
 })();
+

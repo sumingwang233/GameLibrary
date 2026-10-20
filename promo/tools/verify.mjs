@@ -8,8 +8,10 @@ const ROOT = path.resolve(import.meta.dirname, "..");
 const FFMPEG = path.join(ROOT, "tools", "ffmpeg", "ffmpeg.exe");
 const FFPROBE = path.join(ROOT, "tools", "ffmpeg", "ffprobe.exe");
 const files = {
-  subtitled: path.join(ROOT, "out", "film", "GameLibrary-promo-1080p60.mp4"),
-  clean: path.join(ROOT, "out", "film", "GameLibrary-promo-1080p60-nosub.mp4"),
+  "dark-sub": path.join(ROOT, "out", "film", "GameLibrary-promo-1080p60-dark.mp4"),
+  "dark-clean": path.join(ROOT, "out", "film", "GameLibrary-promo-1080p60-dark-nosub.mp4"),
+  "light-sub": path.join(ROOT, "out", "film", "GameLibrary-promo-1080p60-light.mp4"),
+  "light-clean": path.join(ROOT, "out", "film", "GameLibrary-promo-1080p60-light-nosub.mp4"),
 };
 
 const probe = (file) =>

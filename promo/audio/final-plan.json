@@ -1,6 +1,6 @@
 {
   "name": "GameLibrary-promo",
-  "duration": 150,
+  "duration": 146,
   "out": "out/audio/mix-final.wav",
   "target": {
     "lufs": -16,
@@ -21,22 +21,22 @@
     },
     {
       "file": "assets/sfx/sfx_click_light.wav",
-      "at": 18.2,
+      "at": 19.4,
       "gainDb": -7
     },
     {
       "file": "assets/sfx/sfx_click_light.wav",
-      "at": 20,
+      "at": 21.7,
       "gainDb": -7
     },
     {
       "file": "assets/sfx/sfx_click_light.wav",
-      "at": 25,
+      "at": 26.5,
       "gainDb": -7
     },
     {
       "file": "assets/sfx/sfx_click_light.wav",
-      "at": 26.8,
+      "at": 30.3,
       "gainDb": -7
     },
     {
@@ -45,33 +45,23 @@
       "gainDb": -15
     },
     {
-      "file": "assets/sfx/sfx_click_light.wav",
-      "at": 39.5,
-      "gainDb": -7
-    },
-    {
-      "file": "assets/sfx/sfx_click_light.wav",
-      "at": 43.85,
-      "gainDb": -7
-    },
-    {
-      "file": "assets/sfx/sfx_click_light.wav",
-      "at": 45.25,
-      "gainDb": -7
-    },
-    {
       "file": "assets/sfx/sfx_whoosh_soft.wav",
       "at": 60,
       "gainDb": -15
     },
     {
       "file": "assets/sfx/sfx_click_light.wav",
-      "at": 61.55,
+      "at": 62.8,
       "gainDb": -7
     },
     {
       "file": "assets/sfx/sfx_click_light.wav",
-      "at": 70,
+      "at": 75,
+      "gainDb": -7
+    },
+    {
+      "file": "assets/sfx/sfx_click_light.wav",
+      "at": 77.9,
       "gainDb": -7
     },
     {
@@ -81,7 +71,12 @@
     },
     {
       "file": "assets/sfx/sfx_click_light.wav",
-      "at": 87.55,
+      "at": 91.6,
+      "gainDb": -7
+    },
+    {
+      "file": "assets/sfx/sfx_click_light.wav",
+      "at": 104.5,
       "gainDb": -7
     },
     {
@@ -91,12 +86,12 @@
     },
     {
       "file": "assets/sfx/sfx_click_light.wav",
-      "at": 109,
+      "at": 106.5,
       "gainDb": -7
     },
     {
       "file": "assets/sfx/sfx_click_light.wav",
-      "at": 111.2,
+      "at": 109.1,
       "gainDb": -7
     },
     {
@@ -106,7 +101,7 @@
     },
     {
       "file": "assets/sfx/sfx_click_light.wav",
-      "at": 136.1,
+      "at": 126.6,
       "gainDb": -7
     },
     {

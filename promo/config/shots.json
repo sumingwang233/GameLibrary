@@ -1,89 +1,652 @@
 {
-  "note": "Chunks are the only place where timing, camera and cursor live. Camera is [x, y, size] in normalised plate coordinates; size doubles as height because plate and frame are both 16:9. Rule: full-UI states keep x=0,y=0 and size in [0.95,1] so the sidebar/left edge is never sliced; only detail-sheet shots crop with x>=0.44. Cursor targets reference an element label captured in out/plates/plates.json.",
-  "chunks": [
-    { "id": "A1", "t0": 0.0, "t1": 12.0, "scene": "problem" },
-
-    { "id": "B1", "t0": 12.0, "t1": 16.4, "scene": "folder-panel", "fadeIn": 0.4,
-      "label": { "text": "选择文件夹 · 流程演示", "from": 0.5, "to": 4.2, "tone": "demo" } },
-    { "id": "B2", "t0": 16.4, "t1": 18.8, "plate": "b-roots-before", "cam": [0.0, 0.0, 1.0], "fadeIn": 0.4,
-      "cursor": [{ "t": 0.5, "target": ["b-roots-before", "添加游戏库"] }, { "t": 1.8, "target": ["b-roots-before", "添加游戏库"], "click": true }] },
-    { "id": "B3", "t0": 18.8, "t1": 20.5, "plate": "b-roots-after", "cam": [0.0, 0.0, 1.0], "fadeIn": 0.3,
-      "cursor": [{ "t": 0.3, "target": ["b-roots-after", "扫描游戏库"] }, { "t": 1.2, "target": ["b-roots-after", "扫描游戏库"], "click": true }] },
-    { "id": "B4", "t0": 20.5, "t1": 23.9, "plate": "b-scanning", "cam": [0.0, 0.0, 1.0], "camTo": [0.0, 0.0, 0.98], "fadeIn": 0.25 },
-    { "id": "B5", "t0": 23.9, "t1": 26.2, "plate": "b-review", "cam": [0.0, 0.0, 1.0], "camTo": [0.0, 0.0, 0.98], "fadeIn": 0.3,
-      "cursor": [{ "t": 0.6, "target": ["b-review", "全选已加载项目"] }, { "t": 1.1, "target": ["b-review", "全选已加载项目"], "click": true }] },
-    { "id": "B6", "t0": 26.2, "t1": 27.1, "plate": "b-review-selected", "cam": [0.0, 0.0, 0.98], "fadeIn": 0.2,
-      "cursor": [{ "t": 0.2, "target": ["b-review-selected", "加入"] }, { "t": 0.6, "target": ["b-review-selected", "加入"], "click": true }] },
-    { "id": "B7", "t0": 27.1, "t1": 30.9, "plate": "b-library-after", "cam": [0.0, 0.0, 1.0], "camTo": [0.0, 0.0, 0.98], "fadeIn": 0.45,
-      "label": { "text": "示例游戏库 · 演示数据", "from": 0.5, "to": 2.8, "tone": "demo" } },
-    { "id": "B8", "t0": 30.9, "t1": 33.4, "plate": "b-detail-launch", "cam": [0.44, 0.03, 0.76], "camTo": [0.45, 0.05, 0.74], "fadeIn": 0.3,
-      "label": { "text": "名称与启动入口", "from": 0.6, "to": 2.4, "tone": "info" } },
-    { "id": "B8b", "t0": 33.4, "t1": 35.6, "plate": "b-detail-launch-bottom", "cam": [0.44, 0.30, 0.80], "camTo": [0.45, 0.32, 0.78], "fadeIn": 0.3,
-      "label": { "text": "启动方式可在此检查", "from": 0.4, "to": 2.1, "tone": "info" } },
-    { "id": "B9", "t0": 35.6, "t1": 38.0, "plate": "b-library-after", "cam": [0.0, 0.0, 1.0], "camTo": [0.0, 0.0, 0.97], "fadeIn": 0.3 },
-
-    { "id": "C1", "t0": 38.0, "t1": 40.2, "plate": "c-library", "cam": [0.0, 0.0, 1.0], "fadeIn": 0.3,
-      "label": { "text": "示例游戏库 · 演示数据", "from": 0.4, "to": 2.2, "tone": "demo" },
-      "cursor": [{ "t": 0.5, "target": ["c-library", "搜索游戏"] }, { "t": 1.5, "target": ["c-library", "搜索游戏"], "click": true }] },
-    { "id": "C2", "t0": 40.2, "t1": 43.2, "plate": "c-search", "cam": [0.0, 0.0, 0.98], "camTo": [0.0, 0.0, 0.97], "fadeIn": 0.25 },
-    { "id": "C3", "t0": 43.2, "t1": 44.5, "plate": "c-library", "cam": [0.0, 0.0, 0.98], "fadeIn": 0.2,
-      "cursor": [{ "t": 0.2, "target": ["c-library", "选择 Glass Harbor"] }, { "t": 0.65, "target": ["c-library", "选择 Glass Harbor"], "click": true }] },
-    { "id": "C4", "t0": 44.5, "t1": 46.6, "plate": "c-fav", "cam": [0.0, 0.0, 0.98], "camTo": [0.0, 0.0, 0.97], "fadeIn": 0.25,
-      "cursor": [{ "t": 0.25, "target": ["c-fav", "批量收藏"] }, { "t": 0.75, "target": ["c-fav", "批量收藏"], "click": true }],
-      "label": { "text": "勾选后批量收藏", "from": 0.9, "to": 2.0, "tone": "info" } },
-    { "id": "C5", "t0": 46.6, "t1": 48.2, "plate": "c-favlist", "cam": [0.0, 0.0, 0.98], "fadeIn": 0.25 },
-    { "id": "C6", "t0": 48.2, "t1": 54.6, "plate": "c-tag", "cam": [0.0, 0.0, 0.98], "camTo": [0.0, 0.0, 0.97], "fadeIn": 0.25 },
-    { "id": "C7", "t0": 54.6, "t1": 60.0, "plate": "c-detail", "cam": [0.44, 0.0, 0.80], "camTo": [0.45, 0.02, 0.78], "fadeIn": 0.3 },
-
-    { "id": "D1", "t0": 60.0, "t1": 62.2, "plate": "d-detail", "cam": [0.44, 0.0, 0.80], "camTo": [0.45, 0.01, 0.78],
-      "cursor": [{ "t": 0.6, "target": ["d-detail", "翻译为简体中文"] }, { "t": 1.55, "target": ["d-detail", "翻译为简体中文"], "click": true }] },
-    { "id": "D2", "t0": 62.2, "t1": 65.0, "plate": "d-processing", "cam": [0.44, 0.0, 0.80], "fadeIn": 0.2 },
-    { "id": "D3", "t0": 65.0, "t1": 69.4, "plate": "d-translated", "cam": [0.44, 0.0, 0.80], "camTo": [0.45, 0.02, 0.78], "fadeIn": 0.35,
-      "label": { "text": "示例数据（翻译结果）", "from": 0.4, "to": 4.2, "tone": "demo" } },
-    { "id": "D4", "t0": 69.4, "t1": 70.4, "plate": "d-translated", "cam": [0.44, 0.01, 0.80],
-      "cursor": [{ "t": 0.15, "target": ["d-translated", "显示原文"] }, { "t": 0.6, "target": ["d-translated", "显示原文"], "click": true }] },
-    { "id": "D5", "t0": 70.4, "t1": 73.8, "plate": "d-original", "cam": [0.44, 0.0, 0.80], "camTo": [0.45, 0.01, 0.78], "fadeIn": 0.25,
-      "label": { "text": "仅更改游戏库内显示", "from": 0.5, "to": 3.4, "tone": "info" } },
-    { "id": "D6", "t0": 73.8, "t1": 75.4, "plate": "d-original", "cam": [0.44, 0.01, 0.80] },
-    { "id": "D7", "t0": 75.4, "t1": 78.0, "plate": "d-batch", "cam": [0.0, 0.0, 0.98], "camTo": [0.0, 0.0, 0.97], "fadeIn": 0.3,
-      "label": { "text": "批量翻译 · 示例数据", "from": 0.5, "to": 2.4, "tone": "info" } },
-
-    { "id": "E1", "t0": 78.0, "t1": 80.8, "plate": "e-settings", "cam": [0.44, 0.0, 0.62], "camTo": [0.45, 0.02, 0.60], "fadeIn": 0.3 },
-    { "id": "E2", "t0": 80.8, "t1": 83.4, "plate": "e-provider", "cam": [0.44, 0.0, 0.62], "fadeIn": 0.3,
-      "label": { "text": "需先配置翻译服务", "from": 0.5, "to": 3.0, "tone": "info" } },
-    { "id": "E3", "t0": 83.4, "t1": 86.8, "plate": "e-detail", "cam": [0.44, 0.20, 0.80], "camTo": [0.45, 0.22, 0.78], "fadeIn": 0.35,
-      "label": { "text": "受支持的 Unity 游戏", "from": 0.8, "to": 3.2, "tone": "info" } },
-    { "id": "E4", "t0": 86.8, "t1": 88.6, "plate": "e-detail", "cam": [0.44, 0.21, 0.80],
-      "cursor": [{ "t": 0.2, "target": ["e-detail", "配置或重试翻译插件"] }, { "t": 0.75, "target": ["e-detail", "配置或重试翻译插件"], "click": true }] },
-    { "id": "E5", "t0": 88.6, "t1": 95.6, "scene": "flowchart", "fadeIn": 0.35,
-      "label": { "text": "流程示意 · 不是软件页面", "from": 0.9, "to": 6.8, "tone": "demo" } },
-    { "id": "E6", "t0": 95.6, "t1": 99.4, "plate": "e-installing", "cam": [0.44, 0.20, 0.80], "fadeIn": 0.3 },
-    { "id": "E7", "t0": 99.4, "t1": 105.0, "plate": "e-configured", "cam": [0.44, 0.20, 0.80], "camTo": [0.45, 0.22, 0.78], "fadeIn": 0.3,
-      "label": { "text": "插件已配置，游戏内效果需启动后验证", "from": 0.4, "to": 5.4, "tone": "warn" } },
-
-    { "id": "F1", "t0": 105.0, "t1": 107.8, "plate": "f-mtool-expanded", "cam": [0.44, 0.14, 0.80], "camTo": [0.45, 0.16, 0.78], "fadeIn": 0.3,
-      "label": { "text": "外部工具 · 需自行准备 MTool", "from": 0.5, "to": 2.6, "tone": "info" } },
-    { "id": "F2", "t0": 107.8, "t1": 110.4, "plate": "f-mtool-settings", "cam": [0.44, 0.14, 0.80], "camTo": [0.45, 0.16, 0.78], "fadeIn": 0.25,
-      "cursor": [{ "t": 0.5, "target": ["f-mtool-settings", "选择 MTool 目录"] }, { "t": 1.2, "target": ["f-mtool-settings", "选择 MTool 目录"], "click": true }] },
-    { "id": "F3", "t0": 110.4, "t1": 112.6, "plate": "f-mtool-settings", "cam": [0.44, 0.20, 0.80],
-      "cursor": [{ "t": 0.2, "target": ["f-mtool-settings", "标记为需要翻译并生成启动脚本"] }, { "t": 0.8, "target": ["f-mtool-settings", "标记为需要翻译并生成启动脚本"], "click": true }] },
-    { "id": "F4", "t0": 112.6, "t1": 117.6, "plate": "f-mtool-ready", "cam": [0.44, 0.20, 0.80], "camTo": [0.45, 0.22, 0.78], "fadeIn": 0.35 },
-    { "id": "F5", "t0": 117.6, "t1": 122.0, "plate": "f-mtool-ready", "cam": [0.44, 0.30, 0.80], "camTo": [0.45, 0.32, 0.78], "fadeIn": 0.3 },
-
-    { "id": "G1", "t0": 122.0, "t1": 124.8, "plate": "g-fav", "cam": [0.0, 0.0, 0.98], "camTo": [0.0, 0.0, 0.97], "fadeIn": 0.35 },
-    { "id": "G2", "t0": 124.8, "t1": 127.0, "plate": "g-tag", "cam": [0.0, 0.0, 0.98], "fadeIn": 0.25 },
-    { "id": "G3", "t0": 127.0, "t1": 130.6, "plate": "g-library", "cam": [0.0, 0.0, 1.0], "camTo": [0.0, 0.0, 0.98], "fadeIn": 0.25 },
-    { "id": "G4", "t0": 130.6, "t1": 133.2, "plate": "g-library", "cam": [0.0, 0.0, 0.98], "camTo": [0.0, 0.0, 0.97] },
-    { "id": "G5", "t0": 133.2, "t1": 137.2, "plate": "g-detail", "cam": [0.44, 0.0, 0.80], "camTo": [0.45, 0.02, 0.78], "fadeIn": 0.3,
-      "cursor": [{ "t": 1.6, "target": ["g-detail", "开始游戏"] }, { "t": 2.9, "target": ["g-detail", "开始游戏"], "click": true }] },
-    { "id": "G6", "t0": 137.2, "t1": 140.0, "plate": "g-detail", "cam": [0.44, 0.0, 0.80], "camTo": [0.700, 0.300, 0.26], "fadeIn": 0.25 },
-
-    { "id": "H1", "t0": 140.0, "t1": 150.0, "plate": "k5-endcard", "cam": [0.0, 0.0, 1.0], "camTo": [0.015, 0.015, 0.97], "fadeIn": 0.6 }
-  ]
+ "duration": 146,
+ "chunks": [
+  {
+   "id": "A1",
+   "t0": 0,
+   "t1": 11.6,
+   "scene": "problem"
+  },
+  {
+   "id": "T0",
+   "t0": 11.6,
+   "t1": 15.2,
+   "scene": "theme-toggle",
+   "fadeIn": 0.4,
+   "label": {
+    "kind": "chapter",
+    "text": "深色 / 浅色界面",
+    "from": 0.3,
+    "to": 3.4
+   }
+  },
+  {
+   "id": "B1",
+   "t0": 15.2,
+   "t1": 18.2,
+   "scene": "folder-panel",
+   "fadeIn": 0.35,
+   "label": {
+    "kind": "chapter",
+    "text": "选择文件夹 · 流程演示",
+    "from": 0.2,
+    "to": 2.8
+   }
+  },
+  {
+   "id": "B2",
+   "t0": 18.2,
+   "t1": 20.4,
+   "plate": "b-roots-before",
+   "cam": [
+    0,
+    0,
+    1
+   ],
+   "fadeIn": 0.3,
+   "cursor": [
+    {
+     "t": 1.2,
+     "box": "添加游戏库",
+     "click": true
+    }
+   ]
+  },
+  {
+   "id": "B3",
+   "t0": 20.4,
+   "t1": 22.2,
+   "plate": "b-roots-after",
+   "cam": [
+    0,
+    0,
+    0.98
+   ],
+   "fadeIn": 0.35,
+   "cursor": [
+    {
+     "t": 1.3,
+     "box": "扫描游戏库",
+     "click": true
+    }
+   ]
+  },
+  {
+   "id": "B4",
+   "t0": 22.2,
+   "t1": 25.6,
+   "plate": "b-scanning",
+   "cam": [
+    0,
+    0,
+    1
+   ],
+   "fadeIn": 0.3
+  },
+  {
+   "id": "B5",
+   "t0": 25.6,
+   "t1": 29.2,
+   "plate": "b-review",
+   "cam": [
+    0,
+    0,
+    1
+   ],
+   "fadeIn": 0.35,
+   "cursor": [
+    {
+     "t": 0.9,
+     "box": "全选已加载项目",
+     "click": true
+    }
+   ]
+  },
+  {
+   "id": "B6",
+   "t0": 29.2,
+   "t1": 32.4,
+   "plate": "b-review-selected",
+   "cam": [
+    0,
+    0,
+    1
+   ],
+   "fadeIn": 0.3,
+   "cursor": [
+    {
+     "t": 1.1,
+     "box": "加入",
+     "click": true
+    }
+   ]
+  },
+  {
+   "id": "B7",
+   "t0": 32.4,
+   "t1": 35.6,
+   "plate": "b-library-after",
+   "cam": [
+    0,
+    0,
+    1
+   ],
+   "fadeIn": 0.45,
+   "label": {
+    "kind": "tag",
+    "text": "示例游戏库 · 演示数据",
+    "at": [
+     0.302,
+     0.075
+    ],
+    "from": 0.5,
+    "to": 2.9
+   }
+  },
+  {
+   "id": "B8",
+   "t0": 35.6,
+   "t1": 38,
+   "plate": "b-detail-launch",
+   "cam": [
+    0.44,
+    0,
+    0.8
+   ],
+   "camTo": [
+    0.45,
+    0.02,
+    0.78
+   ],
+   "fadeIn": 0.35
+  },
+  {
+   "id": "B9",
+   "t0": 38,
+   "t1": 41,
+   "plate": "b-detail-launch-bottom",
+   "cam": [
+    0.55,
+    0.55,
+    0.45
+   ],
+   "fadeIn": 0.3
+  },
+  {
+   "id": "C1",
+   "t0": 41,
+   "t1": 43.4,
+   "plate": "c-library",
+   "cam": [
+    0,
+    0,
+    1
+   ],
+   "fadeIn": 0.4
+  },
+  {
+   "id": "C2",
+   "t0": 43.4,
+   "t1": 46.4,
+   "plate": "c-search",
+   "cam": [
+    0.02,
+    0.05,
+    0.96
+   ],
+   "fadeIn": 0.3
+  },
+  {
+   "id": "C3",
+   "t0": 46.4,
+   "t1": 49.4,
+   "plate": "c-fav",
+   "cam": [
+    0,
+    0,
+    0.99
+   ],
+   "fadeIn": 0.3
+  },
+  {
+   "id": "C4",
+   "t0": 49.4,
+   "t1": 51,
+   "plate": "c-favlist",
+   "cam": [
+    0,
+    0,
+    0.99
+   ],
+   "fadeIn": 0.3
+  },
+  {
+   "id": "C5",
+   "t0": 51,
+   "t1": 57.6,
+   "plate": "c-tag",
+   "cam": [
+    0,
+    0,
+    0.99
+   ],
+   "fadeIn": 0.3
+  },
+  {
+   "id": "C6",
+   "t0": 57.6,
+   "t1": 61.8,
+   "plate": "c-detail",
+   "cam": [
+    0.44,
+    0,
+    0.8
+   ],
+   "camTo": [
+    0.45,
+    0.02,
+    0.78
+   ],
+   "fadeIn": 0.35
+  },
+  {
+   "id": "D1",
+   "t0": 61.8,
+   "t1": 64.4,
+   "plate": "d-detail",
+   "cam": [
+    0.44,
+    0,
+    0.8
+   ],
+   "fadeIn": 0.3,
+   "cursor": [
+    {
+     "t": 1,
+     "box": "翻译为简体中文",
+     "click": true
+    }
+   ]
+  },
+  {
+   "id": "D2",
+   "t0": 64.4,
+   "t1": 67,
+   "plate": "d-processing",
+   "cam": [
+    0.44,
+    0,
+    0.8
+   ]
+  },
+  {
+   "id": "D3",
+   "t0": 67,
+   "t1": 70.6,
+   "plate": "d-translated",
+   "cam": [
+    0.44,
+    0,
+    0.8
+   ],
+   "fadeIn": 0.3,
+   "label": {
+    "kind": "tag",
+    "text": "示例数据（翻译结果）",
+    "at": [
+     0.805,
+     0.052
+    ],
+    "from": 0.4,
+    "to": 3.2
+   }
+  },
+  {
+   "id": "D4",
+   "t0": 70.6,
+   "t1": 73.8,
+   "plate": "d-batch",
+   "cam": [
+    0,
+    0,
+    0.99
+   ],
+   "fadeIn": 0.3,
+   "label": {
+    "kind": "tag",
+    "text": "批量翻译 · 示例数据",
+    "at": [
+     0.52,
+     0.085
+    ],
+    "from": 0.4,
+    "to": 2.9
+   }
+  },
+  {
+   "id": "D5",
+   "t0": 73.8,
+   "t1": 77.2,
+   "plate": "d-original",
+   "cam": [
+    0.44,
+    0,
+    0.8
+   ],
+   "fadeIn": 0.3,
+   "cursor": [
+    {
+     "t": 1.2,
+     "at": [
+      0.83,
+      0.27
+     ],
+     "click": true
+    }
+   ],
+   "label": {
+    "kind": "tag",
+    "text": "仅更改游戏库内显示",
+    "at": [
+     0.805,
+     0.052
+    ],
+    "from": 0.4,
+    "to": 3
+   }
+  },
+  {
+   "id": "D6",
+   "t0": 77.2,
+   "t1": 80,
+   "plate": "d-translated",
+   "cam": [
+    0.44,
+    0,
+    0.8
+   ],
+   "fadeIn": 0.25,
+   "cursor": [
+    {
+     "t": 0.7,
+     "at": [
+      0.83,
+      0.27
+     ],
+     "click": true
+    }
+   ]
+  },
+  {
+   "id": "D7",
+   "t0": 80,
+   "t1": 82.4,
+   "plate": "d-translated",
+   "cam": [
+    0.44,
+    0,
+    0.8
+   ]
+  },
+  {
+   "id": "E1",
+   "t0": 82.4,
+   "t1": 86,
+   "plate": "e-settings",
+   "cam": [
+    0.44,
+    0,
+    0.62
+   ],
+   "fadeIn": 0.4
+  },
+  {
+   "id": "E2",
+   "t0": 86,
+   "t1": 89.6,
+   "plate": "e-provider",
+   "cam": [
+    0.44,
+    0,
+    0.62
+   ],
+   "fadeIn": 0.3
+  },
+  {
+   "id": "E3",
+   "t0": 89.6,
+   "t1": 92.4,
+   "plate": "e-detail",
+   "cam": [
+    0.44,
+    0.2,
+    0.8
+   ],
+   "fadeIn": 0.3,
+   "cursor": [
+    {
+     "t": 2,
+     "box": "配置或重试翻译插件",
+     "click": true
+    }
+   ]
+  },
+  {
+   "id": "E4",
+   "t0": 92.4,
+   "t1": 95,
+   "plate": "e-installing",
+   "cam": [
+    0.44,
+    0.2,
+    0.8
+   ]
+  },
+  {
+   "id": "E5",
+   "t0": 95,
+   "t1": 99,
+   "scene": "flowchart",
+   "fadeIn": 0.35,
+   "label": {
+    "kind": "chapter",
+    "text": "流程示意图",
+    "from": 0.2,
+    "to": 3.7
+   }
+  },
+  {
+   "id": "E6",
+   "t0": 99,
+   "t1": 103,
+   "plate": "e-configured",
+   "cam": [
+    0.44,
+    0.2,
+    0.8
+   ],
+   "fadeIn": 0.4
+  },
+  {
+   "id": "F1",
+   "t0": 103,
+   "t1": 105.6,
+   "plate": "f-mtool-detail",
+   "cam": [
+    0.44,
+    0.26,
+    0.8
+   ],
+   "fadeIn": 0.3,
+   "cursor": [
+    {
+     "t": 1.5,
+     "box": "MTool 目录设置",
+     "click": true
+    }
+   ]
+  },
+  {
+   "id": "F2",
+   "t0": 105.6,
+   "t1": 108.2,
+   "plate": "f-mtool-expanded",
+   "cam": [
+    0.44,
+    0.04,
+    0.8
+   ],
+   "fadeIn": 0.25,
+   "cursor": [
+    {
+     "t": 0.9,
+     "box": "选择 MTool 目录",
+     "click": true
+    }
+   ]
+  },
+  {
+   "id": "F3",
+   "t0": 108.2,
+   "t1": 110.8,
+   "plate": "f-mtool-settings",
+   "cam": [
+    0.44,
+    0.02,
+    0.8
+   ],
+   "fadeIn": 0.25,
+   "cursor": [
+    {
+     "t": 0.9,
+     "box": "标记为需要翻译并生成启动脚本",
+     "click": true
+    }
+   ]
+  },
+  {
+   "id": "F4",
+   "t0": 110.8,
+   "t1": 114,
+   "plate": "f-mtool-ready",
+   "cam": [
+    0.44,
+    0.02,
+    0.8
+   ],
+   "fadeIn": 0.2,
+   "label": {
+    "kind": "chapter",
+    "text": "外部工具 · 需自行准备 MTool",
+    "from": 0.2,
+    "to": 3
+   }
+  },
+  {
+   "id": "G1",
+   "t0": 114,
+   "t1": 117,
+   "plate": "g-library",
+   "cam": [
+    0,
+    0,
+    1
+   ],
+   "fadeIn": 0.4
+  },
+  {
+   "id": "G2",
+   "t0": 117,
+   "t1": 119.6,
+   "plate": "g-fav",
+   "cam": [
+    0,
+    0,
+    0.99
+   ],
+   "fadeIn": 0.3
+  },
+  {
+   "id": "G3",
+   "t0": 119.6,
+   "t1": 122.6,
+   "plate": "g-tag",
+   "cam": [
+    0,
+    0,
+    0.99
+   ],
+   "fadeIn": 0.3
+  },
+  {
+   "id": "G4",
+   "t0": 122.6,
+   "t1": 125.2,
+   "plate": "g-library",
+   "cam": [
+    0,
+    0,
+    1
+   ],
+   "camTo": [
+    0,
+    0,
+    0.97
+   ],
+   "fadeIn": 0.3
+  },
+  {
+   "id": "G5",
+   "t0": 125.2,
+   "t1": 129.2,
+   "plate": "g-detail",
+   "cam": [
+    0.44,
+    0,
+    0.8
+   ],
+   "fadeIn": 0.35,
+   "cursor": [
+    {
+     "t": 1.4,
+     "box": "开始游戏",
+     "click": true
+    }
+   ]
+  },
+  {
+   "id": "G6",
+   "t0": 129.2,
+   "t1": 132,
+   "plate": "g-detail",
+   "cam": [
+    0.44,
+    0,
+    0.8
+   ],
+   "camTo": [
+    0.7,
+    0.3,
+    0.26
+   ],
+   "fadeIn": 0.25
+  },
+  {
+   "id": "H1",
+   "t0": 132,
+   "t1": 146,
+   "plate": "k5-endcard",
+   "cam": [
+    0,
+    0,
+    1
+   ],
+   "camTo": [
+    0.015,
+    0.015,
+    0.97
+   ],
+   "fadeIn": 0.6
+  }
+ ]
 }
-
-
-
-
-
-

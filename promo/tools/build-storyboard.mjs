@@ -9,14 +9,14 @@ const copy = JSON.parse(fs.readFileSync(path.join(ROOT, "config", "copy.json"), 
 const film = JSON.parse(fs.readFileSync(path.join(ROOT, "config", "film.json"), "utf8"));
 
 const SEGMENTS = [
-  ["A", 0, 12, "问题：散落的文件夹"],
-  ["B", 12, 38, "收进游戏库：目录 → 扫描 → 审核 → 入库 → 启动方式"],
-  ["C", 38, 60, "找到想玩的：搜索 → 收藏 → 标签 → 详情"],
-  ["D", 60, 78, "看懂游戏名：单个翻译 → 译名 → 切回原名 → 批量入口"],
-  ["E", 78, 105, "Unity 插件：服务前提 → 触发 → 流程图 → 配置状态"],
-  ["F", 105, 122, "MTool 接入：工具目录 → 生成启动脚本 → 启动方式"],
-  ["G", 122, 140, "回到游戏：完整库 → 收藏 / 标签 → 启动操作"],
-  ["H", 140, 150, "下载指引：片尾卡"],
+  ["A", 0, 15.2, "问题：散落的文件夹 → 光点归拢 → 产品名"],
+  ["B", 15.2, 41, "收进游戏库：目录 → 扫描 → 审核 → 入库 → 启动方式"],
+  ["C", 41, 61.8, "找到想玩的：搜索 → 收藏 → 标签 → 详情"],
+  ["D", 61.8, 82.4, "看懂游戏名：单个翻译 → 译名 → 批量 → 切回原名"],
+  ["E", 82.4, 103, "Unity 插件：服务前提 → 触发 → 流程图 → 配置状态"],
+  ["F", 103, 114, "MTool 接入：工具目录 → 生成启动脚本"],
+  ["G", 114, 132, "回到游戏：完整库 → 收藏 / 标签 → 启动操作"],
+  ["H", 132, 146, "下载指引：片尾卡"],
 ];
 
 const fmt = (n) => n.toFixed(1) + "s";
@@ -27,6 +27,7 @@ lines.push("# GameLibrary 宣传片 · 分镜时间表");
 lines.push("");
 lines.push(`- 版本：\`${film.product.versionLabel}\`（${film.product.buildType}）`);
 lines.push(`- 规格：${film.film.duration}s / ${film.film.width}×${film.film.height} / ${film.film.fps}fps`);
+lines.push("- 两版同时间轴：深色界面版（主版）与浅色界面版，开头 11.6–15.2s 演示深浅切换。");
 lines.push("- 本表由 `promo/tools/build-storyboard.mjs` 从 `promo/config/shots.json` 生成，改镜头后重新生成即可。");
 lines.push("");
 lines.push("| 段落 | 时间 | 镜头 | 画面 | 屏幕注释 | 字幕 |");
@@ -64,4 +65,3 @@ for (const chunk of shots.chunks) {
 lines.push("");
 fs.writeFileSync(path.join(ROOT, "docs", "storyboard.md"), lines.join("\n"));
 console.log(`[storyboard] ${shots.chunks.length} shots, ${copy.subtitles.length} cues`);
-
