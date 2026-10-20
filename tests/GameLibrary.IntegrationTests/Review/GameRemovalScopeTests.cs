@@ -18,11 +18,23 @@ public sealed class GameRemovalScopeTests(PipeServerFixture fixture) : IClassFix
         File.WriteAllText(Path.Combine(root, "patch.xp3"), "resource only");
         var id = Guid.NewGuid().ToString();
         var store = fixture.State.Library.Store!;
-        store.UpsertCandidate(new PersistedCandidate { CandidateId = id, JobId = "legacy", PhysicalPath = root,
-            RelativePath = "patch-only", Kind = "nestedCandidate", ReviewState = "pendingReview", Revision = 1,
-            ObservedUtc = DateTime.UtcNow, UpdatedUtc = DateTime.UtcNow,
-            PayloadJson = JsonSerializer.Serialize(new { engines = new[] { new { engine = "kirikiri" } },
-                entryCandidates = directoryEntry ? new[] { new { relativePath = root } } : [] }, ContractJson.Options) });
+        store.UpsertCandidate(new PersistedCandidate
+        {
+            CandidateId = id,
+            JobId = "legacy",
+            PhysicalPath = root,
+            RelativePath = "patch-only",
+            Kind = "nestedCandidate",
+            ReviewState = "pendingReview",
+            Revision = 1,
+            ObservedUtc = DateTime.UtcNow,
+            UpdatedUtc = DateTime.UtcNow,
+            PayloadJson = JsonSerializer.Serialize(new
+            {
+                engines = new[] { new { engine = "kirikiri" } },
+                entryCandidates = directoryEntry ? new[] { new { relativePath = root } } : []
+            }, ContractJson.Options)
+        });
         var before = store.ListGames().Count;
         var accepted = await Invoke("candidates.accept", new { candidateId = id, expectedRevision = 1, idempotencyKey = Guid.NewGuid().ToString() });
         Assert.False(accepted.Ok);
@@ -35,8 +47,12 @@ public sealed class GameRemovalScopeTests(PipeServerFixture fixture) : IClassFix
     private async Task<Envelope<JsonElement>> Invoke(string operation, object parameters)
     {
         await using var client = await HostConnection.ConnectAsync(fixture.State.DataDirectory, "removal-scope-test", CancellationToken.None);
-        return await client.InvokeAsync(new IpcRequest { RequestId = Guid.NewGuid().ToString(), OperationId = operation,
-            Parameters = JsonSerializer.SerializeToElement(parameters, ContractJson.Options) }, CancellationToken.None);
+        return await client.InvokeAsync(new IpcRequest
+        {
+            RequestId = Guid.NewGuid().ToString(),
+            OperationId = operation,
+            Parameters = JsonSerializer.SerializeToElement(parameters, ContractJson.Options)
+        }, CancellationToken.None);
     }
 
     private string Tree()
@@ -68,8 +84,14 @@ public sealed class GameRemovalScopeTests(PipeServerFixture fixture) : IClassFix
         Assert.Equal("directory", plan.GetProperty("scope").GetString());
         Assert.Equal(JsonValueKind.Null, plan.GetProperty("error").ValueKind);
         var revision = detail.Data.GetProperty("revision").GetInt32();
-        var wrongScope = await Invoke("games.remove", new { gameId, expectedRevision = revision, deleteFiles = true,
-            confirmedPath = Path.Combine(directory, "Game.exe"), idempotencyKey = Guid.NewGuid().ToString() });
+        var wrongScope = await Invoke("games.remove", new
+        {
+            gameId,
+            expectedRevision = revision,
+            deleteFiles = true,
+            confirmedPath = Path.Combine(directory, "Game.exe"),
+            idempotencyKey = Guid.NewGuid().ToString()
+        });
         Assert.False(wrongScope.Ok);
         Assert.True(File.Exists(Path.Combine(directory, "Game.exe")));
         var request = new { gameId, expectedRevision = revision, deleteFiles = true, confirmedPath = directory, idempotencyKey = Guid.NewGuid().ToString() };
@@ -91,8 +113,16 @@ public sealed class GameRemovalScopeTests(PipeServerFixture fixture) : IClassFix
         File.WriteAllText(first, "isolated swf");
         File.WriteAllText(second, "keep");
         var id = Guid.NewGuid().ToString();
-        fixture.State.Library.Store!.InsertGame(new GameCard { GameId = id, Title = "one", RootPath = first, Kind = "fileGame",
-            Membership = "active", AcceptedUtc = DateTime.UtcNow, UpdatedUtc = DateTime.UtcNow });
+        fixture.State.Library.Store!.InsertGame(new GameCard
+        {
+            GameId = id,
+            Title = "one",
+            RootPath = first,
+            Kind = "fileGame",
+            Membership = "active",
+            AcceptedUtc = DateTime.UtcNow,
+            UpdatedUtc = DateTime.UtcNow
+        });
         var detail = await Invoke("games.get", new { gameId = id, includeRemovalPlan = true });
         Assert.Equal("file", detail.Data.GetProperty("removalPlan").GetProperty("scope").GetString());
         File.Move(first, Path.Combine(root, "original.swf"));

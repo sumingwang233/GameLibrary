@@ -15,8 +15,12 @@ public sealed class GameExperienceTests(PipeServerFixture fixture) : IClassFixtu
     private async Task<Envelope<JsonElement>> Invoke(string operation, object parameters)
     {
         await using var client = await HostConnection.ConnectAsync(fixture.State.DataDirectory, "experience-test", CancellationToken.None);
-        return await client.InvokeAsync(new IpcRequest { RequestId = Guid.NewGuid().ToString("N"), OperationId = operation,
-            Parameters = JsonSerializer.SerializeToElement(parameters, ContractJson.Options) }, CancellationToken.None);
+        return await client.InvokeAsync(new IpcRequest
+        {
+            RequestId = Guid.NewGuid().ToString("N"),
+            OperationId = operation,
+            Parameters = JsonSerializer.SerializeToElement(parameters, ContractJson.Options)
+        }, CancellationToken.None);
     }
 
     private async Task<string> CreateUnityGame(bool file)
@@ -123,10 +127,21 @@ public sealed class GameExperienceTests(PipeServerFixture fixture) : IClassFixtu
         var store = fixture.State.Library.Store!;
         var original = store.TryGetGame(id)!;
         Assert.NotNull(store.SetGamePreferences(id, true, null, 4, original.Revision, DateTime.UtcNow));
-        var attempt = new LaunchAttempt { AttemptId = Guid.NewGuid().ToString(), IdempotencyKey = Guid.NewGuid().ToString(),
-            GameId = id, ProfileId = "isolated-profile", State = state, ExecutablePath = Path.Combine(original.RootPath, "Game.exe"),
-            WorkingDirectory = original.RootPath, Arguments = [], ProcessStartedUtc = state == "exited" ? DateTime.UtcNow.AddMinutes(-1) : null,
-            FinishedUtc = DateTime.UtcNow, CreatedUtc = DateTime.UtcNow.AddMinutes(-1), ExitCode = code };
+        var attempt = new LaunchAttempt
+        {
+            AttemptId = Guid.NewGuid().ToString(),
+            IdempotencyKey = Guid.NewGuid().ToString(),
+            GameId = id,
+            ProfileId = "isolated-profile",
+            State = state,
+            ExecutablePath = Path.Combine(original.RootPath, "Game.exe"),
+            WorkingDirectory = original.RootPath,
+            Arguments = [],
+            ProcessStartedUtc = state == "exited" ? DateTime.UtcNow.AddMinutes(-1) : null,
+            FinishedUtc = DateTime.UtcNow,
+            CreatedUtc = DateTime.UtcNow.AddMinutes(-1),
+            ExitCode = code
+        };
         fixture.State.Launches.OnAttemptChanged!(attempt); // Production persistence hook; no process is started.
         var saved = store.TryGetGame(id)!;
         fixture.State.Launches.OnAttemptChanged!(attempt);
@@ -142,16 +157,27 @@ public sealed class GameExperienceTests(PipeServerFixture fixture) : IClassFixtu
         var prefix = "played-query-" + Guid.NewGuid().ToString("N");
         var cards = Enumerable.Range(0, 6).Select(i => new GameCard
         {
-            GameId = Guid.NewGuid().ToString("N"), Title = $"{prefix}-{i}",
+            GameId = Guid.NewGuid().ToString("N"),
+            Title = $"{prefix}-{i}",
             RootPath = Path.Combine(fixture.State.DataDirectory, prefix, i.ToString()),
-            Kind = "gameRoot", Membership = "active", Engine = "unity", Favorite = i < 4, Played = i % 2 == 1, Rating = 4,
-            AcceptedUtc = DateTime.UtcNow, UpdatedUtc = DateTime.UtcNow,
+            Kind = "gameRoot",
+            Membership = "active",
+            Engine = "unity",
+            Favorite = i < 4,
+            Played = i % 2 == 1,
+            Rating = 4,
+            AcceptedUtc = DateTime.UtcNow,
+            UpdatedUtc = DateTime.UtcNow,
         }).ToArray();
         foreach (var card in cards) store.InsertGame(card);
         store.RemoveGame(cards[5].GameId, 1, new IgnoreRule
         {
-            IgnoreId = Guid.NewGuid().ToString("N"), Scope = "ExactPath", Path = cards[5].RootPath,
-            GameId = cards[5].GameId, Reason = "isolated test", CreatedUtc = DateTime.UtcNow,
+            IgnoreId = Guid.NewGuid().ToString("N"),
+            Scope = "ExactPath",
+            Path = cards[5].RootPath,
+            GameId = cards[5].GameId,
+            Reason = "isolated test",
+            CreatedUtc = DateTime.UtcNow,
         }, DateTime.UtcNow);
         store.ImportAsset(cards[0].GameId, "isolated-cover.png", DateTime.UtcNow);
         store.ImportAsset(cards[1].GameId, "isolated-cover.png", DateTime.UtcNow);
@@ -192,8 +218,13 @@ public sealed class GameExperienceTests(PipeServerFixture fixture) : IClassFixtu
         foreach (var played in new[] { true, false })
         {
             var game = store.TryGetGame(before.GameId)!;
-            var updated = await Invoke("games.update", new { gameId = game.GameId, played,
-                expectedRevision = game.Revision, idempotencyKey = Guid.NewGuid().ToString() });
+            var updated = await Invoke("games.update", new
+            {
+                gameId = game.GameId,
+                played,
+                expectedRevision = game.Revision,
+                idempotencyKey = Guid.NewGuid().ToString()
+            });
             Assert.True(updated.Ok, updated.Error?.Message);
             var destination = await Invoke("games.list", new { search = prefix + "-0", played });
             Assert.Equal(before.GameId, Assert.Single(destination.Data.GetProperty("items").EnumerateArray()).GetProperty("gameId").GetString());

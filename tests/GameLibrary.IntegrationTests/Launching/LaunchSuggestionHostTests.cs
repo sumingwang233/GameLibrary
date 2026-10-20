@@ -37,7 +37,8 @@ public sealed class LaunchSuggestionHostTests
             async Task<Envelope<JsonElement>> Invoke(string operation, object parameters)
                 => await client.InvokeAsync(new IpcRequest
                 {
-                    RequestId = Guid.NewGuid().ToString("N"), OperationId = operation,
+                    RequestId = Guid.NewGuid().ToString("N"),
+                    OperationId = operation,
                     Parameters = JsonSerializer.SerializeToElement(parameters, ContractJson.Options)
                 }, CancellationToken.None);
 
@@ -59,12 +60,25 @@ public sealed class LaunchSuggestionHostTests
             var preview = await Invoke("candidates.inspect", new { candidateId = candidate.CandidateId, flashKind = "collection", entryPaths = selected });
             Assert.True(preview.Ok, preview.Error?.Message);
             Assert.Empty(preview.Data.GetProperty("adjustments").EnumerateArray());
-            var selection = new { candidateId = candidate.CandidateId, expectedRevision = candidate.Revision,
-                flashKind = "collection", entryPaths = selected, adjustments = Array.Empty<object>() };
+            var selection = new
+            {
+                candidateId = candidate.CandidateId,
+                expectedRevision = candidate.Revision,
+                flashKind = "collection",
+                entryPaths = selected,
+                adjustments = Array.Empty<object>()
+            };
             var accepted = batch
                 ? await Invoke("candidates.review_batch", new { action = "accept", items = new[] { selection }, idempotencyKey = "accept" })
-                : await Invoke("candidates.accept", new { selection.candidateId, selection.expectedRevision,
-                    selection.flashKind, selection.entryPaths, selection.adjustments, idempotencyKey = "accept" });
+                : await Invoke("candidates.accept", new
+                {
+                    selection.candidateId,
+                    selection.expectedRevision,
+                    selection.flashKind,
+                    selection.entryPaths,
+                    selection.adjustments,
+                    idempotencyKey = "accept"
+                });
             Assert.True(accepted.Ok, accepted.Error?.Message);
             if (batch) Assert.True(accepted.Data.GetProperty("items")[0].GetProperty("result").GetProperty("ok").GetBoolean());
             var games = store.ListGames().Where(game => game.Membership == "active").ToArray();

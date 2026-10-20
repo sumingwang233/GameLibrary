@@ -443,7 +443,7 @@ public static partial class GameLibraryTools
         [Description("仅显示收藏（可选）")] bool? favoriteOnly = null,
         [Description("排序 title/recent（可选）")] string? sort = null,
         [Description("幂等键")] string? idempotencyKey = null,
-        [DefaultValue(null)] [Description("true 有封面，false 无封面，null 清除；省略保持原值")] JsonElement hasCover = default) =>
+        [DefaultValue(null)][Description("true 有封面，false 无封面，null 清除；省略保持原值")] JsonElement hasCover = default) =>
         InvokeGeneratedOperationAsync("views.update", new Dictionary<string, object?>
         {
             ["idempotencyKey"] = idempotencyKey ?? $"viewupd-{Guid.NewGuid():N}",

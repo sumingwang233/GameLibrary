@@ -1,5 +1,5 @@
-using System.Text;
 using System.Buffers.Binary;
+using System.Text;
 
 namespace GameLibrary.Domain.Detection.Detectors;
 
@@ -71,8 +71,11 @@ public sealed class AdditionalEngineDetector(EngineId engine) : IEngineDetector
         }
         return new DetectionResult
         {
-            Engine = engine, DetectorVersion = DetectorVersion, Confidence = DetectionConfidence.High,
-            Evidence = evidence, LikelyRootRelativePaths = [""],
+            Engine = engine,
+            DetectorVersion = DetectorVersion,
+            Confidence = DetectionConfidence.High,
+            Evidence = evidence,
+            LikelyRootRelativePaths = [""],
             EntryCandidates = entries.Select(entry => new EntryCandidate(entry,
                 EntryScoring.EngineStructureBonus + EntryScoring.GameExeNameBonusFor(entry), ["engine-file-evidence"]))
                 .OrderByDescending(entry => entry.Score).ThenBy(entry => entry.RelativePath, StringComparer.Ordinal).ToArray(),

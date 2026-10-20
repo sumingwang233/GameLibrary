@@ -104,7 +104,9 @@ public sealed class HostConnection : IAsyncDisposable
                         && OperationCatalog.Catalog.Find(request.OperationId)?.RequiresIdempotencyKey == true)
                         return new Envelope<JsonElement>
                         {
-                            RequestId = request.RequestId, Ok = false, Status = OperationStatus.Failed,
+                            RequestId = request.RequestId,
+                            Ok = false,
+                            Status = OperationStatus.Failed,
                             Error = new RequestError { Code = ErrorCodes.LibraryInstanceMismatch, Message = "库实例已变化，请重新读取状态后准备新的操作", Retryable = false },
                         };
                 }

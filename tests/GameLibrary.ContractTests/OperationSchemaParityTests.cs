@@ -42,7 +42,10 @@ public sealed class OperationSchemaParityTests
     {
         var envelope = new Envelope<object>
         {
-            RequestId = "schema-boundary", Ok = true, Status = OperationStatus.Completed, Data = new { },
+            RequestId = "schema-boundary",
+            Ok = true,
+            Status = OperationStatus.Completed,
+            Data = new { },
         };
         var json = System.Text.Json.JsonSerializer.SerializeToElement(envelope, ContractJson.Options);
         var properties = OperationSchemas.BuildOutputSchema().GetProperty("properties");

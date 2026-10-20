@@ -420,11 +420,11 @@ public sealed class UnityTranslationService
     {
         var settings = Settings(store);
         var states = ids.Select(id => NewState(store, store.TryGetGame(id)!, settings) with
-            {
-                ExplicitRequest = explicitRequest || ReadState(store, id) is { State: "needs_settings", ExplicitRequest: true },
-                PreserveConfirmation = !explicitRequest && ReadState(store, id) is { } prior
+        {
+            ExplicitRequest = explicitRequest || ReadState(store, id) is { State: "needs_settings", ExplicitRequest: true },
+            PreserveConfirmation = !explicitRequest && ReadState(store, id) is { } prior
                     && (prior.State == "confirmed" || prior.PreserveConfirmation)
-            }).ToArray();
+        }).ToArray();
         var reserved = Reserve();
         var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         string jobId;
@@ -672,8 +672,13 @@ public sealed class UnityTranslationService
                 || !UnityTranslationInspection.IsConfiguredChineseTranslator(installed))
                 throw new InvalidDataException("加载器离线验证失败");
             transaction.Commit();
-            Save(store, state with { State = state.PreserveConfirmation ? "confirmed" : "configured", RestoredBackupId = null, Reason = layout.Runtime == "il2cpp"
-                ? "IL2CPP 插件已配置；首次启动可能需要联网准备组件，请耐心等待，并在游戏内确认翻译效果" : null });
+            Save(store, state with
+            {
+                State = state.PreserveConfirmation ? "confirmed" : "configured",
+                RestoredBackupId = null,
+                Reason = layout.Runtime == "il2cpp"
+                ? "IL2CPP 插件已配置；首次启动可能需要联网准备组件，请耐心等待，并在游戏内确认翻译效果" : null
+            });
 
             bool AddDependency(string path, byte[] bytes, string? allowedOriginal = null)
             {

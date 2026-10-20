@@ -4,10 +4,25 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  format:
+    name: .NET 格式
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.401"
+      - run: dotnet format --verify-no-changes
+
   dotnet:
-    name: .NET 门禁（format / Release 构建 / 全量测试）
+    name: .NET 门禁（Release 构建 / 全量测试）
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
@@ -30,9 +45,6 @@ jobs:
       - name: README and release policy check
         run: python scripts/check_release.py --self-test
 
-      - name: dotnet format
-        run: dotnet format --verify-no-changes
-
       - name: Release 构建
         run: dotnet build -c Release --nologo
 
@@ -41,7 +53,15 @@ jobs:
       # GitHub 自动设置 CI=true：性能测试据此跳过延迟预算断言（运行器性能不稳），
       # 计数与正确性断言全部保留。
       - name: 全量测试
-        run: dotnet test -c Release --no-build --nologo
+        run: dotnet test -c Release --no-build --nologo --logger trx --results-directory artifacts/test-results
+
+      - name: 测试结果
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dotnet-test-results
+          path: artifacts/test-results/*.trx
+          if-no-files-found: ignore
 
   frontend:
     name: 前端与 Rust（typecheck / vite build / cargo）

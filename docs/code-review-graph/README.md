@@ -1,5 +1,7 @@
 # GameLibrary 代码预览框架
 
+2026-10-20 v1.7.23：修复 C# 格式与导入顺序，拆分 CI 格式 job，增加手动触发及 TRX 上传。修改前在独立 worktree 构建图谱（390 文件、3,946 节点、37,567 边）；修改后增量重解析 35 文件，错误 0。变更检测风险 0.75，包含格式变化引起的函数命中，不能据此认定业务逻辑改变。.NET Release 编译和 102 项前端测试已通过，完整 CI、打包与限制见[验证记录](../releases/v1.7.23-validation.md)。
+
 2026-10-17 v1.7.22：Godot 内嵌 PCK 识别与 MTool GodotHook 翻译规则。修改前查询引擎检测、MTool 生成与启动路由影响上下文（候选 4 文件影响 45 文件、风险 high），修改后增量解析 15 文件，错误 0；图谱 387 文件、3,820 节点、36,695 边。真实样本只读验证 Godot/High/`godot.embedded-pack` 且手工 BAT 解析不 Broken；38 项 Unit、51 项 Integration、30 项契约、102 项前端与 Host Release 编译通过；真实游戏翻译效果、全量和人工验收未运行。见[实施与验证记录](../development/v1.7.22-godot-mtool.md)与[关键流程](flows.md)。未打包、推送或发布。
 
 2026-10-17 v1.7.21：已游玩改为仅由用户在详情页手动标记。修改前查询 `MarkGamePlayed` 调用与 `launch.exited` 影响上下文，修改后增量解析 6 文件，错误 0；删除自动标记分支与失去调用方的 `MarkGamePlayed`（-2 节点、-11 边），图谱 387 文件、3,805 节点、36,500 边，执行流沿用历史统计。`detect_changes` 风险 0.64，其测试缺口为静态启发式——集成用例经 `WireAttemptPersistence` 夹具已覆盖，图谱未映射。11 项专项与 Host Release 编译通过；真实游戏、桌面和全量验收未运行。见[实施记录](../development/v1.7.21-manual-played.md)与[关键流程](flows.md)。未打包、推送或发布。

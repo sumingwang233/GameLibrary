@@ -881,7 +881,9 @@ internal sealed class CatalogingHandler
         return game.Revision == revision ? null
             : new Envelope<object>
             {
-                RequestId = request.RequestId, Ok = false, Status = OperationStatus.Failed,
+                RequestId = request.RequestId,
+                Ok = false,
+                Status = OperationStatus.Failed,
                 Error = new RequestError { Code = ErrorCodes.RevisionConflict, Message = "游戏修订已变化，请重新读取游戏详情", CurrentRevision = game.Revision, Retryable = false },
             };
     }

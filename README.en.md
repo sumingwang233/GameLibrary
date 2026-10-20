@@ -10,7 +10,7 @@
 
 Keep games scattered across your drives in one library. Choose a folder, check the launch entry, and open the game from your collection.
 
-Current source **v1.7.22** recognizes Godot games with an embedded PCK and pins the MTool GodotHook translation rule: use Mark as translation-required and generate launch script in game details to launch through MTool. A [local acceptance-candidate build](docs/releases/v1.7.22.md) is available. No GitHub Release has been published; default downloads still point to the stable release.
+Current source **v1.7.23** fixes CI formatting failures, adds manual runs and test result uploads, and retains Godot recognition and MTool translation support. The [local acceptance candidate](docs/releases/v1.7.23.md) has no GitHub Release; default downloads still point to the stable release.
 
 **[Download the Windows installer](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-Setup-v1.7.13.exe)** · [All releases](https://github.com/sumingwang233/GameLibrary/releases) · [Report an issue](https://github.com/sumingwang233/GameLibrary/issues)
 
