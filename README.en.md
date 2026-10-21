@@ -10,28 +10,28 @@
 
 Keep games scattered across your drives in one library. Choose a folder, check the launch entry, and open the game from your collection.
 
-Current source **v1.7.22** recognizes Godot games with an embedded PCK and pins the MTool GodotHook translation rule: use Mark as translation-required and generate launch script in game details to launch through MTool. A [local acceptance-candidate build](docs/releases/v1.7.22.md) is available. No GitHub Release has been published; default downloads still point to the stable release.
+The current formal release, **v1.7.22**, recognizes Godot games with an embedded PCK and supports MTool GodotHook scripts. It also includes the Played library, five-star ratings, cover filtering and BAT launch profiles. See the [release notes](docs/releases/v1.7.22.md) for changes and limitations.
 
-**[Download the Windows installer](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-Setup-v1.7.13.exe)** · [All releases](https://github.com/sumingwang233/GameLibrary/releases) · [Report an issue](https://github.com/sumingwang233/GameLibrary/issues)
+**[Download the Windows installer](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.22/GameLibrary-Setup-v1.7.22.exe)** · [All releases](https://github.com/sumingwang233/GameLibrary/releases) · [Report an issue](https://github.com/sumingwang233/GameLibrary/issues)
 
 [Download](#download) · [Screenshots](#demo) · [Get started](#start) · [FAQ](#faq)
 
 <a id="download"></a>
 ## Download
 
-The current official release is **v1.7.13**, targeting **Windows 10 / 11 x64**. Targeted regressions and production compilation completed. On 2026-10-13, the maintainer confirmed acceptance on a real machine and authorized this release. See the [release record](docs/releases/v1.7.13-validation.md) for the status of full automated checks.
+The current formal release is **v1.7.22**, targeting **Windows 10 / 11 x64**. On 2026-10-22, the maintainer explicitly waived the incomplete acceptance gates and authorized publication. Targeted regression and production build records are retained; full automated and manual acceptance checks still include unrun items. See the [release record](docs/releases/v1.7.22-validation.md).
 
 | File | Use |
 |---|---|
-| [`GameLibrary-Setup-v1.7.13.exe`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-Setup-v1.7.13.exe) | Recommended. Current-user installer with a choice of installation folder. |
-| [`GameLibrary-Portable-win-x64-v1.7.13.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-Portable-win-x64-v1.7.13.zip) | Extract and run GameLibrary.Desktop.exe. |
-| [`GameLibrary-Tools-win-x64-v1.7.13.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-Tools-win-x64-v1.7.13.zip) | Host, CLI and MCP for command-line use and automation. |
-| [`GameLibrary-v1.7.13-SHA256SUMS.txt`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-v1.7.13-SHA256SUMS.txt) | SHA-256 checksums for the three packages above. |
+| [`GameLibrary-Setup-v1.7.22.exe`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.22/GameLibrary-Setup-v1.7.22.exe) | Recommended. Current-user installer with a choice of installation folder. |
+| [`GameLibrary-Portable-win-x64-v1.7.22.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.22/GameLibrary-Portable-win-x64-v1.7.22.zip) | Extract and run GameLibrary.Desktop.exe. |
+| [`GameLibrary-Tools-win-x64-v1.7.22.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.22/GameLibrary-Tools-win-x64-v1.7.22.zip) | Host, CLI and MCP for command-line use and automation. |
+| [`GameLibrary-v1.7.22-SHA256SUMS.txt`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.22/GameLibrary-v1.7.22-SHA256SUMS.txt) | SHA-256 checksums for the three packages above. |
 
 The executables and installer are not Authenticode-signed. Windows may show an unknown-publisher warning. Download from this repository and compare the hash with the same-version checksum file:
 
 ```powershell
-Get-FileHash .\GameLibrary-Setup-v1.7.13.exe -Algorithm SHA256
+Get-FileHash .\GameLibrary-Setup-v1.7.22.exe -Algorithm SHA256
 ```
 
 <a id="demo"></a>
@@ -64,7 +64,7 @@ Scanning creates candidates; it does not treat every EXE as a game. You can add 
 <a id="faq"></a>
 ## Data and FAQ
 
-**v1.7.13 official release** fixes missing suggested launch profiles after accepting Flash collections. It also includes the earlier Unity translation compatibility fixes and tag category drag-and-drop in game details. [Downloads and notes](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.13) · [Validation record](docs/releases/v1.7.13-validation.md).
+**v1.7.22 formal release** adds Godot/MTool support and includes earlier Unity translation, recycling and scanning fixes. [Downloads and notes](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.22) · [Build and acceptance record](docs/releases/v1.7.22-validation.md).
 
 <details>
 <summary><strong>Does scanning or removing a record delete game files?</strong></summary>
@@ -91,7 +91,7 @@ The installer provides a wizard, Start menu entries and uninstallation registrat
 </details>
 
 <details>
-<summary><strong>Current version: v1.7.13, official release / real-machine acceptance confirmed</strong></summary>
+<summary><strong>Historical releases and acceptance records</strong></summary>
 
 v1.7.13 suggests each SWF/EXE selected in a collection and backfills missing suggestions after upgrading, preserving manual defaults and deleted suggestions. Runtime observation still determines whether a launch is verified; accepting a game alone does not verify it. See the [release notes](docs/releases/v1.7.13.md) and [acceptance record](docs/releases/v1.7.13-validation.md).
 
@@ -101,7 +101,7 @@ v1.7.4 fixes tag-triggered Unity translation setup and removes the untranslated 
 
 v1.7.3 fixes excessive pending counts caused by ungrouped legacy resource SWF candidates. The first startup immediately rescans affected library roots and replaces covered file candidates with complete directory reviews, preserving original game files, IDs and metadata. Schema27 is unchanged and ignore rules are not reset again. Cover paste, Flash review, tag colors and local Unity translation setup from v1.7.2 remain available. See the [validation record](docs/releases/v1.7.3-validation.md).
 
-The historical features described here are included in the v1.7.13 package above. Earlier notes and prerelease links remain for traceability.
+The historical features described here are included in the current formal release. Earlier notes and prerelease links remain for traceability.
 
 v1.7.1 fixes subtitle punctuation in translations: when the original contains `-`, repeated em dashes become `：` and surrounding dashes are removed. Retranslate existing titles in details to apply the fix; original and manually edited titles are preserved. See the [v1.7.1 pre-release packages](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.1) and [validation record](docs/releases/v1.7.1-validation.md).
 </details>
