@@ -137,6 +137,50 @@ public sealed class FileSystemDirectorySnapshot : IDirectorySnapshot
         }
     }
 
+    public FileProbe TryReadBytesAt(string relativePath, long offset, int count)
+    {
+        var fullPath = Resolve(relativePath);
+        if (!File.Exists(fullPath))
+        {
+            return FileProbe.NotFound();
+        }
+
+        try
+        {
+            if (offset < 0 || count is < 1 or > 1024 * 1024 || !IsSafeProbe(fullPath)) return FileProbe.Unreadable();
+            using var stream = new FileStream(
+                fullPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read | FileShare.ReadWrite,
+                Math.Min(count, 4096),
+                FileOptions.Asynchronous);
+            stream.Seek(offset, SeekOrigin.Begin);
+            var buffer = new byte[count];
+            var read = 0;
+            while (read < count)
+            {
+                var chunk = stream.Read(buffer, read, count - read);
+                if (chunk == 0)
+                {
+                    break;
+                }
+
+                read += chunk;
+            }
+
+            return FileProbe.Ok(buffer[..read]);
+        }
+        catch (IOException)
+        {
+            return FileProbe.Unreadable();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return FileProbe.Unreadable();
+        }
+    }
+
     public ExecutableIdentity? ReadExecutableIdentity(string relativePath)
     {
         if (_identities.TryGetValue(relativePath, out var cached)) return cached;

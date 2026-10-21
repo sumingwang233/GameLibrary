@@ -52,6 +52,31 @@ it("ignores an old game's status and shows preparation feedback for the current 
   expect(operation).toHaveBeenCalledWith("mtool.prepare", { gameId: "current" }, "mtool.prepare:current");
 });
 
+it("marks a game as translation-required before generating its MTool recipe", async () => {
+  vi.mocked(operation).mockImplementation(((name: string) => Promise.resolve({ data:
+    name === "translation.get" ? { userOverride: "Auto", effective: "Auto", isRequired: false, revision: 7 }
+      : name === "translation.set" ? { userOverride: "Required", effective: "Required", isRequired: true, revision: 8 }
+        : { state: "ready", reason: "已生成 MTool 启动配方；尚未验证游戏内翻译效果" } })) as typeof operation);
+  render(<MToolGameTranslation gameId="game" />);
+  fireEvent.click(await screen.findByRole("button", { name: "标记为需要翻译并生成启动脚本" }));
+  await screen.findByRole("status");
+  expect(operation).toHaveBeenCalledWith("translation.set",
+    { gameId: "game", override: "Required", expectedRevision: 7 }, "translation.set:game:7:Required");
+  expect(vi.mocked(operation).mock.calls.map(([name]) => name).filter(name => name === "translation.set" || name === "mtool.prepare"))
+    .toEqual(["translation.set", "mtool.prepare"]);
+});
+
+it("keeps an explicit not-required policy and prepares without rewriting translation", async () => {
+  vi.mocked(operation).mockImplementation(((name: string) => Promise.resolve({ data:
+    name === "translation.get" ? { userOverride: "NotRequired", effective: "NotRequired", isRequired: false, revision: 3 }
+      : { state: "skipped", reason: "游戏当前不需要翻译" } })) as typeof operation);
+  render(<MToolGameTranslation gameId="game" />);
+  fireEvent.click(await screen.findByRole("button", { name: "生成或修复 MTool 启动脚本" }));
+  await screen.findByRole("status");
+  expect(vi.mocked(operation).mock.calls.some(([name]) => name === "translation.set")).toBe(false);
+  expect(operation).toHaveBeenCalledWith("mtool.prepare", { gameId: "game" }, "mtool.prepare:game");
+});
+
 it("does not let a delayed status read overwrite a newer preparation result", async () => {
   let finish!: (value: unknown) => void;
   vi.mocked(operation).mockImplementation(((name: string) => name === "mtool.status"

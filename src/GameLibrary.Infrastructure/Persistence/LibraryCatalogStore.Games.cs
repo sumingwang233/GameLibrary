@@ -454,20 +454,6 @@ public static partial class LibraryCatalogStore
         return command.ExecuteNonQuery() == 1 ? expectedRevision + 1 : null;
     }
 
-    public static int? MarkGamePlayed(SqliteConnection connection, string gameId, DateTime utcNow, SqliteTransaction? transaction = null)
-    {
-        using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = """
-            UPDATE games SET played = 1, revision = revision + 1, updated_utc = $now
-            WHERE game_id = $game AND membership = 'active' AND played = 0 RETURNING revision
-            """;
-        command.Parameters.AddWithValue("$game", gameId);
-        command.Parameters.AddWithValue("$now", utcNow.ToString("O", CultureInfo.InvariantCulture));
-        var result = command.ExecuteScalar();
-        return result is null ? null : Convert.ToInt32(result);
-    }
-
     public static bool SetUnknownGameEngine(SqliteConnection connection, string gameId, string engine, int expectedRevision,
         DateTime utcNow, SqliteTransaction? transaction = null)
     {

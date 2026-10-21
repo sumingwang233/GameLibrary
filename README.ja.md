@@ -10,7 +10,7 @@
 
 ドライブに散らばったゲームを、一つのライブラリに。フォルダーを選び、起動ファイルを確認すると、一覧からゲームを開けます。
 
-現在のソース **v1.7.20** はゲームファイルの回収、素材フォルダーの誤検出、起動操作を修正し、MTool フォルダー設定、BAT 起動、プレイ済みライブラリを含む[確認待ちローカルビルド](docs/releases/v1.7.20.md)を提供しています。GitHub Release は未公開で、既定のダウンロードは引き続き安定版を指します。
+現在のソース **v1.7.22** は Godot の内蔵 PCK を認識し、MTool の GodotHook 翻訳ルールを固定しました。詳細ページで「翻訳が必要としてマークし起動スクリプトを生成」を押すと MTool 経由で起動できます。[確認待ちローカルビルド](docs/releases/v1.7.22.md)を提供しています。GitHub Release は未公開で、既定のダウンロードは引き続き安定版を指します。
 
 **[Windows インストーラーをダウンロード](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-Setup-v1.7.13.exe)** · [すべてのリリース](https://github.com/sumingwang233/GameLibrary/releases) · [不具合の報告](https://github.com/sumingwang233/GameLibrary/issues)
 

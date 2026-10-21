@@ -1,5 +1,13 @@
 # GameLibrary 关键流程
 
+## v1.7.22 Godot 识别与 MTool GodotHook
+
+Godot exe 尾部 `[uint64 包大小][GDPC]` → 定长读取包头校验 → `godot.embedded-pack` → `EngineId.Godot`；`SelectLoader` 映射 `GodotHook.dll`，沿用注入器双参数、PE 架构与引用文件校验。详情按钮在未标记翻译时先 `translation.set Required` 再 `mtool.prepare`，显式 `NotRequired`/Unity 不变。未知引擎由 Host 启动与元数据核对自动补齐，无新 DDL、路由或依赖。见[实施与验证记录](../development/v1.7.22-godot-mtool.md)。
+
+## v1.7.21 已游玩改为手动
+
+`launch.exited` → 仅发布退出事件（评分提示与退出导航不变），不再写 `games.played`、不再发 `game.updated`；详情页按钮 → `games.update played` → 主库与侧栏“已游玩”按同一布尔条件分流。删除失去调用方的 `MarkGamePlayed`；schema 29 的历史回填与既有标记保留，用户可在详情页取消。无新 DDL、路由或前端改动。见[实施与验证记录](../development/v1.7.21-manual-played.md)。
+
 ## v1.7.20 回收、资源筛选与 BAT
 
 详情删除 → `games.get(includeRemovalPlan=true)` 按需预览 → 目标路径和 revision 确认 → 回收前边界/共享/链接检查 → 同一持久化意图记录 SourcePath 与实际 Target → Windows 回收站 → 移除记录并登记回执。旧意图按旧范围恢复，恢复路径不执行文件回收。手动 EXE 的独立目录与合集独立文件采用不同范围。

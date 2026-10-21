@@ -118,6 +118,7 @@ public static class MToolRecipeGenerator
             EngineId.SrpgStudio => "SRPGHook.dll",
             EngineId.PixelGameMakerMv => "AgtkHook.dll",
             EngineId.RpgDeveloperBakin => BatRecipeParser.BakinLauncherFileName,
+            EngineId.Godot => "GodotHook.dll",
             _ => null,
         };
     }

@@ -114,10 +114,10 @@ public sealed class GameExperienceTests(PipeServerFixture fixture) : IClassFixtu
     }
 
     [Theory]
-    [InlineData("exited", 0, true)]
-    [InlineData("exited", 1, false)]
-    [InlineData("processStartFailed", 0, false)]
-    public async Task FinishedAttempt_MarksOnlySuccessfulPlay_AndDoesNotChangeRatingOrFavorite(string state, int code, bool played)
+    [InlineData("exited", 0)]
+    [InlineData("exited", 1)]
+    [InlineData("processStartFailed", 0)]
+    public async Task FinishedAttempt_NeverMarksPlayed_AndDoesNotChangeRatingOrFavorite(string state, int code)
     {
         var id = await CreateUnityGame(false);
         var store = fixture.State.Library.Store!;
@@ -131,7 +131,7 @@ public sealed class GameExperienceTests(PipeServerFixture fixture) : IClassFixtu
         var saved = store.TryGetGame(id)!;
         fixture.State.Launches.OnAttemptChanged!(attempt);
         Assert.Equal(saved.Revision, store.TryGetGame(id)!.Revision);
-        Assert.Equal(played, saved.Played); Assert.True(saved.Favorite); Assert.Equal(4, saved.Rating);
+        Assert.False(saved.Played); Assert.True(saved.Favorite); Assert.Equal(4, saved.Rating);
         Assert.Equal(original.AcceptedUtc, saved.AcceptedUtc);
     }
 

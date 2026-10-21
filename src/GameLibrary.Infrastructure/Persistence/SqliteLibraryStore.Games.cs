@@ -51,9 +51,6 @@ public sealed partial class SqliteLibraryStore
     public int? SetGamePreferences(string gameId, bool? favorite, bool? played, int? rating, int expectedRevision, DateTime utcNow)
         => Execute((c, _) => LibraryCatalogStore.SetGamePreferences(c, gameId, favorite, played, rating, expectedRevision, utcNow, _writeTransaction, includePreferences: Info.SchemaVersion >= 29));
 
-    public int? MarkGamePlayed(string gameId, DateTime utcNow)
-        => Execute((c, _) => LibraryCatalogStore.MarkGamePlayed(c, gameId, utcNow, _writeTransaction));
-
     public bool SetUnknownGameEngine(string gameId, string engine, int expectedRevision, DateTime utcNow)
         => InTransaction(() => Execute((c, _) => LibraryCatalogStore.SetUnknownGameEngine(c, gameId, engine, expectedRevision, utcNow, _writeTransaction)));
 
