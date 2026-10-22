@@ -87,6 +87,45 @@ public sealed class McpStdioTests
             });
             var badResult = badCall.GetProperty("result");
             Assert.True(badResult.GetProperty("isError").GetBoolean());
+
+            async Task<JsonElement> CallTool(int id, string name, object arguments)
+            {
+                var response = await SendRequestAsync(process, id, "tools/call", new { name, arguments });
+                var toolResult = response.GetProperty("result");
+                Assert.False(toolResult.GetProperty("isError").GetBoolean(), toolResult.GetRawText());
+                using var document = JsonDocument.Parse(toolResult.GetProperty("content")[0].GetProperty("text").GetString()!);
+                Assert.True(document.RootElement.GetProperty("ok").GetBoolean(), document.RootElement.GetRawText());
+                return document.RootElement.GetProperty("data").Clone();
+            }
+
+            await CallTool(5, "library_init", new { idempotencyKey = "init" });
+            var created = await CallTool(6, "tags_create", new
+            {
+                name = "nullable-patch",
+                color = "#123456",
+                displayName = "display",
+                idempotencyKey = "create-tag",
+            });
+            var tagId = created.GetProperty("tagId").GetString();
+            var kept = await CallTool(7, "tags_update", new
+            {
+                tagId,
+                expectedRevision = created.GetProperty("revision").GetInt32(),
+                sortOrder = 10,
+                idempotencyKey = "keep-color",
+            });
+            Assert.Equal("#123456", kept.GetProperty("color").GetString());
+            Assert.Equal("display", kept.GetProperty("displayName").GetString());
+            var cleared = await CallTool(8, "tags_update", new
+            {
+                tagId,
+                expectedRevision = kept.GetProperty("revision").GetInt32(),
+                color = (string?)null,
+                displayName = (string?)null,
+                idempotencyKey = "clear-color",
+            });
+            Assert.Equal(JsonValueKind.Null, cleared.GetProperty("color").ValueKind);
+            Assert.Equal(JsonValueKind.Null, cleared.GetProperty("displayName").ValueKind);
         }
         finally
         {

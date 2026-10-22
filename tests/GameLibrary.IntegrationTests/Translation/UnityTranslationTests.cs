@@ -364,8 +364,19 @@ public sealed class UnityTranslationTests
         transaction.Commit();
         Assert.False(UnityTranslationFonts.NeedsRepair(layout, UnityTranslationIni.Read(layout.Config)));
         fixture.Store.UnassignTag(game.GameId, fixture.TagId);
-        fixture.WriteState(new() { GameId = game.GameId, Title = game.Title, AttemptId = "old-confirmed", DataEpoch = fixture.Store.Info.DataEpoch,
-            State = "confirmed", BackupId = id, InstallRoot = game.RootPath, BoundTagId = fixture.TagId, ProfileId = profile.ProfileId, ExecutablePath = exe });
+        fixture.WriteState(new()
+        {
+            GameId = game.GameId,
+            Title = game.Title,
+            AttemptId = "old-confirmed",
+            DataEpoch = fixture.Store.Info.DataEpoch,
+            State = "confirmed",
+            BackupId = id,
+            InstallRoot = game.RootPath,
+            BoundTagId = fixture.TagId,
+            ProfileId = profile.ProfileId,
+            ExecutablePath = exe
+        });
         fixture.Service.Start();
         await fixture.Host.Jobs.WaitForIdleAsync();
         var repaired = fixture.ReadState(game.GameId)!;
@@ -622,16 +633,35 @@ public sealed class UnityTranslationTests
         if (trigger == "discarded") fixture.Host.Launches.RestoreProfile(profile! with { ValidationStatus = "discarded" });
         if (trigger is "accept" or "accept-batch")
         {
-            fixture.Store.UpsertCandidate(new() { CandidateId = "new-accept", PhysicalPath = game.RootPath, RelativePath = "suggested-entry", Kind = "game",
-                PayloadJson = JsonSerializer.Serialize(new { engines = new[] { new { engine = GameLibrary.Domain.Detection.EngineId.Unity } },
-                    entryCandidates = new[] { new { relativePath = "Game.exe" } }, classification = new { requiredByToolNeed = true } }, ContractJson.Options),
-                ReviewState = "pendingReview", ObservedUtc = DateTime.UtcNow, UpdatedUtc = DateTime.UtcNow });
+            fixture.Store.UpsertCandidate(new()
+            {
+                CandidateId = "new-accept",
+                PhysicalPath = game.RootPath,
+                RelativePath = "suggested-entry",
+                Kind = "game",
+                PayloadJson = JsonSerializer.Serialize(new
+                {
+                    engines = new[] { new { engine = GameLibrary.Domain.Detection.EngineId.Unity } },
+                    entryCandidates = new[] { new { relativePath = "Game.exe" } },
+                    classification = new { requiredByToolNeed = true }
+                }, ContractJson.Options),
+                ReviewState = "pendingReview",
+                ObservedUtc = DateTime.UtcNow,
+                UpdatedUtc = DateTime.UtcNow
+            });
             var result = new GameLibrary.Host.Hosting.OperationDispatcher(fixture.Host).Dispatch(new IpcRequest
-            { RequestId = Guid.NewGuid().ToString("N"), OperationId = trigger == "accept" ? "candidates.accept" : "candidates.review_batch",
+            {
+                RequestId = Guid.NewGuid().ToString("N"),
+                OperationId = trigger == "accept" ? "candidates.accept" : "candidates.review_batch",
                 Parameters = trigger == "accept"
                     ? JsonSerializer.SerializeToElement(new { candidateId = "new-accept", expectedRevision = 1, idempotencyKey = Guid.NewGuid().ToString("N") }, ContractJson.Options)
-                    : JsonSerializer.SerializeToElement(new { action = "accept", items = new[] { new { candidateId = "new-accept", expectedRevision = 1 } },
-                        idempotencyKey = Guid.NewGuid().ToString("N") }, ContractJson.Options) });
+                    : JsonSerializer.SerializeToElement(new
+                    {
+                        action = "accept",
+                        items = new[] { new { candidateId = "new-accept", expectedRevision = 1 } },
+                        idempotencyKey = Guid.NewGuid().ToString("N")
+                    }, ContractJson.Options)
+            });
             Assert.True(result.Ok, result.Error?.Message);
         }
         else if (trigger is "required" or "not-required") fixture.Service.RequestForTaggedGame(game.GameId);
@@ -773,9 +803,19 @@ public sealed class UnityTranslationTests
         transaction.Commit();
         File.AppendAllText(layout.Config, "\n[OtherMod]\nRuntimeDefault=keep\n");
         fixture.Store.UnassignTag(game.GameId, fixture.TagId);
-        fixture.WriteState(new() { GameId = game.GameId, Title = game.Title, AttemptId = "previous", DataEpoch = fixture.Store.Info.DataEpoch,
-            State = "confirmed", BackupId = backupId, InstallRoot = game.RootPath, BoundTagId = fixture.TagId,
-            ProfileId = profile.ProfileId, ExecutablePath = exe });
+        fixture.WriteState(new()
+        {
+            GameId = game.GameId,
+            Title = game.Title,
+            AttemptId = "previous",
+            DataEpoch = fixture.Store.Info.DataEpoch,
+            State = "confirmed",
+            BackupId = backupId,
+            InstallRoot = game.RootPath,
+            BoundTagId = fixture.TagId,
+            ProfileId = profile.ProfileId,
+            ExecutablePath = exe
+        });
         fixture.Service.Start();
         await fixture.Host.Jobs.WaitForIdleAsync();
         var repaired = fixture.ReadState(game.GameId)!;
@@ -1467,9 +1507,16 @@ public sealed class UnityTranslationTests
         if (!tagged) fixture.Store.UnassignTag(game.GameId, fixture.TagId);
         if (previousState != "unowned") fixture.WriteState(new()
         {
-            GameId = game.GameId, Title = game.Title, AttemptId = "legacy", DataEpoch = fixture.Store.Info.DataEpoch,
-            State = previousState, BackupId = backupId, InstallRoot = game.RootPath, BoundTagId = fixture.TagId,
-            ProfileId = profile.ProfileId, ExecutablePath = exe
+            GameId = game.GameId,
+            Title = game.Title,
+            AttemptId = "legacy",
+            DataEpoch = fixture.Store.Info.DataEpoch,
+            State = previousState,
+            BackupId = backupId,
+            InstallRoot = game.RootPath,
+            BoundTagId = fixture.TagId,
+            ProfileId = profile.ProfileId,
+            ExecutablePath = exe
         });
         fixture.Service.Start();
         await fixture.Host.Jobs.WaitForIdleAsync();

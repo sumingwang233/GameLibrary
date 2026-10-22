@@ -23,12 +23,25 @@ public sealed class LaunchOperationTests : IClassFixture<PipeServerFixture>
         await File.WriteAllTextAsync(script, "@echo off\r\n> marker.txt echo %~1\r\nexit /b 0\r\n");
         await EnsureRootAsync(root);
         var gameId = "batch-" + Guid.NewGuid().ToString();
-        var created = await InvokeAsync("profiles.create", new { gameId, executablePath = script, argv = new[] { "argument with spaces" },
-            cwd = root, idempotencyKey = Guid.NewGuid().ToString() });
+        var created = await InvokeAsync("profiles.create", new
+        {
+            gameId,
+            executablePath = script,
+            argv = new[] { "argument with spaces" },
+            cwd = root,
+            idempotencyKey = Guid.NewGuid().ToString()
+        });
         Assert.True(created.Ok, created.Error?.Message);
         var profileId = created.Data.GetProperty("profileId").GetString()!;
-        var updated = await InvokeAsync("profiles.update", new { profileId, executablePath = script, argv = new[] { "argument with spaces" }, cwd = root, expectedRevision = 1,
-            idempotencyKey = Guid.NewGuid().ToString() });
+        var updated = await InvokeAsync("profiles.update", new
+        {
+            profileId,
+            executablePath = script,
+            argv = new[] { "argument with spaces" },
+            cwd = root,
+            expectedRevision = 1,
+            idempotencyKey = Guid.NewGuid().ToString()
+        });
         Assert.True(updated.Ok, updated.Error?.Message);
         var planned = await InvokeAsync("launch.plan", new { gameId, profileId });
         Assert.True(planned.Ok, planned.Error?.Message);

@@ -188,12 +188,6 @@ public sealed partial class LaunchRegistry
             try
             {
                 var rootIsGame = false;
-                try
-                {
-                    rootIsGame = process.MainModule?.FileName is { } path
-                        && GameLibrary.Infrastructure.Persistence.RuntimeStateStore.ContainsPath(directory, path);
-                }
-                catch (Exception ex) when (ex is Win32Exception or InvalidOperationException) { uncertain = true; }
                 using (var lease = AcquireLibraryLease?.Invoke())
                 {
                     if (AcquireLibraryLease is not null && lease is null) return;
@@ -229,6 +223,9 @@ public sealed partial class LaunchRegistry
                                     continue;
                                 }
                                 if (entry.Process.StartTime.ToUniversalTime() != entry.Started) { uncertain = true; continue; }
+                                if (entry.Process == process && !rootIsGame)
+                                    rootIsGame = entry.Process.MainModule?.FileName is { } path
+                                        && GameLibrary.Infrastructure.Persistence.RuntimeStateStore.ContainsPath(directory, path);
                                 alive++;
                                 longLived |= (entry.Process != process || rootIsGame) && entry.Alive.Elapsed >= VerificationDuration;
                             }

@@ -4,8 +4,8 @@ using GameLibrary.Contracts;
 using GameLibrary.Contracts.Ipc;
 using GameLibrary.Domain.Catalog;
 using GameLibrary.Domain.Detection;
-using GameLibrary.Infrastructure.Tools;
 using GameLibrary.HostClient;
+using GameLibrary.Infrastructure.Tools;
 using Xunit;
 
 namespace GameLibrary.IntegrationTests.Tools;
@@ -41,7 +41,8 @@ public sealed class MToolPreparationTests(PipeServerFixture fixture) : IClassFix
         await using var client = await HostConnection.ConnectAsync(fixture.State.DataDirectory, "mtool-prepare-test", CancellationToken.None);
         return await client.InvokeAsync(new IpcRequest
         {
-            RequestId = Guid.NewGuid().ToString("N"), OperationId = operation,
+            RequestId = Guid.NewGuid().ToString("N"),
+            OperationId = operation,
             Parameters = JsonSerializer.SerializeToElement(values, ContractJson.Options),
         }, CancellationToken.None);
     }
@@ -71,10 +72,16 @@ public sealed class MToolPreparationTests(PipeServerFixture fixture) : IClassFix
         Assert.True((await Invoke("mtool.settings.set", new { toolRoot = tool })).Ok);
         var game = new GameCard
         {
-            GameId = "game-" + Guid.NewGuid().ToString("N"), Title = "Synthetic MTool game", RootPath = gameRoot,
-            Kind = "gameRoot", Membership = "active", Engine = engine ?? (rpg ? JsonSerializer.SerializeToElement(EngineId.RpgMakerMvMz, ContractJson.Options).GetString() : null),
-            EntryPath = Path.Combine(gameRoot, "Game.exe"), TranslationInherited = false,
-            AcceptedUtc = DateTime.UtcNow, UpdatedUtc = DateTime.UtcNow,
+            GameId = "game-" + Guid.NewGuid().ToString("N"),
+            Title = "Synthetic MTool game",
+            RootPath = gameRoot,
+            Kind = "gameRoot",
+            Membership = "active",
+            Engine = engine ?? (rpg ? JsonSerializer.SerializeToElement(EngineId.RpgMakerMvMz, ContractJson.Options).GetString() : null),
+            EntryPath = Path.Combine(gameRoot, "Game.exe"),
+            TranslationInherited = false,
+            AcceptedUtc = DateTime.UtcNow,
+            UpdatedUtc = DateTime.UtcNow,
         };
         fixture.State.Library.Store!.InsertGame(game);
         var profile = fixture.State.Launches.AddProfile(game.GameId, game.EntryPath!, [], game.RootPath, isDefault: true);

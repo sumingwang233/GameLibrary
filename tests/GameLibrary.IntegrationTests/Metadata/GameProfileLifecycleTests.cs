@@ -213,6 +213,8 @@ public sealed class GameProfileLifecycleTests : IClassFixture<PipeServerFixture>
             var crop = await InvokeAsync("assets.crop", new
             {
                 idempotencyKey = $"crop-{asset2}",
+                gameId,
+                expectedRevision = revision,
                 assetId = asset2,
                 x = 0,
                 y = 0,
@@ -227,6 +229,8 @@ public sealed class GameProfileLifecycleTests : IClassFixture<PipeServerFixture>
             var outOfBounds = await InvokeAsync("assets.crop", new
             {
                 idempotencyKey = $"crop-oob-{asset2}",
+                gameId,
+                expectedRevision = revision,
                 assetId = asset2,
                 x = 0,
                 y = 0,
@@ -237,7 +241,7 @@ public sealed class GameProfileLifecycleTests : IClassFixture<PipeServerFixture>
             Assert.Equal(ErrorCodes.InvalidArgument, outOfBounds.Error!.Code);
 
             // reset：无当前封面。
-            var reset = await InvokeAsync("assets.reset", new { idempotencyKey = $"resetcover-{gameId}", gameId });
+            var reset = await InvokeAsync("assets.reset", new { idempotencyKey = $"resetcover-{gameId}", gameId, expectedRevision = revision });
             Assert.True(reset.Ok, reset.Error?.Message);
             game = await InvokeAsync("games.get", new { gameId });
             Assert.True(game.Data.GetProperty("coverAssetId").ValueKind == JsonValueKind.Null);

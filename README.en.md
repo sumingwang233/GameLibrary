@@ -10,28 +10,28 @@
 
 Keep games scattered across your drives in one library. Choose a folder, check the launch entry, and open the game from your collection.
 
-The current formal release, **v1.7.22**, recognizes Godot games with an embedded PCK and supports MTool GodotHook scripts. It also includes the Played library, five-star ratings, cover filtering and BAT launch profiles. See the [release notes](docs/releases/v1.7.22.md) for changes and limitations.
+The current formal release, **v1.7.23**, fixes MCP startup, tag-batch rollback and launch verification, and restores complete CI checks. Godot/MTool, the Played library, ratings and BAT profiles remain available. See the [release notes](docs/releases/v1.7.23.md).
 
-**[Download the Windows installer](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.22/GameLibrary-Setup-v1.7.22.exe)** · [All releases](https://github.com/sumingwang233/GameLibrary/releases) · [Report an issue](https://github.com/sumingwang233/GameLibrary/issues)
+**[Download the Windows installer](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.23/GameLibrary-Setup-v1.7.23.exe)** · [All releases](https://github.com/sumingwang233/GameLibrary/releases) · [Report an issue](https://github.com/sumingwang233/GameLibrary/issues)
 
 [Download](#download) · [Screenshots](#demo) · [Get started](#start) · [FAQ](#faq)
 
 <a id="download"></a>
 ## Download
 
-The current formal release is **v1.7.22**, targeting **Windows 10 / 11 x64**. On 2026-10-22, the maintainer explicitly waived the incomplete acceptance gates and authorized publication. Targeted regression and production build records are retained; full automated and manual acceptance checks still include unrun items. See the [release record](docs/releases/v1.7.22-validation.md).
+The current formal release is **v1.7.23**, targeting **Windows 10 / 11 x64**. Local and GitHub checks passed 867 .NET and 102 frontend cases. The maintainer confirmed manual acceptance on 2026-10-20. Automated WebView smoke remains not-run and is covered by the waiver for this publication. See the [release record](docs/releases/v1.7.23-validation.md).
 
 | File | Use |
 |---|---|
-| [`GameLibrary-Setup-v1.7.22.exe`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.22/GameLibrary-Setup-v1.7.22.exe) | Recommended. Current-user installer with a choice of installation folder. |
-| [`GameLibrary-Portable-win-x64-v1.7.22.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.22/GameLibrary-Portable-win-x64-v1.7.22.zip) | Extract and run GameLibrary.Desktop.exe. |
-| [`GameLibrary-Tools-win-x64-v1.7.22.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.22/GameLibrary-Tools-win-x64-v1.7.22.zip) | Host, CLI and MCP for command-line use and automation. |
-| [`GameLibrary-v1.7.22-SHA256SUMS.txt`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.22/GameLibrary-v1.7.22-SHA256SUMS.txt) | SHA-256 checksums for the three packages above. |
+| [`GameLibrary-Setup-v1.7.23.exe`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.23/GameLibrary-Setup-v1.7.23.exe) | Recommended. Current-user installer with a choice of installation folder. |
+| [`GameLibrary-Portable-win-x64-v1.7.23.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.23/GameLibrary-Portable-win-x64-v1.7.23.zip) | Extract and run GameLibrary.Desktop.exe. |
+| [`GameLibrary-Tools-win-x64-v1.7.23.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.23/GameLibrary-Tools-win-x64-v1.7.23.zip) | Host, CLI and MCP for command-line use and automation. |
+| [`GameLibrary-v1.7.23-SHA256SUMS.txt`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.23/GameLibrary-v1.7.23-SHA256SUMS.txt) | SHA-256 checksums for the three packages above. |
 
 The executables and installer are not Authenticode-signed. Windows may show an unknown-publisher warning. Download from this repository and compare the hash with the same-version checksum file:
 
 ```powershell
-Get-FileHash .\GameLibrary-Setup-v1.7.22.exe -Algorithm SHA256
+Get-FileHash .\GameLibrary-Setup-v1.7.23.exe -Algorithm SHA256
 ```
 
 <a id="demo"></a>
@@ -64,7 +64,7 @@ Scanning creates candidates; it does not treat every EXE as a game. You can add 
 <a id="faq"></a>
 ## Data and FAQ
 
-**v1.7.22 formal release** adds Godot/MTool support and includes earlier Unity translation, recycling and scanning fixes. [Downloads and notes](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.22) · [Build and acceptance record](docs/releases/v1.7.22-validation.md).
+**v1.7.23 formal release** repairs MCP, tag transactions and launch verification, and includes earlier Godot/MTool, Unity translation and recycling fixes. [Downloads and notes](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.23) · [Build and acceptance record](docs/releases/v1.7.23-validation.md).
 
 <details>
 <summary><strong>Does scanning or removing a record delete game files?</strong></summary>

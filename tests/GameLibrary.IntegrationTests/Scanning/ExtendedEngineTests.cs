@@ -1,12 +1,12 @@
+using System.Text.Json;
 using GameLibrary.Contracts;
+using GameLibrary.Domain.Catalog;
 using GameLibrary.Domain.Detection;
 using GameLibrary.Domain.Paths;
 using GameLibrary.Host.Hosting;
 using GameLibrary.Host.Scanning;
-using GameLibrary.Infrastructure.Scanning;
 using GameLibrary.Infrastructure.Persistence;
-using GameLibrary.Domain.Catalog;
-using System.Text.Json;
+using GameLibrary.Infrastructure.Scanning;
 using Xunit;
 
 namespace GameLibrary.IntegrationTests.Scanning;
@@ -50,8 +50,17 @@ public sealed class ExtendedEngineTests
             await using (var store = opened.Store!)
             {
                 var now = DateTime.UtcNow;
-                var unknown = new GameCard { GameId = "unknown", Title = "Keep", RootPath = root, EntryPath = Path.Combine(root, "Game.exe"), Kind = "gameRoot",
-                    Membership = "active", AcceptedUtc = now, UpdatedUtc = now };
+                var unknown = new GameCard
+                {
+                    GameId = "unknown",
+                    Title = "Keep",
+                    RootPath = root,
+                    EntryPath = Path.Combine(root, "Game.exe"),
+                    Kind = "gameRoot",
+                    Membership = "active",
+                    AcceptedUtc = now,
+                    UpdatedUtc = now
+                };
                 store.InsertGame(unknown);
                 store.InsertGame(unknown with { GameId = "recognized", Engine = "unity" });
                 Assert.False(store.SetUnknownGameEngine("unknown", "godot", 0, now));

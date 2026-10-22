@@ -32,7 +32,12 @@ public sealed class AuditLogWriterTests
 
     private static AuditRecord Record(string id) => new()
     {
-        TimestampUtc = DateTime.UtcNow, Level = "info", Component = "test", OperationId = "test",
-        RequestId = id, Actor = "test", ResultCode = "completed",
+        TimestampUtc = DateTime.UtcNow,
+        Level = "info",
+        Component = "test",
+        OperationId = "test",
+        RequestId = id,
+        Actor = "test",
+        ResultCode = "completed",
     };
 }

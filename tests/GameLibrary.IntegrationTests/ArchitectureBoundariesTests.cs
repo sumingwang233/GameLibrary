@@ -24,6 +24,11 @@ public sealed class ArchitectureBoundariesTests
         Assert.DoesNotContain("color", required);
         Assert.DoesNotContain("displayName", required);
         Assert.Equal(JsonValueKind.Null, update.GetProperty("properties").GetProperty("color").GetProperty("default").ValueKind);
+        Assert.False(update.GetProperty("properties").TryGetProperty("requestContext", out _));
+        var view = ModelContextProtocol.Server.McpServerTool.Create(
+            typeof(GameLibrary.Mcp.GameLibraryTools).GetMethod("ViewsUpdate")!).ProtocolTool.InputSchema;
+        Assert.DoesNotContain(view.GetProperty("required").EnumerateArray(), value => value.GetString() == "hasCover");
+        Assert.False(view.GetProperty("properties").TryGetProperty("requestContext", out _));
         var crop = ModelContextProtocol.Server.McpServerTool.Create(
             typeof(GameLibrary.Mcp.GameLibraryTools).GetMethod("AssetsCrop")!).ProtocolTool.InputSchema;
         foreach (var field in new[] { "gameId", "assetId", "x", "y", "width", "height", "expectedRevision", "idempotencyKey" })
@@ -47,15 +52,19 @@ public sealed class ArchitectureBoundariesTests
                 _ = await IpcFrame.ReadJsonAsync<HandshakeRequest>(pipe, timeout.Token);
                 await IpcFrame.WriteJsonAsync(pipe, new HandshakeResponse
                 {
-                    HostInstanceId = "host-" + pass, LibraryInstanceId = "library",
-                    DataEpoch = pass == 0 ? "original" : "restored", LibraryInitialized = true,
+                    HostInstanceId = "host-" + pass,
+                    LibraryInstanceId = "library",
+                    DataEpoch = pass == 0 ? "original" : "restored",
+                    LibraryInitialized = true,
                 }, timeout.Token);
                 var request = await IpcFrame.ReadJsonAsync<IpcRequest>(pipe, timeout.Token);
                 requests.Add(request);
                 if (pass == 1)
                     await IpcFrame.WriteJsonAsync(pipe, new Envelope<object>
                     {
-                        RequestId = request.RequestId, Ok = false, Status = OperationStatus.Failed,
+                        RequestId = request.RequestId,
+                        Ok = false,
+                        Status = OperationStatus.Failed,
                         Error = new RequestError { Code = ErrorCodes.DataEpochMismatch, Message = "stale", Retryable = false },
                     }, timeout.Token);
                 // First connection closes after receiving the write, before sending its response.
@@ -64,7 +73,8 @@ public sealed class ArchitectureBoundariesTests
         await using var client = await HostConnection.ConnectAsync(data, "boundary-test", timeout.Token);
         var result = await client.InvokeAsync(new IpcRequest
         {
-            RequestId = "write", OperationId = "tags.create",
+            RequestId = "write",
+            OperationId = "tags.create",
             Parameters = JsonSerializer.SerializeToElement(new { name = "tag", idempotencyKey = "intent" }, ContractJson.Options),
         }, timeout.Token);
         await server;
@@ -153,8 +163,12 @@ public sealed class ArchitectureBoundariesTests
         {
             AttemptJson = JsonSerializer.Serialize(new
             {
-                kind = "recycle", gameId = game.GameId, target = game.RootPath,
-                expectedRevision = game.Revision, dataEpoch = store.Info.DataEpoch, phase = "moving",
+                kind = "recycle",
+                gameId = game.GameId,
+                target = game.RootPath,
+                expectedRevision = game.Revision,
+                dataEpoch = store.Info.DataEpoch,
+                phase = "moving",
             }, ContractJson.Options),
         };
         store.InsertPreparedReceipt(receipt);
@@ -162,7 +176,9 @@ public sealed class ArchitectureBoundariesTests
         var handler = new GamesHandler(() => store, fixture.State.Roots, fixture.State.Events);
         var result = handler.ResumeRemoval(new IpcRequest
         {
-            RequestId = "resume", OperationId = "games.remove", ClientName = receipt.Actor,
+            RequestId = "resume",
+            OperationId = "games.remove",
+            ClientName = receipt.Actor,
         }, receipt)!;
         Assert.Equal(!changedRevision, result.Ok);
         Assert.Equal(changedRevision ? "active" : "removed", store.TryGetGame(game.GameId)!.Membership);
@@ -206,8 +222,16 @@ public sealed class ArchitectureBoundariesTests
         }
         var receipt = Receipt(store, "games.remove", "directory-recycle") with
         {
-            AttemptJson = JsonSerializer.Serialize(new { kind = "recycle", gameId = game.GameId, target,
-                sourcePath = game.RootPath, expectedRevision = game.Revision, dataEpoch = store.Info.DataEpoch, phase = "moving" }, ContractJson.Options),
+            AttemptJson = JsonSerializer.Serialize(new
+            {
+                kind = "recycle",
+                gameId = game.GameId,
+                target,
+                sourcePath = game.RootPath,
+                expectedRevision = game.Revision,
+                dataEpoch = store.Info.DataEpoch,
+                phase = "moving"
+            }, ContractJson.Options),
         };
         store.InsertPreparedReceipt(receipt);
         if (changedRevision) store.SetFavorite(game.GameId, true, game.Revision, DateTime.UtcNow);
@@ -224,15 +248,24 @@ public sealed class ArchitectureBoundariesTests
 
     private static GameCard Game(string parent) => new()
     {
-        GameId = "game-" + Guid.NewGuid().ToString("N"), Title = "Boundary sample",
-        RootPath = Path.Combine(parent, "absent-game.exe"), Kind = "fileGame", Membership = "active",
-        AcceptedUtc = DateTime.UtcNow, UpdatedUtc = DateTime.UtcNow,
+        GameId = "game-" + Guid.NewGuid().ToString("N"),
+        Title = "Boundary sample",
+        RootPath = Path.Combine(parent, "absent-game.exe"),
+        Kind = "fileGame",
+        Membership = "active",
+        AcceptedUtc = DateTime.UtcNow,
+        UpdatedUtc = DateTime.UtcNow,
     };
 
     private static RequestReceipt Receipt(SqliteLibraryStore store, string operation, string key) => new()
     {
-        LibraryInstanceId = store.Info.LibraryInstanceId, Actor = "boundary-test", OperationId = operation,
-        IdempotencyKey = key, RequestDigest = "boundary", Status = "prepared",
-        CreatedUtc = DateTime.UtcNow, UpdatedUtc = DateTime.UtcNow,
+        LibraryInstanceId = store.Info.LibraryInstanceId,
+        Actor = "boundary-test",
+        OperationId = operation,
+        IdempotencyKey = key,
+        RequestDigest = "boundary",
+        Status = "prepared",
+        CreatedUtc = DateTime.UtcNow,
+        UpdatedUtc = DateTime.UtcNow,
     };
 }

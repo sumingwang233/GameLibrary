@@ -222,8 +222,15 @@ internal sealed partial class UnityTranslationPayload
         {
             xunity = new { version = "5.0.0", url = ReiUrl, sha256 = ReiSha256 },
             deepSeekTranslate = new { version = "0.1.14", url = DeepSeekUrl, sha256 = DeepSeekSha256 },
-            il2cpp = new { xunityVersion = "5.6.2", url = Il2CppPluginUrl, sha256 = Il2CppPluginSha256,
-                bepinexVersion = "6.0.0-be.704+6b38cee", x64Sha256 = Il2CppX64Sha256, x86Sha256 = Il2CppX86Sha256 },
+            il2cpp = new
+            {
+                xunityVersion = "5.6.2",
+                url = Il2CppPluginUrl,
+                sha256 = Il2CppPluginSha256,
+                bepinexVersion = "6.0.0-be.704+6b38cee",
+                x64Sha256 = Il2CppX64Sha256,
+                x86Sha256 = Il2CppX86Sha256
+            },
         }));
         return bytes;
     }
