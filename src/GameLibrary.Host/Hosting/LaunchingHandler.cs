@@ -512,8 +512,11 @@ internal sealed class LaunchingHandler
         // T13 Required 不回退：执行前解析目标 Profile（显式 profileId 或计划内的），
         // 游戏 Required 且该 Profile 无工具绑定 → 拒绝执行（LA-07），不产生尝试。
         GameLibrary.Host.Launching.LaunchPlan executionTarget;
-        try { executionTarget = _launches.ResolveExecutionPlan(planId.Length > 0 ? planId : null,
-            profileId.Length > 0 ? profileId : null, null, expectedRevision); }
+        try
+        {
+            executionTarget = _launches.ResolveExecutionPlan(planId.Length > 0 ? planId : null,
+            profileId.Length > 0 ? profileId : null, null, expectedRevision);
+        }
         catch (GameLibrary.Host.Launching.LaunchException ex) { return LaunchError(request, ex); }
         var resolvedProfileId = executionTarget.ProfileId;
         planId = executionTarget.PlanId;
@@ -537,7 +540,9 @@ internal sealed class LaunchingHandler
                     && _mtool?.Prepare(resolvedGameId, resolvedProfileId) is { State: "blocked" } preparation)
                     return new Envelope<object>
                     {
-                        RequestId = request.RequestId, Ok = false, Status = OperationStatus.NeedsUserAction,
+                        RequestId = request.RequestId,
+                        Ok = false,
+                        Status = OperationStatus.NeedsUserAction,
                         Error = new RequestError { Code = ErrorCodes.TranslationRouteUnavailable, Message = preparation.Reason, Retryable = false },
                         NextActions = TranslationRouteBlock(request, resolvedGameId, resolvedProfileId)?.NextActions ?? [],
                     };

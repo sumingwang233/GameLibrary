@@ -10,28 +10,28 @@
 
 ドライブに散らばったゲームを、一つのライブラリに。フォルダーを選び、起動ファイルを確認すると、一覧からゲームを開けます。
 
-現在のソース **v1.7.22** は Godot の内蔵 PCK を認識し、MTool の GodotHook 翻訳ルールを固定しました。詳細ページで「翻訳が必要としてマークし起動スクリプトを生成」を押すと MTool 経由で起動できます。[確認待ちローカルビルド](docs/releases/v1.7.22.md)を提供しています。GitHub Release は未公開で、既定のダウンロードは引き続き安定版を指します。
+現在の正式版 **v1.7.23** は MCP 起動、タグ一括処理のロールバック、起動候補の検証を修正し、CI 全体のチェックを復旧します。Godot/MTool、プレイ済みライブラリ、評価、BAT 起動も引き続き利用できます。[リリース説明](docs/releases/v1.7.23.md)をご確認ください。
 
-**[Windows インストーラーをダウンロード](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-Setup-v1.7.13.exe)** · [すべてのリリース](https://github.com/sumingwang233/GameLibrary/releases) · [不具合の報告](https://github.com/sumingwang233/GameLibrary/issues)
+**[Windows インストーラーをダウンロード](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.23/GameLibrary-Setup-v1.7.23.exe)** · [すべてのリリース](https://github.com/sumingwang233/GameLibrary/releases) · [不具合の報告](https://github.com/sumingwang233/GameLibrary/issues)
 
 [ダウンロード](#download) · [画面](#demo) · [使い始める](#start) · [よくある質問](#faq)
 
 <a id="download"></a>
 ## ダウンロード
 
-現在の正式リリースは **v1.7.13** です。対象は **Windows 10 / 11 x64** です。対象を絞った回帰テストと本番ビルドは完了しています。2026-10-13 にメンテナーが実機での受け入れ確認を完了し、正式公開を承認しました。自動チェック全体の実施状況は[リリース記録](docs/releases/v1.7.13-validation.md)をご確認ください。
+現在の正式リリースは **v1.7.23** で、対象は **Windows 10 / 11 x64** です。ローカルと GitHub で .NET 867 件、フロントエンド 102 件のテストが通過し、2026-10-20 にメンテナーが手動確認の完了を表明しています。自動 WebView スモークテストは not-run のままで、今回の公開に対する確認免除を適用しています。[リリース記録](docs/releases/v1.7.23-validation.md)をご確認ください。
 
 | ファイル | 用途 |
 |---|---|
-| [`GameLibrary-Setup-v1.7.13.exe`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-Setup-v1.7.13.exe) | 推奨。現在のユーザー向け。インストール先を選択できます。 |
-| [`GameLibrary-Portable-win-x64-v1.7.13.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-Portable-win-x64-v1.7.13.zip) | 展開して GameLibrary.Desktop.exe を実行します。 |
-| [`GameLibrary-Tools-win-x64-v1.7.13.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-Tools-win-x64-v1.7.13.zip) | コマンドラインや自動化向けの Host、CLI、MCP。 |
-| [`GameLibrary-v1.7.13-SHA256SUMS.txt`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-v1.7.13-SHA256SUMS.txt) | 上記 3 パッケージの SHA-256 チェックサム。 |
+| [`GameLibrary-Setup-v1.7.23.exe`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.23/GameLibrary-Setup-v1.7.23.exe) | 推奨。現在のユーザー向け。インストール先を選択できます。 |
+| [`GameLibrary-Portable-win-x64-v1.7.23.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.23/GameLibrary-Portable-win-x64-v1.7.23.zip) | 展開して GameLibrary.Desktop.exe を実行します。 |
+| [`GameLibrary-Tools-win-x64-v1.7.23.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.23/GameLibrary-Tools-win-x64-v1.7.23.zip) | コマンドラインや自動化向けの Host、CLI、MCP。 |
+| [`GameLibrary-v1.7.23-SHA256SUMS.txt`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.23/GameLibrary-v1.7.23-SHA256SUMS.txt) | 上記 3 パッケージの SHA-256 チェックサム。 |
 
 実行ファイルとインストーラーは Authenticode 未署名です。Windows が発行元不明の警告を表示する場合があります。このリポジトリから取得し、同じ版のチェックサムと照合してください。
 
 ```powershell
-Get-FileHash .\GameLibrary-Setup-v1.7.13.exe -Algorithm SHA256
+Get-FileHash .\GameLibrary-Setup-v1.7.23.exe -Algorithm SHA256
 ```
 
 <a id="demo"></a>
@@ -64,7 +64,7 @@ v1.5.5 の独立したサンプルライブラリで撮影しています。ア�
 <a id="faq"></a>
 ## データとよくある質問
 
-**v1.7.13 正式版**：Flash コレクションの登録後に起動候補が作成されない問題を修正しました。以前の Unity 翻訳互換性の修正と、ゲーム詳細でのタグ分類のドラッグ移動も含まれます。[ダウンロードと詳細](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.13) · [検証記録](docs/releases/v1.7.13-validation.md)。
+**v1.7.23 正式版**：MCP、タグのトランザクション、起動検証を修正しました。以前の Godot/MTool、Unity 翻訳、ファイル回収の修正も含みます。[ダウンロードと詳細](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.23) · [ビルドと確認記録](docs/releases/v1.7.23-validation.md)。
 
 <details>
 <summary><strong>スキャンや一覧からの削除で、ゲームファイルも消えますか？</strong></summary>
@@ -91,7 +91,7 @@ v1.5.5 の独立したサンプルライブラリで撮影しています。ア�
 </details>
 
 <details>
-<summary><strong>現在のバージョン：v1.7.13、正式公開 / 実機での受け入れ確認済み</strong></summary>
+<summary><strong>過去のバージョンと確認記録</strong></summary>
 
 v1.7.13 はコレクションで選択した各 SWF/EXE の起動候補を作成し、アップグレード後に不足していた候補を補完します。手動の既定設定と削除済みの候補は保持します。起動の確認は実行結果に基づき、登録だけで検証済みにはなりません。[変更点](docs/releases/v1.7.13.md)と[検証記録](docs/releases/v1.7.13-validation.md)をご覧ください。
 
@@ -101,7 +101,7 @@ v1.7.4 は未翻訳タグによる Unity 翻訳設定を修正し、有効な中
 
 v1.7.3 は旧リソース SWF が個別候補のまま残り、確認待ち件数が過大になる問題を修正します。初回起動時に対象ライブラリをすぐ再確認し、完全なフォルダー審査グループにまとめます。元のゲームファイル、ID、メタデータは保持します。schema27 は変更せず、無視ルールを再リセットしません。v1.7.2 の表紙貼り付け、Flash 審査、タグ色、ローカル Unity 翻訳設定を引き続き利用できます。[検証記録](docs/releases/v1.7.3-validation.md)をご覧ください。
 
-これらの旧バージョンの機能は上記 v1.7.13 に含まれます。過去の説明とプレリリースリンクは参照用に残しています。
+これらの旧バージョンの機能は現在の正式版に含まれます。過去の説明とプレリリースリンクは参照用に残しています。
 
 v1.7.1 は翻訳後の副題の記号を修正します。原文に `-` がある場合、連続する長いダッシュを `：` に置換し、先頭と末尾の囲み記号を除去します。既存の訳名には詳細画面で再翻訳してください。原文と手動編集した訳名は保持します。[v1.7.1 プレリリース](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.1)と[検証記録](docs/releases/v1.7.1-validation.md)をご覧ください。
 </details>

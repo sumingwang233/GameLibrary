@@ -29,10 +29,14 @@ public sealed class CoverFilterTests(PipeServerFixture fixture) : IClassFixture<
         var prefix = $"cover-query-{Guid.NewGuid():N}";
         var games = Enumerable.Range(0, 5).Select(i => new GameCard
         {
-            GameId = $"game-{Guid.NewGuid():N}", Title = $"{prefix}-{i}",
+            GameId = $"game-{Guid.NewGuid():N}",
+            Title = $"{prefix}-{i}",
             RootPath = Path.Combine(fixture.State.DataDirectory, $"game-{i}"),
-            Kind = "gameRoot", Membership = "active", Favorite = i < 2,
-            AcceptedUtc = DateTime.UtcNow, UpdatedUtc = DateTime.UtcNow,
+            Kind = "gameRoot",
+            Membership = "active",
+            Favorite = i < 2,
+            AcceptedUtc = DateTime.UtcNow,
+            UpdatedUtc = DateTime.UtcNow,
         }).ToArray();
         foreach (var game in games) store.InsertGame(game);
         var first = store.ImportAsset(games[0].GameId, "test-cover.png", DateTime.UtcNow);
@@ -43,8 +47,12 @@ public sealed class CoverFilterTests(PipeServerFixture fixture) : IClassFixture<
         Assert.Single(store.ListAssets(games[2].GameId));
         store.RemoveGame(games[4].GameId, 1, new IgnoreRule
         {
-            IgnoreId = $"ignore-{Guid.NewGuid():N}", Scope = "ExactPath", Path = games[4].RootPath,
-            GameId = games[4].GameId, Reason = "test", CreatedUtc = DateTime.UtcNow,
+            IgnoreId = $"ignore-{Guid.NewGuid():N}",
+            Scope = "ExactPath",
+            Path = games[4].RootPath,
+            GameId = games[4].GameId,
+            Reason = "test",
+            CreatedUtc = DateTime.UtcNow,
         }, DateTime.UtcNow);
 
         foreach (var (cover, expected) in new[] { (true, games.Take(2)), (false, games.Skip(2).Take(2)) })
@@ -80,10 +88,14 @@ public sealed class CoverFilterTests(PipeServerFixture fixture) : IClassFixture<
         var store = fixture.State.Library.Store!;
         var games = Enumerable.Range(0, 2).Select(i => new GameCard
         {
-            GameId = $"game-{Guid.NewGuid():N}", Title = $"{search}-{i}",
+            GameId = $"game-{Guid.NewGuid():N}",
+            Title = $"{search}-{i}",
             RootPath = Path.Combine(fixture.State.DataDirectory, search, i.ToString()),
-            Kind = "gameRoot", Membership = "active", Favorite = true,
-            AcceptedUtc = DateTime.UtcNow, UpdatedUtc = DateTime.UtcNow,
+            Kind = "gameRoot",
+            Membership = "active",
+            Favorite = true,
+            AcceptedUtc = DateTime.UtcNow,
+            UpdatedUtc = DateTime.UtcNow,
         }).ToArray();
         foreach (var game in games) store.InsertGame(game);
         store.ImportAsset(games[0].GameId, "test-cover.png", DateTime.UtcNow);

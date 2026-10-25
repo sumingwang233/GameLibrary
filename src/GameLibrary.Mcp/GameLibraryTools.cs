@@ -436,6 +436,7 @@ public static partial class GameLibraryTools
     [McpServerTool(Name = "views_update")]
     [Description("更新自定义视图的受限字段；未提供字段保持不变，hasCover 显式 null 清除封面条件。")]
     public static Task<CallToolResult> ViewsUpdate(
+        RequestContext<CallToolRequestParams> requestContext,
         [Description("视图 ID")] string viewId,
         [Description("期望 Revision")] int expectedRevision,
         [Description("视图名称（可选）")] string? name = null,
@@ -443,7 +444,7 @@ public static partial class GameLibraryTools
         [Description("仅显示收藏（可选）")] bool? favoriteOnly = null,
         [Description("排序 title/recent（可选）")] string? sort = null,
         [Description("幂等键")] string? idempotencyKey = null,
-        [DefaultValue(null)] [Description("true 有封面，false 无封面，null 清除；省略保持原值")] JsonElement hasCover = default) =>
+        [Description("true 有封面，false 无封面，null 清除；省略保持原值")] JsonElement? hasCover = null) =>
         InvokeGeneratedOperationAsync("views.update", new Dictionary<string, object?>
         {
             ["idempotencyKey"] = idempotencyKey ?? $"viewupd-{Guid.NewGuid():N}",
@@ -453,7 +454,7 @@ public static partial class GameLibraryTools
             ["favoriteOnly"] = favoriteOnly,
             ["sort"] = sort,
             ["expectedRevision"] = expectedRevision,
-            ["hasCover"] = hasCover,
+            ["hasCover"] = OptionalJson(requestContext, "hasCover", hasCover),
         });
 
     [McpServerTool(Name = "views_remove")]
@@ -575,6 +576,9 @@ public static partial class GameLibraryTools
         toolId is null
             ? InvokeOperationAsync("verification.list", new { })
             : InvokeOperationAsync("verification.list", new { toolId });
+
+    private static JsonElement? OptionalJson(RequestContext<CallToolRequestParams> context, string name, JsonElement? value) =>
+        context.Params?.Arguments is { } arguments && arguments.TryGetValue(name, out var supplied) ? supplied : value;
 
     private static Task<CallToolResult> InvokeGeneratedOperationAsync(string operationId, Dictionary<string, object?> parameters) =>
         InvokeOperationAsync(operationId, parameters

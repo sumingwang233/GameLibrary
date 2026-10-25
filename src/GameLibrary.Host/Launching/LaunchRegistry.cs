@@ -762,8 +762,12 @@ public sealed partial class LaunchRegistry
 
     public static ProcessStartInfo CreateStartInfo(string executablePath, IReadOnlyList<string> arguments, string workingDirectory)
     {
-        var info = new ProcessStartInfo { FileName = executablePath, WorkingDirectory = workingDirectory,
-            UseShellExecute = Path.GetExtension(executablePath).Equals(".swf", StringComparison.OrdinalIgnoreCase) };
+        var info = new ProcessStartInfo
+        {
+            FileName = executablePath,
+            WorkingDirectory = workingDirectory,
+            UseShellExecute = Path.GetExtension(executablePath).Equals(".swf", StringComparison.OrdinalIgnoreCase)
+        };
         if (Path.GetExtension(executablePath).Equals(".bat", StringComparison.OrdinalIgnoreCase))
         {
             // cmd 有独立的展开和转义规则，不能直接复用 EXE 的 ArgumentList 编码。

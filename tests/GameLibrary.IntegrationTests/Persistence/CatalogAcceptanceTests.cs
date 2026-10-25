@@ -13,8 +13,16 @@ public sealed class CatalogAcceptanceTests
 
     private static GameCard Game(string id, string directory, DateTime added, string membership = "active") => new()
     {
-        GameId = id, Title = id, RootPath = Path.Combine(directory, id), Kind = "directoryGame", Engine = "unity",
-        Membership = membership, Favorite = true, TranslationOverride = "Required", AcceptedUtc = added, UpdatedUtc = added,
+        GameId = id,
+        Title = id,
+        RootPath = Path.Combine(directory, id),
+        Kind = "directoryGame",
+        Engine = "unity",
+        Membership = membership,
+        Favorite = true,
+        TranslationOverride = "Required",
+        AcceptedUtc = added,
+        UpdatedUtc = added,
     };
 
     private static void Insert(SqliteLibraryStore store, GameCard game)
@@ -24,8 +32,15 @@ public sealed class CatalogAcceptanceTests
         store.InsertGame(game);
         var revision = store.SetTranslationOverride(game.GameId, game.TranslationOverride, 1, game.UpdatedUtc)!.Value;
         if (game.Membership == "removed") Assert.NotNull(store.RemoveGame(game.GameId, revision,
-            new() { IgnoreId = "ignore-" + game.GameId, Scope = "ExactPath", Path = game.RootPath, GameId = game.GameId,
-                Reason = "removed by user", CreatedUtc = game.UpdatedUtc }, game.UpdatedUtc));
+            new()
+            {
+                IgnoreId = "ignore-" + game.GameId,
+                Scope = "ExactPath",
+                Path = game.RootPath,
+                GameId = game.GameId,
+                Reason = "removed by user",
+                CreatedUtc = game.UpdatedUtc
+            }, game.UpdatedUtc));
     }
 
     [Fact]
@@ -40,8 +55,17 @@ public sealed class CatalogAcceptanceTests
             var old = Game("restored", directory, now.AddDays(-20), "removed");
             Insert(store, old);
             Insert(store, Game("previous", directory, now.AddDays(-1)));
-            store.UpsertCandidate(new() { CandidateId = "candidate", Kind = old.Kind, RelativePath = "restored", PhysicalPath = old.RootPath,
-                PayloadJson = "{}", ReviewState = "pendingReview", ObservedUtc = now, UpdatedUtc = now });
+            store.UpsertCandidate(new()
+            {
+                CandidateId = "candidate",
+                Kind = old.Kind,
+                RelativePath = "restored",
+                PhysicalPath = old.RootPath,
+                PayloadJson = "{}",
+                ReviewState = "pendingReview",
+                ObservedUtc = now,
+                UpdatedUtc = now
+            });
             var outcome = store.AcceptCandidate("candidate", 1, old with { GameId = "replacement", Membership = "active" }, "unity", now);
             Assert.Equal(old.GameId, outcome.GameId);
             var restored = store.TryGetGame(old.GameId)!;

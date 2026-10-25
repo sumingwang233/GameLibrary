@@ -10,28 +10,28 @@
 
 把散落在硬盘里的游戏放到一处。选好文件夹，确认启动项，就能从游戏库打开游戏。
 
-当前源码 **v1.7.22** 支持 Godot 内嵌 PCK 识别并固定 MTool GodotHook 翻译规则：详情页点“标记为需要翻译并生成启动脚本”即可通过 MTool 翻译启动。提供[待验收本地构建](docs/releases/v1.7.22.md)，尚未发布 GitHub Release；下方默认下载仍对应稳定版。
+当前正式版 **v1.7.23** 修复 MCP 工具启动、标签批次回滚和启动入口验证，恢复完整 CI 检查；保留 Godot/MTool、已游玩游戏库、评分和 BAT 启动。[发布说明](docs/releases/v1.7.23.md)记录本次变化与限制。
 
-**[下载 Windows 安装版](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-Setup-v1.7.13.exe)** · [所有版本](https://github.com/sumingwang233/GameLibrary/releases) · [反馈问题](https://github.com/sumingwang233/GameLibrary/issues)
+**[下载 Windows 安装版](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.23/GameLibrary-Setup-v1.7.23.exe)** · [所有版本](https://github.com/sumingwang233/GameLibrary/releases) · [反馈问题](https://github.com/sumingwang233/GameLibrary/issues)
 
 [下载](#download) · [界面](#demo) · [开始使用](#start) · [常见问题](#faq)
 
 <a id="download"></a>
 ## 下载
 
-目前公开正式版为 **v1.7.13**，面向 **Windows 10 / 11 x64**。已完成针对性回归和生产编译；维护者于 2026-10-13 确认真机验收并授权正式发布。完整自动门禁的执行情况见[发行记录](docs/releases/v1.7.13-validation.md)。
+目前公开正式版为 **v1.7.23**，面向 **Windows 10 / 11 x64**。本地及 GitHub 的 867 项 .NET、102 项前端测试通过；维护者于 2026-10-20 确认人工验收。自动 WebView 烟测仍为 not-run，本次发布沿用维护者的验收豁免，见[发行记录](docs/releases/v1.7.23-validation.md)。
 
 | 文件 | 适合谁 |
 |---|---|
-| [`GameLibrary-Setup-v1.7.13.exe`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-Setup-v1.7.13.exe) | 推荐。当前用户安装器，可选择安装目录。 |
-| [`GameLibrary-Portable-win-x64-v1.7.13.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-Portable-win-x64-v1.7.13.zip) | 解压后运行 GameLibrary.Desktop.exe。 |
-| [`GameLibrary-Tools-win-x64-v1.7.13.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-Tools-win-x64-v1.7.13.zip) | Host、CLI 和 MCP，供命令行与自动化使用。 |
-| [`GameLibrary-v1.7.13-SHA256SUMS.txt`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.13/GameLibrary-v1.7.13-SHA256SUMS.txt) | 上面三个下载包的 SHA-256 校验清单。 |
+| [`GameLibrary-Setup-v1.7.23.exe`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.23/GameLibrary-Setup-v1.7.23.exe) | 推荐。当前用户安装器，可选择安装目录。 |
+| [`GameLibrary-Portable-win-x64-v1.7.23.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.23/GameLibrary-Portable-win-x64-v1.7.23.zip) | 解压后运行 GameLibrary.Desktop.exe。 |
+| [`GameLibrary-Tools-win-x64-v1.7.23.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.23/GameLibrary-Tools-win-x64-v1.7.23.zip) | Host、CLI 和 MCP，供命令行与自动化使用。 |
+| [`GameLibrary-v1.7.23-SHA256SUMS.txt`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.23/GameLibrary-v1.7.23-SHA256SUMS.txt) | 上面三个下载包的 SHA-256 校验清单。 |
 
 程序与安装器未进行 Authenticode 签名，Windows 可能提示未知发布者。请从本仓库下载，并用同版本校验清单核对文件：
 
 ```powershell
-Get-FileHash .\GameLibrary-Setup-v1.7.13.exe -Algorithm SHA256
+Get-FileHash .\GameLibrary-Setup-v1.7.23.exe -Algorithm SHA256
 ```
 
 <a id="demo"></a>
@@ -64,7 +64,7 @@ Get-FileHash .\GameLibrary-Setup-v1.7.13.exe -Algorithm SHA256
 <a id="faq"></a>
 ## 数据与常见问题
 
-**v1.7.13 正式版**：修复 Flash 合集入库后缺少建议启动方式的问题；包含此前的 Unity 翻译兼容修复与详情标签分类拖动。[下载与说明](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.13) · [验证记录](docs/releases/v1.7.13-validation.md)。
+**v1.7.23 正式版**：修复 MCP、标签事务与启动验证，并包含此前的 Godot/MTool、Unity 翻译和游戏回收修复。[下载与说明](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.23) · [构建与验收记录](docs/releases/v1.7.23-validation.md)。
 
 <details>
 <summary><strong>扫描或移出游戏库会删除游戏文件吗？</strong></summary>
@@ -91,7 +91,7 @@ Get-FileHash .\GameLibrary-Setup-v1.7.13.exe -Algorithm SHA256
 </details>
 
 <details>
-<summary><strong>当前版本：v1.7.13，正式发布 / 已真机验收</strong></summary>
+<summary><strong>历史版本与验收记录</strong></summary>
 
 v1.7.13 为合集选中的每个 SWF/EXE 生成对应的建议启动方式，升级后补齐此前缺失的建议，保留手动默认方式和已删除的建议。建议仍由实际运行结果确认，不会因审核入库就标为验证成功。见[版本说明](docs/releases/v1.7.13.md)及[验收记录](docs/releases/v1.7.13-validation.md)。
 
@@ -101,7 +101,7 @@ v1.7.4 修复 Unity 未翻译标签的自动配置触发，离线确认已有且
 
 v1.7.3 修复旧资源 SWF 候选没有按目录归并、导致待确认数量过大的问题。首次启动立即核对受影响的扫描根，完整目录组代替旧逐文件候选；原游戏文件、ID 与元数据保留。继续使用 schema27，不重复重置忽略规则。保留 v1.7.2 的封面粘贴、Flash 审核、标签颜色和本机 Unity 翻译配置。见[验证记录](docs/releases/v1.7.3-validation.md)。
 
-这些历史版本的功能已包含在上方 v1.7.13 正式包；旧说明和预发布链接保留供追溯。
+这些历史版本的功能已包含在当前正式包；旧说明和预发布链接保留供追溯。
 
 v1.7.1 修复翻译后的副标题标点：原文含 `-` 时，将引擎返回的连续长破折号收为 `：` 并去掉首尾包围符。旧译名可在详情重新翻译；原文和手工译名保留。[v1.7.1 预发布包](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.1)及[验证记录](docs/releases/v1.7.1-validation.md)提供本次修复和验收状态。
 </details>

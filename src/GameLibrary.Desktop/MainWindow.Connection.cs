@@ -295,7 +295,9 @@ public partial class MainWindow : Window
                         return JsonSerializer.Deserialize<Envelope<JsonElement>>(result.GetRawText(), ContractJson.Options)!;
                     return new Envelope<JsonElement>
                     {
-                        RequestId = request.RequestId, Ok = false, Status = OperationStatus.Failed,
+                        RequestId = request.RequestId,
+                        Ok = false,
+                        Status = OperationStatus.Failed,
                         Error = new RequestError { Code = ErrorCodes.ProcessStartFailed, Message = job.Data.GetProperty("error").GetString() ?? L10n.T("游戏启动失败"), Retryable = false },
                     };
                 }
@@ -316,7 +318,9 @@ public partial class MainWindow : Window
                 if (state is "processStartFailed" or "unknownOutcome")
                     return new Envelope<JsonElement>
                     {
-                        RequestId = request.RequestId, Ok = false, Status = OperationStatus.Failed,
+                        RequestId = request.RequestId,
+                        Ok = false,
+                        Status = OperationStatus.Failed,
                         Error = new RequestError { Code = ErrorCodes.UnknownOutcome, Message = L10n.T("启动结果无法确认"), Retryable = false },
                     };
                 await Task.Delay(300);

@@ -229,9 +229,9 @@ public sealed class ScanE2ETests
             var rootAdd = await SendRequestAsync(mcpProcess, 3, "tools/call", new
             {
                 name = "roots_add",
-                arguments = new { root = scanRoot },
+                arguments = new { root = scanRoot, idempotencyKey = "register-scan-root" },
             });
-            Assert.False(rootAdd.GetProperty("result").GetProperty("isError").GetBoolean());
+            Assert.False(rootAdd.GetProperty("result").GetProperty("isError").GetBoolean(), rootAdd.GetRawText());
 
             var call = await SendRequestAsync(mcpProcess, 4, "tools/call", new
             {
