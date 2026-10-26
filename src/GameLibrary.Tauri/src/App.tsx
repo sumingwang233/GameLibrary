@@ -1,11 +1,12 @@
 import { t } from "./lib/i18n";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLanguage } from "./lib/i18n";
 import { AlertCircle, Bell } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { describeFailure, operation } from "./lib/api";
 import { LaunchProfileSelectionRequired } from "./lib/launchProfiles";
 import { emptyFilters, useGamesQuery, useLibrary, type GameFilters } from "./lib/state";
+import { resolveSelectedGame } from "./lib/selection";
 import type { CandidateItem, GameItem, ViewItem } from "./lib/types";
 import { AppShell } from "./components/AppShell";
 import { TitleBar } from "./components/TitleBar";
@@ -13,6 +14,7 @@ import { DetailSheet } from "./components/DetailSheet";
 import { GameGrid } from "./components/GameGrid";
 import { TitleTranslationStatus } from "./components/TitleTranslationStatus";
 import { useTitleTranslation } from "./lib/hooks/useTitleTranslation";
+import type { ReviewOutcome } from "./lib/hooks/useCandidateReview";
 import { UnityTranslationDialog, type UnityTranslationRequest, type UnityTranslationItem } from "./components/UnityTranslationDialog";
 import { LibraryToolbar } from "./components/LibraryToolbar";
 import { ReviewList, type ReviewAction } from "./components/ReviewList";
@@ -34,7 +36,10 @@ function App() {
   const [section, setSection] = useState<Section>("library");
   const [filters, setFilters] = useState<GameFilters>(emptyFilters);
   const [layout, setLayout] = useState<"grid" | "compact">("grid");
-  const [selected, setSelected] = useState<GameItem | null>(null);
+  // 详情只持有 gameId（外加列表外游戏的回退快照），渲染时从当前列表取最新对象：
+  // 后台 reload / titleTranslation patch 之后标题、收藏、封面不会停留在打开瞬间的旧值。
+  const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
+  const [selectedFallback, setSelectedFallback] = useState<GameItem | null>(null);
   const [ratingRequest, setRatingRequest] = useState<{ gameId: string; nonce: number } | null>(null);
   const [launchSelectionGameId, setLaunchSelectionGameId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -57,9 +62,14 @@ function App() {
 
   const [translationBusy, setTranslationBusy] = useState(false);
   const games = useGamesQuery(filters, library.changeToken, translationBusy);
+  const selected = useMemo(
+    () => resolveSelectedGame(games.games, selectedGameId, selectedFallback),
+    [games.games, selectedGameId, selectedFallback],
+  );
   const titleTranslation = useTitleTranslation(patch => {
     games.patch(patch);
-    setSelected(previous => previous?.gameId === patch.gameId && previous.revision <= patch.revision ? { ...previous, ...patch } : previous);
+    // 列表命中的情况由 games.patch 更新；这里同步回退快照，列表外的游戏也能拿到新标题。
+    setSelectedFallback(previous => previous?.gameId === patch.gameId && previous.revision <= patch.revision ? { ...previous, ...patch } : previous);
   }, async () => { await games.reload(); await library.refreshMeta(); });
   useEffect(() => { setTranslationBusy(titleTranslation.busy); }, [titleTranslation.busy]);
 
@@ -126,45 +136,54 @@ function App() {
       games.reload();
     });
 
-  const handleReview = async (items: CandidateItem[], action: ReviewAction) => {
-    if (items.length === 0) return;
+  /** 部分失败不再抛整批错误：失败计数写进 actionError，成功项 ID 回传给 ReviewList，
+   * 由它只清除成功的勾选，失败项保持选中便于重试。 */
+  const handleReview = async (items: CandidateItem[], action: ReviewAction): Promise<ReviewOutcome> => {
+    if (items.length === 0) return { succeededIds: [], accepted: [], failureMessage: null };
     setReviewBusy(true);
     setActionError(null);
     try {
-      const accepted = await library.reviewCandidates(items, action);
+      const outcome = await library.reviewCandidates(items, action);
+      if (outcome.failureMessage) setActionError(outcome.failureMessage);
       if (action === "accept") {
         // 聚合相似建议：组内按相似度降序（后端已降序，这里防御重放/后端变化），
         // 组间按各组最高相似度降序；undefined/[] 一律当无建议 → 横幅不渲染。
-        const groups = accepted
+        const groups = outcome.accepted
           .filter((item) => item.similarTo.length > 0)
           .map((item) => ({
             sourceTitle: item.candidate.relativePath || item.candidate.physicalPath,
             entries: [...item.similarTo].sort((a, b) => b.similarity - a.similarity),
           }))
           .sort((a, b) => b.entries[0].similarity - a.entries[0].similarity);
-        setSimilarNotice(groups.length > 0 ? { addedCount: accepted.length, groups } : null);
+        setSimilarNotice(groups.length > 0 ? { addedCount: outcome.accepted.length, groups } : null);
       }
-      games.reload();
+      if (outcome.succeededIds.length > 0) games.reload();
+      return outcome;
     } catch (cause) {
+      // 整批级失败（批量请求本身挂了）：整批错误照旧提示，勾选保持不动。
       setActionError(describeFailure(cause));
+      return { succeededIds: [], accepted: [], failureMessage: null };
     } finally {
       setReviewBusy(false);
     }
   };
 
   /** 横幅/详情里的相似条目跳转：先查当前页（命中零成本），miss 则 games.get 兜底。
-   * 失败（目标已被移除等）走 run() 的 actionError 既有路径，selected 保持原游戏。
-   * useCallback：launch.exited 到达时（feat-2）经它把退出的游戏设为选中。 */
+   * 失败（目标已被移除等）走 run() 的 actionError 既有路径，当前详情保持不变。
+   * useCallback：launch.exited 到达时（feat-2）经它把退出的游戏设为选中。
+   * 状态只在取到对象后才落，避免 games.get 失败时把详情切成一个空 id。 */
   const openGameById = useCallback(
     (gameId: string) => {
       void run(async () => {
         const local = games.games.find((game) => game.gameId === gameId);
         if (local) {
-          setSelected(local);
+          setSelectedFallback(local);
+          setSelectedGameId(gameId);
           return;
         }
         const detail = await operation<GameItem>("games.get", { gameId });
-        setSelected(detail.data);
+        setSelectedFallback(detail.data);
+        setSelectedGameId(gameId);
       });
     },
     [games.games],
@@ -320,7 +339,8 @@ function App() {
                 tags={library.tags}
                 titleTranslation={library.supports("titles.translate") ? titleTranslation : undefined}
                 onChanged={() => preserveLibraryScroll(async () => {
-                  setSelected(null);
+                  setSelectedGameId(null);
+                  setSelectedFallback(null);
                   await library.refreshMeta();
                   await games.reload();
                 })}
@@ -329,7 +349,7 @@ function App() {
                 loadingMore={games.loadingMore}
                 layout={layout}
                 hasMore={games.hasMore}
-                selectedId={selected?.gameId}
+                selectedId={selectedGameId ?? undefined}
                 emptyHint={
                   filters.search
                     ? t("没有匹配「{0}」的游戏。", filters.search)
@@ -340,7 +360,8 @@ function App() {
                 onLoadMore={games.loadMore}
                 onSelect={(gameId) => {
                   setRatingRequest(null);
-                  setSelected(games.games.find((game) => game.gameId === gameId) ?? null);
+                  setSelectedFallback(games.games.find((game) => game.gameId === gameId) ?? null);
+                  setSelectedGameId(gameId);
                 }}
                 onPlay={(gameId) => void launch(gameId)}
               />
@@ -377,16 +398,16 @@ function App() {
 
         <DetailSheet
           game={selected}
-          ratingPromptToken={ratingRequest?.gameId === selected?.gameId ? ratingRequest?.nonce : undefined}
-          initialTab={selected?.gameId === launchSelectionGameId ? "launch" : "overview"}
+          ratingPromptToken={ratingRequest?.gameId === selectedGameId ? ratingRequest?.nonce : undefined}
+          initialTab={selectedGameId === launchSelectionGameId ? "launch" : "overview"}
           tags={library.tags}
           onUpdateTag={library.supports("tags.update") ? library.updateTag : undefined}
           refreshToken={library.changeToken}
           supportsSuggestions={library.supports("profiles.discover")}
           onUnityTranslation={library.supports("unity_translation.status") ? (gameId, action) => setUnityRequest({ gameId, action }) : undefined}
-          unityTranslationState={unityStatus.find(item => item.gameId === selected?.gameId)}
+          unityTranslationState={unityStatus.find(item => item.gameId === selectedGameId)}
           titleTranslation={library.supports("titles.translate") ? titleTranslation : undefined}
-          onClose={() => { setSelected(null); setRatingRequest(null); }}
+          onClose={() => { setSelectedGameId(null); setSelectedFallback(null); setRatingRequest(null); }}
           onPlay={(gameId, profileId) => preserveLibraryScroll(() => library.launch(gameId, profileId))}
           onChanged={() => {
             return preserveLibraryScroll(async () => {

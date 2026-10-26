@@ -37,7 +37,9 @@ export function UnityTranslationDialog({ enabled, settingsOpen, onCloseSettings,
   const running = useRef(false);
   const alive = useRef(false);
   const identity = useRef("");
-  const submitting = useRef<string | null>(null);
+  // 按 gameId 记录“已发出 configure、尚未返回”的游戏。同时配置多个游戏时各自独立，
+  // 不能再用单个 gameId：后一个会覆盖前一个，前一个的乐观行就被服务端旧状态冲掉。
+  const pending = useRef<Set<string>>(new Set());
   const callbacks = useRef({ onCloseSettings, onReviewHandled, onRequestHandled, onPlay, onChanged, onNavigate, onStatusChange });
   callbacks.current = { onCloseSettings, onReviewHandled, onRequestHandled, onPlay, onChanged, onNavigate, onStatusChange };
 
@@ -55,10 +57,14 @@ export function UnityTranslationDialog({ enabled, settingsOpen, onCloseSettings,
       !item || [item.gameId, item.title, item.attemptId, item.state, item.provider].some(value => typeof value !== "string")))
       throw new Error(t("翻译插件状态不完整，请刷新后重试"));
     setStatus(previous => {
-      const next = submitting.current ? { ...result.data, items: [
-        ...result.data.items.filter(item => item.gameId !== submitting.current),
-        ...previous.items.filter(item => item.gameId === submitting.current),
-      ] } : result.data;
+      // 每个仍在途的 configure 游戏都保留本地乐观行（服务端此刻可能还没有它的条目，
+      // 或者返回的是配置前的旧状态）；其余条目一律采用服务端最新结果。
+      const pendingRows = new Map<string, UnityTranslationItem>();
+      for (const item of previous.items) if (pending.current.has(item.gameId) && !pendingRows.has(item.gameId)) pendingRows.set(item.gameId, item);
+      const next = pendingRows.size === 0 ? result.data : { ...result.data, items: [
+        ...result.data.items.filter(item => !pending.current.has(item.gameId)),
+        ...pendingRows.values(),
+      ] };
       return JSON.stringify(previous) === JSON.stringify(next) ? previous : next;
     });
     setPrompt(previous => previous && result.data.items.some(item => item.attemptId === previous.item.attemptId && item.state === "configured") ? previous : null);
@@ -110,21 +116,26 @@ export function UnityTranslationDialog({ enabled, settingsOpen, onCloseSettings,
     if (!enabled || !request) return;
     const intent = request;
     callbacks.current.onRequestHandled();
+    // 同一游戏重复提交（连点、事件重放）幂等忽略：已有在途 configure 时不再发第二次，
+    // 连乐观行都不重建，避免把已显示的状态打回 queued。
+    if (intent.action === "configure" && pending.current.has(intent.gameId)) return;
     setError(null);
-    submitting.current = intent.action === "configure" ? intent.gameId : null;
-    if (intent.action === "configure") setStatus(previous => ({ ...previous, items: [
-      ...previous.items.filter(item => item.gameId !== intent.gameId),
-      { gameId: intent.gameId, title: previous.items.find(item => item.gameId === intent.gameId)?.title ?? intent.gameId,
-        attemptId: "submitting", state: "queued", provider: "deepseek" },
-    ] }));
+    if (intent.action === "configure") {
+      pending.current.add(intent.gameId);
+      setStatus(previous => ({ ...previous, items: [
+        ...previous.items.filter(item => item.gameId !== intent.gameId),
+        { gameId: intent.gameId, title: previous.items.find(item => item.gameId === intent.gameId)?.title ?? intent.gameId,
+          attemptId: `submitting:${intent.gameId}`, state: "queued", provider: "deepseek" },
+      ] }));
+    }
     void (async () => {
       try {
         await operation(`unity_translation.${intent.action}`, intent.action === "configure" ? { gameIds: [intent.gameId] } : { gameId: intent.gameId },
           `unity_translation.${intent.action}:${intent.gameId}`);
-        submitting.current = null;
+        if (intent.action === "configure") pending.current.delete(intent.gameId);
         await refresh(); await callbacks.current.onChanged();
       } catch (cause) { if (alive.current) {
-        submitting.current = null;
+        if (intent.action === "configure") pending.current.delete(intent.gameId);
         const reason = describeFailure(cause);
         setError(reason);
         setStatus(previous => ({ ...previous, items: previous.items.map(item => item.gameId === intent.gameId

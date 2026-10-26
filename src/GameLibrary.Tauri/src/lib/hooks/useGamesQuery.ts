@@ -16,6 +16,43 @@ export interface GamesQuery {
   patch: (item: Partial<GameItem> & Pick<GameItem, "gameId" | "revision">) => void;
 }
 
+/** games.list 原始响应：nextOffset/hasMore 是 v1.7.23 新增字段，旧 Host 不会返回。 */
+type GamesPageResponse = {
+  total: number;
+  items: GameItem[];
+  nextOffset?: number | null;
+  hasMore?: boolean;
+};
+
+/** 归一后的一页：nextOffset 是「下一页第一行的原始行偏移」，null 表示已到底。 */
+export interface GamesPage {
+  items: GameItem[];
+  total: number;
+  nextOffset: number | null;
+  hasMore: boolean;
+}
+
+/**
+ * 把一页响应归一成游标。
+ *
+ * 服务端按原始行分页，前端按 gameId 去重；用去重后的 games.length 当 offset 时，
+ * 跨页重复（边界位移）会让同一段被反复请求或整页被跳过。因此一律以游标推进：
+ * - 新契约有 nextOffset/hasMore 时以服务端为准；
+ * - 旧响应用 offset + 本页原始 items.length 递进，hasMore 按 offset+行数<total 近似；
+ * - 空页、游标不前进、hasMore=false 都是终止条件，避免死循环。
+ */
+function normalizePage(data: GamesPageResponse, offset: number): GamesPage {
+  const items = Array.isArray(data.items) ? data.items : [];
+  const total = Number.isFinite(data.total) ? data.total : items.length;
+  const serverHasMore = typeof data.hasMore === "boolean" ? data.hasMore : null;
+  const serverNext = typeof data.nextOffset === "number"
+    && Number.isSafeInteger(data.nextOffset) && data.nextOffset > offset ? data.nextOffset : null;
+  // 旧宿主没有游标字段：只能用原始行数递进（去重后的条数会小于真实行号）。
+  const fallbackNext = offset + items.length < total ? offset + items.length : null;
+  const nextOffset = serverHasMore === false ? null : (serverNext ?? fallbackNext);
+  return { items, total, nextOffset, hasMore: nextOffset !== null };
+}
+
 /**
  * 服务端查询。v1.1.5 固定 limit=500 并在客户端做搜索/排序/筛选，
  * 导致第 501 个游戏永久搜不到、侧栏计数与列表不一致，而后端 QueryGames
@@ -31,11 +68,13 @@ export function useGamesQuery(
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
   const [debouncedSearch, setDebouncedSearch] = useState(filters.search);
   const hasLoadedRef = useRef(false);
-  /** games/total 的镜像 ref：串行队列里的异步任务读它决定补拉范围，避免闭包读到旧 state。 */
+  /** games 的镜像 ref：串行队列里的异步任务读它决定保留多少条，避免闭包读到旧 state。 */
   const gamesRef = useRef<GameItem[]>([]);
-  const totalRef = useRef(0);
+  /** 下一页的原始行 offset；null＝已到底。触底加载只认它，不认去重后的 games.length。 */
+  const cursorRef = useRef<number | null>(null);
   /** 上一次生效的查询参数；引用未变却触发重查 ⇒ 后台失效刷新（bug-2：保留已加载页）。 */
   const lastRequestRef = useRef<Record<string, unknown> | null>(null);
   /** 串行队列：刷新与触底加载互斥，避免并发 games.list 交叉覆盖（补拉的页被 append 吞掉等）。 */
@@ -77,24 +116,31 @@ export function useGamesQuery(
     return () => { mounted.current = false; };
   }, []);
 
-  const applyResult = useCallback((items: GameItem[], totalNow: number) => {
+  const applyResult = useCallback((items: GameItem[], page: GamesPage) => {
     if (!mounted.current) return;
     const newer = new Map(gamesRef.current.map(item => [item.gameId, item]));
     items = items.map(item => (newer.get(item.gameId)?.revision ?? 0) > item.revision ? newer.get(item.gameId)! : item);
+    // 空页说明服务端已没有更多原始行：把游标收口，重复触底不会继续请求同一段。
+    const nextOffset = page.items.length === 0 ? null : page.nextOffset;
     gamesRef.current = items;
-    totalRef.current = totalNow;
+    cursorRef.current = nextOffset;
     setGames(items);
-    setTotal(totalNow);
+    setTotal(page.total);
+    setHasMore(nextOffset !== null);
   }, []);
+
+  const resetResult = useCallback(() => {
+    applyResult([], { items: [], total: 0, nextOffset: null, hasMore: false });
+  }, [applyResult]);
 
   const queryPage = useCallback(
     async (offset: number) => {
-      const result = await operation<{ total: number; items: GameItem[] }>("games.list", {
+      const result = await operation<GamesPageResponse>("games.list", {
         ...request,
         limit: PAGE_SIZE,
         offset,
       });
-      return result.data;
+      return normalizePage(result.data, offset);
     },
     [request],
   );
@@ -104,31 +150,36 @@ export function useGamesQuery(
    * 一并补拉回来，避免整组替换把已触底加载的页清掉——列表变短会让外层滚动容器
    * scrollTop 被钳制，表现为"点开始游戏/添加封面后页面自动跳顶"。筛选/排序变化
    * 走 preserveLoaded=false，重置回第 0 页（此时滚动重置是合理行为）。
+   *
+   * 补页沿服务端游标走，而不是沿「已经去重了多少条」走：跨页重复时后者会原地
+   * 打转，而游标一定指向尚未取过的原始行。
    */
   const refresh = useCallback(
     async (preserveLoaded: boolean, isCurrent: () => boolean = () => true) => {
       if (!mounted.current || activeRequest.current !== request || !isCurrent()) return;
-      const first = await queryPage(0);
+      let page = await queryPage(0);
       if (!mounted.current || activeRequest.current !== request || !isCurrent()) return;
       const previousCount = preserveLoaded ? gamesRef.current.length : 0;
-      let items = first.items;
+      // 上限只防异常游标（服务端一直返回同一页）导致的无限补页；正常情况由游标到底结束。
+      const maxPages = Math.ceil(previousCount / PAGE_SIZE) + 1;
+      let items = page.items;
       // 偏移分页在数据插入/删除时可能跨页重复同一游戏（边界位移），按 gameId 去重。
       const seen = new Set(items.map((item) => item.gameId));
-      while (items.length < previousCount && items.length < first.total) {
-        const more = await queryPage(items.length);
+      for (let fetched = 0; preserveLoaded && page.nextOffset !== null
+        && items.length < previousCount && items.length < page.total && fetched < maxPages; fetched++) {
+        const more = await queryPage(page.nextOffset);
         if (!mounted.current || activeRequest.current !== request || !isCurrent()) return;
-        if (more.items.length === 0) break;
-        const before = items.length;
+        // 空页＝服务端没有更多行：终止补页，并把游标收口。
+        if (more.items.length === 0) { page = more; break; }
         for (const item of more.items) {
           if (!seen.has(item.gameId)) {
             seen.add(item.gameId);
             items.push(item);
           }
         }
-        // 本页全是重复项（刷新窗口内插入量 ≥ 页大小等极端场景）：继续拉同一偏移会死循环，放弃补齐。
-        if (items.length === before) break;
+        page = more;
       }
-      applyResult(items, first.total);
+      applyResult(items, page);
     },
     [queryPage, applyResult, request],
   );
@@ -140,7 +191,9 @@ export function useGamesQuery(
     const isFilterChange = lastRequestRef.current !== request;
     const isLibraryChange = lastRequestRef.current?.played !== request.played;
     lastRequestRef.current = request;
-    if (isLibraryChange) applyResult([], 0);
+    // 参数一变旧游标立即作废，避免刷新返回前用旧 offset 触底拉到上一组筛选的行。
+    if (isFilterChange) cursorRef.current = null;
+    if (isLibraryChange) resetResult();
     if (!hasLoadedRef.current || isLibraryChange) setLoading(true);
     setError(null);
     void (async () => {
@@ -160,14 +213,15 @@ export function useGamesQuery(
       cancelled = true;
     };
     // 保留调用方主动抑制自动刷新接口；扫描本身不再阻止读取。
-  }, [enqueue, refresh, request, applyResult, changeToken, suppressAutoRefresh]);
+  }, [enqueue, refresh, request, resetResult, changeToken, suppressAutoRefresh]);
 
   const loadMore = useCallback(() => {
-    if (loadingMore || gamesRef.current.length >= totalRef.current) return;
+    const offset = cursorRef.current;
+    if (loadingMore || offset === null) return;
     setLoadingMore(true);
     void enqueue(async () => {
       if (!mounted.current || activeRequest.current !== request) return;
-      const page = await queryPage(gamesRef.current.length);
+      const page = await queryPage(offset);
       if (!mounted.current || activeRequest.current !== request) return;
       const seen = new Set(gamesRef.current.map((item) => item.gameId));
       const merged = [...gamesRef.current];
@@ -177,7 +231,7 @@ export function useGamesQuery(
           merged.push(item);
         }
       }
-      applyResult(merged, page.total);
+      applyResult(merged, page);
     })
       .catch((cause) => { if (mounted.current && activeRequest.current === request) setError(describeFailure(cause)); })
       .finally(() => { if (mounted.current) setLoadingMore(false); });
@@ -205,5 +259,5 @@ export function useGamesQuery(
     setGames(gamesRef.current);
   }, []);
 
-  return { games, total, loading, loadingMore, error, hasMore: games.length < total, loadMore, reload, patch };
+  return { games, total, loading, loadingMore, error, hasMore, loadMore, reload, patch };
 }

@@ -17,14 +17,13 @@ import { discoverLaunchProfiles, LaunchProfileSelectionRequired, selectLaunchPro
 import { useLibraryMetadata } from "./hooks/useLibraryMetadata";
 import { useLibraryEvents } from "./hooks/useLibraryEvents";
 import { useScanJobs } from "./hooks/useScanJobs";
-import { useCandidateReview } from "./hooks/useCandidateReview";
+import { useCandidateReview, type ReviewOutcome } from "./hooks/useCandidateReview";
 import { useTagActions } from "./hooks/useTagActions";
 export { useGamesQuery, PAGE_SIZE } from "./hooks/useGamesQuery";
 import type {
   CandidateItem,
   NotificationItem,
   RootItem,
-  SimilarGameSuggestion,
   TagItem,
   ViewItem,
 } from "./types";
@@ -117,10 +116,11 @@ interface LibraryController {
   refreshMeta: () => Promise<void>;
   startScan: () => Promise<void>;
   cancelScan: () => Promise<void>;
+  /** 审核部分失败不再整批抛错：返回成功项 ID 列表与失败摘要，由 App/ReviewList 分别呈现。 */
   reviewCandidates: (
     items: CandidateItem[],
     action: "accept" | "defer" | "ignore",
-  ) => Promise<Array<{ candidate: CandidateItem; similarTo: SimilarGameSuggestion[] }>>;
+  ) => Promise<ReviewOutcome>;
   launch: (gameId: string, profileId?: string) => Promise<void>;
   createTag: (name: string, category?: string) => Promise<void>;
   renameTag: (tag: TagItem, name: string) => Promise<void>;

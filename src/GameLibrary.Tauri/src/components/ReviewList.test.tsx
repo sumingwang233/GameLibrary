@@ -79,3 +79,28 @@ it("batch review forwards the user's confirmed directory decision and adjustment
   }, expect.any(String));
   expect(refresh).toHaveBeenCalledOnce();
 });
+
+it("clears only the candidates the backend accepted when part of a batch fails", async () => {
+  const first = { ...candidate, candidateId: "a", relativePath: "A", flash: undefined };
+  const second = { ...first, candidateId: "b", relativePath: "B" };
+  const review = vi.fn(async () => ({ succeededIds: ["a"], accepted: [], failureMessage: "1 项失败：conflict" }));
+  render(<ReviewList candidates={[first, second]} busy={false} onReview={review} />);
+  fireEvent.click(screen.getByRole("button", { name: "全选已加载项目" }));
+  expect(screen.getByRole("checkbox", { name: "选择 A" })).toBeChecked();
+  fireEvent.click(screen.getByRole("button", { name: "加入" }));
+  await waitFor(() => expect(screen.getByRole("checkbox", { name: "选择 A" })).not.toBeChecked());
+  // 失败项保持勾选，用户不必重新挑选就能重试。
+  expect(screen.getByRole("checkbox", { name: "选择 B" })).toBeChecked();
+});
+
+it("keeps every selection when the review request itself fails", async () => {
+  const first = { ...candidate, candidateId: "a", relativePath: "A", flash: undefined };
+  const second = { ...first, candidateId: "b", relativePath: "B" };
+  const review = vi.fn(async () => { throw new Error("host offline"); });
+  render(<ReviewList candidates={[first, second]} busy={false} onReview={review} />);
+  fireEvent.click(screen.getByRole("button", { name: "全选已加载项目" }));
+  fireEvent.click(screen.getByRole("button", { name: "加入" }));
+  await waitFor(() => expect(review).toHaveBeenCalledOnce());
+  expect(screen.getByRole("checkbox", { name: "选择 A" })).toBeChecked();
+  expect(screen.getByRole("checkbox", { name: "选择 B" })).toBeChecked();
+});

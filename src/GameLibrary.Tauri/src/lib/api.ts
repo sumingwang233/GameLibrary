@@ -35,17 +35,48 @@ let requestCounter = 0;
  */
 const pendingIntents = new Map<string, string>();
 
-function acquireKey(intent?: string): string | null {
-  if (!intent) return null;
-  const existing = pendingIntents.get(intent);
+/**
+ * 稳定序列化：对象键递归排序，数组保持顺序（位置参数有语义）。
+ * undefined 与缺失字段等价（本来也不会进 JSON），null 单独保留。
+ */
+function stableStringify(value: unknown): string {
+  if (value === undefined) return "undefined";
+  if (value === null) return "null";
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const body = Object.keys(record)
+      .filter((key) => record[key] !== undefined)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
+      .join(",");
+    return `{${body}}`;
+  }
+  return JSON.stringify(value) ?? String(value);
+}
+
+/**
+ * 幂等键必须同时绑定 intent 与参数指纹：只按 intent 时，同一个 intent 换一组参数
+ * 重试会命中上一组参数的收据（例如批量翻译 5 个后再重试 2 个，后端直接重放 5 个的结果）。
+ * idempotencyKey 由本模块注入，不能参与指纹，否则每次算出的键都不同。
+ */
+function intentSignature(intent: string, parameters?: Record<string, unknown>): string {
+  const rest = { ...(parameters ?? {}) };
+  delete rest.idempotencyKey;
+  return `${intent}\u0000${stableStringify(rest)}`;
+}
+
+function acquireKey(signature: string | null): string | null {
+  if (!signature) return null;
+  const existing = pendingIntents.get(signature);
   if (existing) return existing;
   const key = crypto.randomUUID();
-  pendingIntents.set(intent, key);
+  pendingIntents.set(signature, key);
   return key;
 }
 
-function releaseKey(intent?: string) {
-  if (intent) pendingIntents.delete(intent);
+function releaseKey(signature: string | null) {
+  if (signature) pendingIntents.delete(signature);
 }
 
 /** 业务失败：已收到 Envelope，可读取 nextActions 给用户结构化引导。 */
@@ -76,7 +107,8 @@ export async function operation<T>(
 ): Promise<Envelope<T>> {
   const generation = libraryGeneration;
   const requestId = `tauri-${Date.now()}-${++requestCounter}`;
-  const key = acquireKey(intent);
+  const signature = intent ? intentSignature(intent, parameters) : null;
+  const key = acquireKey(signature);
   const payload: Record<string, unknown> = { ...(parameters ?? {}) };
   if (key) payload.idempotencyKey = key;
 
@@ -104,7 +136,7 @@ export async function operation<T>(
   }
   if (result.ok && operationId.startsWith("assets.") && !["assets.get", "assets.list"].includes(operationId))
     invalidateAssetChanges(result.data);
-  releaseKey(intent);
+  releaseKey(signature);
   if (!result.ok) {
     throw new OperationError(
       result.error?.code ?? "OperationFailed",

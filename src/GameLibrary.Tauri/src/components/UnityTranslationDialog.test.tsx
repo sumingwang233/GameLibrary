@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useState } from "react";
 import { UnityTranslationDialog } from "./UnityTranslationDialog";
@@ -115,5 +115,41 @@ describe("Unity translation launch confirmation", () => {
     await waitFor(() => expect(callbacks.onReviewHandled).toHaveBeenCalled());
     expect(screen.queryByText("尝试运行游戏")).not.toBeInTheDocument();
     expect(callbacks.onPlay).not.toHaveBeenCalled();
+  });
+
+  it("keeps an optimistic row per concurrently configuring game and fails only the one that errored", async () => {
+    let serverItems: Array<Record<string, unknown>> = [];
+    const pendingConfigure = new Map<string, { resolve: (value: unknown) => void; reject: (reason: Error) => void }>();
+    api.operation.mockImplementation(async (id: string, params?: { gameIds?: string[] }) => {
+      if (id === "unity_translation.settings.get") return { data: { provider: "deepseek", endpoint: "https://api.deepseek.com/chat/completions", model: "deepseek-flash", hasKey: true } };
+      if (id === "unity_translation.configure") return new Promise((resolve, reject) => {
+        pendingConfigure.set(params!.gameIds![0], { resolve, reject });
+      });
+      return { libraryInstanceId: "library", dataEpoch: "epoch", data: { items: serverItems, needsSettings: false } };
+    });
+    const onStatusChange = vi.fn();
+    const callbacks = props();
+    const configureCalls = () => api.operation.mock.calls.filter(([name]) => name === "unity_translation.configure");
+    const rows = () => (onStatusChange.mock.lastCall?.[0] ?? []) as Array<{ gameId: string; attemptId: string; state: string }>;
+    const view = render(<UnityTranslationDialog {...callbacks} request={{ gameId: "a", action: "configure" }} onStatusChange={onStatusChange} />);
+    await waitFor(() => expect(configureCalls()).toHaveLength(1));
+    // 同一游戏重复提交幂等忽略：不再发第二次请求。
+    view.rerender(<UnityTranslationDialog {...callbacks} request={{ gameId: "a", action: "configure" }} onStatusChange={onStatusChange} />);
+    await act(async () => { await Promise.resolve(); });
+    expect(configureCalls()).toHaveLength(1);
+    // 另一个游戏在 A 仍在途时提交：两条乐观行必须同时存在，attemptId 也不能撞车（重复 key 会吞掉一条）。
+    view.rerender(<UnityTranslationDialog {...callbacks} request={{ gameId: "b", action: "configure" }} onStatusChange={onStatusChange} />);
+    await waitFor(() => expect(configureCalls()).toHaveLength(2));
+    expect(rows().map(row => `${row.gameId}:${row.state}`).sort()).toEqual(["a:queued", "b:queued"]);
+    expect(new Set(rows().map(row => row.attemptId)).size).toBe(2);
+    // A 成功：服务端只回 A 的 configured 行，B 的乐观行不能被冲掉。
+    serverItems = [{ gameId: "a", title: "A 游戏", attemptId: "a-attempt", state: "configured", provider: "deepseek" }];
+    await act(async () => { pendingConfigure.get("a")!.resolve({ data: { jobId: "job-a" } }); });
+    await waitFor(() => expect(rows().map(row => `${row.gameId}:${row.state}`).sort()).toEqual(["a:configured", "b:queued"]));
+    // B 失败：只有 B 置 failed，A 保持 configured。
+    await act(async () => { pendingConfigure.get("b")!.reject(new Error("disk full")); });
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("disk full"));
+    expect(rows().find(row => row.gameId === "b")).toMatchObject({ state: "failed" });
+    expect(rows().find(row => row.gameId === "a")).toMatchObject({ state: "configured" });
   });
 });

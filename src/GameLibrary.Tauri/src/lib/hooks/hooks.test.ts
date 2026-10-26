@@ -1,13 +1,14 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { useGamesQuery } from "./useGamesQuery";
+import { useScanJobs } from "./useScanJobs";
 import { useLibraryEvents, affectedDomains } from "./useLibraryEvents";
 import { useCandidateReview } from "./useCandidateReview";
 import { useTagActions } from "./useTagActions";
 import { useLibraryMetadata } from "./useLibraryMetadata";
 import { emptyFilters } from "../state";
 import { OperationError } from "../api";
-import type { CandidateItem, GameItem, LibraryEvent } from "../types";
+import type { CandidateItem, GameItem, LibraryEvent, RootItem } from "../types";
 
 const { call, invalidate, show } = vi.hoisted(() => ({
   call: vi.fn(), invalidate: vi.fn(), show: vi.fn(),
@@ -188,7 +189,12 @@ it("sends one candidate batch, reports partial failures, and refreshes retained 
   const refresh = vi.fn(async () => {});
   const bump = vi.fn();
   const hook = renderHook(() => useCandidateReview(supports, refresh, bump));
-  await expect(hook.result.current([candidate("a"), candidate("b")], "accept")).rejects.toThrow("1 项失败");
+  // v1.7.23 起批量审核不再整批抛错：部分失败通过 failureMessage 返回，
+  // 成功项由 succeededIds 交给 ReviewList 只清除真正成功的勾选。
+  const outcome = await hook.result.current([candidate("a"), candidate("b")], "accept");
+  expect(outcome.succeededIds).toEqual(["a"]);
+  expect(outcome.failureMessage).toContain("1 项失败");
+  expect(outcome.accepted.map(item => item.candidate.candidateId)).toEqual(["a"]);
   expect(call).toHaveBeenCalledOnce();
   expect(call.mock.calls[0][0]).toBe("candidates.review_batch");
   expect(refresh).toHaveBeenCalledOnce();
@@ -320,4 +326,142 @@ it("preserves explicit null color patches and omits untouched colors", async () 
   expect(call.mock.calls[0][1]).toEqual({ tagId: "white", expectedRevision: 1, color: null });
   await hook.result.current.updateTag(tag, { starred: 1 });
   expect(call.mock.calls[1][1]).toEqual({ tagId: "white", expectedRevision: 1, starred: 1 });
+});
+
+// ---- 分页游标（v1.7.23）：服务端按原始行分页，前端去重后条数不能当 offset ----
+
+it("advances the paging cursor by nextOffset instead of the deduplicated game count", async () => {
+  // 第 2 页整页重复：去重后 games 仍是 5 条，远小于下一页的原始行 offset 10。
+  const idsAt = (offset: number): number[] =>
+    offset === 5 ? [0, 1] : Array.from({ length: 5 }, (_, i) => offset + i);
+  call.mockImplementation(async (_operation: string, params: { offset: number }) =>
+    envelope({ total: 20, nextOffset: params.offset + 5, hasMore: params.offset + 5 < 20,
+      items: idsAt(params.offset).map(game) }));
+  const hook = renderHook(() => useGamesQuery(emptyFilters, 0, false));
+  await act(async () => {});
+  expect(hook.result.current.games.map(item => item.gameId)).toEqual(["0", "1", "2", "3", "4"]);
+  await act(async () => hook.result.current.loadMore());
+  expect(call.mock.lastCall?.[1].offset).toBe(5);
+  expect(hook.result.current.games).toHaveLength(5);
+  expect(hook.result.current.hasMore).toBe(true);
+  // 关键：必须请求 10，而不是拿去重后的 games.length(5) 再拉一次第 2 页。
+  await act(async () => hook.result.current.loadMore());
+  expect(call.mock.lastCall?.[1].offset).toBe(10);
+  expect(hook.result.current.games).toHaveLength(10);
+  await act(async () => hook.result.current.loadMore());
+  expect(call.mock.lastCall?.[1].offset).toBe(15);
+  expect(hook.result.current.games).toHaveLength(15);
+  expect(hook.result.current.hasMore).toBe(false);
+  const requests = call.mock.calls.filter(([name]) => name === "games.list").length;
+  await act(async () => hook.result.current.loadMore());
+  expect(call.mock.calls.filter(([name]) => name === "games.list")).toHaveLength(requests);
+});
+
+it("rehydrates loaded pages along the server cursor when a page repeats", async () => {
+  const idsAt = (offset: number): number[] =>
+    offset === 5 ? [0, 1, 2, 3, 4] : Array.from({ length: 5 }, (_, i) => offset + i);
+  call.mockImplementation(async (_operation: string, params: { offset: number }) =>
+    envelope({ total: 100, nextOffset: params.offset + 5, hasMore: true, items: idsAt(params.offset).map(game) }));
+  const hook = renderHook(({ token }: { token: number }) => useGamesQuery(emptyFilters, token, false),
+    { initialProps: { token: 0 } });
+  await act(async () => {});
+  await act(async () => hook.result.current.loadMore()); // offset 5 整页重复
+  await act(async () => hook.result.current.loadMore()); // offset 10
+  expect(hook.result.current.games).toHaveLength(10);
+  hook.rerender({ token: 1 });
+  await act(async () => {});
+  // 补页：0 → 5（重复，条数不涨）→ 10；旧实现会用去重后的 5 反复请求 offset 5。
+  const offsets = call.mock.calls.filter(([name]) => name === "games.list").map(([, params]) => params.offset);
+  expect(offsets).toEqual([0, 5, 10, 0, 5, 10]);
+  expect(hook.result.current.games).toHaveLength(10);
+  expect(hook.result.current.hasMore).toBe(true);
+});
+
+it("trusts the server hasMore flag when deduplication hides rows", async () => {
+  call.mockImplementation(async (_operation: string, params: { offset: number }) => params.offset === 0
+    ? envelope({ total: 1000, nextOffset: 60, hasMore: true, items: [game(1)] })
+    : envelope({ total: 1000, nextOffset: null, hasMore: false, items: [game(2)] }));
+  const hook = renderHook(() => useGamesQuery(emptyFilters, 0, false));
+  await act(async () => {});
+  // 本地 games.length(1) 远小于 total(1000)，但 hasMore 必须以服务端为准。
+  expect(hook.result.current.hasMore).toBe(true);
+  await act(async () => hook.result.current.loadMore());
+  expect(call.mock.lastCall?.[1].offset).toBe(60);
+  expect(hook.result.current.games).toHaveLength(2);
+  expect(hook.result.current.hasMore).toBe(false);
+});
+
+// ---- 扫描轮询（v1.7.23）：NotFound 只移除单个作业；连续失败有上限 ----
+
+const scanRoot = (id: string): RootItem => ({ rootId: id, path: `C:/${id}`, revision: 1 });
+const vanishedJob = () => Object.assign(new Error("job gone"), { code: "NotFound", name: "OperationError" });
+const advanceScanPoll = async () => { await act(async () => { await vi.advanceTimersByTimeAsync(700); }); };
+
+it("drops only the scan job the host no longer knows and finishes when all are gone", async () => {
+  call.mockImplementation(async (name: string, params: { root?: string; jobId?: string }) => {
+    if (name === "scan.start") return envelope({ jobId: params.root === "C:/a" ? "job-a" : "job-b" });
+    if (params.jobId === "job-a") throw vanishedJob();
+    return envelope({ state: "running", coverage: { scannedDirectories: 3, candidatesFound: 1 } });
+  });
+  const refreshMeta = vi.fn(async () => {});
+  const bump = vi.fn();
+  const setError = vi.fn();
+  const hook = renderHook(() => useScanJobs([scanRoot("a"), scanRoot("b")], refreshMeta, bump, setError));
+  await act(async () => { await hook.result.current.startScan(); });
+  expect(hook.result.current.scanning).toBe(true);
+  await advanceScanPoll();
+  expect(hook.result.current.scanning).toBe(true); // 只移除了 job-a，job-b 仍被轮询
+  expect(hook.result.current.scanProgress?.activeRoots).toBe(1);
+  expect(setError).not.toHaveBeenCalled();
+  // job-b 也到终态 ⇒ 正常收尾（清进度、刷新库）。
+  call.mockImplementation(async (name: string) => name === "scan.start"
+    ? envelope({})
+    : envelope({ state: "succeeded", coverage: { scannedDirectories: 5, candidatesFound: 2 } }));
+  await advanceScanPoll();
+  expect(hook.result.current.scanning).toBe(false);
+  expect(hook.result.current.scanProgress).toBeNull();
+  expect(refreshMeta).toHaveBeenCalledOnce();
+  expect(bump).toHaveBeenCalledOnce();
+});
+
+it("stops scan polling after five consecutive failures and reports a readable reason", async () => {
+  call.mockImplementation(async (name: string) => {
+    if (name === "scan.start") return envelope({ jobId: "job" });
+    throw new Error("backend down");
+  });
+  const refreshMeta = vi.fn(async () => {});
+  const bump = vi.fn();
+  const setError = vi.fn();
+  const hook = renderHook(() => useScanJobs([scanRoot("a")], refreshMeta, bump, setError));
+  await act(async () => { await hook.result.current.startScan(); });
+  for (let i = 0; i < 5; i++) await advanceScanPoll();
+  expect(call.mock.calls.filter(([name]) => name === "scan.coverage")).toHaveLength(5);
+  expect(setError).toHaveBeenCalledOnce();
+  expect(String(setError.mock.calls[0][0])).toContain("5");
+  expect(hook.result.current.scanning).toBe(false);
+  expect(hook.result.current.scanProgress).toBeNull();
+  const issued = call.mock.calls.length;
+  await advanceScanPoll();
+  await advanceScanPoll();
+  expect(call.mock.calls).toHaveLength(issued); // 停止后不再每 700ms 打后端
+});
+
+it("resets the scan failure budget on a single successful poll", async () => {
+  let polls = 0;
+  call.mockImplementation(async (name: string) => {
+    if (name === "scan.start") return envelope({ jobId: "job" });
+    polls += 1;
+    // 前 4 次失败、第 5 次成功清零、随后再失败 4 次：仍未到连续 5 次上限。
+    if (polls === 5) return envelope({ state: "running", coverage: { scannedDirectories: 1, candidatesFound: 0 } });
+    throw new Error("flaky");
+  });
+  const refreshMeta = vi.fn(async () => {});
+  const bump = vi.fn();
+  const setError = vi.fn();
+  const hook = renderHook(() => useScanJobs([scanRoot("a")], refreshMeta, bump, setError));
+  await act(async () => { await hook.result.current.startScan(); });
+  for (let i = 0; i < 9; i++) await advanceScanPoll();
+  expect(polls).toBe(9);
+  expect(setError).not.toHaveBeenCalled();
+  expect(hook.result.current.scanning).toBe(true);
 });

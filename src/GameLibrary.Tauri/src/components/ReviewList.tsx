@@ -2,6 +2,7 @@ import { t } from "../lib/i18n";
 import { useEffect, useState } from "react";
 import { Inbox } from "lucide-react";
 import type { CandidateItem, FlashCandidateInspection } from "../lib/types";
+import type { ReviewOutcome } from "../lib/hooks/useCandidateReview";
 import { describeFailure, operation } from "../lib/api";
 import { EmptyState } from "./EmptyState";
 import { ReviewBatchBar } from "./ReviewBatchBar";
@@ -9,6 +10,9 @@ import { Checkbox } from "./ui/checkbox";
 import { Button } from "./ui/button";
 
 export type ReviewAction = "accept" | "defer" | "ignore";
+
+/** onReview 返回成功项；返回 void（旧实现）时视为整批成功，保留兼容。 */
+type ReviewHandler = (items: CandidateItem[], action: ReviewAction) => Promise<ReviewOutcome | void>;
 
 export function ReviewList({
   candidates,
@@ -21,7 +25,7 @@ export function ReviewList({
 }: {
   candidates: CandidateItem[];
   busy: boolean;
-  onReview: (items: CandidateItem[], action: ReviewAction) => Promise<void>;
+  onReview: ReviewHandler;
   total?: number;
   hasMore?: boolean;
   loadingMore?: boolean;
@@ -55,8 +59,14 @@ export function ReviewList({
     });
 
   const apply = async (action: ReviewAction) => {
-    await onReview(chosen, action);
-    setSelected(new Set());
+    // 只清除后端确认成功的勾选：部分失败时失败项保持选中，用户可直接重试。
+    // 整批失败（onReview 抛出）时保持全部勾选，错误由 App 的 actionError 呈现。
+    try {
+      const outcome = await onReview(chosen, action);
+      const succeeded = new Set(outcome ? outcome.succeededIds : chosen.map(item => item.candidateId));
+      if (succeeded.size === 0) return;
+      setSelected(previous => new Set([...previous].filter(id => !succeeded.has(id))));
+    } catch { /* 整批失败：保留勾选以便重试；错误提示由调用方负责。 */ }
   };
 
   return (
@@ -113,7 +123,7 @@ export function ReviewList({
 
 function FlashReviewEditor({ candidate, busy, onReview }: {
   candidate: CandidateItem; busy: boolean;
-  onReview: (items: CandidateItem[], action: ReviewAction) => Promise<void>;
+  onReview: ReviewHandler;
 }) {
   const [detail, setDetail] = useState<FlashCandidateInspection | null>(null);
   const [kind, setKind] = useState<"project" | "collection" | "resources" | "">("");
