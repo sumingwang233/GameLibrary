@@ -10,28 +10,28 @@
 
 把散落在硬碟裡的遊戲放到同一處。選好資料夾、確認啟動項目，就能從遊戲庫開啟遊戲。
 
-目前正式版 **v1.7.23** 修復 MCP 工具啟動、標籤批次回復與啟動入口驗證，恢復完整 CI 檢查；保留 Godot/MTool、已遊玩遊戲庫、評分與 BAT 啟動。[發布說明](docs/releases/v1.7.23.md)記錄本次變更與限制。
+目前正式版 **v1.8.0** 把批次收藏、批次標籤與批次移出做成一次操作，修復後台服務重新啟動後連線失效、輪詢無限重試的問題，並收窄安裝設定的權限範圍；先前的 Godot/MTool、Unity 翻譯與已遊玩遊戲庫維持不變。[發布說明](docs/releases/v1.8.0.md)記錄本次變更與限制。
 
-**[下載 Windows 安裝版](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.23/GameLibrary-Setup-v1.7.23.exe)** · [所有版本](https://github.com/sumingwang233/GameLibrary/releases) · [回報問題](https://github.com/sumingwang233/GameLibrary/issues)
+**[下載 Windows 安裝版](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.0/GameLibrary-Setup-v1.8.0.exe)** · [所有版本](https://github.com/sumingwang233/GameLibrary/releases) · [回報問題](https://github.com/sumingwang233/GameLibrary/issues)
 
 [下載](#download) · [畫面](#demo) · [開始使用](#start) · [常見問題](#faq)
 
 <a id="download"></a>
 ## 下載
 
-目前公開正式版為 **v1.7.23**，面向 **Windows 10 / 11 x64**。本機及 GitHub 的 867 項 .NET、102 項前端測試通過；維護者於 2026-10-20 確認人工驗收。自動 WebView 煙霧測試仍為 not-run，本次發布沿用維護者的驗收豁免，見[發行記錄](docs/releases/v1.7.23-validation.md)。
+目前公開正式版為 **v1.8.0**，面向 **Windows 10 / 11 x64**。自動檢查涵蓋建置、測試、型別檢查、格式與封裝，結果與結束碼見[發行記錄](docs/releases/v1.8.0-validation.md)；人工驗收由維護者確認。安裝檔未簽章，Windows 可能提示未知發行者。
 
 | 檔案 | 用途 |
 |---|---|
-| [`GameLibrary-Setup-v1.7.23.exe`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.23/GameLibrary-Setup-v1.7.23.exe) | 建議使用。可選擇安裝位置的目前使用者安裝程式。 |
-| [`GameLibrary-Portable-win-x64-v1.7.23.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.23/GameLibrary-Portable-win-x64-v1.7.23.zip) | 解壓縮後執行 GameLibrary.Desktop.exe。 |
-| [`GameLibrary-Tools-win-x64-v1.7.23.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.23/GameLibrary-Tools-win-x64-v1.7.23.zip) | Host、CLI 與 MCP，供命令列與自動化使用。 |
-| [`GameLibrary-v1.7.23-SHA256SUMS.txt`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.23/GameLibrary-v1.7.23-SHA256SUMS.txt) | 上述三個下載包的 SHA-256 校驗清單。 |
+| [`GameLibrary-Setup-v1.8.0.exe`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.0/GameLibrary-Setup-v1.8.0.exe) | 建議使用。可選擇安裝位置的目前使用者安裝程式。 |
+| [`GameLibrary-Portable-win-x64-v1.8.0.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.0/GameLibrary-Portable-win-x64-v1.8.0.zip) | 解壓縮後執行 GameLibrary.Desktop.exe。 |
+| [`GameLibrary-Tools-win-x64-v1.8.0.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.0/GameLibrary-Tools-win-x64-v1.8.0.zip) | Host、CLI 與 MCP，供命令列與自動化使用。 |
+| [`GameLibrary-v1.8.0-SHA256SUMS.txt`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.0/GameLibrary-v1.8.0-SHA256SUMS.txt) | 上述三個下載包的 SHA-256 校驗清單。 |
 
 程式與安裝程式尚未進行 Authenticode 簽章，Windows 可能提示未知發行者。請從本儲存庫下載，並比對同版本的校驗清單：
 
 ```powershell
-Get-FileHash .\GameLibrary-Setup-v1.7.23.exe -Algorithm SHA256
+Get-FileHash .\GameLibrary-Setup-v1.8.0.exe -Algorithm SHA256
 ```
 
 <a id="demo"></a>
@@ -64,7 +64,7 @@ Get-FileHash .\GameLibrary-Setup-v1.7.23.exe -Algorithm SHA256
 <a id="faq"></a>
 ## 資料與常見問題
 
-**v1.7.23 正式版**：修復 MCP、標籤交易與啟動驗證，並包含先前的 Godot/MTool、Unity 翻譯及遊戲回收修復。[下載與說明](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.23) · [組建與驗收記錄](docs/releases/v1.7.23-validation.md)。
+**v1.8.0 正式版**：新增批次收藏、批次標籤與批次移出，修復後台連線失效與輪詢無限重試，收窄安裝設定權限。[下載與說明](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.8.0) · [驗證記錄](docs/releases/v1.8.0-validation.md)。
 
 <details>
 <summary><strong>掃描或移出遊戲庫會刪除遊戲檔案嗎？</strong></summary>

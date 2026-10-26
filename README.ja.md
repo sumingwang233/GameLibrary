@@ -10,28 +10,28 @@
 
 ドライブに散らばったゲームを、一つのライブラリに。フォルダーを選び、起動ファイルを確認すると、一覧からゲームを開けます。
 
-現在の正式版 **v1.7.23** は MCP 起動、タグ一括処理のロールバック、起動候補の検証を修正し、CI 全体のチェックを復旧します。Godot/MTool、プレイ済みライブラリ、評価、BAT 起動も引き続き利用できます。[リリース説明](docs/releases/v1.7.23.md)をご確認ください。
+現在の正式版 **v1.8.0** は、一括のお気に入り・タグ付け・ライブラリからの削除を一度の操作にまとめ、バックグラウンドサービスの再起動後に接続が失われる問題とポーリングの無限再試行を修正し、インストーラーの権限範囲を絞り込みました。Godot/MTool、Unity 翻訳、プレイ済みライブラリは引き続き利用できます。[リリース説明](docs/releases/v1.8.0.md)をご確認ください。
 
-**[Windows インストーラーをダウンロード](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.23/GameLibrary-Setup-v1.7.23.exe)** · [すべてのリリース](https://github.com/sumingwang233/GameLibrary/releases) · [不具合の報告](https://github.com/sumingwang233/GameLibrary/issues)
+**[Windows インストーラーをダウンロード](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.0/GameLibrary-Setup-v1.8.0.exe)** · [すべてのリリース](https://github.com/sumingwang233/GameLibrary/releases) · [不具合の報告](https://github.com/sumingwang233/GameLibrary/issues)
 
 [ダウンロード](#download) · [画面](#demo) · [使い始める](#start) · [よくある質問](#faq)
 
 <a id="download"></a>
 ## ダウンロード
 
-現在の正式リリースは **v1.7.23** で、対象は **Windows 10 / 11 x64** です。ローカルと GitHub で .NET 867 件、フロントエンド 102 件のテストが通過し、2026-10-20 にメンテナーが手動確認の完了を表明しています。自動 WebView スモークテストは not-run のままで、今回の公開に対する確認免除を適用しています。[リリース記録](docs/releases/v1.7.23-validation.md)をご確認ください。
+現在の正式リリースは **v1.8.0** で、対象は **Windows 10 / 11 x64** です。ビルド、テスト、型チェック、フォーマット、パッケージングを含む自動チェックを実施し、結果と終了コードは[リリース記録](docs/releases/v1.8.0-validation.md)にあります。手動確認はメンテナーが実施済みです。インストーラーは未署名のため、Windows が不明な発行元として警告する場合があります。
 
 | ファイル | 用途 |
 |---|---|
-| [`GameLibrary-Setup-v1.7.23.exe`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.23/GameLibrary-Setup-v1.7.23.exe) | 推奨。現在のユーザー向け。インストール先を選択できます。 |
-| [`GameLibrary-Portable-win-x64-v1.7.23.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.23/GameLibrary-Portable-win-x64-v1.7.23.zip) | 展開して GameLibrary.Desktop.exe を実行します。 |
-| [`GameLibrary-Tools-win-x64-v1.7.23.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.23/GameLibrary-Tools-win-x64-v1.7.23.zip) | コマンドラインや自動化向けの Host、CLI、MCP。 |
-| [`GameLibrary-v1.7.23-SHA256SUMS.txt`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.7.23/GameLibrary-v1.7.23-SHA256SUMS.txt) | 上記 3 パッケージの SHA-256 チェックサム。 |
+| [`GameLibrary-Setup-v1.8.0.exe`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.0/GameLibrary-Setup-v1.8.0.exe) | 推奨。現在のユーザー向け。インストール先を選択できます。 |
+| [`GameLibrary-Portable-win-x64-v1.8.0.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.0/GameLibrary-Portable-win-x64-v1.8.0.zip) | 展開して GameLibrary.Desktop.exe を実行します。 |
+| [`GameLibrary-Tools-win-x64-v1.8.0.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.0/GameLibrary-Tools-win-x64-v1.8.0.zip) | コマンドラインや自動化向けの Host、CLI、MCP。 |
+| [`GameLibrary-v1.8.0-SHA256SUMS.txt`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.0/GameLibrary-v1.8.0-SHA256SUMS.txt) | 上記 3 パッケージの SHA-256 チェックサム。 |
 
 実行ファイルとインストーラーは Authenticode 未署名です。Windows が発行元不明の警告を表示する場合があります。このリポジトリから取得し、同じ版のチェックサムと照合してください。
 
 ```powershell
-Get-FileHash .\GameLibrary-Setup-v1.7.23.exe -Algorithm SHA256
+Get-FileHash .\GameLibrary-Setup-v1.8.0.exe -Algorithm SHA256
 ```
 
 <a id="demo"></a>
@@ -64,7 +64,7 @@ v1.5.5 の独立したサンプルライブラリで撮影しています。ア�
 <a id="faq"></a>
 ## データとよくある質問
 
-**v1.7.23 正式版**：MCP、タグのトランザクション、起動検証を修正しました。以前の Godot/MTool、Unity 翻訳、ファイル回収の修正も含みます。[ダウンロードと詳細](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.7.23) · [ビルドと確認記録](docs/releases/v1.7.23-validation.md)。
+**v1.8.0 正式版**：お気に入り・タグ・削除の一括操作を追加し、バックグラウンド接続の失効とポーリングの無限再試行を修正、インストーラーの権限を絞り込みました。[ダウンロードと詳細](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.8.0) · [検証記録](docs/releases/v1.8.0-validation.md)。
 
 <details>
 <summary><strong>スキャンや一覧からの削除で、ゲームファイルも消えますか？</strong></summary>
