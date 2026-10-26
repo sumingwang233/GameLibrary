@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { describeFailure, operation } from "../api";
 import type { GameItem } from "../types";
+import {
+  createPollFailureTracker,
+  isTerminalJobState,
+  pollFailureMessage,
+  shouldStopPolling,
+} from "./useJobPolling";
 
 export type TitlePatch = Partial<GameItem> & Pick<GameItem, "gameId" | "revision">;
 export interface TitleProgress {
@@ -29,6 +35,8 @@ export function useTitleTranslation(onPatch: (patch: TitlePatch) => void, onFini
     running.current = true; forceRef.current = force;
     setBusy(true); setError(null); setProgress(null); setState("running");
     const patched = new Set<string>();
+    // 每次 start 一个新的失败计数：上一轮的错误不应吃掉这一轮的容忍额度。
+    const pollFailures = createPollFailureTracker();
     try {
       const accepted = await operation<{ jobId: string }>("titles.translate", { gameIds, force }, `titles.translate:${gameIds.join(",")}:${force}`);
       jobId.current = accepted.jobId ?? accepted.data.jobId;
@@ -36,6 +44,7 @@ export function useTitleTranslation(onPatch: (patch: TitlePatch) => void, onFini
         try {
           const result = await operation<{ state: string; result: TitleProgress | null }>("jobs.get", { jobId: jobId.current });
           if (!mounted.current) return;
+          pollFailures.recordSuccess();
           setError(null); setState(result.data.state);
           if (result.data.result) {
             setProgress(result.data.result);
@@ -43,8 +52,18 @@ export function useTitleTranslation(onPatch: (patch: TitlePatch) => void, onFini
               if (item.patch && !patched.has(item.gameId)) { callbacks.current.onPatch(item.patch); patched.add(item.gameId); }
             }
           }
-          if (["succeeded", "failed", "cancelled"].includes(result.data.state)) break;
-        } catch (cause) { if (!mounted.current) return; setError(describeFailure(cause)); }
+          if (isTerminalJobState(result.data.state)) break;
+        } catch (cause) {
+          if (!mounted.current) return;
+          const kind = pollFailures.recordFailure(cause);
+          // NotFound＝作业已被后台丢弃；exhausted＝连续失败到上限。两者都停止打后端，
+          // 但保留已提交的 patch 与错误信息，并让 while 之后的 onFinished 照常刷新列表。
+          if (shouldStopPolling(kind)) {
+            setError(pollFailureMessage(kind === "permanent" ? "permanent" : "exhausted"));
+            break;
+          }
+          setError(describeFailure(cause));
+        }
         await new Promise(resolve => window.setTimeout(resolve, 500));
       }
       if (mounted.current) await callbacks.current.onFinished();
