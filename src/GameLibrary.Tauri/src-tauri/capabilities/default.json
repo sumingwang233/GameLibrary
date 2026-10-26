@@ -9,8 +9,9 @@
     "core:window:allow-toggle-maximize",
     "core:window:allow-close",
     "core:window:allow-start-dragging",
-    "opener:default",
-    "dialog:default",
+    "opener:allow-open-url",
+    "opener:allow-default-urls",
+    "dialog:allow-open",
     "mcp-bridge:default"
   ]
 }
