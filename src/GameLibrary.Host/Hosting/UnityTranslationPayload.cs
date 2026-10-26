@@ -203,20 +203,7 @@ internal sealed partial class UnityTranslationPayload
             if (Convert.ToHexString(SHA256.HashData(existing)) == hash) return existing;
             throw new InvalidDataException("Unity 翻译缓存 SHA-256 不匹配，拒绝使用");
         }
-        using var response = await Client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
-        response.EnsureSuccessStatusCode();
-        if (response.Content.Headers.ContentLength > maxBytes) throw new InvalidDataException("固定下载包超出大小限制");
-        await using var input = await response.Content.ReadAsStreamAsync(ct);
-        using var buffer = new MemoryStream();
-        var block = new byte[65536];
-        int count;
-        while ((count = await input.ReadAsync(block, ct)) > 0)
-        {
-            if (buffer.Length + count > maxBytes) throw new InvalidDataException("固定下载包超出大小限制");
-            buffer.Write(block, 0, count);
-        }
-        var bytes = buffer.ToArray();
-        if (Convert.ToHexString(SHA256.HashData(bytes)) != hash) throw new InvalidDataException("Unity 翻译下载 SHA-256 不匹配");
+        var bytes = await FetchAsync(url, hash, maxBytes, ct);
         UnityTranslationVault.AtomicWrite(path, bytes);
         ControlAreaStore.WriteAtomic(Path.Combine(_cache, "payload-manifest.json"), JsonSerializer.Serialize(new
         {
@@ -233,6 +220,40 @@ internal sealed partial class UnityTranslationPayload
             },
         }));
         return bytes;
+    }
+
+    /// <summary>
+    /// 固定包只有几百 KB 到几 MB，但下载链路会偶发 TLS 握手失败或连接被中途掐断（家庭网络、代理、杀毒软件扫描）。
+    /// 这里对传输层错误重试两次；哈希不符属于内容问题，不重试，避免用损坏的包覆盖缓存。
+    /// </summary>
+    private static async Task<byte[]> FetchAsync(string url, string hash, int maxBytes, CancellationToken ct)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                using var response = await Client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
+                response.EnsureSuccessStatusCode();
+                if (response.Content.Headers.ContentLength > maxBytes) throw new InvalidDataException("固定下载包超出大小限制");
+                await using var input = await response.Content.ReadAsStreamAsync(ct);
+                using var buffer = new MemoryStream();
+                var block = new byte[65536];
+                int count;
+                while ((count = await input.ReadAsync(block, ct)) > 0)
+                {
+                    if (buffer.Length + count > maxBytes) throw new InvalidDataException("固定下载包超出大小限制");
+                    buffer.Write(block, 0, count);
+                }
+                var bytes = buffer.ToArray();
+                if (Convert.ToHexString(SHA256.HashData(bytes)) != hash) throw new InvalidDataException("Unity 翻译下载 SHA-256 不匹配");
+                return bytes;
+            }
+            catch (Exception ex) when (attempt < 3 && !ct.IsCancellationRequested
+                && ex is HttpRequestException or IOException or OperationCanceledException)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(400 * attempt), ct);
+            }
+        }
     }
 
     public async Task<byte[]> PatchAsync(UnityTranslationLayout layout, IReadOnlyDictionary<string, byte[]> runtime, CancellationToken ct)
