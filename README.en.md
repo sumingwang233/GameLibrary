@@ -41,7 +41,7 @@ Get-FileHash .\GameLibrary-Setup-v1.8.0.exe -Algorithm SHA256
 
 ![Tag management for organizing the collection](website/public/assets/tags.png)
 
-Captured from v1.5.5 in an isolated sample library, with the application's default covers and no personal game directories. A full recording has not been produced yet; the [recording brief](docs/demo-recording.md) is ready.
+Captured from v1.8.0 in light mode, using an isolated sample library and the application's default covers, with no personal game directories. Screenshots on the marketing website match its light or dark theme. A full recording has not been produced yet; the [recording brief](docs/demo-recording.md) is ready.
 
 <a id="start"></a>
 ## Get started

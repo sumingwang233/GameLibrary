@@ -41,7 +41,7 @@ Get-FileHash .\GameLibrary-Setup-v1.8.0.exe -Algorithm SHA256
 
 ![標籤管理：整理遊戲的分類與標籤](website/public/assets/tags.png)
 
-畫面取自 v1.5.5 的隔離範例遊戲庫，使用應用程式預設封面，不含個人遊戲目錄。完整操作影片尚未製作；[錄影腳本](docs/demo-recording.md)已備妥。
+畫面取自 v1.8.0 的隔離範例遊戲庫，使用淺色模式和應用程式預設封面，不含個人遊戲目錄。宣傳網頁中的截圖會隨網頁主題切換淺色或深色。完整操作影片尚未製作；[錄影腳本](docs/demo-recording.md)已備妥。
 
 <a id="start"></a>
 ## 三步開始

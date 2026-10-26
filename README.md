@@ -41,7 +41,7 @@ Get-FileHash .\GameLibrary-Setup-v1.8.0.exe -Algorithm SHA256
 
 ![标签管理：整理游戏的分类与标签](website/public/assets/tags.png)
 
-截图来自 v1.5.5 的隔离示例库，使用应用默认封面，不包含个人游戏目录。完整录屏尚未制作；[录屏脚本](docs/demo-recording.md)已准备好。
+截图来自 v1.8.0 的隔离示例库，使用浅色模式和应用默认封面，不包含个人游戏目录。宣传网页中的截图会随网页主题切换浅色或深色。完整录屏尚未制作；[录屏脚本](docs/demo-recording.md)已准备好。
 
 <a id="start"></a>
 ## 三步开始
