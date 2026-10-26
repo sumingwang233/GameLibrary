@@ -1673,6 +1673,7 @@ public sealed class UnityTranslationTests
             Directory.CreateDirectory(isolatedCache);
             var names = new[] { "DeepSeekTranslate.dll", "XUnity.AutoTranslator-BepInEx-IL2CPP-5.6.2.zip" }
                 .Concat(new[] { "5.0.0", "5.4.5", "5.6.2" }.Select(v => "XUnity.AutoTranslator-ReiPatcher-" + v + ".zip"))
+                .Concat(new[] { "5.4.5", "5.6.2" }.Select(v => "XUnity.AutoTranslator-BepInEx-" + v + ".zip"))
                 .Concat(new[] { "2018", "2019", "2020", "2021", "2022", "2023", "6000" }.Select(v => "Moe-fonts-" + v + ".zip"))
                 .Concat(new[] { "x64", "x86" }.Select(v => "BepInEx-Unity.IL2CPP-win-" + v + "-6.0.0-be.704+6b38cee.zip"));
             foreach (var name in names)
