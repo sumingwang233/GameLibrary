@@ -57,30 +57,32 @@ function GameCardImpl({ game, selected, checked, selectionDisabled, onToggle, on
   return (
     <article
       ref={cardRef}
-      role="button"
-      tabIndex={0}
-      aria-label={t("{0}，查看详情", game.title)}
-      aria-pressed={selected}
-      onClick={() => onSelect(game.gameId)}
-      onKeyDown={(event) => {
-        if (event.target !== event.currentTarget) return;
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onSelect(game.gameId);
-        }
-      }}
       className={cn(
-        "group cursor-pointer overflow-hidden rounded-lg border bg-surface transition duration-200",
+        "group relative cursor-pointer overflow-hidden rounded-lg border bg-surface transition duration-200",
         "[content-visibility:auto] [contain-intrinsic-size:auto_275px]",
         "hover:-translate-y-1 hover:shadow-2xl hover:shadow-black/40",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         selected || checked ? "border-steam ring-2 ring-steam/50" : "border-border hover:border-steam/60",
       )}
     >
+      {/*
+        拉伸详情按钮：整卡唯一的「查看详情」入口。
+        原实现让 article 自己 role="button"、再往里嵌 checkbox 与启动按钮，属于嵌套交互控件，
+        Enter/Space 还得用 event.target === currentTarget 排除子元素。现在 article 退回纯静态语义
+        （无 role/tabIndex/onClick），这个真实 button 用 after 伪元素铺满整张卡的热区；checkbox
+        与启动按钮仍是 z-10 且 DOM 在其后，因此盖在按钮上方、各自独立聚焦，点击它们不会触发
+        onSelect。焦点环画成 inset（卡片 overflow-hidden 会裁掉向外扩的 ring）。
+      */}
+      <button
+        type="button"
+        aria-label={t("{0}，查看详情", game.title)}
+        aria-haspopup="dialog"
+        onClick={() => onSelect(game.gameId)}
+        className="absolute inset-0 z-10 cursor-pointer rounded-lg after:absolute after:inset-0 after:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+      />
       <div className="relative aspect-3/4 overflow-hidden bg-linear-to-br from-steam-soft via-surface-elevated to-gradient-deep">
         <input type="checkbox" aria-label={t("选择 {0}", game.title)} checked={checked} disabled={selectionDisabled}
           className="absolute top-3 left-3 z-10 size-5 cursor-pointer accent-steam"
-          onClick={event => event.stopPropagation()} onChange={() => onToggle(game.gameId)} />
+          onChange={() => onToggle(game.gameId)} />
         {cover ? (
           <img
             src={cover}
@@ -103,11 +105,8 @@ function GameCardImpl({ game, selected, checked, selectionDisabled, onToggle, on
         />
         <button
           type="button"
-          className="absolute top-3 right-3 flex h-9 w-9 translate-y-1 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground opacity-0 shadow-lg transition group-hover:translate-y-0 group-hover:opacity-100 focus-visible:translate-y-0 focus-visible:opacity-100"
-          onClick={(event) => {
-            event.stopPropagation();
-            onPlay(game.gameId);
-          }}
+          className="absolute top-3 right-3 z-10 flex h-9 w-9 translate-y-1 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground opacity-0 shadow-lg transition group-hover:translate-y-0 group-hover:opacity-100 focus-visible:translate-y-0 focus-visible:opacity-100"
+          onClick={() => onPlay(game.gameId)}
           aria-label={t("启动 {0}", game.title)}
         >
           <Play size={16} fill="currentColor" />

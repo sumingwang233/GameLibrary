@@ -159,6 +159,45 @@ textarea {
   animation: scan-progress 1.35s ease-in-out infinite;
 }
 
+/* Sheet 进出场：Radix 按 data-state="open"/"closed" 切换，组件侧用
+ * data-[state=...]:animate-[...] 引用这些 keyframes。Radix 的 Presence 依赖
+ * animationend 决定何时卸载，所以关闭动画必须保留在元素上（不要用 display:none）。 */
+@keyframes sheet-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes sheet-overlay-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes sheet-panel-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes sheet-panel-out {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   ::before,
@@ -167,5 +206,11 @@ textarea {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+
+  /* 减少动态效果时不播放面板滑动/遮罩淡入，Radix 会立即挂载/卸载。 */
+  [data-slot="sheet-overlay"],
+  [data-slot="sheet-content"] {
+    animation: none !important;
   }
 }

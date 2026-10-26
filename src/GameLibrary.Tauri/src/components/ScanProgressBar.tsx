@@ -37,15 +37,16 @@ export function ScanProgressBar({
         : t("正在扫描游戏库…");
 
   return (
-    <div
-      role="status"
-      aria-live="polite"
-      className="mb-4 rounded-lg border border-steam/30 bg-steam-soft/40 px-4 py-3 text-sm text-text-primary"
-    >
+    <div className="mb-4 rounded-lg border border-steam/30 bg-steam-soft/40 px-4 py-3 text-sm text-text-primary">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          <p className="font-medium">{title}</p>
-          <p className="mt-1 text-xs text-text-secondary">{t("已运行")} {formatElapsed(elapsed)}
+          {/*
+            role="status" 只挂在随 phase 变化的标题上：原来整块容器是 live region，
+            每秒刷新的「已运行 N 秒」会跟着一起播报。计时单独 aria-hidden，避免噪音。
+          */}
+          <p role="status" aria-live="polite" className="font-medium">{title}</p>
+          <p aria-hidden="true" className="mt-1 text-xs text-text-secondary">
+            {t("已运行")} {formatElapsed(elapsed)}
           </p>
         </div>
         <Button

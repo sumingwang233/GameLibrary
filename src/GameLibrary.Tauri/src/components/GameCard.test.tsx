@@ -104,3 +104,39 @@ it.each(["grid", "compact"] as const)(
     expect(screen.queryByText("中文译名")).not.toBeInTheDocument();
   },
 );
+
+it("uses one stretched detail button while checkbox and launch stay independent", () => {
+  vi.stubGlobal("IntersectionObserver", class { observe() {} disconnect() {} });
+  const game: GameItem = {
+    gameId: "game-1", title: "测试游戏", rootPath: "D:/Games/Test", kind: "executable",
+    engine: "unknown", favorite: false, revision: 1, availability: "available", playtimeMinutes: 12,
+  };
+  const onToggle = vi.fn();
+  const onSelect = vi.fn();
+  const onPlay = vi.fn();
+  render(<GameCard game={game} selected={false} checked={false} selectionDisabled={false}
+    onToggle={onToggle} onSelect={onSelect} onPlay={onPlay} />);
+
+  // article 不再是交互控件：没有 role=button / tabIndex / aria-pressed / onClick。
+  const article = screen.getByRole("article");
+  expect(article).not.toHaveAttribute("role");
+  expect(article).not.toHaveAttribute("tabindex");
+  expect(article).not.toHaveAttribute("aria-pressed");
+
+  // 详情入口是一个真实 button，用 after 伪元素拉伸整卡热区。
+  const detail = screen.getByRole("button", { name: "测试游戏，查看详情" });
+  expect(detail).toHaveAttribute("type", "button");
+  expect(detail).toHaveAttribute("aria-haspopup", "dialog");
+  expect(detail).toHaveClass("after:absolute", "after:inset-0");
+  fireEvent.click(detail);
+  expect(onSelect).toHaveBeenCalledWith("game-1");
+
+  // checkbox 与启动按钮各自可聚焦、可点击，且不会冒泡成「查看详情」。
+  fireEvent.click(screen.getByRole("checkbox", { name: "选择 测试游戏" }));
+  expect(onToggle).toHaveBeenCalledWith("game-1");
+  expect(onSelect).toHaveBeenCalledTimes(1);
+
+  fireEvent.click(screen.getByRole("button", { name: "启动 测试游戏" }));
+  expect(onPlay).toHaveBeenCalledWith("game-1");
+  expect(onSelect).toHaveBeenCalledTimes(1);
+});
