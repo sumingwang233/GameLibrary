@@ -85,6 +85,9 @@ public sealed class HostConnection : IAsyncDisposable
         var retried = false;
         try
         {
+            // 连接可能已被对端关闭（或此前的半帧请求被丢弃）：在同一把发送锁内先自愈。
+            // 契约：下一次 InvokeAsync 直接重连并重新握手，不得再把 "尚未完成握手" 暴露给桥接层。
+            await EnsureConnectedAsync(ct);
             // Pin the original intent before sending. Reconnecting must not bind it to restored data.
             request.LibraryInstanceId ??= Handshake.LibraryInstanceId;
             request.ExpectedDataEpoch ??= Handshake.DataEpoch;
@@ -99,7 +102,7 @@ public sealed class HostConnection : IAsyncDisposable
                 {
                     // 连接可能已被对端关闭：重连一次重发同请求（同 requestId）。
                     retried = true;
-                    await ReconnectCoreAsync(_dataDirectory, _clientName, ct);
+                    await EnsureConnectedAsync(ct);
                     if (request.LibraryInstanceId is null && Handshake.LibraryInstanceId is not null
                         && OperationCatalog.Catalog.Find(request.OperationId)?.RequiresIdempotencyKey == true)
                         return new Envelope<JsonElement>
@@ -164,6 +167,28 @@ public sealed class HostConnection : IAsyncDisposable
         _handshake = reconnected._handshake;
         reconnected._pipe = null;
         await reconnected.DisposeAsync();
+    }
+
+    /// <summary>
+    /// 连接为空（未连接、对端关闭、半帧请求被丢弃）时重连并重新握手；调用方必须已持有发送锁。
+    /// 重连失败统一映射为 HostClientException(HostUnavailable)——桥接层据此丢弃缓存、重建宿主后
+    /// 按同一 requestId 重试一次；取消与既有 HostClientException（版本不匹配等）原样透传。
+    /// </summary>
+    private async Task EnsureConnectedAsync(CancellationToken ct)
+    {
+        if (_pipe is not null && _handshake is not null)
+        {
+            return;
+        }
+
+        try
+        {
+            await ReconnectCoreAsync(_dataDirectory, _clientName, ct);
+        }
+        catch (Exception ex) when (ex is not HostClientException and not OperationCanceledException)
+        {
+            throw new HostClientException(HostClientErrorCodes.HostUnavailable, $"宿主连接已断开且重连失败：{ex.Message}");
+        }
     }
 
     private async Task HandshakeAsync(string? clientName, CancellationToken ct)

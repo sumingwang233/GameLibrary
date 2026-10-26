@@ -62,11 +62,7 @@ public sealed class BridgeServer
             await _output.FlushAsync(cancellationToken);
         }
 
-        if (_connection is not null)
-        {
-            await _connection.DisposeAsync();
-            _connection = null;
-        }
+        await DiscardConnectionAsync();
     }
 
     private async Task<Envelope<JsonElement>> ExecuteAsync(
@@ -74,41 +70,87 @@ public sealed class BridgeServer
         CancellationToken cancellationToken)
     {
         var dataDirectory = ResolveDataDirectory(request.DataDir);
-        if (_connection is null || !string.Equals(_dataDirectory, dataDirectory, StringComparison.OrdinalIgnoreCase))
+        // 重试必须复用同一个 requestId（宿主收据中间件靠它判重），所以请求只构造一次。
+        var ipcRequest = new IpcRequest
         {
-            if (_connection is not null)
-            {
-                await _connection.DisposeAsync();
-            }
+            RequestId = string.IsNullOrWhiteSpace(request.RequestId)
+                ? $"tauri-{Guid.NewGuid():N}"
+                : request.RequestId,
+            OperationId = request.OperationId,
+            Parameters = request.Parameters?.Clone(),
+        };
 
-            _dataDirectory = dataDirectory;
-            _connection = await HostProcessLauncher.EnsureStartedAsync(
-                dataDirectory,
-                clientName: "tauri",
-                timeout: TimeSpan.FromSeconds(10),
-                cancellationToken);
+        try
+        {
+            var connection = await EnsureConnectionAsync(dataDirectory, cancellationToken);
+            return await connection.InvokeAsync(ipcRequest, cancellationToken);
+        }
+        catch (Exception ex) when (IsConnectionFault(ex) && !cancellationToken.IsCancellationRequested)
+        {
+            // 缓存的连接已失效（宿主重启/崩溃/断线）：丢弃缓存、重建宿主后同一 requestId 重试一次。
+            // 写操作的重复由宿主持久收据保证；非连接类错误不重试，原样上抛。
+            await DiscardConnectionAsync();
+            var connection = await EnsureConnectionAsync(dataDirectory, cancellationToken);
+            return await connection.InvokeAsync(ipcRequest, cancellationToken);
+        }
+    }
+
+    /// <summary>取缓存连接；数据目录变化或缓存为空时用 EnsureStartedAsync 建立新连接。</summary>
+    private async Task<HostConnection> EnsureConnectionAsync(string dataDirectory, CancellationToken cancellationToken)
+    {
+        if (_connection is not null
+            && string.Equals(_dataDirectory, dataDirectory, StringComparison.OrdinalIgnoreCase))
+        {
+            return _connection;
         }
 
-        return await _connection.InvokeAsync(
-            new IpcRequest
-            {
-                RequestId = string.IsNullOrWhiteSpace(request.RequestId)
-                    ? $"tauri-{Guid.NewGuid():N}"
-                    : request.RequestId,
-                OperationId = request.OperationId,
-                Parameters = request.Parameters?.Clone(),
-            },
+        await DiscardConnectionAsync();
+        _dataDirectory = dataDirectory;
+        _connection = await HostProcessLauncher.EnsureStartedAsync(
+            dataDirectory,
+            clientName: "tauri",
+            timeout: TimeSpan.FromSeconds(10),
             cancellationToken);
+        return _connection;
     }
+
+    /// <summary>销毁缓存连接并置空；清理期的 IO/释放异常不得中断请求路径或退出流程。</summary>
+    private async Task DiscardConnectionAsync()
+    {
+        var connection = _connection;
+        _connection = null;
+        if (connection is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await connection.DisposeAsync();
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
+    }
+
+    /// <summary>仅这些异常表示「连接已不可用」；业务错误（协议错误、库实例不匹配等）不得重试。</summary>
+    private static bool IsConnectionFault(Exception ex) => ex switch
+    {
+        HostClientException host => string.Equals(host.Code, HostClientErrorCodes.HostUnavailable, StringComparison.Ordinal),
+        EndOfStreamException or IOException => true,
+        InvalidOperationException invalid => invalid.Message.Contains("客户端未连接", StringComparison.Ordinal),
+        _ => false,
+    };
 
     /// <summary>Only stop the connected data scope; never start a Host merely to stop it.</summary>
     internal async Task StopHostAsync()
     {
-        if (_dataDirectory is null) return;
+        var dataDirectory = _dataDirectory;
+        // 先清理缓存连接：宿主会话即将结束，缓存的连接句柄不再可用。
+        await DiscardConnectionAsync();
+        if (dataDirectory is null) return;
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         try
         {
-            await using var connection = await HostConnection.ConnectAsync(_dataDirectory, "tauri-exit", timeout.Token);
+            await using var connection = await HostConnection.ConnectAsync(dataDirectory, "tauri-exit", timeout.Token);
             await connection.InvokeAsync(new IpcRequest
             {
                 RequestId = "tauri-exit-" + Guid.NewGuid().ToString("N"),

@@ -14,7 +14,7 @@ public sealed class HostConnectionRecoveryTests
     [InlineData("cancel")]
     [InlineData("half-frame")]
     [InlineData("wrong-id")]
-    public async Task IncompleteExchange_DropsConnectionAndExplicitReconnectReadsItsOwnResponse(string failure)
+    public async Task IncompleteExchange_DropsConnectionAndNextInvokeReconnectsAutomatically(string failure)
     {
         var directory = Path.Combine(Path.GetTempPath(), "GameLibrary-pipe-" + Guid.NewGuid().ToString("N"));
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
@@ -41,12 +41,12 @@ public sealed class HostConnectionRecoveryTests
             cancel.Cancel();
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first);
         }
-        await Assert.ThrowsAsync<InvalidOperationException>(() => client.InvokeAsync(Request("blocked"), timeout.Token));
+        // 契约：连接失效后，下一次 InvokeAsync 必须自动重连并重新握手，
+        // 不得再把 InvalidOperationException("尚未完成握手") 暴露给调用方。
         await using var nextServer = CreateServer(directory);
         var nextAccept = HandshakeAsync(nextServer, timeout.Token);
-        await client.ReconnectAsync(directory, "test", timeout.Token);
-        await nextAccept;
         var second = client.InvokeAsync(Request("b"), timeout.Token);
+        await nextAccept;
         Assert.Equal("b", (await IpcFrame.ReadJsonAsync<IpcRequest>(nextServer, timeout.Token)).RequestId);
         await RespondAsync(nextServer, "b", timeout.Token);
         Assert.Equal("b", (await second).RequestId);
@@ -73,6 +73,22 @@ public sealed class HostConnectionRecoveryTests
         Assert.Equal("b", (await IpcFrame.ReadJsonAsync<IpcRequest>(server, timeout.Token)).RequestId);
         await RespondAsync(server, "b", timeout.Token);
         Assert.True((await second).Ok);
+    }
+
+    [Fact]
+    public async Task InvokeAfterDropWithoutHost_SurfacesHostUnavailable()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "GameLibrary-pipe-" + Guid.NewGuid().ToString("N"));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var server = CreateServer(directory);
+        var accept = HandshakeAsync(server, timeout.Token);
+        await using var client = await HostConnection.ConnectAsync(directory, "test", timeout.Token);
+        await accept;
+        // 宿主消失且无人再监听：自动重连会在 ConnectAsync 的 5s 超时后失败，
+        // 契约要求失败以 HostClientException(HostUnavailable) 暴露，供桥接层丢弃缓存并重建。
+        await server.DisposeAsync();
+        var error = await Assert.ThrowsAsync<HostClientException>(() => client.InvokeAsync(Request("a"), timeout.Token));
+        Assert.Equal(HostClientErrorCodes.HostUnavailable, error.Code);
     }
 
     private static NamedPipeServerStream CreateServer(string directory) => new(

@@ -116,7 +116,8 @@ internal sealed class GamesHandler
                 && limitElement.ValueKind == JsonValueKind.Number
                 && limitElement.TryGetInt32(out var parsedLimit))
             {
-                limit = Math.Clamp(parsedLimit, 1, 1000);
+                // limit<=0 仍是全量语义（与 QueryGames 的旧契约一致），正数才夹到 1–1000。
+                limit = parsedLimit > 0 ? Math.Clamp(parsedLimit, 1, 1000) : 0;
                 if (glParameters.TryGetProperty("offset", out var offsetElement)
                     && offsetElement.ValueKind == JsonValueKind.Number
                     && offsetElement.TryGetInt32(out var parsedOffset))
@@ -132,6 +133,10 @@ internal sealed class GamesHandler
         }
 
         var (total, games) = store.QueryGames(search, favoriteFilter, tagId, sort, limit, offset, hasCover, played);
+        // 游标分页：返回行数取本次查询的原始行数（去重前），limit<=0 的全量旧语义保持不变。
+        var returned = games.Count;
+        var hasMore = limit > 0 && offset + returned < total;
+        var nextOffset = hasMore ? offset + returned : (int?)null;
         // R41：批量充实取代逐游戏 4 次查询（各过一次存储锁）。
         var enrichment = store.EnrichGameCards(games);
         // feat-1：游玩统计与充实同批 SQL 聚合（launch_attempts，见 QueryPlaytimeStats）。
@@ -144,7 +149,7 @@ internal sealed class GamesHandler
             RequestId = request.RequestId,
             Ok = true,
             Status = OperationStatus.Completed,
-            Data = new { total, items = dtos },
+            Data = new { total, items = dtos, nextOffset, hasMore },
         };
     }
 
