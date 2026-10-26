@@ -8,10 +8,48 @@ import { Button } from "./ui/button";
 import { ConfirmDialog } from "./ui/confirm-dialog";
 import type { TitleTranslationController } from "../lib/hooks/useTitleTranslation";
 
+/** 批量回执单条（冻结契约：逐项失败是 ok:false + errorCode，不会抛 Envelope 级错误）。 */
+interface BatchItemResult {
+  gameId: string;
+  ok: boolean;
+  revision?: number;
+  errorCode?: string;
+  message?: string;
+}
+
+/** games.update_batch / tags.assign_batch / games.remove_batch 共用的 Data 形状。 */
+interface BatchResultData {
+  items: BatchItemResult[];
+  updated?: number;
+  failed?: number;
+}
+
+/** 契约单批上限 1000；取 500 让单次 payload 体积可控（1024 项 → 3 次 IPC）。 */
+const BATCH_CHUNK_SIZE = 500;
+
+function chunk<T>(values: T[], size: number): T[][] {
+  const batches: T[][] = [];
+  for (let index = 0; index < values.length; index += size) batches.push(values.slice(index, index + size));
+  return batches;
+}
+
+/** 逐项回执只有字符串 errorCode/message；describeFailure 接受异常对象，这里单独映射可读文案。 */
+function batchFailureText(item: BatchItemResult): string {
+  if (item.message) return item.message;
+  if (item.errorCode === "NotFound") return t("游戏不存在或已移除");
+  // 其余错误码（如 Conflict）保留代码，便于日志与后端契约对账；文案复用已有键，不新增未翻译条目。
+  return item.errorCode ? `${t("操作失败")} (${item.errorCode})` : t("操作失败");
+}
+
 /**
  * 批量操作条。bug-3：「添加标签」不再依赖先在下拉里选好标签的前置状态（用户不理解
  * 按钮为何灰），改为按钮常可点（busy 除外）→ 点击弹出按分类分组的标签浮层 → 选择即
- * 应用。assign 调用链保持不变：逐游戏 games.get 取最新 revision 后 tags.assign。
+ * 应用。
+ *
+ * optimize-v1.7.23：提交路径从「逐游戏 games.get + 单项操作（2N 次 IPC）」改为每类操作
+ * 一次批量 IPC（games.update_batch / tags.assign_batch / games.remove_batch）。
+ * expectedRevision 直接取列表项已有的 revision，不再回查；单批按契约上限 1000 之内的
+ * 500 条分块顺序提交，逐项回执（ok/errorCode）合并成失败列表。
  */
 export function GameBatchBar({ games, tags, onComplete, onBusy, titleTranslation }: {
   games: GameItem[];
@@ -35,24 +73,41 @@ export function GameBatchBar({ games, tags, onComplete, onBusy, titleTranslation
     setBusy(true);
     onBusy(true);
     setConfirm(false);
+    const titles = new Map(games.map((game) => [game.gameId, game.title]));
     const failures: string[] = [];
     const failedIds: string[] = [];
+    let okCount = 0;
+    const collect = (item: BatchItemResult) => {
+      if (item.ok) {
+        okCount++;
+        return;
+      }
+      failedIds.push(item.gameId);
+      failures.push(`${titles.get(item.gameId) ?? item.gameId}：${batchFailureText(item)}`);
+    };
     try {
-      for (const game of games) {
+      for (const batch of chunk(games, BATCH_CHUNK_SIZE)) {
+        const items = batch.map((game) => ({ gameId: game.gameId, expectedRevision: game.revision }));
         try {
-          const latest = await operation<GameItem>("games.get", { gameId: game.gameId });
-          const operationId = action === "remove" ? "games.remove" : action === "tag" ? "tags.assign" : "games.update";
-          await operation(operationId, {
-            gameId: game.gameId,
-            expectedRevision: latest.data.revision,
-            ...(action === "tag" ? { tagId } : action === "remove" ? {} : { favorite: action === "favorite" }),
-          }, `${operationId}:${game.gameId}:${latest.data.revision}:${action}:${tagId}`);
+          const response = action === "favorite" || action === "unfavorite"
+            ? await operation<BatchResultData>("games.update_batch", {
+              items: items.map((item) => ({ ...item, favorite: action === "favorite" })),
+            }, `games.update_batch:${action}`)
+            : action === "tag"
+              ? await operation<BatchResultData>("tags.assign_batch", { tagId, items }, `tags.assign_batch:${tagId}`)
+              : await operation<BatchResultData>("games.remove_batch", { items }, "games.remove_batch");
+          if (!Array.isArray(response.data?.items)) throw new Error(t("操作失败"));
+          response.data.items.forEach(collect);
         } catch (error) {
-          failedIds.push(game.gameId);
-          failures.push(`${game.title}：${describeFailure(error)}`);
+          // Envelope 级错误只可能来自整批参数非法或传输失败：本批全记失败，其余批继续提交。
+          const reason = describeFailure(error);
+          for (const game of batch) {
+            failedIds.push(game.gameId);
+            failures.push(`${game.title}：${reason}`);
+          }
         }
       }
-      setResult(t("已完成 {0} 个{1}", games.length - failures.length, failures.length ? `，失败 ${failures.length} 个。${failures.slice(0, 3).join("；")}` : ""));
+      setResult(t("已完成 {0} 个{1}", okCount, failures.length ? `，失败 ${failures.length} 个。${failures.slice(0, 3).join("；")}` : ""));
       await onComplete(failedIds);
     } catch (error) {
       setResult(t("操作已处理，刷新失败：{0}", describeFailure(error)));
