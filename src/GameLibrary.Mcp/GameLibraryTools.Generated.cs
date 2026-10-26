@@ -360,4 +360,19 @@ public static partial class GameLibraryTools
     [Description("原子重排标签，任一冲突整批回滚。")]
     public static Task<CallToolResult> TagsReorder([Description("最多1000个唯一ID与expectedRevision；标签项包含sortOrder")] JsonElement items, [Description("幂等键")] string idempotencyKey) =>
         InvokeGeneratedOperationAsync(OperationIds.TagsReorder, new Dictionary<string, object?> { ["items"] = items, ["idempotencyKey"] = idempotencyKey });
+
+    [McpServerTool(Name = "games_update_batch")]
+    [Description("批量更新收藏、已游玩或评分，逐项返回结果。")]
+    public static Task<CallToolResult> GamesUpdateBatch([Description("最多1000项 gameId/expectedRevision/可选favorite、played、rating")] JsonElement items, [Description("幂等键")] string idempotencyKey) =>
+        InvokeGeneratedOperationAsync(OperationIds.GamesUpdateBatch, new Dictionary<string, object?> { ["items"] = items, ["idempotencyKey"] = idempotencyKey });
+
+    [McpServerTool(Name = "tags_assign_batch")]
+    [Description("批量把同一标签挂到多个游戏，逐项返回结果。")]
+    public static Task<CallToolResult> TagsAssignBatch([Description("标签 ID")] string tagId, [Description("最多1000项 gameId/expectedRevision")] JsonElement items, [Description("幂等键")] string idempotencyKey) =>
+        InvokeGeneratedOperationAsync(OperationIds.TagsAssignBatch, new Dictionary<string, object?> { ["tagId"] = tagId, ["items"] = items, ["idempotencyKey"] = idempotencyKey });
+
+    [McpServerTool(Name = "games_remove_batch")]
+    [Description("批量从游戏库移除记录，保留磁盘文件，逐项返回结果。")]
+    public static Task<CallToolResult> GamesRemoveBatch([Description("最多1000项 gameId/expectedRevision；仅移除库记录，不删文件")] JsonElement items, [Description("幂等键")] string idempotencyKey) =>
+        InvokeGeneratedOperationAsync(OperationIds.GamesRemoveBatch, new Dictionary<string, object?> { ["items"] = items, ["idempotencyKey"] = idempotencyKey });
 }

@@ -796,6 +796,139 @@ internal sealed class GamesHandler
     }
 
     /// <summary>
+    /// games.update_batch（optimize-v1.7.23）：一次 IPC 更新多个游戏的收藏/已游玩/评分，
+    /// 取代前端「每游戏 2 次 IPC」的逐条调用。整批一个事务、每项一个保存点：单项失败
+    /// （游戏不存在/Revision 冲突/评分越界/三项全空）只把该项回执为 ok=false，其余项照常
+    /// 提交；Envelope 仍为 ok=true，items 与输入同序。单项写法与 games.update 一致。
+    /// </summary>
+    public Envelope<object> GamesUpdateBatch(IpcRequest request)
+    {
+        var store = _storeAccessor();
+        if (store is null)
+        {
+            return IpcRequests.InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!BatchRequests.TryReadItems(request, out var elements, out var error))
+        {
+            return IpcRequests.InvalidArgument(request, error!);
+        }
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var outcomes = new SqliteLibraryStore.BatchWriteOutcome?[elements.Count];
+        var pending = new List<(int Index, SqliteLibraryStore.BatchPreferenceItem Item)>(elements.Count);
+        for (var index = 0; index < elements.Count; index++)
+        {
+            var element = elements[index];
+            if (!BatchRequests.TryReadIdentity(element, out var gameId, out var expectedRevision))
+            {
+                return IpcRequests.InvalidArgument(request, "items 每一项需要 gameId（非空字符串）与 expectedRevision（≥1 的整数）");
+            }
+
+            if (!seen.Add(gameId))
+            {
+                return IpcRequests.InvalidArgument(request, $"items 中 gameId 重复：{gameId}");
+            }
+
+            if (!BatchRequests.TryReadOptionalBool(element, "favorite", out var favorite)
+                || !BatchRequests.TryReadOptionalBool(element, "played", out var played))
+            {
+                return IpcRequests.InvalidArgument(request, $"favorite、played 必须为布尔值：{gameId}");
+            }
+
+            if (!BatchRequests.TryReadOptionalInt(element, "rating", out var rating))
+            {
+                return IpcRequests.InvalidArgument(request, $"rating 必须为整数：{gameId}");
+            }
+
+            // 逐项校验失败不拒绝整批：回执该项 ok=false，其余项继续（与逐条调用时前端
+            // 只把失败项列出来的行为一致）。
+            if (favorite is null && played is null && rating is null)
+            {
+                outcomes[index] = BatchRequests.Failure(gameId, SqliteLibraryStore.BatchFailureKind.InvalidArgument, "至少提供 favorite、played 或 rating 之一");
+                continue;
+            }
+
+            if (rating is < 0 or > 5)
+            {
+                outcomes[index] = BatchRequests.Failure(gameId, SqliteLibraryStore.BatchFailureKind.InvalidArgument, "rating 必须为 0–5 的整数；0 表示尚未评分");
+                continue;
+            }
+
+            pending.Add((index, new SqliteLibraryStore.BatchPreferenceItem(gameId, expectedRevision, favorite, played, rating)));
+        }
+
+        var writeItems = new SqliteLibraryStore.BatchPreferenceItem[pending.Count];
+        for (var index = 0; index < pending.Count; index++)
+        {
+            writeItems[index] = pending[index].Item;
+        }
+
+        var report = store.UpdateGamesBatch(writeItems);
+        for (var index = 0; index < pending.Count; index++)
+        {
+            outcomes[pending[index].Index] = report.Items[index];
+        }
+
+        var results = new List<SqliteLibraryStore.BatchWriteOutcome>(elements.Count);
+        foreach (var outcome in outcomes)
+        {
+            results.Add(outcome!);
+        }
+
+        foreach (var written in report.Written)
+        {
+            _events.Publish("game.updated", $"game:{written.GameId}", new { gameId = written.GameId, revision = written.Revision }, DateTime.UtcNow);
+        }
+
+        return BatchRequests.Respond(request, results);
+    }
+
+    /// <summary>
+    /// games.remove_batch（optimize-v1.7.23）：一次 IPC 把多个游戏移出库（只移除记录，
+    /// 不删文件——批量契约没有 deleteFiles/confirmedPath，需要删原文件仍走单条 games.remove）。
+    /// 整批一个事务、每项一个保存点；单项已移除/Revision 冲突只回执该项 ok=false。
+    /// </summary>
+    public Envelope<object> GamesRemoveBatch(IpcRequest request)
+    {
+        var store = _storeAccessor();
+        if (store is null)
+        {
+            return IpcRequests.InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!BatchRequests.TryReadItems(request, out var elements, out var error))
+        {
+            return IpcRequests.InvalidArgument(request, error!);
+        }
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var items = new List<SqliteLibraryStore.BatchRevisionItem>(elements.Count);
+        foreach (var element in elements)
+        {
+            if (!BatchRequests.TryReadIdentity(element, out var gameId, out var expectedRevision))
+            {
+                return IpcRequests.InvalidArgument(request, "items 每一项需要 gameId（非空字符串）与 expectedRevision（≥1 的整数）");
+            }
+
+            if (!seen.Add(gameId))
+            {
+                return IpcRequests.InvalidArgument(request, $"items 中 gameId 重复：{gameId}");
+            }
+
+            items.Add(new SqliteLibraryStore.BatchRevisionItem(gameId, expectedRevision));
+        }
+
+        var report = store.RemoveGamesBatch(items);
+        foreach (var written in report.Written)
+        {
+            _events.Publish("game.removed", $"game:{written.GameId}", new { gameId = written.GameId, ignoreId = written.IgnoreId }, DateTime.UtcNow);
+        }
+
+        return BatchRequests.Respond(request, report.Items);
+    }
+
+    /// <summary>
     /// games.relink（T17）：把游戏的路径绑定改到新目录——只改数据库，不移动/改名/复制任何文件
     /// （补充规格 1.3）。新路径必须在已注册库根内且当前存在；不可与其他活动游戏绑定冲突。
     /// </summary>

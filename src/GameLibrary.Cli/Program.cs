@@ -61,6 +61,8 @@ internal static class Program
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "games.list" or "games.get" or "games.create" or "games.update" or "games.relink" or "games.remove" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
+                "games.update_batch" or "games.remove_batch" or "tags.assign_batch" =>
+                    await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "translation.get" or "translation.set" =>
                     await ScanHostOperationAsync(parse, parse.OperationId, requiresRoot: false),
                 "titles.translate" or "titles.set_display" or "titles.set_translated" or "jobs.cancel" =>

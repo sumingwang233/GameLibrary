@@ -470,6 +470,63 @@ internal sealed class TagsHandler
         };
     }
 
+    /// <summary>
+    /// tags.assign_batch（optimize-v1.7.23）：一次 IPC 把一个标签挂到多个游戏，取代前端
+    /// 「每游戏 2 次 IPC」。整批一个事务、每项一个保存点；单项游戏不存在/Revision 冲突只
+    /// 回执该项 ok=false。单项语义与 tags.assign 一致：已挂项是成功但无写入
+    /// （幂等重放不 bump 游戏 Revision），事件仍逐游戏发布。
+    /// </summary>
+    public Envelope<object> TagsAssignBatch(IpcRequest request)
+    {
+        var store = _storeAccessor();
+        if (store is null)
+        {
+            return IpcRequests.InvalidArgument(request, "库未初始化（先 library.init）");
+        }
+
+        if (!IpcRequests.TryGetStringParameter(request, "tagId", out var tagId) || string.IsNullOrWhiteSpace(tagId))
+        {
+            return IpcRequests.InvalidArgument(request, "缺少 tagId 参数");
+        }
+
+        if (store.TryGetTag(tagId) is null)
+        {
+            return IpcRequests.NotFound(request, $"标签不存在：{tagId}");
+        }
+
+        if (!BatchRequests.TryReadItems(request, out var elements, out var error))
+        {
+            return IpcRequests.InvalidArgument(request, error!);
+        }
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var items = new List<SqliteLibraryStore.BatchRevisionItem>(elements.Count);
+        foreach (var element in elements)
+        {
+            if (!BatchRequests.TryReadIdentity(element, out var gameId, out var expectedRevision))
+            {
+                return IpcRequests.InvalidArgument(request, "items 每一项需要 gameId（非空字符串）与 expectedRevision（≥1 的整数）");
+            }
+
+            if (!seen.Add(gameId))
+            {
+                return IpcRequests.InvalidArgument(request, $"items 中 gameId 重复：{gameId}");
+            }
+
+            items.Add(new SqliteLibraryStore.BatchRevisionItem(gameId, expectedRevision));
+        }
+
+        var report = store.AssignTagBatch(tagId, items);
+        foreach (var item in report.Items)
+        {
+            if (!item.Ok) continue;
+            if (item.Changed) _onAssignment?.Invoke(item.GameId);
+            _events.Publish("tag.assigned", $"game:{item.GameId}", new { gameId = item.GameId, tagId }, DateTime.UtcNow);
+        }
+
+        return BatchRequests.Respond(request, report.Items);
+    }
+
     /// <summary>解除游戏标签：engine 标签被移除时登记 Suppress，重扫不再恢复。</summary>
     public Envelope<object> TagsUnassign(IpcRequest request)
     {

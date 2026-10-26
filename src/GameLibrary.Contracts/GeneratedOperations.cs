@@ -156,6 +156,9 @@ public static class OperationIds
     public const string BackupsRestoreStart = "backups.restore_start";
     public const string CandidatesReviewBatch = "candidates.review_batch";
     public const string TagsReorder = "tags.reorder";
+    public const string GamesUpdateBatch = "games.update_batch";
+    public const string TagsAssignBatch = "tags.assign_batch";
+    public const string GamesRemoveBatch = "games.remove_batch";
 }
 
 internal static class GeneratedOperations
@@ -274,6 +277,9 @@ internal static class GeneratedOperations
         OperationIds.BackupsRestoreStart,
         OperationIds.CandidatesReviewBatch,
         OperationIds.TagsReorder,
+        OperationIds.GamesUpdateBatch,
+        OperationIds.TagsAssignBatch,
+        OperationIds.GamesRemoveBatch,
     };
 
     internal static readonly IReadOnlyDictionary<string, ParamSpec[]> InputSpecs =
@@ -390,5 +396,8 @@ internal static class GeneratedOperations
             [OperationIds.BackupsRestoreStart] = [new("backupId", "string", true, "备份 ID", false), new("planId", "string", true, "restore_plan 返回的计划 ID", false), new("idempotencyKey", "string", true, "幂等键", false)],
             [OperationIds.CandidatesReviewBatch] = [new("action", "string", true, "accept/defer/ignore", false), new("items", "array", true, "最多1000个candidateId/expectedRevision；Flash项可包含flashKind、entryPaths和确认的adjustments", false), new("idempotencyKey", "string", true, "幂等键", false)],
             [OperationIds.TagsReorder] = [new("items", "array", true, "最多1000个唯一ID与expectedRevision；标签项包含sortOrder", false), new("idempotencyKey", "string", true, "幂等键", false)],
+            [OperationIds.GamesUpdateBatch] = [new("items", "array", true, "最多1000项 gameId/expectedRevision/可选favorite、played、rating", false), new("idempotencyKey", "string", true, "幂等键", false)],
+            [OperationIds.TagsAssignBatch] = [new("tagId", "string", true, "标签 ID", false), new("items", "array", true, "最多1000项 gameId/expectedRevision", false), new("idempotencyKey", "string", true, "幂等键", false)],
+            [OperationIds.GamesRemoveBatch] = [new("items", "array", true, "最多1000项 gameId/expectedRevision；仅移除库记录，不删文件", false), new("idempotencyKey", "string", true, "幂等键", false)],
         };
 }

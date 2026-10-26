@@ -168,6 +168,7 @@ public sealed class OperationDispatcher
         "scan.start",
         "candidates.review_batch",
         "tags.reorder",
+        "games.update_batch", "games.remove_batch", "tags.assign_batch",
         "candidates.accept",
         "candidates.defer",
         "candidates.ignore",
@@ -474,6 +475,8 @@ public sealed class OperationDispatcher
         "verification.start", "verification.report", "verification.invalidate",
         "fields.set", "fields.clear", "fields.reset", "ignores.create",
         "tags.create", "tags.update", "tags.remove", "tags.unassign", "tags.suppress", "tags.reset", "tags.reorder",
+        // 批量写操作在 handler 内自行开整批事务，收据同事务落库（进程中断后重放不重复执行）。
+        "games.update_batch", "games.remove_batch", "tags.assign_batch",
         "assets.reset",
     };
 
@@ -814,6 +817,9 @@ public sealed class OperationDispatcher
         "candidates.inspect" => _candidateReview.Inspect(request),
         "candidates.review_batch" => _candidateReview.ReviewBatch(request),
         "tags.reorder" => _tags.Reorder(request),
+        "games.update_batch" => _games.GamesUpdateBatch(request),
+        "games.remove_batch" => _games.GamesRemoveBatch(request),
+        "tags.assign_batch" => _tags.TagsAssignBatch(request),
         "candidates.accept" => _candidateReview.CandidateReview(request, "accept"),
         "candidates.defer" => _candidateReview.CandidateReview(request, "defer"),
         "candidates.ignore" => _candidateReview.CandidateReview(request, "ignore"),

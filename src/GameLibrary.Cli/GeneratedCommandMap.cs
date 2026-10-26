@@ -122,6 +122,9 @@ internal static class GeneratedCommandMap
         ("backups", "restore-start") => OperationIds.BackupsRestoreStart,
         ("candidates", "review-batch") => OperationIds.CandidatesReviewBatch,
         ("tags", "reorder") => OperationIds.TagsReorder,
+        ("games", "update-batch") => OperationIds.GamesUpdateBatch,
+        ("tags", "assign-batch") => OperationIds.TagsAssignBatch,
+        ("games", "remove-batch") => OperationIds.GamesRemoveBatch,
         _ => null,
     };
 }
