@@ -198,7 +198,7 @@ internal static class Program
             if (supplied is null) return ExitArgumentError;
             if (cli.IdempotencyKey is not null && !supplied.ContainsKey("idempotencyKey"))
                 supplied["idempotencyKey"] = JsonSerializer.SerializeToElement(cli.IdempotencyKey);
-            await using var rawConnection = await HostProcessLauncher.EnsureStartedAsync(cli.DataDir, clientName: "cli", timeout: TimeSpan.FromSeconds(cli.TimeoutSeconds));
+            await using var rawConnection = await HostProcessLauncher.EnsureStartedAsync(cli.DataDir, clientName: "cli", timeout: TimeSpan.FromSeconds(cli.TimeoutSeconds), permissions: ClientPermissionProfiles.Full);
             var rawResult = await rawConnection.InvokeAsync(new IpcRequest { RequestId = cli.RequestId, OperationId = operationId, Parameters = ToParameters(supplied) }, CancellationToken.None);
             WriteEnvelope(rawResult);
             return EnvelopeExitCode(rawResult);
@@ -433,7 +433,8 @@ internal static class Program
         }
 
         await using var connection = await HostProcessLauncher.EnsureStartedAsync(
-            cli.DataDir, clientName: "cli", timeout: TimeSpan.FromSeconds(cli.TimeoutSeconds));
+            cli.DataDir, clientName: "cli", timeout: TimeSpan.FromSeconds(cli.TimeoutSeconds),
+            permissions: ClientPermissionProfiles.Full);
 
         object? parameters = operationId switch
         {
@@ -898,7 +899,8 @@ internal static class Program
         }
 
         await using var started = await HostProcessLauncher.EnsureStartedAsync(
-            cli.DataDir, clientName: "cli", timeout: TimeSpan.FromSeconds(cli.TimeoutSeconds));
+            cli.DataDir, clientName: "cli", timeout: TimeSpan.FromSeconds(cli.TimeoutSeconds),
+            permissions: ClientPermissionProfiles.Full);
         var response = await started.InvokeAsync(
             new IpcRequest { RequestId = cli.RequestId, OperationId = "host.status" },
             CancellationToken.None);
@@ -916,7 +918,8 @@ internal static class Program
         }
 
         await using var connection = await HostProcessLauncher.EnsureStartedAsync(
-            cli.DataDir, clientName: "cli", timeout: TimeSpan.FromSeconds(cli.TimeoutSeconds));
+            cli.DataDir, clientName: "cli", timeout: TimeSpan.FromSeconds(cli.TimeoutSeconds),
+            permissions: ClientPermissionProfiles.Full);
         var response = await connection.InvokeAsync(
             new IpcRequest
             {
@@ -933,7 +936,7 @@ internal static class Program
     {
         try
         {
-            connection = HostConnection.ConnectAsync(cli.DataDir!, "cli", CancellationToken.None)
+            connection = HostConnection.ConnectAsync(cli.DataDir!, "cli", CancellationToken.None, ClientPermissionProfiles.Full)
                 .GetAwaiter().GetResult();
             return true;
         }

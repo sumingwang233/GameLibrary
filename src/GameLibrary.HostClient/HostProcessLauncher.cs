@@ -43,7 +43,8 @@ public static class HostProcessLauncher
         string dataDirectory,
         string? clientName,
         TimeSpan? timeout = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        IReadOnlyList<string>? permissions = null)
     {
         var resolved = DataDirectory.Resolve(dataDirectory);
         if (!resolved.IsValid)
@@ -53,7 +54,7 @@ public static class HostProcessLauncher
 
         try
         {
-            return await HostConnection.ConnectAsync(resolved.CanonicalPath!, clientName, ct);
+            return await HostConnection.ConnectAsync(resolved.CanonicalPath!, clientName, ct, permissions);
         }
         catch (HostClientException ex) when (ex.Code == HostClientErrorCodes.HostUnavailable)
         {
@@ -94,7 +95,7 @@ public static class HostProcessLauncher
             ct.ThrowIfCancellationRequested();
             try
             {
-                return await HostConnection.ConnectAsync(resolved.CanonicalPath!, clientName, ct);
+                return await HostConnection.ConnectAsync(resolved.CanonicalPath!, clientName, ct, permissions);
             }
             catch (HostClientException ex) when (ex.Code == HostClientErrorCodes.HostUnavailable)
             {

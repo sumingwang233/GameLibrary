@@ -28,7 +28,8 @@ public partial class MainWindow : Window
             ShowError(null);
             await DisposeConnectionAsync();
             _connection = await HostProcessLauncher.EnsureStartedAsync(
-                App.ResolvedDataDirectory, clientName: "desktop", timeout: TimeSpan.FromSeconds(10));
+                App.ResolvedDataDirectory, clientName: "desktop", timeout: TimeSpan.FromSeconds(10),
+                permissions: ClientPermissionProfiles.Full);
 
             var status = await InvokeAsync("host.status");
             var initialized = status.Data.GetProperty("libraryInitialized").GetBoolean();

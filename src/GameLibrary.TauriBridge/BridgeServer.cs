@@ -110,7 +110,8 @@ public sealed class BridgeServer
             dataDirectory,
             clientName: "tauri",
             timeout: TimeSpan.FromSeconds(10),
-            cancellationToken);
+            cancellationToken,
+            ClientPermissionProfiles.TauriBridge);
         return _connection;
     }
 
@@ -150,7 +151,11 @@ public sealed class BridgeServer
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         try
         {
-            await using var connection = await HostConnection.ConnectAsync(dataDirectory, "tauri-exit", timeout.Token);
+            await using var connection = await HostConnection.ConnectAsync(
+                dataDirectory,
+                "tauri-exit",
+                timeout.Token,
+                ClientPermissionProfiles.HostExit);
             await connection.InvokeAsync(new IpcRequest
             {
                 RequestId = "tauri-exit-" + Guid.NewGuid().ToString("N"),

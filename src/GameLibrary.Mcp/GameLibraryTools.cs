@@ -110,7 +110,7 @@ public static partial class GameLibraryTools
         }
 
         await using var connection = await HostProcessLauncher.EnsureStartedAsync(
-            McpSession.DataDirectory, clientName: "mcp");
+            McpSession.DataDirectory, clientName: "mcp", permissions: ClientPermissionProfiles.Full);
         var envelope = await connection.InvokeAsync(
             new IpcRequest { RequestId = NewRequestId(), OperationId = "host.status" },
             CancellationToken.None);
@@ -134,7 +134,7 @@ public static partial class GameLibraryTools
         }
 
         await using var connection = await HostProcessLauncher.EnsureStartedAsync(
-            McpSession.DataDirectory, clientName: "mcp");
+            McpSession.DataDirectory, clientName: "mcp", permissions: ClientPermissionProfiles.Full);
         var envelope = await connection.InvokeAsync(
             new IpcRequest
             {
@@ -176,7 +176,7 @@ public static partial class GameLibraryTools
         }
 
         await using var connection = await HostProcessLauncher.EnsureStartedAsync(
-            McpSession.DataDirectory, clientName: "mcp");
+            McpSession.DataDirectory, clientName: "mcp", permissions: ClientPermissionProfiles.Full);
         var envelope = await connection.InvokeAsync(
             new IpcRequest
             {
@@ -202,7 +202,7 @@ public static partial class GameLibraryTools
         }
 
         await using var connection = await HostProcessLauncher.EnsureStartedAsync(
-            McpSession.DataDirectory, clientName: "mcp");
+            McpSession.DataDirectory, clientName: "mcp", permissions: ClientPermissionProfiles.Full);
         var envelope = await connection.InvokeAsync(
             new IpcRequest
             {
@@ -333,7 +333,7 @@ public static partial class GameLibraryTools
         }
 
         await using var connection = await HostProcessLauncher.EnsureStartedAsync(
-            McpSession.DataDirectory, clientName: "mcp");
+            McpSession.DataDirectory, clientName: "mcp", permissions: ClientPermissionProfiles.Full);
         var envelope = await connection.InvokeAsync(
             new IpcRequest
             {
@@ -593,7 +593,7 @@ public static partial class GameLibraryTools
         }
 
         await using var connection = await HostProcessLauncher.EnsureStartedAsync(
-            McpSession.DataDirectory, clientName: "mcp");
+            McpSession.DataDirectory, clientName: "mcp", permissions: ClientPermissionProfiles.Full);
         var envelope = await connection.InvokeAsync(
             new IpcRequest
             {
@@ -613,7 +613,7 @@ public static partial class GameLibraryTools
         }
 
         await using var connection = await HostProcessLauncher.EnsureStartedAsync(
-            McpSession.DataDirectory, clientName: "mcp");
+            McpSession.DataDirectory, clientName: "mcp", permissions: ClientPermissionProfiles.Full);
         var envelope = await connection.InvokeAsync(
             new IpcRequest
             {
@@ -646,7 +646,7 @@ public static partial class GameLibraryTools
     {
         try
         {
-            connection = HostConnection.ConnectAsync(McpSession.DataDirectory!, "mcp", CancellationToken.None)
+            connection = HostConnection.ConnectAsync(McpSession.DataDirectory!, "mcp", CancellationToken.None, ClientPermissionProfiles.Full)
                 .GetAwaiter().GetResult();
             return true;
         }
