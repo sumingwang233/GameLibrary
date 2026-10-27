@@ -1,0 +1,450 @@
+{
+  "status": "ok",
+  "summary": "Architecture: 28 communities, 24 community pairs, 15 warning(s)",
+  "communities": [
+    {
+      "id": 90,
+      "name": "translation-game",
+      "size": 860,
+      "cohesion": 0.2032,
+      "dominant_language": "csharp"
+    },
+    {
+      "id": 81,
+      "name": "hosting-translation",
+      "size": 673,
+      "cohesion": 0.363,
+      "dominant_language": "csharp"
+    },
+    {
+      "id": 85,
+      "name": "components-game",
+      "size": 634,
+      "cohesion": 0.2485,
+      "dominant_language": "tsx"
+    },
+    {
+      "id": 83,
+      "name": "persistence-read",
+      "size": 476,
+      "cohesion": 0.228,
+      "dominant_language": "csharp"
+    },
+    {
+      "id": 80,
+      "name": "detection-game",
+      "size": 193,
+      "cohesion": 0.2363,
+      "dominant_language": "csharp"
+    },
+    {
+      "id": 79,
+      "name": "game-library-desktop-async",
+      "size": 141,
+      "cohesion": 0.3593,
+      "dominant_language": "csharp"
+    },
+    {
+      "id": 92,
+      "name": "detection-game-are",
+      "size": 136,
+      "cohesion": 0.2889,
+      "dominant_language": "csharp"
+    },
+    {
+      "id": 84,
+      "name": "game-library-mcp-list",
+      "size": 131,
+      "cohesion": 0.5989,
+      "dominant_language": "csharp"
+    },
+    {
+      "id": 89,
+      "name": "game-library-headless-e2etests-host",
+      "size": 52,
+      "cohesion": 0.2044,
+      "dominant_language": "csharp"
+    },
+    {
+      "id": 77,
+      "name": "catalog-async",
+      "size": 48,
+      "cohesion": 0.5571,
+      "dominant_language": "csharp"
+    },
+    {
+      "id": 102,
+      "name": "film-draw",
+      "size": 44,
+      "cohesion": 0.323,
+      "dominant_language": "javascript"
+    },
+    {
+      "id": 78,
+      "name": "game-library-contracts-operation",
+      "size": 42,
+      "cohesion": 0.213,
+      "dominant_language": "csharp"
+    },
+    {
+      "id": 88,
+      "name": "game-library-contract-tests-schema",
+      "size": 42,
+      "cohesion": 0.1067,
+      "dominant_language": "csharp"
+    },
+    {
+      "id": 99,
+      "name": "ui-host-game",
+      "size": 36,
+      "cohesion": 0.1581,
+      "dominant_language": "javascript"
+    },
+    {
+      "id": 76,
+      "name": "scripts-check",
+      "size": 32,
+      "cohesion": 0.2128,
+      "dominant_language": "python"
+    },
+    {
+      "id": 100,
+      "name": "audio-db",
+      "size": 28,
+      "cohesion": 0.1456,
+      "dominant_language": "python"
+    },
+    {
+      "id": 95,
+      "name": "game-library-cli-command",
+      "size": 23,
+      "cohesion": 0.3273,
+      "dominant_language": "csharp"
+    },
+    {
+      "id": 96,
+      "name": "render-scene",
+      "size": 17,
+      "cohesion": 0.2491,
+      "dominant_language": "javascript"
+    },
+    {
+      "id": 101,
+      "name": "components-size",
+      "size": 16,
+      "cohesion": 0.0625,
+      "dominant_language": "tsx"
+    },
+    {
+      "id": 82,
+      "name": "game-library-host-client-async",
+      "size": 15,
+      "cohesion": 0.1381,
+      "dominant_language": "csharp"
+    },
+    {
+      "id": 86,
+      "name": "game-library-tauri-bridge-async",
+      "size": 14,
+      "cohesion": 0.3288,
+      "dominant_language": "csharp"
+    },
+    {
+      "id": 93,
+      "name": "locale-generate",
+      "size": 12,
+      "cohesion": 0.1613,
+      "dominant_language": "tsx"
+    },
+    {
+      "id": 97,
+      "name": "tools-stamp",
+      "size": 12,
+      "cohesion": 0.0074,
+      "dominant_language": "javascript"
+    },
+    {
+      "id": 94,
+      "name": "lib-theme",
+      "size": 9,
+      "cohesion": 0.0938,
+      "dominant_language": "typescript"
+    },
+    {
+      "id": 75,
+      "name": "workflows-plan",
+      "size": 8,
+      "cohesion": 0.1071,
+      "dominant_language": "typescript"
+    },
+    {
+      "id": 87,
+      "name": "game-library-architecture-version",
+      "size": 8,
+      "cohesion": 0.2,
+      "dominant_language": "csharp"
+    },
+    {
+      "id": 98,
+      "name": "scripts-system",
+      "size": 4,
+      "cohesion": 0.2424,
+      "dominant_language": "javascript"
+    },
+    {
+      "id": 91,
+      "name": "game-library-test-process-stub-program",
+      "size": 3,
+      "cohesion": 0.1,
+      "dominant_language": "csharp"
+    }
+  ],
+  "cross_community_edges": [
+    {
+      "source_community": "hosting-translation",
+      "target_community": "translation-game",
+      "edge_count": 390,
+      "top_kinds": [
+        "CALLS"
+      ]
+    },
+    {
+      "source_community": "persistence-read",
+      "target_community": "translation-game",
+      "edge_count": 318,
+      "top_kinds": [
+        "CALLS"
+      ]
+    },
+    {
+      "source_community": "hosting-translation",
+      "target_community": "persistence-read",
+      "edge_count": 212,
+      "top_kinds": [
+        "CALLS"
+      ]
+    },
+    {
+      "source_community": "detection-game",
+      "target_community": "detection-game-are",
+      "edge_count": 154,
+      "top_kinds": [
+        "CALLS"
+      ]
+    },
+    {
+      "source_community": "detection-game",
+      "target_community": "hosting-translation",
+      "edge_count": 92,
+      "top_kinds": [
+        "CALLS"
+      ]
+    },
+    {
+      "source_community": "game-library-host-client-async",
+      "target_community": "translation-game",
+      "edge_count": 74,
+      "top_kinds": [
+        "CALLS"
+      ]
+    },
+    {
+      "source_community": "detection-game",
+      "target_community": "persistence-read",
+      "edge_count": 43,
+      "top_kinds": [
+        "CALLS"
+      ]
+    },
+    {
+      "source_community": "detection-game",
+      "target_community": "translation-game",
+      "edge_count": 34,
+      "top_kinds": [
+        "CALLS"
+      ]
+    },
+    {
+      "source_community": "game-library-desktop-async",
+      "target_community": "game-library-host-client-async",
+      "edge_count": 33,
+      "top_kinds": [
+        "CALLS"
+      ]
+    },
+    {
+      "source_community": "game-library-contracts-operation",
+      "target_community": "game-library-contract-tests-schema",
+      "edge_count": 30,
+      "top_kinds": [
+        "CALLS"
+      ]
+    },
+    {
+      "source_community": "game-library-contracts-operation",
+      "target_community": "translation-game",
+      "edge_count": 23,
+      "top_kinds": [
+        "CALLS"
+      ]
+    },
+    {
+      "source_community": "game-library-desktop-async",
+      "target_community": "translation-game",
+      "edge_count": 22,
+      "top_kinds": [
+        "CALLS"
+      ]
+    },
+    {
+      "source_community": "game-library-host-client-async",
+      "target_community": "game-library-mcp-list",
+      "edge_count": 17,
+      "top_kinds": [
+        "CALLS"
+      ]
+    },
+    {
+      "source_community": "game-library-contracts-operation",
+      "target_community": "hosting-translation",
+      "edge_count": 15,
+      "top_kinds": [
+        "CALLS"
+      ]
+    },
+    {
+      "source_community": "game-library-host-client-async",
+      "target_community": "game-library-cli-command",
+      "edge_count": 13,
+      "top_kinds": [
+        "CALLS"
+      ]
+    },
+    {
+      "source_community": "catalog-async",
+      "target_community": "hosting-translation",
+      "edge_count": 8,
+      "top_kinds": [
+        "CALLS"
+      ]
+    },
+    {
+      "source_community": "game-library-contracts-operation",
+      "target_community": "game-library-host-client-async",
+      "edge_count": 6,
+      "top_kinds": [
+        "CALLS"
+      ]
+    },
+    {
+      "source_community": "game-library-host-client-async",
+      "target_community": "game-library-tauri-bridge-async",
+      "edge_count": 6,
+      "top_kinds": [
+        "CALLS"
+      ]
+    },
+    {
+      "source_community": "game-library-contracts-operation",
+      "target_community": "game-library-desktop-async",
+      "edge_count": 2,
+      "top_kinds": [
+        "CALLS"
+      ]
+    },
+    {
+      "source_community": "translation-game",
+      "target_community": "game-library-cli-command",
+      "edge_count": 2,
+      "top_kinds": [
+        "CALLS"
+      ]
+    },
+    {
+      "source_community": "game-library-contracts-operation",
+      "target_community": "game-library-cli-command",
+      "edge_count": 2,
+      "top_kinds": [
+        "CALLS"
+      ]
+    },
+    {
+      "source_community": "game-library-contracts-operation",
+      "target_community": "game-library-mcp-list",
+      "edge_count": 2,
+      "top_kinds": [
+        "CALLS"
+      ]
+    },
+    {
+      "source_community": "game-library-host-client-async",
+      "target_community": "game-library-headless-e2etests-host",
+      "edge_count": 1,
+      "top_kinds": [
+        "CALLS"
+      ]
+    },
+    {
+      "source_community": "catalog-async",
+      "target_community": "translation-game",
+      "edge_count": 1,
+      "top_kinds": [
+        "CALLS"
+      ]
+    }
+  ],
+  "warnings": [
+    "High coupling (390 edges) between 'hosting-translation' and 'translation-game'",
+    "High coupling (318 edges) between 'persistence-read' and 'translation-game'",
+    "High coupling (212 edges) between 'hosting-translation' and 'persistence-read'",
+    "High coupling (154 edges) between 'detection-game' and 'detection-game-are'",
+    "High coupling (92 edges) between 'detection-game' and 'hosting-translation'",
+    "High coupling (74 edges) between 'game-library-host-client-async' and 'translation-game'",
+    "High coupling (43 edges) between 'detection-game' and 'persistence-read'",
+    "High coupling (34 edges) between 'detection-game' and 'translation-game'",
+    "High coupling (33 edges) between 'game-library-desktop-async' and 'game-library-host-client-async'",
+    "High coupling (30 edges) between 'game-library-contracts-operation' and 'game-library-contract-tests-schema'",
+    "High coupling (23 edges) between 'game-library-contracts-operation' and 'translation-game'",
+    "High coupling (22 edges) between 'game-library-desktop-async' and 'translation-game'",
+    "High coupling (17 edges) between 'game-library-host-client-async' and 'game-library-mcp-list'",
+    "High coupling (15 edges) between 'game-library-contracts-operation' and 'hosting-translation'",
+    "High coupling (13 edges) between 'game-library-host-client-async' and 'game-library-cli-command'"
+  ],
+  "cross_community_edges_total": 24,
+  "truncated": false,
+  "_hints": {
+    "next_steps": [
+      {
+        "tool": "list_communities_tool",
+        "suggestion": "Drill into individual communities"
+      },
+      {
+        "tool": "detect_changes_tool",
+        "suggestion": "See how recent changes affect the architecture"
+      },
+      {
+        "tool": "list_flows_tool",
+        "suggestion": "Explore execution flows"
+      }
+    ],
+    "related": [],
+    "warnings": [
+      "High coupling (390 edges) between 'hosting-translation' and 'translation-game'",
+      "High coupling (318 edges) between 'persistence-read' and 'translation-game'",
+      "High coupling (212 edges) between 'hosting-translation' and 'persistence-read'"
+    ]
+  },
+  "context_savings": {
+    "estimated": true,
+    "saved_tokens": 233617,
+    "saved_percent": 99
+  },
+  "_graph": {
+    "updated_at": "2026-10-27T12:22:56",
+    "age_seconds": 59,
+    "built_at_sha": "316e3759b8c7203ae4c631150d96787c2fdab3db",
+    "built_on_branch": "main",
+    "head_sha": "316e3759b8c7203ae4c631150d96787c2fdab3db",
+    "head_matches_build": true
+  }
+}
