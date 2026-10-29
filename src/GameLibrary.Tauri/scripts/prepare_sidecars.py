@@ -37,6 +37,7 @@ def publish(project: str, executable: str, properties: list[str] | None = None) 
             "true",
             "-p:PublishSingleFile=true",
             "-p:IncludeNativeLibrariesForSelfExtract=true",
+            "-p:EnableCompressionInSingleFile=true",
             "-p:DebugType=None",
             *REVISION_PROPERTIES,
             *(properties or []),
