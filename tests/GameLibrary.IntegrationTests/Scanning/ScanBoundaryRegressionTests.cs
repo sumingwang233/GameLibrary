@@ -9,6 +9,7 @@ using GameLibrary.Domain.States;
 using GameLibrary.Host.Hosting;
 using GameLibrary.Host.Scanning;
 using GameLibrary.Infrastructure.Persistence;
+using GameLibrary.Infrastructure.Catalog;
 using GameLibrary.Infrastructure.Scanning;
 using Xunit;
 
@@ -115,16 +116,27 @@ public sealed class ScanBoundaryRegressionTests : IDisposable
     }
 
     [Fact]
-    public void AutomaticDiscovery_IgnoresShortcutFiles_ButKeepsExecutableAndChildProjects()
+    public async Task AutomaticDiscovery_IgnoresShortcutFiles_ButKeepsExecutableAndChildProjects()
     {
         Write("Play.lnk");
         Write("Game.exe");
         Write("Child/Child.exe");
+        Write("Folder.lnk/Game.exe");
+        Write("Folder.lnk/data.xp3");
         var collector = new ScanCandidateCollector(GamePath.Create(_root), "shortcut-scan", new());
         ScanJobRunner.Run(GamePath.Create(_root), new() { JobId = "shortcut-scan", Token = CancellationToken.None }, collector);
         Assert.DoesNotContain(collector.Candidates, candidate => candidate.EntryCandidates.Any(entry => entry.RelativePath.EndsWith(".lnk")));
         Assert.Contains(collector.Candidates, candidate => candidate.PhysicalPath == Path.Combine(_root, "Game.exe"));
         Assert.Contains(collector.Candidates, candidate => candidate.PhysicalPath == Path.Combine(_root, "Child"));
+        var opened = await SqliteLibraryStore.InitializeAsync(Path.Combine(_root, "db"),
+            new() { AppVersion = "test", ApiVersion = "1" }, CancellationToken.None);
+        await using var store = opened.Store!;
+        ScanCandidatePersistence.Persist(store, null, collector, "shortcut-scan", readyForReview: true);
+        var directory = Assert.Single(store.ListCandidates(), candidate => candidate.PhysicalPath == Path.Combine(_root, "Folder.lnk"));
+        var service = new CandidateReviewService(store, new CatalogFiles());
+        var prepared = service.Prepare(directory.CandidateId, directory.Revision, "accept");
+        Assert.Null(prepared.Error);
+        Assert.Null(service.Apply(prepared).ErrorCode);
     }
 
     [Theory]
@@ -171,6 +183,9 @@ public sealed class ScanBoundaryRegressionTests : IDisposable
         var unrelated = Write("Install/Other.exe");
         Assert.Empty(new ShortcutGameIdentity([game]).FindMatches([unrelated]));
         // A second project/entry makes the wrapper relationship ambiguous.
+        Assert.Empty(new ShortcutGameIdentity([game]).FindMatches([wrapper]));
+        File.Delete(unrelated);
+        for (var index = 0; index < 33; index++) Directory.CreateDirectory(Path.Combine(_root, "Install", "extra-" + index));
         Assert.Empty(new ShortcutGameIdentity([game]).FindMatches([wrapper]));
     }
 

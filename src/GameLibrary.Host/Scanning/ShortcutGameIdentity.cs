@@ -78,8 +78,11 @@ internal sealed class ShortcutGameIdentity
         if (!IsSafeFile(wrapper)) return null;
         try
         {
+            var snapshot = new FileSystemDirectorySnapshot(GamePath.Create(root));
+            // 检测器最多检查 32 个直属目录；截断的观察不能用来证明项目唯一。
+            if (snapshot.ListDirectories("").Count > 32) return null;
             var report = new AdditionalEngineDetector(EngineId.Unreal)
-                .Detect(new FileSystemDirectorySnapshot(GamePath.Create(root)));
+                .Detect(snapshot);
             return report is { EntryCandidates.Count: 1 }
                 && report.Evidence.Any(e => e.RuleId == "unreal.packaged-project"
                     && string.Equals(e.RelativePath, projectName + "/Content/Paks", StringComparison.OrdinalIgnoreCase))

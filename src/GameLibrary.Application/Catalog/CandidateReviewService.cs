@@ -38,7 +38,7 @@ public sealed class CandidateReviewService(ICandidateReviewStore store, ICatalog
         if (candidate is null) error = new(candidateId, ErrorCode: "NotFound", ErrorMessage: $"候选不存在：{candidateId}");
         else if (action == "accept" && candidate.ReviewState != "accepted"
             && (GameLibrary.Domain.Paths.GamePath.TryCreate(candidate.PhysicalPath).Path?.IsDriveRoot == true
-                || candidate.PhysicalPath.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase)))
+                || candidate.Kind == "fileGame" && candidate.PhysicalPath.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase)))
             error = new(candidateId, ErrorCode: "InvalidArgument",
                 ErrorMessage: "磁盘根目录不能作为游戏入库；快捷方式请通过手动添加导入。请重新扫描真实游戏位置");
         else if (action == "accept" && !files.Exists(candidate.PhysicalPath))
