@@ -22,6 +22,9 @@ TestResults/
 __pycache__/
 *.pyc
 
+# RG-02 isolated builds, fixtures and measurements
+/.tmp/rg02/
+
 # 用户笔记配置（不纳入工程版本控制）
 .obsidian/
 

@@ -36,7 +36,11 @@ public sealed class HostStopE2ETests
             {
                 var init = await Send("library.init", new { idempotencyKey = "init" });
                 Assert.True(init.GetProperty("ok").GetBoolean());
-                await bridge.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new { dataDir, requestId = "wait", operationId = "events.wait", parameters = new { timeoutMs = 30000 } }));
+                await bridge.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new
+                {
+                    transportId = Guid.NewGuid().ToString("N"),
+                    request = new { dataDir, requestId = "wait", operationId = "events.wait", parameters = new { timeoutMs = 30000 } },
+                }));
                 await bridge.StandardInput.FlushAsync();
                 parent.Kill(); // Only the owned test parent; Host must exit gracefully itself.
                 await parent.WaitForExitAsync();
@@ -60,18 +64,31 @@ public sealed class HostStopE2ETests
 
         async Task<JsonElement> Send(string operation, object parameters)
         {
-            await bridge.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new { dataDir, requestId = Guid.NewGuid().ToString("N"), operationId = operation, parameters }));
+            var transportId = Guid.NewGuid().ToString("N");
+            await bridge.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new
+            {
+                transportId,
+                request = new
+                {
+                    dataDir,
+                    requestId = Guid.NewGuid().ToString("N"),
+                    operationId = operation,
+                    parameters,
+                },
+            }));
             await bridge.StandardInput.FlushAsync();
             var response = await bridge.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(15));
             Assert.NotNull(response);
-            return JsonDocument.Parse(response).RootElement.Clone();
+            using var document = JsonDocument.Parse(response);
+            Assert.Equal(transportId, document.RootElement.GetProperty("transportId").GetString());
+            return document.RootElement.GetProperty("result").Clone();
         }
     }
 
     [Fact]
     public async Task Cli_HostStop_StopsHostGracefully()
     {
-        var runId = Path.Combine(@"D:\Official\GameLibrary\artifacts\test-runs", $"e2e-stop-{Guid.NewGuid():N}");
+        var runId = Path.Combine(RepoRoot(), "artifacts", "test-runs", $"e2e-stop-{Guid.NewGuid():N}");
         var dataDir = Path.Combine(runId, "data");
         try
         {
@@ -134,6 +151,19 @@ public sealed class HostStopE2ETests
         var stderr = process.StandardError.ReadToEndAsync();
         await process.WaitForExitAsync();
         return (process.ExitCode, await stdout, await stderr);
+    }
+
+    private static string RepoRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null
+            && !File.Exists(Path.Combine(directory.FullName, "Directory.Build.props")))
+        {
+            directory = directory.Parent;
+        }
+
+        Assert.False(directory is null, "未找到仓库根（向上遍历未命中 Directory.Build.props）");
+        return directory!.FullName;
     }
 
     private static void TryCleanup(string path)

@@ -1,5 +1,11 @@
 # GameLibrary 架构预览
 
+## RG-02 / v1.8.1（未发布）
+
+Tauri Rust 壳改为一个 C# Bridge 进程。普通请求和 `events.wait` 各有一条独立 HostConnection；两条通道分别串行，可同时在途。私有 stdio 使用独立 `transportId` 配对乱序响应，不改变 Host 的 `requestId`、权限、库身份或 SQLite schema。传输失败拒绝前端 invoke，保留幂等键；业务 Envelope 保持原样。
+
+普通用户 sidecar 的发布来源统一为 Tauri 构建，启用单文件压缩；Tools 仍独立发布 Console Host。验证状态和资源实测见 [RG-02 记录](../development/2026-10-29-rg02-validation.md)。
+
 v1.7.11：Unity 自动配置仍由 `UnityTranslationService` 串行协调；`UnityTranslationInspection` 核对活动加载器与非活动生成物，`UnityTranslationAssembly` 通过 .NET metadata 对受限的已核验 IL 做等长变更，`UnityTranslationFonts` 按真实 TMP 接口选择系统字体或既有字库。复用原有固定哈希 Payload 与加密文件事务，`RestoredBackupId`/恢复收据留在本机既有状态/备份边界，不新增表或 IPC。恢复保留缓存、安装拒绝未知文件，与原游戏文件修改、用户确认和密钥边界保持一致。详见 [实施记录](../development/v1.7.11-loader-compatibility-plan.md)。
 
 ## 宣传网站 — 2026-10-02 / 网站 v1.1.0
@@ -14,8 +20,10 @@ v1.7.0 新增名称翻译边界：React 共享作业 Hook → Host `TitlesHandle
 
 ```mermaid
 flowchart LR
-    UI[Tauri / React hooks] --> Normal[普通请求 Bridge]
-    UI --> Events[事件等待 Bridge]
+    UI[Tauri / React hooks] --> Rust[Rust / transportId]
+    Rust --> Bridge[单个 C# Bridge]
+    Bridge --> Normal[普通请求连接]
+    Bridge --> Events[events.wait 连接]
     WPF[WPF] --> Client[HostClient]
     CLI[CLI / MCP] --> Client
     Normal --> Client
