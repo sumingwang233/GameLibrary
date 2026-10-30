@@ -23,18 +23,22 @@ public sealed record ScanRuleDecision
 
     public string? WinningRuleId { get; init; }
 
+    /// <summary>排除目录时是否剪枝子树；用户 ExactPath 只排除目录本身。</summary>
+    public bool ExcludeDescendants { get; init; } = true;
+
     public required IReadOnlyList<string> MatchedRuleIds { get; init; }
 
     /// <summary>深度比较（IReadOnlyList 是引用相等，record 默认相等性不适用于命中列表）。</summary>
     public bool Equals(ScanRuleDecision? other) =>
         other is not null
         && Outcome == other.Outcome
+        && ExcludeDescendants == other.ExcludeDescendants
         && string.Equals(WinningRuleId, other.WinningRuleId, StringComparison.Ordinal)
         && MatchedRuleIds.Count == other.MatchedRuleIds.Count
         && MatchedRuleIds.SequenceEqual(other.MatchedRuleIds, StringComparer.Ordinal);
 
     public override int GetHashCode() =>
-        HashCode.Combine(Outcome, WinningRuleId ?? string.Empty, MatchedRuleIds.Count);
+        HashCode.Combine(Outcome, ExcludeDescendants, WinningRuleId ?? string.Empty, MatchedRuleIds.Count);
 }
 
 /// <summary>
@@ -133,6 +137,8 @@ public sealed class ScanRuleSet
                 _ => ScanRuleOutcome.Continue,
             },
             WinningRuleId = rule.RuleId,
+            ExcludeDescendants = rule.Action != ScanRuleAction.Exclude
+                || rule.Source != ScanRuleSource.User || rule.Matcher is not ExactPathMatcher,
             MatchedRuleIds = matched,
         };
 }

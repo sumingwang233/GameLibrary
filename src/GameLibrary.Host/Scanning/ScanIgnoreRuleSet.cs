@@ -6,7 +6,7 @@ namespace GameLibrary.Host.Scanning;
 
 /// <summary>
 /// 把持久化 ignore 规则映射为遍历层排除规则（R36 接线，补充规格 2.1）：
-/// ExactPath → 精确路径排除；Subtree → 分段子树排除（含子树根自身）；
+/// ExactPath → 只排除该路径，目录后代仍扫描；Subtree → 分段子树排除（含子树根自身）；
 /// ConfirmedIdentity 按 gameId 绑定候选身份，遍历层无 gameId 可求值，仍由落库抑制处理。
 /// OrderIndex 沿用存储顺序（created_utc, ignore_id）保证同优先级结果确定。
 /// </summary>

@@ -382,7 +382,8 @@ internal sealed class GamesHandler
             }
         }
 
-        var existing = store.ListGames().FirstOrDefault(game =>
+        var existingGames = store.ListGames();
+        var existing = existingGames.FirstOrDefault(game =>
         {
             var prior = Domain.Paths.GamePath.TryCreate(game.RootPath);
             return game.Membership == "active"
@@ -393,6 +394,14 @@ internal sealed class GamesHandler
         {
             return IpcRequests.InvalidArgument(request, $"该游戏位置已入库：{existing.GameId}");
         }
+
+        var entries = entryPath is not null ? new[] { entryPath }
+            : GenericGameCandidateDetector.Inspect(new FileSystemDirectorySnapshot(normalized)).EntryCandidates
+                .Select(entry => Path.Combine(normalized.PhysicalPath, entry.RelativePath)).ToArray();
+        var shortcutMatches = new ShortcutGameIdentity(existingGames).FindMatches(entries, importingShortcut: isShortcut);
+        if (shortcutMatches.Count > 0)
+            return IpcRequests.InvalidArgument(request,
+                $"该入口已关联游戏，请检查现有记录：{string.Join(", ", shortcutMatches.Select(game => game.GameId))}");
 
         string title;
         JsonElement titleElement = default;

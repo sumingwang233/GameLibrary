@@ -1,5 +1,7 @@
 # GameLibrary 代码预览框架
 
+2026-10-30 v1.8.1 扫描补丁：盘根独立文件、ExactPath 后代遍历、LNK 去重及待确认计数。修改前查询共享扫描路径的影响上下文；修改后以 minimal 模式重建，431 文件、4,316 节点、42,388 边，解析错误 0。专项集成 83、单元 36、Sidebar 3 项及前端 typecheck 通过；Go 独立复审与真实库重复记录处理尚待完成。见[本轮结构记录](scan-boundaries-v1.8.1.md)及[已批准计划](../development/v1.8.1-scan-boundaries-plan.md)。未打包、推送或发布。
+
 2026-10-26 网站 v1.5.0：下载与四语言宣传内容同步产品 v1.8.0，新增真实浅深色游戏库及标签截图，缩略图和放大图复用网页 `.dark` 主题切换。修改前已做影响分析，修改后增量解析 6 个文件，错误为空，并执行图谱变更分析。实际执行范围为素材采集、转换、源码审阅与图谱同步；网站测试、构建及浏览器验收未运行，未推送或部署。见[网站实施记录](website.md)和[截图来源](../../website/design/2026-10-26-screenshots.md)。
 
 2026-10-26 优化第三轮（权限显式声明）：协议里的 `GrantedPermissions` 以前所有第一方客户端都不填，宿主“null = 不限权”成了唯一实际路径。本轮新增 `ClientPermissionProfiles`（Tauri 桥接 7 项最小集合、tauri-exit 仅 `host.manage`、CLI/MCP/桌面端为目录里除 `access.admin` 外的全部权限），`HostProcessLauncher` 透传，各入口建连时显式声明；新增契约测试核对权限名拼写、真实命名管道集成测试验证受限声明、空声明与 `none` 权限的实际行为；旧 Unity 密钥经评估保留，现有回退测试依赖它。源码提交 `a5d5d4b` 后增量更新，解析错误 0，登记 425 文件、4,134 节点、40,707 边、237 条执行流与 28 个社区。Contract 59、Architecture 11、Unit 183、新增权限用例 4/4 与 HostStop E2E 3/3 通过；Integration 613 中 612 通过，唯一失败仍是既有环境依赖的 Unity 翻译用例（下载固定翻译包 + PowerShell 辅助进程，单独连跑两遍通过）。真实窗口、屏幕阅读器与真机点选未验收；未打包、推送或发布。见[优化记录](../development/2026-10-26-post-v1.7.23-optimization.md)。

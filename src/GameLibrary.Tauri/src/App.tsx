@@ -247,7 +247,6 @@ function App() {
       tags={library.tags}
       candidateTotal={library.candidateTotal}
       gameTotal={library.gameTotal}
-      notificationTotal={library.notifications.length}
       onCreateTag={() => setPrompt("tag")}
     />
   );

@@ -42,8 +42,8 @@ public sealed class AdditionalEngineDetector(EngineId engine) : IEngineDetector
             var embedded = entries.Where(entry => IsGodotEmbeddedPack(snapshot, entry)).ToArray();
             if (pack is null && identified.Length == 0 && embedded.Length == 0) return null;
             if (pack is not null) Found("godot.pack-header", pack);
-            if (identified.Length > 0) { entries = identified; Found("godot.pe-product", identified[0]); }
-            else if (embedded.Length > 0) { entries = embedded; Found("godot.embedded-pack", embedded[0]); }
+            if (identified.Length > 0) { entries = identified; foreach (var entry in identified) Found("godot.pe-product", entry); }
+            else if (embedded.Length > 0) { entries = embedded; foreach (var entry in embedded) Found("godot.embedded-pack", entry); }
         }
         else if (engine == EngineId.Unreal)
         {

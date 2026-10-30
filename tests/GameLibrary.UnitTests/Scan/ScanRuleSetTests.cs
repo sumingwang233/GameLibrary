@@ -8,6 +8,28 @@ public sealed class ScanRuleSetTests
 {
     private static GamePath Path(string p) => GamePath.Create(p);
 
+    [Theory]
+    [InlineData(ScanRuleSource.User, false, false)]
+    [InlineData(ScanRuleSource.User, true, true)]
+    [InlineData(ScanRuleSource.SystemMandatory, false, true)]
+    [InlineData(ScanRuleSource.SystemDefault, false, true)]
+    public void ExclusionScope_OnlyUserExactPathPreservesDescendants(
+        ScanRuleSource source, bool subtree, bool excludeDescendants)
+    {
+        const string parent = @"F:\[Unity]";
+        var rules = new ScanRuleSet([new ScanRule
+        {
+            RuleId = "scope", Source = source, Action = ScanRuleAction.Exclude,
+            Matcher = subtree ? new SubtreeMatcher(parent) : new ExactPathMatcher(Path(parent).ComparisonKey),
+        }]);
+        var decision = rules.Decide(Path(parent));
+        Assert.Equal(ScanRuleOutcome.Exclude, decision.Outcome);
+        Assert.Equal(excludeDescendants, decision.ExcludeDescendants);
+        Assert.Equal(subtree ? ScanRuleOutcome.Exclude : ScanRuleOutcome.Continue,
+            rules.Decide(Path(parent + @"\New Game")).Outcome);
+        Assert.NotEqual(decision, decision with { ExcludeDescendants = !excludeDescendants });
+    }
+
     [Fact]
     public void EmptyRuleSet_ContinuesByDefault()
     {
