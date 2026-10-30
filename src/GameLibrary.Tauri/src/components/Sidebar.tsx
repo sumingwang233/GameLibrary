@@ -30,7 +30,6 @@ export interface SidebarProps {
   tags: TagItem[];
   candidateTotal: number;
   gameTotal: number;
-  notificationTotal: number;
   onCreateTag: () => void;
 }
 
@@ -49,11 +48,9 @@ export function Sidebar(props: SidebarProps) {
     tags,
     candidateTotal,
     gameTotal,
-    notificationTotal,
     onCreateTag,
   } = props;
 
-  const pendingBadge = candidateTotal + notificationTotal;
   // 标签定义仍保留在“管理标签”中；侧栏只展示当前库内至少有一个有效游戏的标签，
   // 并与管理页同口径按四分类分组（v1.5.5），空分组不占位。
   const visibleTags = tags.filter((tag) => (tag.gameCount ?? 0) > 0);
@@ -98,7 +95,7 @@ export function Sidebar(props: SidebarProps) {
         <NavButton
           icon={<Inbox size={16} />}
           label={t("待确认")}
-          count={pendingBadge}
+          count={candidateTotal}
           active={section === "pending"}
           onClick={() => onSectionChange("pending")}
         />

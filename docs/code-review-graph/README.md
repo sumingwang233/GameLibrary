@@ -1,5 +1,11 @@
 # GameLibrary 代码预览框架
 
+2026-10-30 v1.8.1 待验收打包：按用户选择合入已提交的 sidecar 打包修复，同步产品版本字段为 1.8.1；未纳入其他工作区未提交的 Bridge/退出优化。修改前查询影响上下文，修改后增量解析 2 个文件，解析错误 0，图谱基线为二进制源码 `aad3781`。生产发布、Tauri 与 NSIS 编译完成；本次全量门禁和人工验收未运行。四语言 README 标为待验收预发布，稳定下载保持 v1.8.0。见[构建记录](../releases/v1.8.1-validation.md)。
+
+2026-10-30 v1.8.1 扫描补丁：盘根独立文件、ExactPath 后代遍历、LNK 去重及待确认计数。修改前查询共享扫描路径的影响上下文；在最终源码 `687bb4d` 上以 minimal 模式重建，433 文件、4,343 节点、42,636 边，解析错误 0。分轮去重 135 项 .NET、3 项 Sidebar 及前端 typecheck 通过。按用户后续要求由 Codex 完成复核；真实库一致性备份后仅移出 1 张已证实的重复快捷方式卡，文件与元数据保留。见[本轮结构记录](scan-boundaries-v1.8.1.md)、[验证记录](../development/v1.8.1-scan-boundaries-validation.md)及[已批准计划](../development/v1.8.1-scan-boundaries-plan.md)。未打包、推送或发布。
+
+2026-10-26 网站 v1.5.0：下载与四语言宣传内容同步产品 v1.8.0，新增真实浅深色游戏库及标签截图，缩略图和放大图复用网页 `.dark` 主题切换。修改前已做影响分析，修改后增量解析 6 个文件，错误为空，并执行图谱变更分析。实际执行范围为素材采集、转换、源码审阅与图谱同步；网站测试、构建及浏览器验收未运行，未推送或部署。见[网站实施记录](website.md)和[截图来源](../../website/design/2026-10-26-screenshots.md)。
+
 2026-10-26 优化第三轮（权限显式声明）：协议里的 `GrantedPermissions` 以前所有第一方客户端都不填，宿主“null = 不限权”成了唯一实际路径。本轮新增 `ClientPermissionProfiles`（Tauri 桥接 7 项最小集合、tauri-exit 仅 `host.manage`、CLI/MCP/桌面端为目录里除 `access.admin` 外的全部权限），`HostProcessLauncher` 透传，各入口建连时显式声明；新增契约测试核对权限名拼写、真实命名管道集成测试验证受限声明、空声明与 `none` 权限的实际行为；旧 Unity 密钥经评估保留，现有回退测试依赖它。源码提交 `a5d5d4b` 后增量更新，解析错误 0，登记 425 文件、4,134 节点、40,707 边、237 条执行流与 28 个社区。Contract 59、Architecture 11、Unit 183、新增权限用例 4/4 与 HostStop E2E 3/3 通过；Integration 613 中 612 通过，唯一失败仍是既有环境依赖的 Unity 翻译用例（下载固定翻译包 + PowerShell 辅助进程，单独连跑两遍通过）。真实窗口、屏幕阅读器与真机点选未验收；未打包、推送或发布。见[优化记录](../development/2026-10-26-post-v1.7.23-optimization.md)。
 
 2026-10-26 优化第二轮（批量 IPC 与权限收紧）：`GameBatchBar` 的约 2N 次逐项 IPC 改为 `games.update_batch`、`tags.assign_batch`、`games.remove_batch` 三次批量提交（500 分块、逐项回执、每项 SAVEPOINT 隔离），Tauri 关闭 `withGlobalTauri` 并把 opener/dialog 从整套默认收紧到实际使用的三项权限，CSP 与默认不限权授权作为剩余风险写进记录。修改前核对现有 SQL 索引与 `candidates.review_batch` 先例；三个源码提交（`b331780`、`4ac962a`、`99f4d06`）后在 `99f4d06` 全量重建，解析错误 0，登记 422 文件、4,118 节点、40,622 边，检测 237 条执行流与 28 个社区，新增 `BatchRequests.cs`、`SqliteLibraryStore.Batches.cs`、`BatchWritesTests.cs`、`GameBatchBar.batch.test.tsx` 均已入图。Release 编译 0 警告 0 错误，契约 55、架构 11、单元 183、集成 609（复跑全绿）通过；前端 24 文件 143 用例、typecheck 与 `tsc && vite build` 通过；`cargo check` 通过。真实窗口、屏幕阅读器与真机批量点选未验收；未打包、推送或发布。见[优化记录](../development/2026-10-26-post-v1.7.23-optimization.md)。

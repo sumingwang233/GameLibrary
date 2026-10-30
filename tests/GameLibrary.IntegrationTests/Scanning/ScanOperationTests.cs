@@ -38,6 +38,58 @@ public sealed class ScanOperationTests : IClassFixture<PipeServerFixture>
     private Task<Envelope<JsonElement>> EnsureRootAsync() =>
         InvokeAsync("roots.add", new { root = @"D:\Official\GameLibrary\artifacts\test-runs" });
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Rescan_ExactIgnoredCollectionDiscoversNewUnityGames_WithoutRemovingIgnore(bool scanCollectionRoot)
+    {
+        var root = CreateFixtureTree("scanop-exact-rescan");
+        var collection = Path.Combine(root, "[Unity]");
+        Directory.CreateDirectory(collection);
+        File.WriteAllText(Path.Combine(collection, "Game.exe"), "fixture");
+        File.WriteAllText(Path.Combine(collection, "data.xp3"), "fixture");
+        await EnsureRootAsync();
+        var scanRoot = scanCollectionRoot ? collection : root;
+        var first = await InvokeAsync("scan.start", new { root = scanRoot, idempotencyKey = Guid.NewGuid().ToString("N") });
+        Assert.True(first.Ok, first.Error?.Message);
+        await WaitForJobAsync(first.JobId!, "succeeded");
+        var before = await InvokeAsync("candidates.list", new { jobId = first.JobId });
+        var parent = before.Data.GetProperty("items").EnumerateArray()
+            .Single(item => item.GetProperty("physicalPath").GetString() == collection);
+        var ignored = await InvokeAsync("ignores.create", new
+        {
+            scope = "ExactPath", path = collection, idempotencyKey = Guid.NewGuid().ToString("N"),
+        });
+        Assert.True(ignored.Ok, ignored.Error?.Message);
+        var newGames = new[] { "New Game", "新しいゲーム" };
+        foreach (var name in newGames)
+        {
+            var path = Path.Combine(collection, name);
+            Directory.CreateDirectory(Path.Combine(path, name + "_Data"));
+            File.WriteAllText(Path.Combine(path, name + ".exe"), "fixture");
+            File.WriteAllText(Path.Combine(path, "UnityPlayer.dll"), "fixture");
+            File.WriteAllText(Path.Combine(path, name + "_Data", "globalgamemanagers"), "fixture");
+        }
+        var rescan = await InvokeAsync("scan.start", new { root = scanRoot, idempotencyKey = Guid.NewGuid().ToString("N") });
+        Assert.True(rescan.Ok, rescan.Error?.Message);
+        Assert.NotEqual(first.JobId, rescan.JobId);
+        await WaitForJobAsync(rescan.JobId!, "succeeded");
+        var after = await InvokeAsync("candidates.list", new { jobId = rescan.JobId, state = "pendingReview" });
+        foreach (var name in newGames)
+        {
+            var item = after.Data.GetProperty("items").EnumerateArray()
+                .Single(item => item.GetProperty("physicalPath").GetString() == Path.Combine(collection, name));
+            Assert.Equal("gameRoot", item.GetProperty("kind").GetString());
+            var detail = await InvokeAsync("candidates.get", new { candidateId = item.GetProperty("candidateId").GetString() });
+            Assert.Equal("unity", detail.Data.GetProperty("detail").GetProperty("engines")[0].GetProperty("engine").GetString());
+        }
+        var parentAfter = await InvokeAsync("candidates.get", new { candidateId = parent.GetProperty("candidateId").GetString() });
+        Assert.Equal("ignored", parentAfter.Data.GetProperty("reviewState").GetString());
+        var rules = await InvokeAsync("ignores.list", new { });
+        Assert.Contains(rules.Data.GetProperty("items").EnumerateArray(),
+            rule => rule.GetProperty("ignoreId").GetString() == ignored.Data.GetProperty("ignoreId").GetString());
+    }
+
     [Fact]
     public async Task ScanStart_AcceptsJobAndCompletesWithCoverage()
     {

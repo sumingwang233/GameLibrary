@@ -6,7 +6,9 @@ import sharp from "sharp";
 // Keep original captures for enlargement and derive separate previews for the illustrations.
 const images = [
   { name: "library", sizes: [440, 880, 1320], dimensions: [1320, 820] },
+  { name: "library-dark", sizes: [440, 880, 1320], dimensions: [1320, 820] },
   { name: "tags", sizes: [440, 880, 1320], dimensions: [1320, 820] },
+  { name: "tags-dark", sizes: [440, 880, 1320], dimensions: [1320, 820] },
   { name: "hero-paper-pixel", sizes: [640, 960, 1440], dimensions: [1536, 1024] },
   { name: "pixel-journey", sizes: [640, 960, 1440], dimensions: [1774, 887] },
 ];

@@ -8,6 +8,8 @@
 
 # GameLibrary
 
+**v1.8.1 acceptance pre-release** fixes missed scans, drive-root detection, pending counts and duplicate shortcut entries. See the [release notes](docs/releases/v1.8.1.md). Stable downloads below remain on v1.8.0.
+
 Keep games scattered across your drives in one library. Choose a folder, check the launch entry, and open the game from your collection.
 
 The current formal release, **v1.8.0**, turns bulk favoriting, tagging and removal into one operation, fixes the stale bridge connection after the background service restarts and the unbounded polling retries, and narrows the installer's permission scope. Godot/MTool, Unity translation and the Played library remain available. See the [release notes](docs/releases/v1.8.0.md).
@@ -41,7 +43,7 @@ Get-FileHash .\GameLibrary-Setup-v1.8.0.exe -Algorithm SHA256
 
 ![Tag management for organizing the collection](website/public/assets/tags.png)
 
-Captured from v1.5.5 in an isolated sample library, with the application's default covers and no personal game directories. A full recording has not been produced yet; the [recording brief](docs/demo-recording.md) is ready.
+Captured from v1.8.0 in light mode, using an isolated sample library and the application's default covers, with no personal game directories. Screenshots on the marketing website match its light or dark theme. A full recording has not been produced yet; the [recording brief](docs/demo-recording.md) is ready.
 
 <a id="start"></a>
 ## Get started
