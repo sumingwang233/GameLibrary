@@ -6,7 +6,7 @@ import { verifyBatch } from "./verify_batch.mjs";
 
 const [, , executableArgument, dataDirectoryArgument, screenshotArgument, gameDirectoryArgument] = process.argv;
 if (!executableArgument || !dataDirectoryArgument || !screenshotArgument) {
-  throw new Error("usage: node verify_release.mjs <desktop.exe> <data-dir> <screenshot.png> [game-directory]");
+  throw new Error("usage: node verify_release.mjs <desktop.exe> <data-dir> <screenshot.png> [game-directory] [--batch-smoke] [--footprint]");
 }
 
 const executable = path.resolve(executableArgument);
@@ -194,7 +194,7 @@ try {
   if (!evaluated) throw new Error("release WebView evaluation did not complete");
   if (evaluated.exceptionDetails) throw new Error(evaluated.exceptionDetails.text);
   const result = evaluated.result.value;
-  if (gameDirectoryArgument && gameDirectoryArgument !== "--batch-smoke") {
+  if (gameDirectoryArgument && !gameDirectoryArgument.startsWith("--")) {
     const opened = await client.send("Runtime.evaluate", {
       expression: `(async () => {
         const invoke = window.__TAURI__.core.invoke;

@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
 
@@ -28,8 +29,11 @@ internal static class Program
         finally
         {
             cancellation.Cancel();
-            await parentWatch;
-            if (parentId is not null) await server.StopHostAsync();
+            try { await parentWatch; }
+            finally
+            {
+                if (parentId is not null) await server.StopHostAsync();
+            }
         }
     }
 
@@ -38,10 +42,26 @@ internal static class Program
         try
         {
             using var parent = Process.GetProcessById(id);
-            await parent.WaitForExitAsync(cancellation.Token);
+            try { await parent.WaitForExitAsync(cancellation.Token); }
+            catch (Win32Exception ex) when (ex.NativeErrorCode == 5)
+            {
+                // WaitForExitAsync opens an all-access handle on Windows; the synchronous
+                // wait only needs SYNCHRONIZE. Never treat denied access as an exited parent.
+                // ponytail: one blocking worker only on this fallback; cancellation waits at most 250ms.
+                await Task.Run(() =>
+                {
+                    while (!parent.WaitForExit(250))
+                        cancellation.Token.ThrowIfCancellationRequested();
+                }, cancellation.Token);
+            }
             cancellation.Cancel();
         }
         catch (ArgumentException) { cancellation.Cancel(); }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch
+        {
+            cancellation.Cancel();
+            throw;
+        }
     }
 }
