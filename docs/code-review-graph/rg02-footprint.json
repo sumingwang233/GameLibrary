@@ -1,0 +1,15 @@
+{
+  "snapshotAt": "2026-10-30T15:43:16",
+  "repo": "GameLibrary isolated RG-02 worktree",
+  "branch": "codex/optimize-footprint-v1.8.1",
+  "sourceHeadBeforeFinalCommit": "319fc4830b7748f09e712f71c6d8c4e9a7a71948",
+  "releaseBaseline": "4f7da8a072cf815d5c4ab1f647f1a4467bccc586",
+  "version": "1.8.2-unreleased",
+  "postprocess": "minimal",
+  "files": 432,
+  "nodes": 4240,
+  "edges": 42109,
+  "calls": { "direct": 9336, "unresolved": 24103 },
+  "embeddings": 0,
+  "note": "Local incremental structural graph; unresolved calls are not validated relationships. Historical architecture-overview.json remains a dated snapshot."
+}

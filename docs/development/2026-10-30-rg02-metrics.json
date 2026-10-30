@@ -1,0 +1,114 @@
+{
+  "scope": "C# Bridge(s) + Host only; no Rust shell, WebView, game or parent monitor",
+  "method": {
+    "date": "2026-10-30",
+    "configuration": "Release self-contained compressed win-x64",
+    "fixture": "separate fresh empty libraries initialized with the same operation sequence",
+    "warmupSeconds": 30,
+    "samples": 7,
+    "targetIntervalSeconds": 5,
+    "clock": "elapsed seconds include synchronous CIM query time",
+    "startupMsMeaning": "Bridge/Host initialization, not desktop startup",
+    "replicates": 1
+  },
+  "baseline": {
+    "mode": "baseline",
+    "startupMs": 21765.155400000367,
+    "ordinaryDuringWaitMs": 6.256500000745291,
+    "bridgeCount": 2,
+    "samples": [
+      {
+        "elapsed": 56.299898699999176,
+        "privateBytes": 129056768,
+        "workingSetBytes": 302669824,
+        "cpuSeconds": 2.734375
+      },
+      {
+        "elapsed": 63.0520233999996,
+        "privateBytes": 128778240,
+        "workingSetBytes": 302460928,
+        "cpuSeconds": 2.734375
+      },
+      {
+        "elapsed": 70.18412410000019,
+        "privateBytes": 128778240,
+        "workingSetBytes": 302460928,
+        "cpuSeconds": 2.734375
+      },
+      {
+        "elapsed": 76.69227890000184,
+        "privateBytes": 128471040,
+        "workingSetBytes": 302264320,
+        "cpuSeconds": 2.734375
+      },
+      {
+        "elapsed": 83.15910480000093,
+        "privateBytes": 128606208,
+        "workingSetBytes": 302788608,
+        "cpuSeconds": 2.796875
+      },
+      {
+        "elapsed": 89.90887460000158,
+        "privateBytes": 128532480,
+        "workingSetBytes": 302735360,
+        "cpuSeconds": 2.796875
+      },
+      {
+        "elapsed": 96.98299120000229,
+        "privateBytes": 128532480,
+        "workingSetBytes": 302735360,
+        "cpuSeconds": 2.796875
+      }
+    ]
+  },
+  "candidate": {
+    "mode": "candidate",
+    "startupMs": 17220.3139000012,
+    "ordinaryDuringWaitMs": 21.95190000202274,
+    "bridgeCount": 1,
+    "samples": [
+      {
+        "elapsed": 54.715302300002804,
+        "privateBytes": 90759168,
+        "workingSetBytes": 220811264,
+        "cpuSeconds": 3.765625
+      },
+      {
+        "elapsed": 63.80671849999999,
+        "privateBytes": 90628096,
+        "workingSetBytes": 220745728,
+        "cpuSeconds": 3.765625
+      },
+      {
+        "elapsed": 71.4385672999997,
+        "privateBytes": 90324992,
+        "workingSetBytes": 220565504,
+        "cpuSeconds": 3.765625
+      },
+      {
+        "elapsed": 78.07167490000211,
+        "privateBytes": 90521600,
+        "workingSetBytes": 221020160,
+        "cpuSeconds": 3.796875
+      },
+      {
+        "elapsed": 85.04544119999991,
+        "privateBytes": 90447872,
+        "workingSetBytes": 220966912,
+        "cpuSeconds": 3.796875
+      },
+      {
+        "elapsed": 92.59117390000029,
+        "privateBytes": 90447872,
+        "workingSetBytes": 220966912,
+        "cpuSeconds": 3.796875
+      },
+      {
+        "elapsed": 99.63708419999966,
+        "privateBytes": 90353664,
+        "workingSetBytes": 220917760,
+        "cpuSeconds": 3.796875
+      }
+    ]
+  }
+}
