@@ -127,6 +127,31 @@ public sealed class ScanBoundaryRegressionTests : IDisposable
         Assert.Contains(collector.Candidates, candidate => candidate.PhysicalPath == Path.Combine(_root, "Child"));
     }
 
+    [Theory]
+    [InlineData(null, "pendingReview")]
+    [InlineData("manual", "pendingReview")]
+    [InlineData("library", "deferred")]
+    public async Task DriveRootRetirement_RequiresCurrentRegisteredLibraryScope(string? rootKind, string expectedState)
+    {
+        Directory.CreateDirectory(_root);
+        var opened = await SqliteLibraryStore.InitializeAsync(Path.Combine(_root, "db"),
+            new() { AppVersion = "test", ApiVersion = "1" }, CancellationToken.None);
+        await using var store = opened.Store!;
+        var drive = GamePath.Create(Path.GetPathRoot(_root)!);
+        var now = DateTime.UtcNow;
+        if (rootKind is not null) store.UpsertRoot(new("root", drive.PhysicalPath, 1, now, rootKind), now);
+        store.UpsertCandidate(new()
+        {
+            CandidateId = "legacy", Kind = "gameRoot", PhysicalPath = drive.PhysicalPath,
+            RelativePath = "", PayloadJson = "{}", ReviewState = "pendingReview", ObservedUtc = now, UpdatedUtc = now,
+        });
+        var collector = new ScanCandidateCollector(drive, "scope", new());
+        collector.InspectDirectory(new(drive.PhysicalPath, 0, [], []), CancellationToken.None,
+            new MappedSnapshot(drive.PhysicalPath, new FileSystemDirectorySnapshot(GamePath.Create(_root), [], [])));
+        ScanCandidatePersistence.Persist(store, null, collector, "scope", readyForReview: true, requireRegisteredRoot: true);
+        Assert.Equal(expectedState, store.TryGetCandidate("legacy")!.ReviewState);
+    }
+
     [Fact]
     public void ShortcutIdentity_RequiresVerifiedEntryOrUniquePackagedUnrealProject_NotNamesOrAncestors()
     {

@@ -45,7 +45,10 @@ public static class ScanCandidatePersistence
                 .ToLookup(game => game.RootPath, StringComparer.OrdinalIgnoreCase);
             var candidateLookup = store.ListCandidates().ToLookup(item => item.PhysicalPath, StringComparer.OrdinalIgnoreCase);
             var storedFlashDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var path in collector.InspectedDriveRoots)
+            var roots = requireRegisteredRoot ? store.ReadRoots() : [];
+            foreach (var path in collector.InspectedDriveRoots.Where(path => !requireRegisteredRoot
+                || roots.Any(root => root.Kind == "library" && RuntimeStateStore.ContainsPath(root.PhysicalPath, path))
+                    && !roots.Any(root => root.Kind == "manual" && RuntimeStateStore.ContainsPath(root.PhysicalPath, path))))
                 foreach (var prior in candidateLookup[path].Where(item => item.ReviewState == "pendingReview" && item.GameId is null))
                 {
                     var current = store.TryGetCandidate(prior.CandidateId);
@@ -151,7 +154,6 @@ public static class ScanCandidatePersistence
                 }
             }
 
-            var roots = requireRegisteredRoot ? store.ReadRoots() : [];
             foreach (var group in collector.FlashGroups.Where(group => group.Complete
                 && (storedFlashDirectories.Contains(group.DirectoryPath) || !group.RequiresReview && group.Kind == "resources")))
             {

@@ -29,6 +29,7 @@ internal sealed class CandidateReviewHandler(Func<SqliteLibraryStore?> storeAcce
         }
         var service = new CandidateReviewService(store, new CatalogFiles());
         var prepared = service.Prepare(candidateId, revision.Value, action);
+        if (prepared.Error is not null || action != "accept") return ToEnvelope(request, store, service.Apply(prepared));
         return ToEnvelope(request, store, store.InTransaction(() => ApplyReview(service, prepared,
             new ShortcutGameIdentity(store.ListGames().Where(game => game.Kind == "manualShortcut").ToArray()))));
     }
@@ -61,7 +62,8 @@ internal sealed class CandidateReviewHandler(Func<SqliteLibraryStore?> storeAcce
         var flashService = new FlashCandidateReviewService(store, new CatalogFiles());
         var results = store.InTransaction(() =>
         {
-            var games = new ShortcutGameIdentity(store.ListGames().Where(game => game.Kind == "manualShortcut").ToArray());
+            var games = new ShortcutGameIdentity(action == "accept"
+                ? store.ListGames().Where(game => game.Kind == "manualShortcut").ToArray() : []);
             return inputs.Select((item, index) => store.InReviewSavepoint(() =>
                 item.Flash is null ? ApplyReview(service, prepared[index], games)
                     : flashService.Review(item.Id, item.Revision, item.Flash))).ToArray();
@@ -85,6 +87,7 @@ internal sealed class CandidateReviewHandler(Func<SqliteLibraryStore?> storeAcce
         PreparedReview prepared, ShortcutGameIdentity games)
     {
         if (prepared.Error is null && prepared.Action == "accept" && prepared.Candidate?.GameId is null
+            && prepared.ExpectedRevision == prepared.Candidate?.Revision
             && prepared.Game?.EntryPath is { } entry
             && games.FindMatches([entry]).Count > 0)
             return new(prepared.CandidateId, ErrorCode: ErrorCodes.InvalidArgument,
