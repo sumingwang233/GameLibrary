@@ -157,8 +157,8 @@ def validate(root):
         for page in pages.values():
             if {i for i in cn.ids if not i.startswith("_")} != {i for i in page.ids if not i.startswith("_")}:
                 errors.append("translated pages have different section IDs")
-            if downloads(cn) != downloads(page) or len(downloads(page)) != 6:
-                errors.append("release links must match across languages (three packages, checksums, stable notes, prerelease)")
+            if downloads(cn) != downloads(page) or len(downloads(page)) != 5:
+                errors.append("release links must match across languages (three packages, checksums, stable notes)")
     if not any("prefers-reduced-motion" in style for style in styles):
         errors.append("compiled styles need a reduced-motion rule")
     try:
@@ -192,6 +192,21 @@ def self_test():
         (root / "index.html").write_text('<link rel="stylesheet" href="test.css">', encoding="utf-8")
         (root / "test.css").write_text('body{color:#111d23}', encoding="utf-8")
         assert any("reduced-motion" in error for error in validate(root))
+        release = "https://github.com/sumingwang233/GameLibrary/releases/"
+        urls = [release + "download/v1.8.0/" + name for name in (
+            "GameLibrary-Setup-v1.8.0.exe", "GameLibrary-Portable-win-x64-v1.8.0.zip",
+            "GameLibrary-Tools-win-x64-v1.8.0.zip", "GameLibrary-v1.8.0-SHA256SUMS.txt")]
+        urls.append(release + "tag/v1.8.0")
+        links = "".join(f'<a href="{url}">Download</a>' for url in urls)
+        for locale in ("", "zh-TW", "en", "ja"):
+            folder = root / locale
+            folder.mkdir(exist_ok=True)
+            (folder / "index.html").write_text(links, encoding="utf-8")
+        assert not any("release links" in error for error in validate(root))
+        (root / "en/index.html").write_text(links.replace("v1.8.0", "v1.8.1"), encoding="utf-8")
+        assert any("release links" in error for error in validate(root))
+        (root / "en/index.html").write_text(links.replace(f'<a href="{urls[-1]}">Download</a>', ""), encoding="utf-8")
+        assert any("release links" in error for error in validate(root))
     print("Website gate regression check passed.")
 
 
