@@ -1,0 +1,14 @@
+{
+  "snapshotAt": "2026-10-31T12:13:40",
+  "branch": "codex/optimize-footprint-v1.8.1",
+  "sourceHeadBeforeDocumentationCommit": "75d203a9065992792ca50d3a2b059e4250c0ba8b",
+  "releaseBaseline": "4f7da8a072cf815d5c4ab1f647f1a4467bccc586",
+  "version": "1.8.2-unreleased",
+  "postprocess": "minimal",
+  "files": 441,
+  "nodes": 4321,
+  "edges": 43356,
+  "calls": { "direct": 9491, "unresolved": 24660 },
+  "embeddings": 0,
+  "note": "Static source index only. Job history spill, cover scheduling, incremental refresh and earlier RG-03 changes await unified tests, builds and desktop performance acceptance."
+}
