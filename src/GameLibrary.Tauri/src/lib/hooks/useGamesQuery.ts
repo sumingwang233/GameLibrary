@@ -1,8 +1,34 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { describeFailure, operation } from "../api";
-import type { GameItem } from "../types";
+import { describeFailure, operation, TransportError } from "../api";
+import { t } from "../i18n";
+import type { GameChange, GameItem } from "../types";
 import type { GameFilters } from "../state";
 export const PAGE_SIZE = 60;
+
+export function changedGameIds(changes: readonly GameChange[] | undefined, after: number, through: number): string[] | null {
+  if (!changes || after < 0 || through <= after) return null;
+  const pending = changes.filter(change => change.token > after && change.token <= through);
+  if (pending.length !== through - after) return null;
+  const ids = new Set<string>();
+  for (let index = 0; index < pending.length; index++) {
+    const change = pending[index];
+    if (change.token !== after + index + 1 || change.gameIds === null || !change.gameIds.length) return null;
+    for (const id of change.gameIds) ids.add(id);
+    if (ids.size > 16) return null;
+  }
+  return [...ids];
+}
+
+/** Mirror the actual SQL membership and order keys; unknown shapes must fall back to QueryGames. */
+export function stableQueryItem(before: GameItem, after: GameItem, sort: string, played: boolean) {
+  const key = sort === "title" || sort === "title-desc" ? "title"
+    : sort === "accepted-desc" ? "acceptedUtc"
+      : sort === "recent" || sort === "updated-desc" ? "updatedUtc" : null;
+  return key !== null && before.gameId === after.gameId && after.revision >= before.revision
+    && before.membership === "active" && after.membership === "active"
+    && before.played === played && after.played === played
+    && typeof before[key] === "string" && before[key] === after[key];
+}
 
 export interface GamesQuery {
   games: GameItem[];
@@ -30,6 +56,12 @@ export interface GamesPage {
   total: number;
   nextOffset: number | null;
   hasMore: boolean;
+  /** Client-only scope tag; never sent as a games.list parameter. */
+  scope?: string | null;
+}
+
+function libraryScope(result: { libraryInstanceId?: string | null; dataEpoch?: string | null }) {
+  return result.libraryInstanceId && result.dataEpoch ? JSON.stringify([result.libraryInstanceId, result.dataEpoch]) : null;
 }
 
 /**
@@ -62,6 +94,7 @@ export function useGamesQuery(
   filters: GameFilters,
   changeToken: number,
   suppressAutoRefresh: boolean,
+  gameChanges?: readonly GameChange[],
 ): GamesQuery {
   const [games, setGames] = useState<GameItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -71,6 +104,8 @@ export function useGamesQuery(
   const [hasMore, setHasMore] = useState(false);
   const [debouncedSearch, setDebouncedSearch] = useState(filters.search);
   const hasLoadedRef = useRef(false);
+  const appliedToken = useRef(-1);
+  const dataScope = useRef<string | null>(null);
   /** games 的镜像 ref：串行队列里的异步任务读它决定保留多少条，避免闭包读到旧 state。 */
   const gamesRef = useRef<GameItem[]>([]);
   /** 下一页的原始行 offset；null＝已到底。触底加载只认它，不认去重后的 games.length。 */
@@ -118,7 +153,9 @@ export function useGamesQuery(
 
   const applyResult = useCallback((items: GameItem[], page: GamesPage) => {
     if (!mounted.current) return;
-    const newer = new Map(gamesRef.current.map(item => [item.gameId, item]));
+    const scope = page.scope ?? null;
+    const newer = new Map((dataScope.current === scope ? gamesRef.current : []).map(item => [item.gameId, item]));
+    dataScope.current = scope;
     items = items.map(item => (newer.get(item.gameId)?.revision ?? 0) > item.revision ? newer.get(item.gameId)! : item);
     // 空页说明服务端已没有更多原始行：把游标收口，重复触底不会继续请求同一段。
     const nextOffset = page.items.length === 0 ? null : page.nextOffset;
@@ -140,7 +177,7 @@ export function useGamesQuery(
         limit: PAGE_SIZE,
         offset,
       });
-      return normalizePage(result.data, offset);
+      return { ...normalizePage(result.data, offset), scope: libraryScope(result) };
     },
     [request],
   );
@@ -155,8 +192,34 @@ export function useGamesQuery(
    * 打转，而游标一定指向尚未取过的原始行。
    */
   const refresh = useCallback(
-    async (preserveLoaded: boolean, isCurrent: () => boolean = () => true) => {
+    async (preserveLoaded: boolean, isCurrent: () => boolean = () => true, changedIds: string[] | null = null) => {
       if (!mounted.current || activeRequest.current !== request || !isCurrent()) return;
+      // A small, known batch costs fewer reads than replaying all loaded pages.
+      const scope = dataScope.current;
+      if (scope !== null && preserveLoaded && changedIds?.length && changedIds.length < Math.ceil(gamesRef.current.length / PAGE_SIZE)
+        && !request.search && !request.tagId && !request.favorite && request.hasCover === undefined && !request.viewId) {
+        const replacements = new Map<string, GameItem>();
+        let safe = true;
+        try {
+          for (const id of changedIds) {
+            const before = gamesRef.current.find(game => game.gameId === id);
+            if (!before) { safe = false; break; }
+            const result = await operation<GameItem>("games.get", { gameId: id });
+            if (!mounted.current || activeRequest.current !== request || !isCurrent()) return;
+            if (libraryScope(result) !== scope || !stableQueryItem(before, result.data, request.sort, request.played)) { safe = false; break; }
+            replacements.set(id, result.data);
+          }
+        } catch { safe = false; }
+        if (!mounted.current || activeRequest.current !== request || !isCurrent()) return;
+        if (safe && [...replacements].every(([id, item]) => {
+          const current = gamesRef.current.find(game => game.gameId === id);
+          return current && stableQueryItem(current, item, request.sort, request.played);
+        })) {
+          gamesRef.current = gamesRef.current.map(game => replacements.get(game.gameId) ?? game);
+          setGames(gamesRef.current);
+          return;
+        }
+      }
       let page = await queryPage(0);
       if (!mounted.current || activeRequest.current !== request || !isCurrent()) return;
       const previousCount = preserveLoaded ? gamesRef.current.length : 0;
@@ -169,6 +232,7 @@ export function useGamesQuery(
         && items.length < previousCount && items.length < page.total && fetched < maxPages; fetched++) {
         const more = await queryPage(page.nextOffset);
         if (!mounted.current || activeRequest.current !== request || !isCurrent()) return;
+        if (more.scope !== page.scope) throw new TransportError(t("库已切换，已丢弃旧响应"));
         // 空页＝服务端没有更多行：终止补页，并把游标收口。
         if (more.items.length === 0) { page = more; break; }
         for (const item of more.items) {
@@ -199,7 +263,9 @@ export function useGamesQuery(
     void (async () => {
       try {
         // 经串行队列执行：与进行中的触底加载互斥，避免两者交叉覆盖 gamesRef。
-        await enqueue(() => refresh(!isFilterChange && hasLoadedRef.current, () => !cancelled));
+        await enqueue(() => refresh(!isFilterChange && hasLoadedRef.current, () => !cancelled,
+          changedGameIds(gameChanges, appliedToken.current, changeToken)));
+        if (!cancelled && mounted.current && activeRequest.current === request) appliedToken.current = changeToken;
       } catch (cause) {
         if (!cancelled) setError(describeFailure(cause));
       } finally {
@@ -213,7 +279,7 @@ export function useGamesQuery(
       cancelled = true;
     };
     // 保留调用方主动抑制自动刷新接口；扫描本身不再阻止读取。
-  }, [enqueue, refresh, request, resetResult, changeToken, suppressAutoRefresh]);
+  }, [enqueue, refresh, request, resetResult, changeToken, suppressAutoRefresh, gameChanges]);
 
   const loadMore = useCallback(() => {
     const offset = cursorRef.current;
@@ -223,6 +289,7 @@ export function useGamesQuery(
       if (!mounted.current || activeRequest.current !== request) return;
       const page = await queryPage(offset);
       if (!mounted.current || activeRequest.current !== request) return;
+      if (page.scope !== dataScope.current) throw new TransportError(t("库已切换，已丢弃旧响应"));
       const seen = new Set(gamesRef.current.map((item) => item.gameId));
       const merged = [...gamesRef.current];
       for (const item of page.items) {

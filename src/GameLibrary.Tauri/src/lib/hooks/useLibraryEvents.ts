@@ -22,7 +22,7 @@ export function affectedDomains(events: readonly LibraryEvent[]): Set<DataDomain
 
 export function useLibraryEvents(
   initialize: () => Promise<void>, supports: (name: string) => boolean,
-  refreshDomains: (domains: readonly DataDomain[]) => Promise<void>, bump: () => void,
+  refreshDomains: (domains: readonly DataDomain[]) => Promise<void>, bump: (gameIds?: readonly string[]) => void,
   setLaunchExit: (notice: LaunchExitNotice) => void,
 ) {
   const seen = useRef(new Set<string>());
@@ -35,6 +35,7 @@ export function useLibraryEvents(
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
     const pending = new Set<DataDomain>();
     const notices = new Set<string>();
+    let gameIds: Set<string> | null = new Set();
     const read = async (baseline = false) => {
       const result = await operation<{ nextCursor: number; latestCursor?: number; items: LibraryEvent[] }>(
         !baseline && supports("events.wait") ? "events.wait" : "events.read",
@@ -50,6 +51,7 @@ export function useLibraryEvents(
       if (!cancelled) {
         notices.add("gamelibrary-settings-changed");
         for (const domain of ALL_DOMAINS) pending.add(domain);
+        gameIds = null;
         await flush();
       }
     };
@@ -57,10 +59,12 @@ export function useLibraryEvents(
       refreshTimer = undefined;
       if (cancelled || !visible) return;
       const domains = [...pending];
+      const changedGames = gameIds;
+      gameIds = new Set();
       pending.clear();
       for (const notice of notices) window.dispatchEvent(new Event(notice));
       notices.clear();
-      if (domains.includes("games")) bump();
+      if (domains.includes("games")) bump(changedGames === null ? undefined : [...changedGames]);
       if (domains.length) await refreshDomains(domains);
     };
     const stopVisibility = watchWindowVisibility(value => {
@@ -93,7 +97,17 @@ export function useLibraryEvents(
           setLaunchExit({ attemptId: id, gameId: payload.gameId, nonce: ++nonce.current });
           void showMainWindow();
         }
-        for (const domain of affectedDomains(batch.items)) pending.add(domain);
+        for (const event of batch.items) {
+          const domains = affectedDomains([event]);
+          for (const domain of domains) pending.add(domain);
+          if (!domains.has("games") || gameIds === null) continue;
+          const payload = event.payload as { gameId?: unknown } | undefined;
+          if (event.type !== "game.updated" || typeof payload?.gameId !== "string" || !payload.gameId) gameIds = null;
+          else {
+            gameIds.add(payload.gameId);
+            if (gameIds.size > 16) gameIds = null;
+          }
+        }
         if (visible && (pending.size || notices.size) && refreshTimer === undefined)
           refreshTimer = setTimeout(() => void flush(), 250);
       } catch (cause) {

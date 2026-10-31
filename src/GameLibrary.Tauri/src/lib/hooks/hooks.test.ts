@@ -8,7 +8,7 @@ import { useTagActions } from "./useTagActions";
 import { useLibraryMetadata } from "./useLibraryMetadata";
 import { emptyFilters } from "../state";
 import { OperationError } from "../api";
-import type { CandidateItem, GameItem, LibraryEvent, RootItem } from "../types";
+import type { CandidateItem, GameChange, GameItem, LibraryEvent, RootItem } from "../types";
 
 const { call, invalidate, show, visibility } = vi.hoisted(() => ({
   call: vi.fn(), invalidate: vi.fn(), show: vi.fn(),
@@ -32,6 +32,52 @@ const candidate = (id: string): CandidateItem => ({
 });
 beforeEach(() => { vi.useFakeTimers(); call.mockReset(); invalidate.mockClear(); show.mockClear(); });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
+
+it("refreshes a small known game change without replaying loaded pages, but replays unknown changes", async () => {
+  const row = (id: number): GameItem => ({ ...game(id), membership: "active", played: false,
+    acceptedUtc: "2026-01-01", updatedUtc: "2026-01-02" });
+  call.mockImplementation(async (name: string, params: { offset?: number; gameId?: string }) =>
+    ({ ...(name === "games.get" ? envelope({ ...row(Number(params.gameId)), favorite: true, revision: 2 })
+      : envelope({ total: 120, items: Array.from({ length: 60 }, (_, index) => row((params.offset ?? 0) + index)) })),
+    libraryInstanceId: "library", dataEpoch: "epoch" }));
+  const hook = renderHook(({ token, changes }: { token: number; changes: GameChange[] }) =>
+    useGamesQuery(emptyFilters, token, false, changes), { initialProps: { token: 0, changes: [] as GameChange[] } });
+  await act(async () => {});
+  await act(async () => hook.result.current.loadMore());
+  expect(hook.result.current.games).toHaveLength(120);
+  const initialReads = call.mock.calls.filter(([name]) => name === "games.list").length;
+  hook.rerender({ token: 1, changes: [{ token: 1, gameIds: ["0"] }] });
+  await act(async () => {});
+  expect(call.mock.calls.filter(([name]) => name === "games.list")).toHaveLength(initialReads);
+  expect(call.mock.calls.filter(([name]) => name === "games.get")).toHaveLength(1);
+  expect(hook.result.current.games[0].favorite).toBe(true);
+  expect(hook.result.current.games).toHaveLength(120);
+  expect(hook.result.current.total).toBe(120);
+  expect(hook.result.current.hasMore).toBe(false);
+  hook.rerender({ token: 2, changes: [{ token: 1, gameIds: ["0"] }, { token: 2, gameIds: null }] });
+  await act(async () => {});
+  expect(call.mock.calls.filter(([name]) => name === "games.list")).toHaveLength(initialReads + 2);
+});
+
+it("does not merge higher cached revisions into a different library epoch", async () => {
+  let epoch = "old";
+  const row = (id: number): GameItem => ({ ...game(id), played: false, membership: "active",
+    acceptedUtc: "2026-01-01", revision: epoch === "old" ? 10 : 1, title: epoch });
+  call.mockImplementation(async (name: string, params: { offset?: number; gameId?: string }) => ({
+    ...envelope(name === "games.get" ? row(Number(params.gameId))
+      : { total: 120, items: Array.from({ length: 60 }, (_, index) => row((params.offset ?? 0) + index)) }),
+    libraryInstanceId: "library", dataEpoch: epoch,
+  }));
+  const hook = renderHook(({ token, changes }: { token: number; changes: GameChange[] }) =>
+    useGamesQuery(emptyFilters, token, false, changes), { initialProps: { token: 0, changes: [] as GameChange[] } });
+  await act(async () => {});
+  await act(async () => hook.result.current.loadMore());
+  epoch = "restored";
+  hook.rerender({ token: 1, changes: [{ token: 1, gameIds: ["0"] }] });
+  await act(async () => {});
+  expect(hook.result.current.games).toHaveLength(120);
+  expect(hook.result.current.games.every(item => item.revision === 1 && item.title === "restored")).toBe(true);
+});
 
 it("refreshes only domains affected by events", () => {
   expect([...affectedDomains([{ type: "candidate.updated", sequence: 1 }])]).toEqual(["candidates", "notifications"]);
@@ -149,6 +195,35 @@ it("establishes a tail cursor, merges events for 250ms, and cleans up on unmount
   hook.unmount();
   await publish([{ type: "game.updated", sequence: 13 }]);
   expect(refresh).toHaveBeenCalledOnce();
+});
+
+it("coalesces known game IDs but preserves an unknown invalidation in the same batch", async () => {
+  let reply!: (value: unknown) => void;
+  let cursor = 10;
+  call.mockImplementation(async (name: string) => name === "events.read"
+    ? envelope({ nextCursor: 1, latestCursor: cursor, items: [] })
+    : new Promise(resolve => { reply = resolve; }));
+  const initialize = async () => {};
+  const supports = () => true;
+  const refresh = vi.fn(async () => {});
+  const bump = vi.fn();
+  const exit = () => {};
+  renderHook(() => useLibraryEvents(initialize, supports, refresh, bump, exit));
+  await act(async () => {});
+  bump.mockClear();
+  const publish = async (items: LibraryEvent[]) => {
+    cursor += items.length;
+    await act(async () => reply(envelope({ nextCursor: cursor, items })));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+  };
+  await publish([{ type: "game.updated", sequence: 11, payload: { gameId: "a" } },
+    { type: "game.updated", sequence: 12, payload: { gameId: "b" } }]);
+  await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+  expect(bump).toHaveBeenLastCalledWith(["a", "b"]);
+  await publish([{ type: "game.updated", sequence: 13, payload: { gameId: "a" } }]);
+  await publish([{ type: "tag.updated", sequence: 14 }]);
+  await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+  expect(bump).toHaveBeenLastCalledWith(undefined);
 });
 
 it("rebuilds the cursor baseline after an epoch or cursor error", async () => {

@@ -63,7 +63,7 @@ function App() {
   );
 
   const [translationBusy, setTranslationBusy] = useState(false);
-  const games = useGamesQuery(filters, library.changeToken, translationBusy);
+  const games = useGamesQuery(filters, library.changeToken, translationBusy, library.gameChanges);
   const selected = useMemo(
     () => resolveSelectedGame(games.games, selectedGameId, selectedFallback),
     [games.games, selectedGameId, selectedFallback],
