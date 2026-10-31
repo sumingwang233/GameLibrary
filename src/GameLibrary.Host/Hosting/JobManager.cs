@@ -51,7 +51,7 @@ public sealed record JobSnapshot
 /// 宿主内作业管理（T05 骨架）：受受理即后台执行；取消只置 cancelRequested 并在检查点生效；
 /// 客户端断开不影响作业。跨进程重启的持久化恢复属 T23/T27。
 /// </summary>
-public sealed class JobManager
+public sealed class JobManager : IDisposable
 {
     private sealed class JobEntry
     {
@@ -78,9 +78,61 @@ public sealed class JobManager
         public JobSnapshot? PendingRecord;
 
         public TaskCompletionSource Completed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public bool Cached;
     }
 
     private readonly ConcurrentDictionary<string, JobEntry> _jobs = new();
+    private readonly object _completedGate = new();
+    private readonly Queue<JobEntry> _completed = new();
+    private readonly CompletedJobHistory _history = new();
+    private readonly int _completedCapacity;
+    private bool _disposed;
+    private int _spillFailures;
+
+    public JobManager(int completedCapacity = 128)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(completedCapacity, 1);
+        _completedCapacity = completedCapacity;
+    }
+
+    internal int CachedCompletedCount { get { lock (_completedGate) return _completed.Count; } }
+    internal int HistorySpillFailures { get { lock (_completedGate) return _spillFailures; } }
+
+    private void CacheCompleted(JobEntry entry)
+    {
+        if (_disposed || entry.Cached || entry.PendingRecord is not null) return;
+        entry.Context = null;
+        entry.Cts.Dispose();
+        entry.Cached = true;
+        _completed.Enqueue(entry);
+    }
+
+    private void TrimCompleted()
+    {
+        if (_disposed) return;
+        while (_completed.Count > _completedCapacity)
+        {
+            var oldest = _completed.Peek();
+            try { _history.Write(Snapshot(oldest), oldest.FinalData); }
+            catch (Exception)
+            {
+                // Spill is an optimization, never grounds to lose a queryable result.
+                _spillFailures++;
+                break;
+            }
+            _jobs.TryRemove(oldest.Id, out _);
+            _completed.Dequeue();
+        }
+    }
+
+    public void Dispose()
+    {
+        lock (_completedGate)
+        {
+            _disposed = true;
+            _history.Dispose();
+        }
+    }
 
     /// <summary>作业终态指标回调（T24-B）：进入 succeeded/failed/cancelled 时调用，参数为终态字符串。</summary>
     public Action<string>? OnJobFinished { get; set; }
@@ -155,6 +207,7 @@ public sealed class JobManager
         object? initialProgress = null,
         bool ownsMaintenance = false)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         var lease = ownsMaintenance ? null : AcquireLibraryLease?.Invoke();
         if (!ownsMaintenance && AcquireLibraryLease is not null && lease is null)
             throw new InvalidOperationException("库处于维护状态，不能启动作业");
@@ -185,7 +238,7 @@ public sealed class JobManager
     public JobSnapshot? Get(string jobId) =>
         _jobs.TryGetValue(jobId, out var entry)
             ? Snapshot(entry)
-            : ReadRestoreHistory(jobId)?.Snapshot;
+            : _history.Read(jobId)?.Snapshot ?? ReadRestoreHistory(jobId)?.Snapshot;
 
     /// <summary>请求取消：仅 running→cancelRequested；已进入终态返回 false。</summary>
     public bool RequestCancel(string jobId)
@@ -205,7 +258,8 @@ public sealed class JobManager
             entry.State = "cancelRequested";
         }
 
-        entry.Cts.Cancel();
+        try { entry.Cts.Cancel(); }
+        catch (ObjectDisposedException) when (IsTerminal(entry.State)) { }
         return true;
     }
 
@@ -214,6 +268,8 @@ public sealed class JobManager
     {
         if (!_jobs.TryGetValue(jobId, out var entry))
         {
+            var archived = _history.Read(jobId);
+            if (archived is not null) return (archived.Snapshot.State, archived.Result);
             var restored = ReadRestoreHistory(jobId);
             return restored is null ? null : (restored.Snapshot.State, restored.Result);
         }
@@ -243,6 +299,10 @@ public sealed class JobManager
                 entry.FinishedUtc = snapshot.FinishedUtc;
                 entry.State = snapshot.State;
                 entry.PendingRecord = null;
+            }
+            if (entry.Completed.Task.IsCompleted)
+            {
+                lock (_completedGate) { CacheCompleted(entry); TrimCompleted(); }
             }
         }
         return true;
@@ -299,7 +359,15 @@ public sealed class JobManager
             try { OnJobFinished?.Invoke(entry.State); }
             catch (Exception) { }
         }
-        finally { entry.Completed.TrySetResult(); }
+        finally
+        {
+            lock (_completedGate)
+            {
+                try { CacheCompleted(entry); }
+                finally { entry.Completed.TrySetResult(); }
+                TrimCompleted();
+            }
+        }
     }
 
     private static JobSnapshot Snapshot(JobEntry entry) =>

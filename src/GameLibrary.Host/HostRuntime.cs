@@ -379,6 +379,7 @@ public sealed class HostRuntime : IAsyncDisposable
         if (_state.Suggestions is not null) await _state.Suggestions.Stopped;
         await _server.DisposeAsync();
         await _state.Jobs.WaitForIdleAsync();
+        _state.Jobs.Dispose();
         await drained;
         if (_state.Library.Store is not null)
         {
