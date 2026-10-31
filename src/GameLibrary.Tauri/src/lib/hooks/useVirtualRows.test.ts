@@ -7,7 +7,7 @@ it("bounds a large library to viewport rows and pins only the focused row", () =
   const rows = virtualRowIndices(range.first, range.last, 0, 10000);
   expect(rows).toHaveLength(13);
   expect(rows[0]).toBe(0);
-  expect(rows.at(-1)).toBe(58);
+  expect(rows[rows.length - 1]).toBe(58);
   expect(virtualRowIndices(47, 59, 50, 10000)).toHaveLength(12);
 });
 
