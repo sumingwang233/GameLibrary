@@ -1,5 +1,13 @@
 # GameLibrary 当前代码架构
 
+## RG-03 / v1.8.2 草稿（2026-10-31）
+
+在单 Bridge 基础上增加前端可见行挂载、屏外封面引用释放、隐藏期间的刷新域合并和可选界面延迟加载。SettingsProvider、事件消费、库身份失效和游戏退出唤醒仍保留。Rust 通过内部布尔事件通知窗口可见性；不是用失焦代替隐藏。
+
+HostClient 与 Bridge 采用内置 JSON 源生成元数据；Host 公共 IPC、权限、状态字符串及 SQLite schema 不变。Bridge 提供显式 NativeAOT 候选配置，默认发布仍为压缩自包含方式。该配置及前端改动尚未编译或运行验收，见 [实现与统一验收清单](../development/2026-10-31-rg03-implementation.md)。
+
+本轮静态图谱包含 439 个文件、4,283 个节点、42,827 条关系；CALLS 中 9,395 条直接解析、24,457 条未解析。详细数值见 [RG-03 快照](rg03-footprint.json)。这是源文件结构索引，不代表类型检查、JSON 生成代码或运行正确性。
+
 ## RG-02 / v1.8.2（未发布）
 
 Tauri Rust 壳改为一个 C# Bridge 进程。普通请求和 `events.wait` 各有一条独立 HostConnection；两条通道分别串行，可同时在途。私有 stdio 使用独立 `transportId` 配对乱序响应，不改变 Host 的 `requestId`、权限、库身份或 SQLite schema。传输失败拒绝前端 invoke，保留幂等键；业务 Envelope 保持原样。
