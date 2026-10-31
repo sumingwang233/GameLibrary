@@ -105,13 +105,17 @@ public sealed class HostConnection : IAsyncDisposable
                     await EnsureConnectedAsync(ct);
                     if (request.LibraryInstanceId is null && Handshake.LibraryInstanceId is not null
                         && OperationCatalog.Catalog.Find(request.OperationId)?.RequiresIdempotencyKey == true)
+                    {
+                        using var nullData = JsonDocument.Parse("null");
                         return new Envelope<JsonElement>
                         {
                             RequestId = request.RequestId,
                             Ok = false,
                             Status = OperationStatus.Failed,
+                            Data = nullData.RootElement.Clone(),
                             Error = new RequestError { Code = ErrorCodes.LibraryInstanceMismatch, Message = "库实例已变化，请重新读取状态后准备新的操作", Retryable = false },
                         };
+                    }
                 }
             }
         }
@@ -126,8 +130,8 @@ public sealed class HostConnection : IAsyncDisposable
     {
         try
         {
-            await IpcFrame.WriteJsonAsync(pipe, request, ct);
-            var envelope = await IpcFrame.ReadJsonAsync<Envelope<JsonElement>>(pipe, ct);
+            await IpcFrame.WriteJsonAsync(pipe, request, IpcJsonContext.Wire.IpcRequest, ct);
+            var envelope = await IpcFrame.ReadJsonAsync(pipe, IpcJsonContext.Wire.JsonEnvelope, ct);
             if (!string.Equals(envelope.RequestId, request.RequestId, StringComparison.Ordinal))
                 throw new HostClientException(HostClientErrorCodes.ProtocolError,
                     $"响应 requestId 不匹配：期望 {request.RequestId}，收到 {envelope.RequestId}");
@@ -197,8 +201,9 @@ public sealed class HostConnection : IAsyncDisposable
         await IpcFrame.WriteJsonAsync(
             pipe,
             new HandshakeRequest { ClientName = clientName, Permissions = _permissions },
+            IpcJsonContext.Wire.HandshakeRequest,
             ct);
-        var response = await IpcFrame.ReadJsonAsync<HandshakeResponse>(pipe, ct);
+        var response = await IpcFrame.ReadJsonAsync(pipe, IpcJsonContext.Wire.HandshakeResponse, ct);
 
         if (!string.Equals(response.ApiVersion, ApiConstants.ApiVersion, StringComparison.Ordinal))
         {

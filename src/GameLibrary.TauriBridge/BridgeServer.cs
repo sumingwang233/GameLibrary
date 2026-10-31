@@ -62,7 +62,7 @@ public sealed class BridgeServer
                 BridgeFrameRequest? frame;
                 try
                 {
-                    frame = JsonSerializer.Deserialize<BridgeFrameRequest>(line, ContractJson.Options);
+                    frame = JsonSerializer.Deserialize(line, BridgeJsonContext.Wire.BridgeFrameRequest);
                 }
                 catch (JsonException)
                 {
@@ -155,7 +155,7 @@ public sealed class BridgeServer
     /// </summary>
     private void WriteResponse(BridgeFrameResponse response)
     {
-        var line = JsonSerializer.Serialize(response, ContractJson.Options);
+        var line = JsonSerializer.Serialize(response, BridgeJsonContext.Wire.BridgeFrameResponse);
         lock (_outputLock)
         {
             try
@@ -287,7 +287,9 @@ public sealed class BridgeServer
             {
                 RequestId = "tauri-exit-" + Guid.NewGuid().ToString("N"),
                 OperationId = "host.stop",
-                Parameters = JsonSerializer.SerializeToElement(new { idempotencyKey = "tauri-exit-" + Guid.NewGuid().ToString("N") }, ContractJson.Options),
+                Parameters = JsonSerializer.SerializeToElement(
+                    new HostStopParameters("tauri-exit-" + Guid.NewGuid().ToString("N")),
+                    BridgeJsonContext.Wire.HostStopParameters),
             }, timeout.Token);
         }
         catch (Exception ex) when (ex is HostClientException or IOException or OperationCanceledException) { }
