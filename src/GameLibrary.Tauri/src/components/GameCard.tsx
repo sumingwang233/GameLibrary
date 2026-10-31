@@ -35,19 +35,22 @@ function GameCardImpl({ game, selected, checked, selectionDisabled, onToggle, on
 
   useEffect(() => {
     let active = true;
+    const request = new AbortController();
     setCover(null);
     if (!visible || !game.coverAssetId) {
       return () => {
         active = false;
+        request.abort();
       };
     }
-    void assetDataUrl(game.coverAssetId)
+    void assetDataUrl(game.coverAssetId, request.signal)
       .then((value) => {
         if (active) setCover(value);
       })
       .catch(() => undefined);
     return () => {
       active = false;
+      request.abort();
     };
   }, [game.coverAssetId, visible]);
 

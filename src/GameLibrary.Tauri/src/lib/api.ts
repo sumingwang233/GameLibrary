@@ -165,11 +165,11 @@ function validateGame(value: unknown) {
   }
 }
 
-export function assetDataUrl(assetId: string) {
+export function assetDataUrl(assetId: string, signal?: AbortSignal) {
   return assetCache.load(assetId, async () => {
     const result = await operation<{ mimeType: string; dataBase64: string }>("assets.get", { assetId });
     return `data:${result.data.mimeType};base64,${result.data.dataBase64}`;
-  });
+  }, signal);
 }
 
 /**
