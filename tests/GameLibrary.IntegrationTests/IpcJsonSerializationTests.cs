@@ -46,8 +46,13 @@ public sealed class IpcJsonSerializationTests
     [Fact]
     public void GeneratedHandshakeAndRequest_PreservePermissionsIdentityAndNulls()
     {
-        var request = new IpcRequest { RequestId = "same-id", OperationId = "host.status",
-            LibraryInstanceId = "library", ExpectedDataEpoch = "epoch" };
+        var request = new IpcRequest
+        {
+            RequestId = "same-id",
+            OperationId = "host.status",
+            LibraryInstanceId = "library",
+            ExpectedDataEpoch = "epoch"
+        };
         using var generated = JsonDocument.Parse(JsonSerializer.Serialize(request, IpcJsonContext.Wire.IpcRequest));
         using var legacy = JsonDocument.Parse(JsonSerializer.Serialize(request, ContractJson.Options));
         Assert.True(JsonElement.DeepEquals(legacy.RootElement, generated.RootElement));

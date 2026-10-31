@@ -8,8 +8,8 @@ using GameLibrary.Domain.Paths;
 using GameLibrary.Domain.States;
 using GameLibrary.Host.Hosting;
 using GameLibrary.Host.Scanning;
-using GameLibrary.Infrastructure.Persistence;
 using GameLibrary.Infrastructure.Catalog;
+using GameLibrary.Infrastructure.Persistence;
 using GameLibrary.Infrastructure.Scanning;
 using Xunit;
 
@@ -83,17 +83,27 @@ public sealed class ScanBoundaryRegressionTests : IDisposable
         var now = DateTime.UtcNow;
         store.UpsertCandidate(new()
         {
-            CandidateId = "legacy-drive", Kind = "gameRoot", PhysicalPath = drive.PhysicalPath,
-            RelativePath = "", PayloadJson = "{\"engines\":[{\"engine\":\"godot\"}],\"preserved\":true}",
-            ReviewState = bound ? "pendingReview" : state, ObservedUtc = now, UpdatedUtc = now,
+            CandidateId = "legacy-drive",
+            Kind = "gameRoot",
+            PhysicalPath = drive.PhysicalPath,
+            RelativePath = "",
+            PayloadJson = "{\"engines\":[{\"engine\":\"godot\"}],\"preserved\":true}",
+            ReviewState = bound ? "pendingReview" : state,
+            ObservedUtc = now,
+            UpdatedUtc = now,
         });
         if (bound)
         {
             var current = store.TryGetCandidate("legacy-drive")!;
             var accepted = store.AcceptCandidate(current.CandidateId, current.Revision, new GameCard
             {
-                GameId = "existing-game", Title = "fixture", RootPath = drive.PhysicalPath,
-                Kind = "gameRoot", Membership = "active", AcceptedUtc = now, UpdatedUtc = now,
+                GameId = "existing-game",
+                Title = "fixture",
+                RootPath = drive.PhysicalPath,
+                Kind = "gameRoot",
+                Membership = "active",
+                AcceptedUtc = now,
+                UpdatedUtc = now,
             }, "godot", now);
             Assert.Equal("existing-game", accepted.GameId);
             if (state != "accepted")
@@ -154,8 +164,14 @@ public sealed class ScanBoundaryRegressionTests : IDisposable
         if (rootKind is not null) store.UpsertRoot(new("root", drive.PhysicalPath, 1, now, rootKind), now);
         store.UpsertCandidate(new()
         {
-            CandidateId = "legacy", Kind = "gameRoot", PhysicalPath = drive.PhysicalPath,
-            RelativePath = "", PayloadJson = "{}", ReviewState = "pendingReview", ObservedUtc = now, UpdatedUtc = now,
+            CandidateId = "legacy",
+            Kind = "gameRoot",
+            PhysicalPath = drive.PhysicalPath,
+            RelativePath = "",
+            PayloadJson = "{}",
+            ReviewState = "pendingReview",
+            ObservedUtc = now,
+            UpdatedUtc = now,
         });
         var collector = new ScanCandidateCollector(drive, "scope", new());
         collector.InspectDirectory(new(drive.PhysicalPath, 0, [], []), CancellationToken.None,
@@ -173,9 +189,14 @@ public sealed class ScanBoundaryRegressionTests : IDisposable
         Directory.CreateDirectory(Path.Combine(_root, "Install/Engine"));
         var game = new GameCard
         {
-            GameId = "shortcut", Title = "same title", RootPath = Path.Combine(_root, "Install/Play.lnk"),
-            Kind = "manualShortcut", EntryPath = shipping, Membership = "active",
-            AcceptedUtc = DateTime.UtcNow, UpdatedUtc = DateTime.UtcNow,
+            GameId = "shortcut",
+            Title = "same title",
+            RootPath = Path.Combine(_root, "Install/Play.lnk"),
+            Kind = "manualShortcut",
+            EntryPath = shipping,
+            Membership = "active",
+            AcceptedUtc = DateTime.UtcNow,
+            UpdatedUtc = DateTime.UtcNow,
         };
         Assert.Equal(game.GameId, Assert.Single(new ShortcutGameIdentity([game]).FindMatches([wrapper])).GameId);
         var other = Write("Other/Sample.exe");

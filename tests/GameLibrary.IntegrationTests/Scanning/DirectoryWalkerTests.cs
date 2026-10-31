@@ -23,7 +23,9 @@ public sealed class DirectoryWalkerTests
             File.WriteAllText(visibleFile, "fixture");
             var rules = new ScanRuleSet(new[] { collection, hiddenFile }.Select((path, i) => new ScanRule
             {
-                RuleId = "exact-" + i, Source = ScanRuleSource.User, Action = ScanRuleAction.Exclude,
+                RuleId = "exact-" + i,
+                Source = ScanRuleSource.User,
+                Action = ScanRuleAction.Exclude,
                 Matcher = new ExactPathMatcher(GamePath.Create(path).ComparisonKey),
             }));
             var walker = new DirectoryWalker(GamePath.Create(root), rules,

@@ -621,8 +621,8 @@ pub fn run() {
             if window.label() == "main"
                 && matches!(event, WindowEvent::Focused(_) | WindowEvent::Resized(_))
             {
-                let visible = window.is_visible().unwrap_or(true)
-                    && !window.is_minimized().unwrap_or(false);
+                let visible =
+                    window.is_visible().unwrap_or(true) && !window.is_minimized().unwrap_or(false);
                 let _ = window.emit(WINDOW_VISIBILITY_EVENT, visible);
             }
             if let WindowEvent::CloseRequested { api, .. } = event {

@@ -8,6 +8,8 @@
 
 # GameLibrary
 
+**Current source: v1.8.2.** The single Bridge and library/cover resource changes passed the maintainer's local manual acceptance. Release preparation is in progress; automated results are recorded separately.
+
 **v1.8.1 acceptance pre-release** fixes missed scans, drive-root detection, pending counts and duplicate shortcut entries. See the [release notes](docs/releases/v1.8.1.md). Stable downloads below remain on v1.8.0.
 
 Keep games scattered across your drives in one library. Choose a folder, check the launch entry, and open the game from your collection.

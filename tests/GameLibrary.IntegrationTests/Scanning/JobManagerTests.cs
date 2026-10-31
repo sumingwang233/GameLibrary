@@ -1,5 +1,5 @@
-using GameLibrary.Host.Hosting;
 using System.Text.Json;
+using GameLibrary.Host.Hosting;
 using Xunit;
 
 namespace GameLibrary.IntegrationTests.Scanning;

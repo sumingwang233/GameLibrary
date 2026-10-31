@@ -58,7 +58,9 @@ public sealed class ScanOperationTests : IClassFixture<PipeServerFixture>
             .Single(item => item.GetProperty("physicalPath").GetString() == collection);
         var ignored = await InvokeAsync("ignores.create", new
         {
-            scope = "ExactPath", path = collection, idempotencyKey = Guid.NewGuid().ToString("N"),
+            scope = "ExactPath",
+            path = collection,
+            idempotencyKey = Guid.NewGuid().ToString("N"),
         });
         Assert.True(ignored.Ok, ignored.Error?.Message);
         var newGames = new[] { "New Game", "新しいゲーム" };

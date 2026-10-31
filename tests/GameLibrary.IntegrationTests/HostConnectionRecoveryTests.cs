@@ -126,8 +126,12 @@ public sealed class HostConnectionRecoveryTests
     {
         await server.WaitForConnectionAsync(token);
         await IpcFrame.ReadJsonAsync<HandshakeRequest>(server, token);
-        await IpcFrame.WriteJsonAsync(server, new HandshakeResponse { HostInstanceId = "test", LibraryInstanceId = libraryInstanceId,
-            DataEpoch = libraryInstanceId is null ? null : "epoch" }, token);
+        await IpcFrame.WriteJsonAsync(server, new HandshakeResponse
+        {
+            HostInstanceId = "test",
+            LibraryInstanceId = libraryInstanceId,
+            DataEpoch = libraryInstanceId is null ? null : "epoch"
+        }, token);
     }
 
     private static IpcRequest Request(string id) => new() { RequestId = id, OperationId = "host.status" };

@@ -2,8 +2,8 @@ using System.Runtime.InteropServices.ComTypes;
 using System.Text.Json;
 using GameLibrary.Contracts;
 using GameLibrary.Contracts.Ipc;
-using GameLibrary.Host.Scanning;
 using GameLibrary.Domain.Paths;
+using GameLibrary.Host.Scanning;
 using GameLibrary.HostClient;
 using GameLibrary.Infrastructure.Shell;
 using Xunit;
@@ -304,12 +304,14 @@ public sealed class ManualGameTests : IClassFixture<PipeServerFixture>
         }
         var created = await InvokeAsync("games.create", new
         {
-            sourcePath = shortcutFirst ? link : game, idempotencyKey = Guid.NewGuid().ToString("N"),
+            sourcePath = shortcutFirst ? link : game,
+            idempotencyKey = Guid.NewGuid().ToString("N"),
         });
         Assert.True(created.Ok, created.Error?.Message);
         var duplicate = await InvokeAsync("games.create", new
         {
-            sourcePath = shortcutFirst ? game : link, idempotencyKey = Guid.NewGuid().ToString("N"),
+            sourcePath = shortcutFirst ? game : link,
+            idempotencyKey = Guid.NewGuid().ToString("N"),
         });
         Assert.False(duplicate.Ok);
         Assert.Equal(ErrorCodes.InvalidArgument, duplicate.Error!.Code);
@@ -318,7 +320,8 @@ public sealed class ManualGameTests : IClassFixture<PipeServerFixture>
             var pending = Assert.Single(store.ListCandidates(), candidate => candidate.PhysicalPath == game);
             var accepted = await InvokeAsync("candidates.accept", new
             {
-                candidateId = pending.CandidateId, expectedRevision = pending.Revision,
+                candidateId = pending.CandidateId,
+                expectedRevision = pending.Revision,
                 idempotencyKey = Guid.NewGuid().ToString("N"),
             });
             Assert.False(accepted.Ok);
