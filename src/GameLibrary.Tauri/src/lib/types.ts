@@ -227,6 +227,9 @@ export interface LibrarySettings {
   cacheParentDirectory?: string | null;
 }
 
+/** Bounded UI invalidation history; null means the change cannot be narrowed safely. */
+export interface GameChange { token: number; gameIds: readonly string[] | null }
+
 export interface LibraryEvent {
   sequence: number;
   type: string;

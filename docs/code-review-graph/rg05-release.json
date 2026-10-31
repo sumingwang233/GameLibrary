@@ -1,0 +1,14 @@
+{
+  "snapshotAt": "2026-10-31T14:06:47",
+  "branch": "codex/optimize-footprint-v1.8.1",
+  "sourceHeadBeforeGraphDocumentationCommit": "c21ba153224c33aed0b8758606f59e5f27d9b62a",
+  "binarySourceCommit": "2cecef0ad0cbb23d2517b85a485c6ff4f776b062",
+  "version": "1.8.2",
+  "postprocess": "minimal",
+  "files": 441,
+  "nodes": 4321,
+  "edges": 43381,
+  "calls": { "direct": 9494, "unresolved": 24669 },
+  "embeddings": 0,
+  "note": "Release source index. Maintainer local manual acceptance passed. 919 .NET, 162 frontend and 7 Rust tests passed; final automatic WebView smoke and full Windows/DPI matrix remain unverified. Prerelease, not Latest."
+}

@@ -8,30 +8,34 @@
 
 # GameLibrary
 
+**v1.8.2 預發布**：單 Bridge、清單與封面最佳化已通過本機人工驗收。[發布說明](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.8.2) · [驗證紀錄](docs/releases/v1.8.2-validation.md)。正式版下載維持 v1.8.1。
+
+
+
 把散落在硬碟裡的遊戲放到同一處。選好資料夾、確認啟動項目，就能從遊戲庫開啟遊戲。
 
 目前正式版 **v1.8.0** 把批次收藏、批次標籤與批次移出做成一次操作，修復後台服務重新啟動後連線失效、輪詢無限重試的問題，並收窄安裝設定的權限範圍；先前的 Godot/MTool、Unity 翻譯與已遊玩遊戲庫維持不變。[發布說明](docs/releases/v1.8.0.md)記錄本次變更與限制。
 
-**[下載 Windows 安裝版](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.0/GameLibrary-Setup-v1.8.0.exe)** · [所有版本](https://github.com/sumingwang233/GameLibrary/releases) · [回報問題](https://github.com/sumingwang233/GameLibrary/issues)
+**[下載 Windows 安裝版](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.1/GameLibrary-Setup-v1.8.1.exe)** · [所有版本](https://github.com/sumingwang233/GameLibrary/releases) · [回報問題](https://github.com/sumingwang233/GameLibrary/issues)
 
 [下載](#download) · [畫面](#demo) · [開始使用](#start) · [常見問題](#faq)
 
 <a id="download"></a>
 ## 下載
 
-目前公開正式版為 **v1.8.0**，面向 **Windows 10 / 11 x64**。自動檢查涵蓋建置、測試、型別檢查、格式與封裝，結果與結束碼見[發行記錄](docs/releases/v1.8.0-validation.md)；人工驗收由維護者確認。安裝檔未簽章，Windows 可能提示未知發行者。
+目前公開正式版為 **v1.8.1**，面向 **Windows 10 / 11 x64**。建置與驗證的實際結果見[發行紀錄](docs/releases/v1.8.1-validation.md)。安裝檔未簽章，Windows 可能提示未知發行者。
 
 | 檔案 | 用途 |
 |---|---|
-| [`GameLibrary-Setup-v1.8.0.exe`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.0/GameLibrary-Setup-v1.8.0.exe) | 建議使用。可選擇安裝位置的目前使用者安裝程式。 |
-| [`GameLibrary-Portable-win-x64-v1.8.0.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.0/GameLibrary-Portable-win-x64-v1.8.0.zip) | 解壓縮後執行 GameLibrary.Desktop.exe。 |
-| [`GameLibrary-Tools-win-x64-v1.8.0.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.0/GameLibrary-Tools-win-x64-v1.8.0.zip) | Host、CLI 與 MCP，供命令列與自動化使用。 |
-| [`GameLibrary-v1.8.0-SHA256SUMS.txt`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.0/GameLibrary-v1.8.0-SHA256SUMS.txt) | 上述三個下載包的 SHA-256 校驗清單。 |
+| [`GameLibrary-Setup-v1.8.1.exe`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.1/GameLibrary-Setup-v1.8.1.exe) | 建議使用。可選擇安裝位置的目前使用者安裝程式。 |
+| [`GameLibrary-Portable-win-x64-v1.8.1.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.1/GameLibrary-Portable-win-x64-v1.8.1.zip) | 解壓縮後執行 GameLibrary.Desktop.exe。 |
+| [`GameLibrary-Tools-win-x64-v1.8.1.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.1/GameLibrary-Tools-win-x64-v1.8.1.zip) | Host、CLI 與 MCP，供命令列與自動化使用。 |
+| [`GameLibrary-v1.8.1-SHA256SUMS.txt`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.1/GameLibrary-v1.8.1-SHA256SUMS.txt) | 上述三個下載包的 SHA-256 校驗清單。 |
 
 程式與安裝程式尚未進行 Authenticode 簽章，Windows 可能提示未知發行者。請從本儲存庫下載，並比對同版本的校驗清單：
 
 ```powershell
-Get-FileHash .\GameLibrary-Setup-v1.8.0.exe -Algorithm SHA256
+Get-FileHash .\GameLibrary-Setup-v1.8.1.exe -Algorithm SHA256
 ```
 
 <a id="demo"></a>
@@ -41,7 +45,7 @@ Get-FileHash .\GameLibrary-Setup-v1.8.0.exe -Algorithm SHA256
 
 ![標籤管理：整理遊戲的分類與標籤](website/public/assets/tags.png)
 
-畫面取自 v1.5.5 的隔離範例遊戲庫，使用應用程式預設封面，不含個人遊戲目錄。完整操作影片尚未製作；[錄影腳本](docs/demo-recording.md)已備妥。
+畫面取自 v1.8.0 的隔離範例遊戲庫，使用淺色模式和應用程式預設封面，不含個人遊戲目錄。宣傳網頁中的截圖會隨網頁主題切換淺色或深色。完整操作影片尚未製作；[錄影腳本](docs/demo-recording.md)已備妥。
 
 <a id="start"></a>
 ## 三步開始

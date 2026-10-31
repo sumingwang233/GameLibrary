@@ -2,6 +2,57 @@ import { describe, expect, it, vi } from "vitest";
 import { DataUrlCache } from "./assetCache";
 
 describe("data URL cache", () => {
+  it("bounds fetches and skips a queued cover after its last consumer leaves", async () => {
+    const cache = new DataUrlCache(1024, 1);
+    let finish!: (value: string) => void;
+    const active = cache.load("active", () => new Promise(resolve => { finish = resolve; }));
+    const signal = new AbortController();
+    const skipped = vi.fn(async () => "old cover");
+    const queued = cache.load("offscreen", skipped, signal.signal);
+    const rejected = expect(queued).rejects.toMatchObject({ name: "AbortError" });
+    const nextFetch = vi.fn(async () => "visible cover");
+    const next = cache.load("visible", nextFetch);
+    expect(nextFetch).not.toHaveBeenCalled();
+    signal.abort();
+    await rejected;
+    finish("first");
+    await active;
+    await expect(next).resolves.toBe("visible cover");
+    expect(skipped).not.toHaveBeenCalled();
+    expect(nextFetch).toHaveBeenCalledOnce();
+  });
+
+  it("does not cancel another consumer of the same queued asset", async () => {
+    const cache = new DataUrlCache(1024, 1);
+    let finish!: (value: string) => void;
+    const active = cache.load("active", () => new Promise(resolve => { finish = resolve; }));
+    const signal = new AbortController();
+    const fetch = vi.fn(async () => "shared");
+    const a = cache.load("same", fetch, signal.signal);
+    const b = cache.load("same", fetch);
+    const rejected = expect(a).rejects.toMatchObject({ name: "AbortError" });
+    signal.abort(); await rejected;
+    finish("first"); await active;
+    await expect(b).resolves.toBe("shared");
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("invalidates queued work while preserving the original error of running work", async () => {
+    const cache = new DataUrlCache(1024, 1);
+    let fail!: (reason: Error) => void;
+    const active = cache.load("active", () => new Promise((_resolve, reject) => { fail = reject; }));
+    const oldFetch = vi.fn(async () => "old");
+    const old = cache.load("queued", oldFetch);
+    const activeError = expect(active).rejects.toThrow("库已切换");
+    const queuedError = expect(old).rejects.toThrow("封面已变化");
+    cache.clear();
+    const fresh = cache.load("queued", async () => "new");
+    fail(new Error("库已切换"));
+    await activeError; await queuedError;
+    await expect(fresh).resolves.toBe("new");
+    expect(oldFetch).not.toHaveBeenCalled();
+  });
+
   it("uses string bytes and evicts the least recently read value", async () => {
     const cache = new DataUrlCache(24);
     await cache.load("a", async () => "12345");

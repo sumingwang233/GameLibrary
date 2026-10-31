@@ -3,6 +3,7 @@ import { invalidateAssetChanges, invalidateAssets, operation, OperationError, sh
 import type { LibraryEvent } from "../types";
 import type { LaunchExitNotice } from "../state";
 import { ALL_DOMAINS, type DataDomain } from "./useLibraryMetadata";
+import { watchWindowVisibility } from "../windowVisibility";
 
 export function affectedDomains(events: readonly LibraryEvent[]): Set<DataDomain> {
   const domains = new Set<DataDomain>();
@@ -21,17 +22,20 @@ export function affectedDomains(events: readonly LibraryEvent[]): Set<DataDomain
 
 export function useLibraryEvents(
   initialize: () => Promise<void>, supports: (name: string) => boolean,
-  refreshDomains: (domains: readonly DataDomain[]) => Promise<void>, bump: () => void,
+  refreshDomains: (domains: readonly DataDomain[]) => Promise<void>, bump: (gameIds?: readonly string[]) => void,
   setLaunchExit: (notice: LaunchExitNotice) => void,
 ) {
   const seen = useRef(new Set<string>());
   const nonce = useRef(0);
   useEffect(() => {
     let cancelled = false;
+    let visible = true;
     let cursor: number | undefined;
     let pollTimer: ReturnType<typeof setTimeout> | undefined;
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
     const pending = new Set<DataDomain>();
+    const notices = new Set<string>();
+    let gameIds: Set<string> | null = new Set();
     const read = async (baseline = false) => {
       const result = await operation<{ nextCursor: number; latestCursor?: number; items: LibraryEvent[] }>(
         !baseline && supports("events.wait") ? "events.wait" : "events.read",
@@ -44,28 +48,42 @@ export function useLibraryEvents(
       cursor = undefined;
       await initialize();
       await read(true);
-      if (!cancelled) window.dispatchEvent(new Event("gamelibrary-settings-changed"));
-      if (!cancelled) { await refreshDomains(ALL_DOMAINS); if (!cancelled) bump(); }
+      if (!cancelled) {
+        notices.add("gamelibrary-settings-changed");
+        for (const domain of ALL_DOMAINS) pending.add(domain);
+        gameIds = null;
+        await flush();
+      }
     };
-    const flush = () => {
+    const flush = async () => {
       refreshTimer = undefined;
+      if (cancelled || !visible) return;
       const domains = [...pending];
+      const changedGames = gameIds;
+      gameIds = new Set();
       pending.clear();
-      if (cancelled) return;
-      if (domains.includes("games")) bump();
-      void refreshDomains(domains);
+      for (const notice of notices) window.dispatchEvent(new Event(notice));
+      notices.clear();
+      if (domains.includes("games")) bump(changedGames === null ? undefined : [...changedGames]);
+      if (domains.length) await refreshDomains(domains);
     };
+    const stopVisibility = watchWindowVisibility(value => {
+      visible = value;
+      clearTimeout(refreshTimer);
+      refreshTimer = undefined;
+      if (visible && (pending.size || notices.size)) void flush();
+    });
     const poll = async () => {
       let failed = false;
       try {
         const batch = await read();
         if (!batch || cancelled) return;
         if (batch.items.some(event => event.type.startsWith("settings.")))
-          window.dispatchEvent(new Event("gamelibrary-settings-changed"));
+          notices.add("gamelibrary-settings-changed");
         if (batch.items.some(event => event.type.startsWith("unity_translation.")))
-          window.dispatchEvent(new Event("gamelibrary-unity-changed"));
+          notices.add("gamelibrary-unity-changed");
         if (batch.items.some(event => event.type.startsWith("mtool.")))
-          window.dispatchEvent(new Event("gamelibrary-mtool-changed"));
+          notices.add("gamelibrary-mtool-changed");
         for (const event of batch.items)
           if (event.type.startsWith("asset.")) invalidateAssetChanges(event.payload);
         for (const event of batch.items) {
@@ -79,8 +97,19 @@ export function useLibraryEvents(
           setLaunchExit({ attemptId: id, gameId: payload.gameId, nonce: ++nonce.current });
           void showMainWindow();
         }
-        for (const domain of affectedDomains(batch.items)) pending.add(domain);
-        if (pending.size && refreshTimer === undefined) refreshTimer = setTimeout(flush, 250);
+        for (const event of batch.items) {
+          const domains = affectedDomains([event]);
+          for (const domain of domains) pending.add(domain);
+          if (!domains.has("games") || gameIds === null) continue;
+          const payload = event.payload as { gameId?: unknown } | undefined;
+          if (event.type !== "game.updated" || typeof payload?.gameId !== "string" || !payload.gameId) gameIds = null;
+          else {
+            gameIds.add(payload.gameId);
+            if (gameIds.size > 16) gameIds = null;
+          }
+        }
+        if (visible && (pending.size || notices.size) && refreshTimer === undefined)
+          refreshTimer = setTimeout(() => void flush(), 250);
       } catch (cause) {
         failed = true;
         if (cause instanceof OperationError && ["CursorExpired", "DataEpochMismatch", "LibraryInstanceMismatch"].includes(cause.code)) {
@@ -96,7 +125,9 @@ export function useLibraryEvents(
       cancelled = true;
       clearTimeout(pollTimer);
       clearTimeout(refreshTimer);
+      stopVisibility();
       pending.clear();
+      notices.clear();
     };
   }, [initialize, supports, refreshDomains, bump, setLaunchExit]);
 }

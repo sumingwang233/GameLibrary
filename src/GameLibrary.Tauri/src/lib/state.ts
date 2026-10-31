@@ -12,7 +12,7 @@ import {
 } from "react";
 import { operation, OperationError } from "./api";
 import { planWithMTool } from "./mtool";
-import type { Envelope } from "./types";
+import type { Envelope, GameChange } from "./types";
 import { discoverLaunchProfiles, LaunchProfileSelectionRequired, selectLaunchProfile, type ProfileList } from "./launchProfiles";
 import { useLibraryMetadata } from "./hooks/useLibraryMetadata";
 import { useLibraryEvents } from "./hooks/useLibraryEvents";
@@ -105,6 +105,7 @@ interface LibraryController {
   error: string | null;
   /** 每次收到库事件自增，作为查询侧的失效信号。 */
   changeToken: number;
+  gameChanges?: readonly GameChange[];
   /**
    * feat-2：最近一次 launch.exited 事件（游戏进程退出）。事件流按游标消费、
    * Host 侧同一 attempt 只发一次（HostRuntime.cs:235 状态门），这里再按 attemptId
@@ -143,6 +144,8 @@ function useLibraryController(): LibraryController {
     candidateLoading, candidateHasMore, loadMoreCandidates,
     metaLoading, error, setError, refreshMeta, refreshDomains, initialize, supports } = useLibraryMetadata();
   const [changeToken, setChangeToken] = useState(0);
+  const changeSerial = useRef(0);
+  const [gameChanges, setGameChanges] = useState<GameChange[]>([]);
   const [launchExit, setLaunchExit] = useState<LaunchExitNotice | null>(null);
 
   const mounted = useRef(true);
@@ -154,8 +157,13 @@ function useLibraryController(): LibraryController {
     };
   }, []);
 
-  const bump = useCallback(() => {
-    if (mounted.current) setChangeToken((token) => token + 1);
+  const bump = useCallback((gameIds?: readonly string[]) => {
+    if (!mounted.current) return;
+    const token = ++changeSerial.current;
+    const ids = Array.isArray(gameIds) && gameIds.length > 0 && gameIds.length <= 16
+      && gameIds.every(id => typeof id === "string" && id.length > 0) ? [...gameIds] : null;
+    setGameChanges(previous => [...previous.slice(-15), { token, gameIds: ids }]);
+    setChangeToken(token);
   }, []);
 
   useLibraryEvents(initialize, supports, refreshDomains, bump, setLaunchExit);
@@ -310,6 +318,7 @@ function useLibraryController(): LibraryController {
       metaLoading,
       error,
       changeToken,
+      gameChanges,
       launchExit,
       scanning,
       scanProgress,
@@ -344,6 +353,7 @@ function useLibraryController(): LibraryController {
       metaLoading,
       error,
       changeToken,
+      gameChanges,
       launchExit,
       scanning,
       scanProgress,

@@ -4,12 +4,26 @@ import { Sidebar, type SidebarProps } from "./Sidebar";
 
 afterEach(cleanup);
 
+it("uses the candidate total for the pending badge, independent of notification records and loaded page size", () => {
+  const props: SidebarProps = {
+    section: "library", onSectionChange: vi.fn(), viewId: "", onViewChange: vi.fn(),
+    favoriteOnly: false, onFavoriteChange: vi.fn(), playedOnly: false, onPlayedChange: vi.fn(),
+    tagId: "", onTagChange: vi.fn(), tags: [], candidateTotal: 1, gameTotal: 10, onCreateTag: vi.fn(),
+  };
+  const view = render(<Sidebar {...props} />);
+  expect(screen.getByRole("button", { name: /^待确认\s*1$/ })).toBeInTheDocument();
+  view.rerender(<Sidebar {...props} candidateTotal={101} />);
+  expect(screen.getByRole("button", { name: /^待确认\s*101$/ })).toBeInTheDocument();
+  view.rerender(<Sidebar {...props} candidateTotal={0} />);
+  expect(screen.getByRole("button", { name: "待确认" })).toBeInTheDocument();
+});
+
 it("gives the saved-folder area to tags and keeps the favorites filter", () => {
   render(<Sidebar section="library" onSectionChange={vi.fn()} viewId="" onViewChange={vi.fn()}
     favoriteOnly={false} onFavoriteChange={vi.fn()} tagId="" onTagChange={vi.fn()}
     playedOnly={false} onPlayedChange={vi.fn()}
     tags={[{ tagId: "unity", kind: "engine", name: "unity", revision: 1, gameCount: 10 }]}
-    candidateTotal={0} gameTotal={10} notificationTotal={0} onCreateTag={vi.fn()} />);
+    candidateTotal={0} gameTotal={10} onCreateTag={vi.fn()} />);
   expect(screen.getByRole("button", { name: "收藏" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: /unity/ })).toBeInTheDocument();
   expect(screen.queryByText("收藏夹")).not.toBeInTheDocument();
@@ -21,7 +35,7 @@ it("switches played and main libraries, clears filters, and keeps tags within th
     section: "library", onSectionChange: vi.fn(), viewId: "", onViewChange: vi.fn(),
     favoriteOnly: false, onFavoriteChange: vi.fn(), playedOnly: false, onPlayedChange: vi.fn(),
     tagId: "", onTagChange: vi.fn(), tags: [{ tagId: "unity", name: "unity", kind: "engine", revision: 1, gameCount: 2 }],
-    candidateTotal: 0, gameTotal: 1, notificationTotal: 0, onCreateTag: vi.fn(),
+    candidateTotal: 0, gameTotal: 1, onCreateTag: vi.fn(),
   };
   const view = render(<Sidebar {...props} />);
   expect(screen.getByRole("button", { name: /全部游戏/ })).toHaveAttribute("aria-current", "page");

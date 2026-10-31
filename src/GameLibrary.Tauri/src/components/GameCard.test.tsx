@@ -5,7 +5,7 @@ import { GameCard } from "./GameCard";
 import { GameGrid } from "./GameGrid";
 import { assetDataUrl, invalidateAssetChanges, operation } from "../lib/api";
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 it("renders a pending B cover when A changes and rejects an old-library cover", async () => {
   let finish!: (value: unknown) => void;
@@ -139,4 +139,61 @@ it("uses one stretched detail button while checkbox and launch stay independent"
   fireEvent.click(screen.getByRole("button", { name: "启动 测试游戏" }));
   expect(onPlay).toHaveBeenCalledWith("game-1");
   expect(onSelect).toHaveBeenCalledTimes(1);
+});
+
+it("releases the card's cover when it leaves the overscan area and reuses the bounded cache", async () => {
+  let visibility!: (entries: { isIntersecting: boolean }[]) => void;
+  vi.stubGlobal("IntersectionObserver", class {
+    constructor(callback: typeof visibility) { visibility = callback; }
+    observe() {}
+    disconnect() {}
+  });
+  const invoke = vi.fn(async () => ({ ok: true, libraryInstanceId: "rg03-covers", dataEpoch: "one",
+    data: { mimeType: "image/png", dataBase64: "cmcz" } }));
+  vi.stubGlobal("__TAURI__", { core: { invoke } });
+  const game: GameItem = { gameId: "rg03-cover", title: "Cover", coverAssetId: "rg03-cover-asset",
+    rootPath: "D:/example", kind: "folderGame", revision: 1, favorite: false };
+  await operation("host.status");
+  invoke.mockClear();
+  render(<GameCard game={game} selected={false} checked={false} selectionDisabled={false}
+    onToggle={vi.fn()} onSelect={vi.fn()} onPlay={vi.fn()} />);
+  await act(async () => visibility([{ isIntersecting: true }]));
+  expect(screen.getByRole("presentation")).toHaveAttribute("src", "data:image/png;base64,cmcz");
+  act(() => visibility([{ isIntersecting: false }]));
+  expect(screen.queryByRole("presentation")).not.toBeInTheDocument();
+  await act(async () => visibility([{ isIntersecting: true }]));
+  expect(screen.getByRole("presentation")).toBeInTheDocument();
+  expect(invoke).toHaveBeenCalledOnce();
+});
+
+it("unmounts distant list items while preserving a focused checked game", async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal("IntersectionObserver", class { observe() {} disconnect() {} });
+  let top = 0;
+  const root = document.createElement("main");
+  Object.defineProperty(root, "clientHeight", { value: 200 });
+  document.body.append(root);
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    return new DOMRect(0, this.hasAttribute("data-virtual-list") ? -top : 0, 600,
+      this.hasAttribute("data-virtual-item") ? 80 : 200);
+  });
+  const games: GameItem[] = Array.from({ length: 1000 }, (_, index) => ({
+    gameId: String(index), title: `Game ${index}`, rootPath: `D:/example/${index}`,
+    kind: "folderGame", revision: 1, favorite: false,
+  }));
+  const view = render(<GameGrid games={games} loading={false} loadingMore={false} layout="compact" hasMore={false}
+    scrollRoot={{ current: root }} onLoadMore={vi.fn()} onSelect={vi.fn()} onPlay={vi.fn()}
+    tags={[]} onChanged={vi.fn()} />, { container: root });
+  const focused = screen.getByRole("checkbox", { name: "选择 Game 0" });
+  fireEvent.click(focused);
+  act(() => focused.focus());
+  top = 5000;
+  fireEvent.scroll(root);
+  await act(async () => { await vi.advanceTimersByTimeAsync(20); });
+  expect(screen.getAllByRole("listitem").length).toBeLessThan(20);
+  expect(screen.queryByRole("checkbox", { name: "选择 Game 1" })).not.toBeInTheDocument();
+  expect(screen.getByRole("checkbox", { name: "选择 Game 60" })).toBeInTheDocument();
+  expect(focused).toHaveFocus();
+  expect(focused).toBeChecked();
+  view.unmount(); root.remove();
 });

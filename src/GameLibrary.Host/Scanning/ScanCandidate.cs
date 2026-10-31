@@ -8,7 +8,7 @@ namespace GameLibrary.Host.Scanning;
 
 /// <summary>
 /// T05-B 扫描候选（宿主内存态；入库/审核状态机与持久化随 T11 进入）。
-/// 已知引擎证据产生 GameRoot；未知引擎的直属 EXE/LNK 产生保守待审核候选；根级独立
+/// 已知引擎证据产生 GameRoot；未知引擎的直属 EXE 产生保守待审核候选；根级独立
 /// EXE/SWF 产生 FileGame。发现可启动游戏后停止遍历其子树；≥2 个直属
 /// GameRoot 的父目录补充诊断用 Container（不进入待添加列表），双 high 记 EngineConflict。
 /// </summary>
@@ -152,11 +152,14 @@ public sealed class ScanCandidateCollector
     private readonly IReadOnlyList<FlashDirectoryRule> _flashRules;
     private readonly HashSet<string> _flashBoundaries = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _flashCollections = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _inspectedDriveRoots = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>本次作业发现的全部候选（落库与查询用）。</summary>
     public IReadOnlyList<ScanCandidate> Candidates => _candidates;
 
     public IReadOnlyList<FlashDirectoryGroup> FlashGroups => _flashGroups;
+
+    public IReadOnlySet<string> InspectedDriveRoots => _inspectedDriveRoots;
 
     public int CandidateCount => _candidates.Count;
 
@@ -178,6 +181,13 @@ public sealed class ScanCandidateCollector
     /// <summary>复用 Walker 已完成的直属枚举做只读识别，避免每个检测器重新枚举目录。</summary>
     public void InspectDirectory(ScannedDirectory directory, CancellationToken ct)
     {
+        var validation = GamePath.TryCreate(directory.PhysicalPath);
+        if (!validation.IsValid) return;
+        InspectDirectory(directory, ct, new FileSystemDirectorySnapshot(validation.Path!, directory.Directories, directory.Files));
+    }
+
+    internal void InspectDirectory(ScannedDirectory directory, CancellationToken ct, IDirectorySnapshot snapshot)
+    {
         ct.ThrowIfCancellationRequested();
         var validation = GamePath.TryCreate(directory.PhysicalPath);
         if (!validation.IsValid)
@@ -190,12 +200,32 @@ public sealed class ScanCandidateCollector
             return;
         }
 
-        var snapshot = new FileSystemDirectorySnapshot(validation.Path!, directory.Directories, directory.Files);
         var report = Detectors.DetectAll(snapshot);
         var confirmed = report.Results
             .Where(r => r.Confidence >= DetectionConfidence.Medium && r.LikelyRootRelativePaths.Count > 0
                 && r.EntryCandidates.Any(entry => snapshot.FileExists(entry.RelativePath)))
             .ToArray();
+        // 盘根是容器，直属游戏只能按文件入库，不能吞掉整盘的其他安装目录。
+        if (validation.Path!.IsDriveRoot)
+        {
+            _inspectedDriveRoots.Add(validation.Path.PhysicalPath);
+            var genericAtRoot = GenericGameCandidateDetector.Inspect(snapshot);
+            var entries = confirmed.SelectMany(result => result.EntryCandidates)
+                .Concat(genericAtRoot.EntryCandidates)
+                .Where(entry => Path.GetFileName(entry.RelativePath) == entry.RelativePath
+                    && (entry.RelativePath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                        || entry.RelativePath.EndsWith(".swf", StringComparison.OrdinalIgnoreCase)))
+                .GroupBy(entry => entry.RelativePath, StringComparer.OrdinalIgnoreCase);
+            foreach (var group in entries)
+            {
+                var entry = group.OrderByDescending(item => item.Score).First();
+                var engines = confirmed.Where(result => result.EntryCandidates.Any(item =>
+                    string.Equals(item.RelativePath, entry.RelativePath, StringComparison.OrdinalIgnoreCase))).ToArray();
+                AddCandidate(BuildFileCandidate(validation.Path!, entry, engines,
+                    engines.SelectMany(result => result.Evidence).Concat(genericAtRoot.Evidence).ToArray()));
+            }
+            return;
+        }
         // 合集中的 SWF 已按用户选定入口处理；仍让其他引擎的独立安装根走原扫描流程。
         if (_flashCollections.Any(parent => directory.PhysicalPath.StartsWith(parent + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
             && !confirmed.Any(item => item.Engine != EngineId.Flash)) return;

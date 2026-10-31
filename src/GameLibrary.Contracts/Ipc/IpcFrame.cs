@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Text;
+using System.Text.Json.Serialization.Metadata;
 
 namespace GameLibrary.Contracts.Ipc;
 
@@ -50,10 +51,20 @@ public static class IpcFrame
     public static Task WriteJsonAsync<T>(Stream stream, T value, CancellationToken ct) =>
         WriteAsync(stream, System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(value, ContractJson.Options), ct);
 
+    public static Task WriteJsonAsync<T>(Stream stream, T value, JsonTypeInfo<T> typeInfo, CancellationToken ct) =>
+        WriteAsync(stream, System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(value, typeInfo), ct);
+
     public static async Task<T> ReadJsonAsync<T>(Stream stream, CancellationToken ct)
     {
         var payload = await ReadAsync(stream, ct);
         return System.Text.Json.JsonSerializer.Deserialize<T>(payload, ContractJson.Options)
+            ?? throw new InvalidDataException("IPC JSON 载荷反序列化为 null");
+    }
+
+    public static async Task<T> ReadJsonAsync<T>(Stream stream, JsonTypeInfo<T> typeInfo, CancellationToken ct)
+    {
+        var payload = await ReadAsync(stream, ct);
+        return System.Text.Json.JsonSerializer.Deserialize(payload, typeInfo)
             ?? throw new InvalidDataException("IPC JSON 载荷反序列化为 null");
     }
 

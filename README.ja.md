@@ -8,30 +8,34 @@
 
 # GameLibrary
 
+**v1.8.2 プレリリース**：単一 Bridge と一覧・カバーの最適化は実機検証を通過しました。[リリース](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.8.2) · [検証記録](docs/releases/v1.8.2-validation.md)。安定版は v1.8.1 です。
+
+
+
 ドライブに散らばったゲームを、一つのライブラリに。フォルダーを選び、起動ファイルを確認すると、一覧からゲームを開けます。
 
 現在の正式版 **v1.8.0** は、一括のお気に入り・タグ付け・ライブラリからの削除を一度の操作にまとめ、バックグラウンドサービスの再起動後に接続が失われる問題とポーリングの無限再試行を修正し、インストーラーの権限範囲を絞り込みました。Godot/MTool、Unity 翻訳、プレイ済みライブラリは引き続き利用できます。[リリース説明](docs/releases/v1.8.0.md)をご確認ください。
 
-**[Windows インストーラーをダウンロード](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.0/GameLibrary-Setup-v1.8.0.exe)** · [すべてのリリース](https://github.com/sumingwang233/GameLibrary/releases) · [不具合の報告](https://github.com/sumingwang233/GameLibrary/issues)
+**[Windows インストーラーをダウンロード](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.1/GameLibrary-Setup-v1.8.1.exe)** · [すべてのリリース](https://github.com/sumingwang233/GameLibrary/releases) · [不具合の報告](https://github.com/sumingwang233/GameLibrary/issues)
 
 [ダウンロード](#download) · [画面](#demo) · [使い始める](#start) · [よくある質問](#faq)
 
 <a id="download"></a>
 ## ダウンロード
 
-現在の正式リリースは **v1.8.0** で、対象は **Windows 10 / 11 x64** です。ビルド、テスト、型チェック、フォーマット、パッケージングを含む自動チェックを実施し、結果と終了コードは[リリース記録](docs/releases/v1.8.0-validation.md)にあります。手動確認はメンテナーが実施済みです。インストーラーは未署名のため、Windows が不明な発行元として警告する場合があります。
+現在の正式リリースは **v1.8.1** で、対象は **Windows 10 / 11 x64** です。実際のビルドと検証結果は[リリース記録](docs/releases/v1.8.1-validation.md)を参照してください。インストーラーは未署名です。
 
 | ファイル | 用途 |
 |---|---|
-| [`GameLibrary-Setup-v1.8.0.exe`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.0/GameLibrary-Setup-v1.8.0.exe) | 推奨。現在のユーザー向け。インストール先を選択できます。 |
-| [`GameLibrary-Portable-win-x64-v1.8.0.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.0/GameLibrary-Portable-win-x64-v1.8.0.zip) | 展開して GameLibrary.Desktop.exe を実行します。 |
-| [`GameLibrary-Tools-win-x64-v1.8.0.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.0/GameLibrary-Tools-win-x64-v1.8.0.zip) | コマンドラインや自動化向けの Host、CLI、MCP。 |
-| [`GameLibrary-v1.8.0-SHA256SUMS.txt`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.0/GameLibrary-v1.8.0-SHA256SUMS.txt) | 上記 3 パッケージの SHA-256 チェックサム。 |
+| [`GameLibrary-Setup-v1.8.1.exe`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.1/GameLibrary-Setup-v1.8.1.exe) | 推奨。現在のユーザー向け。インストール先を選択できます。 |
+| [`GameLibrary-Portable-win-x64-v1.8.1.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.1/GameLibrary-Portable-win-x64-v1.8.1.zip) | 展開して GameLibrary.Desktop.exe を実行します。 |
+| [`GameLibrary-Tools-win-x64-v1.8.1.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.1/GameLibrary-Tools-win-x64-v1.8.1.zip) | コマンドラインや自動化向けの Host、CLI、MCP。 |
+| [`GameLibrary-v1.8.1-SHA256SUMS.txt`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.1/GameLibrary-v1.8.1-SHA256SUMS.txt) | 上記 3 パッケージの SHA-256 チェックサム。 |
 
 実行ファイルとインストーラーは Authenticode 未署名です。Windows が発行元不明の警告を表示する場合があります。このリポジトリから取得し、同じ版のチェックサムと照合してください。
 
 ```powershell
-Get-FileHash .\GameLibrary-Setup-v1.8.0.exe -Algorithm SHA256
+Get-FileHash .\GameLibrary-Setup-v1.8.1.exe -Algorithm SHA256
 ```
 
 <a id="demo"></a>
@@ -41,7 +45,7 @@ Get-FileHash .\GameLibrary-Setup-v1.8.0.exe -Algorithm SHA256
 
 ![ゲームを整理するためのタグ管理](website/public/assets/tags.png)
 
-v1.5.5 の独立したサンプルライブラリで撮影しています。アプリ標準のカバーを使用し、個人のゲームフォルダーは含みません。操作動画はまだ制作していません。[録画手順](docs/demo-recording.md)を用意しています。
+v1.8.0 の独立したサンプルライブラリをライトモードで撮影しています。アプリ標準のカバーを使用し、個人のゲームフォルダーは含みません。紹介サイトのスクリーンショットは、ページのライト・ダーク設定に合わせて切り替わります。操作動画はまだ制作していません。[録画手順](docs/demo-recording.md)を用意しています。
 
 <a id="start"></a>
 ## 使い始める

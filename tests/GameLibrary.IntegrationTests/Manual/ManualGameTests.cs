@@ -2,6 +2,7 @@ using System.Runtime.InteropServices.ComTypes;
 using System.Text.Json;
 using GameLibrary.Contracts;
 using GameLibrary.Contracts.Ipc;
+using GameLibrary.Domain.Paths;
 using GameLibrary.Host.Scanning;
 using GameLibrary.HostClient;
 using GameLibrary.Infrastructure.Shell;
@@ -267,6 +268,72 @@ public sealed class ManualGameTests : IClassFixture<PipeServerFixture>
         });
         Assert.False(rejected.Ok);
         Assert.Equal(ErrorCodes.PermissionDenied, rejected.Error!.Code);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ShortcutAndUnrealDirectory_DoNotCreateDuplicateCards_InEitherOrder(bool shortcutFirst)
+    {
+        var root = Path.Combine(DataDir, "shortcut-dedupe-" + Guid.NewGuid().ToString("N"));
+        var game = Path.Combine(root, "Install");
+        var shipping = Path.Combine(game, "Sample", "Binaries", "Win64", "Sample-Win64-Shipping.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(shipping)!);
+        File.WriteAllText(shipping, "fixture");
+        File.WriteAllText(Path.Combine(game, "Sample.exe"), "fixture");
+        Directory.CreateDirectory(Path.Combine(game, "Engine"));
+        var packs = Path.Combine(game, "Sample", "Content", "Paks");
+        Directory.CreateDirectory(packs);
+        File.WriteAllText(Path.Combine(packs, "Sample.pak"), "fixture");
+        var link = Path.Combine(game, "Play.lnk");
+        ShellLinkInterop.RunOnSta(() =>
+        {
+            var shellLink = ShellLinkInterop.CreateShellLink();
+            shellLink.SetPath(shipping);
+            shellLink.SetWorkingDirectory(Path.GetDirectoryName(shipping)!);
+            ((IPersistFile)shellLink).Save(link, fRemember: false);
+            return true;
+        });
+        Assert.True((await InvokeAsync("roots.add", new { root })).Ok);
+        var store = _fixture.State.Library.Store!;
+        if (shortcutFirst)
+        {
+            var before = new ScanCandidateCollector(GamePath.Create(root), "before-shortcut", new());
+            ScanJobRunner.Run(GamePath.Create(root), new() { JobId = "before-shortcut", Token = CancellationToken.None }, before);
+            ScanCandidatePersistence.Persist(store, null, before, "before-shortcut", readyForReview: true);
+        }
+        var created = await InvokeAsync("games.create", new
+        {
+            sourcePath = shortcutFirst ? link : game,
+            idempotencyKey = Guid.NewGuid().ToString("N"),
+        });
+        Assert.True(created.Ok, created.Error?.Message);
+        var duplicate = await InvokeAsync("games.create", new
+        {
+            sourcePath = shortcutFirst ? game : link,
+            idempotencyKey = Guid.NewGuid().ToString("N"),
+        });
+        Assert.False(duplicate.Ok);
+        Assert.Equal(ErrorCodes.InvalidArgument, duplicate.Error!.Code);
+        if (shortcutFirst)
+        {
+            var pending = Assert.Single(store.ListCandidates(), candidate => candidate.PhysicalPath == game);
+            var accepted = await InvokeAsync("candidates.accept", new
+            {
+                candidateId = pending.CandidateId,
+                expectedRevision = pending.Revision,
+                idempotencyKey = Guid.NewGuid().ToString("N"),
+            });
+            Assert.False(accepted.Ok);
+            Assert.Equal(ErrorCodes.InvalidArgument, accepted.Error!.Code);
+        }
+        var collector = new ScanCandidateCollector(GamePath.Create(root), "shortcut-after-manual", new());
+        ScanJobRunner.Run(GamePath.Create(root), new() { JobId = "shortcut-after-manual", Token = CancellationToken.None }, collector);
+        ScanCandidatePersistence.Persist(store, null, collector, "shortcut-after-manual", readyForReview: true);
+        ScanCandidatePersistence.Persist(store, null, collector, "shortcut-repeat", readyForReview: true);
+        Assert.Single(store.ListGames(), card => card.Membership == "active" && card.RootPath.StartsWith(root, StringComparison.Ordinal));
+        if (shortcutFirst)
+            Assert.DoesNotContain(store.ListCandidates(), candidate => candidate.PhysicalPath == game && candidate.ReviewState == "pendingReview");
     }
 
     [Fact]

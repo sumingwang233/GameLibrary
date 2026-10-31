@@ -47,9 +47,9 @@ PORTABLE_NSIS = os.path.join(
     "makensis.exe",
 )
 DEFAULT_TIMESTAMP_URL = "http://timestamp.digicert.com"
+# 普通用户载荷的 Host/TauriBridge 只取 Tauri 构建的 sidecar；此处单独发布 Tools 使用的 Console Host、CLI、MCP。
 COMPONENTS = [
-    ("GameLibrary.Host", "GameLibrary.Host.exe", True, True),
-    ("GameLibrary.TauriBridge", "GameLibrary.TauriBridge.exe", True, False),
+    ("GameLibrary.Host", "GameLibrary.Host.exe", False, True),
     ("GameLibrary.Cli", "gamelibrary.exe", False, True),
     ("GameLibrary.Mcp", "GameLibrary.Mcp.exe", False, True),
 ]

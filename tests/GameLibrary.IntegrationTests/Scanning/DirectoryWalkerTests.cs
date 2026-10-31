@@ -8,6 +8,72 @@ namespace GameLibrary.IntegrationTests.Scanning;
 /// <summary>DirectoryWalker（T02-B）：只读遍历、规则剪枝、预算分段续扫、取消、深度上限。</summary>
 public sealed class DirectoryWalkerTests
 {
+    [Fact]
+    public void Walk_ExactIgnoredDirectoryAndFile_KeepChildDiscoveryAcrossResume()
+    {
+        var root = FreshTree("walk-exact-resume");
+        try
+        {
+            var collection = Path.Combine(root, "[Unity]");
+            var child = Path.Combine(collection, "New Game");
+            Directory.CreateDirectory(child);
+            var hiddenFile = Path.Combine(child, "hidden.exe");
+            var visibleFile = Path.Combine(child, "Game.exe");
+            File.WriteAllText(hiddenFile, "fixture");
+            File.WriteAllText(visibleFile, "fixture");
+            var rules = new ScanRuleSet(new[] { collection, hiddenFile }.Select((path, i) => new ScanRule
+            {
+                RuleId = "exact-" + i,
+                Source = ScanRuleSource.User,
+                Action = ScanRuleAction.Exclude,
+                Matcher = new ExactPathMatcher(GamePath.Create(path).ComparisonKey),
+            }));
+            var walker = new DirectoryWalker(GamePath.Create(root), rules,
+                new ScanWalkOptions { MaxDirectories = 1 });
+            var files = new List<ScannedEntry>();
+            var inspected = new List<string>();
+            var coverage = walker.Walk(files.Add, null, CancellationToken.None, d => inspected.Add(d.PhysicalPath));
+            var segments = 1;
+            while (coverage.ResumeTokenJson is { } resume)
+            {
+                Assert.True(++segments < 10);
+                coverage = walker.Resume(resume, files.Add, null, CancellationToken.None, d => inspected.Add(d.PhysicalPath));
+            }
+            Assert.True(segments > 1);
+            Assert.Equal(ScanCompletion.Complete, coverage.Completion);
+            Assert.DoesNotContain(collection, inspected);
+            Assert.Contains(child, inspected);
+            Assert.Equal(visibleFile, Assert.Single(files).PhysicalPath);
+            Assert.Equal(1, coverage.SkippedFiles);
+        }
+        finally { TryCleanup(root); }
+    }
+
+    [Fact]
+    public void Walk_SubtreeExcludedRoot_IsNotEnumerated()
+    {
+        var root = FreshTree("walk-subtree-root");
+        try
+        {
+            CreateTree(root);
+            var rules = new ScanRuleSet([new ScanRule
+            {
+                RuleId = "subtree", Source = ScanRuleSource.User, Action = ScanRuleAction.Exclude,
+                Matcher = new SubtreeMatcher(root),
+            }]);
+            var files = new List<ScannedEntry>();
+            var inspected = new List<ScannedDirectory>();
+            var coverage = new DirectoryWalker(GamePath.Create(root), rules)
+                .Walk(files.Add, null, CancellationToken.None, inspected.Add);
+            Assert.Empty(files);
+            Assert.Empty(inspected);
+            Assert.Equal(0, coverage.ScannedDirectories);
+            Assert.Equal(1, coverage.ExcludedByRule["subtree"]);
+            Assert.Equal(ScanCompletion.Complete, coverage.Completion);
+        }
+        finally { TryCleanup(root); }
+    }
+
     [Theory]
     [InlineData("$RECYCLE.BIN")]
     [InlineData("$recycle.bin")]

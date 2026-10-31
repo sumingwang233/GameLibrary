@@ -6,7 +6,7 @@ import { verifyBatch } from "./verify_batch.mjs";
 
 const [, , executableArgument, dataDirectoryArgument, screenshotArgument, gameDirectoryArgument] = process.argv;
 if (!executableArgument || !dataDirectoryArgument || !screenshotArgument) {
-  throw new Error("usage: node verify_release.mjs <desktop.exe> <data-dir> <screenshot.png> [game-directory]");
+  throw new Error("usage: node verify_release.mjs <desktop.exe> <data-dir> <screenshot.png> [game-directory] [--batch-smoke] [--footprint]");
 }
 
 const executable = path.resolve(executableArgument);
@@ -94,7 +94,7 @@ function cdp(webSocketUrl) {
 function processTree() {
   const script = [
     "Get-CimInstance Win32_Process |",
-    "Select-Object Name,ProcessId,ParentProcessId,ExecutablePath |",
+    "Select-Object Name,ProcessId,ParentProcessId,ExecutablePath,WorkingSetSize,PrivatePageCount,UserModeTime,KernelModeTime |",
     "ConvertTo-Json -Compress",
   ].join(" ");
   const text = execFileSync("powershell.exe", ["-NoProfile", "-Command", script], {
@@ -123,6 +123,7 @@ function descendants(processes, rootPid) {
 
 const port = await freePort();
 const webViewData = path.join(path.dirname(dataDirectory), "webview2");
+const startedAt = performance.now();
 const desktop = spawn(executable, [], {
   cwd: path.dirname(executable),
   env: {
@@ -140,6 +141,7 @@ desktop.stderr.on("data", chunk => { desktopError = (desktopError + chunk.toStri
 let client;
 try {
   const target = await waitForTarget(port);
+  const startupMs = performance.now() - startedAt;
   client = cdp(target.webSocketDebuggerUrl);
   const expression = `
     (async () => {
@@ -192,7 +194,7 @@ try {
   if (!evaluated) throw new Error("release WebView evaluation did not complete");
   if (evaluated.exceptionDetails) throw new Error(evaluated.exceptionDetails.text);
   const result = evaluated.result.value;
-  if (gameDirectoryArgument && gameDirectoryArgument !== "--batch-smoke") {
+  if (gameDirectoryArgument && !gameDirectoryArgument.startsWith("--")) {
     const opened = await client.send("Runtime.evaluate", {
       expression: `(async () => {
         const invoke = window.__TAURI__.core.invoke;
@@ -220,13 +222,29 @@ try {
   if (result.rootDisplay !== "flex") failures.push(`unexpected app shell display ${result.rootDisplay}`);
 
   const tree = descendants(processTree(), desktop.pid);
-  if (process.argv.includes("--batch-smoke") && tree.filter(process => process.Name?.toLowerCase().startsWith("gamelibrary.tauribridge")).length !== 2)
-    failures.push("ordinary and event bridge processes were not both active");
+  if (process.argv.includes("--batch-smoke") && tree.filter(process => process.Name?.toLowerCase().startsWith("gamelibrary.tauribridge")).length !== 1)
+    failures.push("exactly one bridge process was not active");
   const consoleHosts = tree.filter((process) => process.Name?.toLowerCase() === "conhost.exe");
   if (consoleHosts.length) {
     failures.push(`console host descendants detected: ${consoleHosts.map((item) => `${item.ProcessId}<-parent:${item.ParentProcessId}`).join(", ")}; tree=${JSON.stringify(tree.map(({ Name, ProcessId, ParentProcessId }) => ({ Name, ProcessId, ParentProcessId })))}`);
   }
 
+  if (process.argv.includes("--footprint")) {
+    await sleep(30000);
+    const samples = [];
+    for (let index = 0; index < 7; index++) {
+      const processes = descendants(processTree(), desktop.pid);
+      samples.push({
+        elapsedMs: performance.now() - startedAt,
+        privateBytes: processes.reduce((sum, item) => sum + Number(item.PrivatePageCount || 0), 0),
+        workingSetBytes: processes.reduce((sum, item) => sum + Number(item.WorkingSetSize || 0), 0),
+        cpuSeconds: processes.reduce((sum, item) => sum + Number(item.UserModeTime || 0) + Number(item.KernelModeTime || 0), 0) / 10000000,
+        bridgeCount: processes.filter(item => item.Name?.toLowerCase().startsWith("gamelibrary.tauribridge")).length,
+      });
+      if (index < 6) await sleep(5000);
+    }
+    result.footprint = { startupMs, samples };
+  }
   const screenshot = await client.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
   writeFileSync(screenshotPath, Buffer.from(screenshot.data, "base64"));
 

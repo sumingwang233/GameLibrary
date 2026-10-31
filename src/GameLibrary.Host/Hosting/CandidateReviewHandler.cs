@@ -28,7 +28,10 @@ internal sealed class CandidateReviewHandler(Func<SqliteLibraryStore?> storeAcce
                 .Review(candidateId, revision.Value, flashSelection));
         }
         var service = new CandidateReviewService(store, new CatalogFiles());
-        return ToEnvelope(request, store, service.Apply(service.Prepare(candidateId, revision.Value, action)));
+        var prepared = service.Prepare(candidateId, revision.Value, action);
+        if (prepared.Error is not null || action != "accept") return ToEnvelope(request, store, service.Apply(prepared));
+        return ToEnvelope(request, store, store.InTransaction(() => ApplyReview(service, prepared,
+            new ShortcutGameIdentity(store.ListGames().Where(game => game.Kind == "manualShortcut").ToArray()))));
     }
 
     public Envelope<object> ReviewBatch(IpcRequest request)
@@ -57,8 +60,14 @@ internal sealed class CandidateReviewHandler(Func<SqliteLibraryStore?> storeAcce
         var service = new CandidateReviewService(store, new CatalogFiles());
         var prepared = inputs.Select(item => service.Prepare(item.Id, item.Revision, action)).ToArray();
         var flashService = new FlashCandidateReviewService(store, new CatalogFiles());
-        var results = store.InTransaction(() => inputs.Select((item, index) => store.InReviewSavepoint(() =>
-            item.Flash is null ? service.Apply(prepared[index]) : flashService.Review(item.Id, item.Revision, item.Flash))).ToArray());
+        var results = store.InTransaction(() =>
+        {
+            var games = new ShortcutGameIdentity(action == "accept"
+                ? store.ListGames().Where(game => game.Kind == "manualShortcut").ToArray() : []);
+            return inputs.Select((item, index) => store.InReviewSavepoint(() =>
+                item.Flash is null ? ApplyReview(service, prepared[index], games)
+                    : flashService.Review(item.Id, item.Revision, item.Flash))).ToArray();
+        });
         // Optional cover synchronization and events follow the successful outer commit.
         var output = results.Select(result => new
         {
@@ -72,6 +81,18 @@ internal sealed class CandidateReviewHandler(Func<SqliteLibraryStore?> storeAcce
             Status = OperationStatus.Completed,
             Data = new { items = output }
         };
+    }
+
+    private static CandidateReviewOutcome ApplyReview(CandidateReviewService service,
+        PreparedReview prepared, ShortcutGameIdentity games)
+    {
+        if (prepared.Error is null && prepared.Action == "accept" && prepared.Candidate?.GameId is null
+            && prepared.ExpectedRevision == prepared.Candidate?.Revision
+            && prepared.Game?.EntryPath is { } entry
+            && games.FindMatches([entry]).Count > 0)
+            return new(prepared.CandidateId, ErrorCode: ErrorCodes.InvalidArgument,
+                ErrorMessage: "该入口已通过快捷方式入库，请检查现有游戏记录");
+        return service.Apply(prepared);
     }
 
     public Envelope<object> Inspect(IpcRequest request)

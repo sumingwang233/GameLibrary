@@ -100,7 +100,8 @@ public sealed class PauseSignal
 
 /// <summary>
 /// 只读目录遍历器（ADR-0002）：显式栈 DFS、分段检查取消/暂停/预算、重解析点不跟随、
-/// 目录规则 Exclude 剪枝整棵子树并计数。本类不读文件内容、不做识别。
+/// 用户 ExactPath 排除目录自身的识别，保留后代遍历；其他目录排除仍剪枝子树。
+/// 本类不读文件内容、不做识别。
 /// </summary>
 public sealed class DirectoryWalker
 {
@@ -197,6 +198,14 @@ public sealed class DirectoryWalker
                     CountExclusion(excludedByRule, "sys.recycle");
                     continue;
                 }
+                // 根目录和续扫目录也求值，精确忽略的目录不能成为游戏边界。
+                var directoryDecision = _rules.Decide(GamePath.Create(dirPath));
+                if (directoryDecision.Outcome == ScanRuleOutcome.Exclude)
+                {
+                    skippedDirectories++;
+                    CountExclusion(excludedByRule, directoryDecision.WinningRuleId!);
+                    if (directoryDecision.ExcludeDescendants) continue;
+                }
                 var enumerateStatus = TryEnumerate(dirPath, ct, out var subDirs, out var files);
                 if (enumerateStatus != EnumerateStatus.Ok)
                 {
@@ -228,7 +237,8 @@ public sealed class DirectoryWalker
                 }
 
                 scannedDirectories++;
-                onDirectory?.Invoke(new ScannedDirectory(dirPath, depth, subDirs, files));
+                if (directoryDecision.Outcome != ScanRuleOutcome.Exclude)
+                    onDirectory?.Invoke(new ScannedDirectory(dirPath, depth, subDirs, files));
 
                 foreach (var file in files)
                 {
@@ -252,7 +262,7 @@ public sealed class DirectoryWalker
                 }
 
                 // 游戏边界由识别层决定；直属文件仍完整计数，资源子树不再参与发现。
-                if (shouldDescend?.Invoke(dirPath) == false)
+                if (directoryDecision.Outcome != ScanRuleOutcome.Exclude && shouldDescend?.Invoke(dirPath) == false)
                 {
                     continue;
                 }
@@ -273,7 +283,7 @@ public sealed class DirectoryWalker
                     }
 
                     var decision = _rules.Decide(dirPathValue);
-                    if (decision.Outcome == ScanRuleOutcome.Exclude)
+                    if (decision.Outcome == ScanRuleOutcome.Exclude && decision.ExcludeDescendants)
                     {
                         skippedDirectories++;
                         CountExclusion(excludedByRule, decision.WinningRuleId!);

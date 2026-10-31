@@ -39,11 +39,24 @@ public static class ScanCandidatePersistence
         {
             var regroupRoots = store.ListLegacyFlashScanRoots();
             var existingGames = store.ListGames();
+            var shortcutGames = new ShortcutGameIdentity(existingGames.Where(game => game.Membership == "active" && game.Kind == "manualShortcut").ToArray());
             var unknownGames = existingGames.Where(game => game.Membership == "active"
                     && (string.IsNullOrWhiteSpace(game.Engine) || game.Engine == "unknown"))
                 .ToLookup(game => game.RootPath, StringComparer.OrdinalIgnoreCase);
             var candidateLookup = store.ListCandidates().ToLookup(item => item.PhysicalPath, StringComparer.OrdinalIgnoreCase);
             var storedFlashDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var roots = requireRegisteredRoot ? store.ReadRoots() : [];
+            foreach (var path in collector.InspectedDriveRoots.Where(path => !requireRegisteredRoot
+                || roots.Any(root => root.Kind == "library" && RuntimeStateStore.ContainsPath(root.PhysicalPath, path))
+                    && !roots.Any(root => root.Kind == "manual" && RuntimeStateStore.ContainsPath(root.PhysicalPath, path))))
+                foreach (var prior in candidateLookup[path].Where(item => item.ReviewState == "pendingReview" && item.GameId is null))
+                {
+                    var current = store.TryGetCandidate(prior.CandidateId);
+                    if (current is not { ReviewState: "pendingReview", GameId: null }) continue;
+                    if (store.TransitionCandidate(current.CandidateId, "pendingReview", "deferred", current.Revision, null, utcNow) is not null)
+                        Publish("candidate.updated", $"candidate:{current.CandidateId}", new
+                        { candidateId = current.CandidateId, from = "pendingReview", to = "deferred", reason = "driveRootIsContainer" });
+                }
             foreach (var candidate in collector.Candidates)
             {
                 // 合集是目录结构信息，不是可启动的游戏，不能进入待添加列表。
@@ -55,6 +68,22 @@ public static class ScanCandidatePersistence
 
                 if (store.IsSuppressedByIgnoreRule(candidate.PhysicalPath, null))
                 {
+                    continue;
+                }
+
+                // 快捷方式先入库、之后扫描本体也走同一身份检查；不触碰已接受的记录。
+                var directory = candidate.Kind == GameLibrary.Domain.States.CandidateKind.FileGame
+                    ? Path.GetDirectoryName(candidate.PhysicalPath)! : candidate.PhysicalPath;
+                var entries = candidate.EntryCandidates.Select(entry => Path.Combine(directory,
+                    entry.RelativePath.Replace('/', Path.DirectorySeparatorChar))).ToArray();
+                if (entries.Length == 1 && candidate.Flash is not { RequiresReview: true }
+                    && shortcutGames.FindMatches(entries).Count == 1)
+                {
+                    foreach (var prior in candidateLookup[candidate.PhysicalPath].Where(item => item.GameId is null
+                        && item.ReviewState == "pendingReview"))
+                        if (store.TransitionCandidate(prior.CandidateId, "pendingReview", "deferred", prior.Revision, null, utcNow) is not null)
+                            Publish("candidate.updated", $"candidate:{prior.CandidateId}", new
+                            { candidateId = prior.CandidateId, from = "pendingReview", to = "deferred", reason = "existingShortcut" });
                     continue;
                 }
 
@@ -125,7 +154,6 @@ public static class ScanCandidatePersistence
                 }
             }
 
-            var roots = requireRegisteredRoot ? store.ReadRoots() : [];
             foreach (var group in collector.FlashGroups.Where(group => group.Complete
                 && (storedFlashDirectories.Contains(group.DirectoryPath) || !group.RequiresReview && group.Kind == "resources")))
             {
@@ -140,6 +168,7 @@ public static class ScanCandidatePersistence
             }
 
             // T18：候选进入 pendingReview 后汇总为通知批（新候选才触发；ack/defer 的旧批不复活）。
+            var pendingNotifications = store.ListNotifications("pending");
             var notification = store.EnsureCandidateBatch(utcNow);
             if (notification is not null)
             {
@@ -149,6 +178,12 @@ public static class ScanCandidatePersistence
                     $"notification:{batch.NotificationId}",
                     new { notificationId = batch.NotificationId, title = batch.Title, count = batch.CandidateIds.Count });
             }
+            foreach (var prior in pendingNotifications)
+                if (store.TryGetNotification(prior.NotificationId) is { } current
+                    && (current.State != prior.State || !current.CandidateIds.SequenceEqual(prior.CandidateIds))
+                    && current.NotificationId != notification?.Batch.NotificationId)
+                    Publish("notification.updated", $"notification:{current.NotificationId}", new
+                    { notificationId = current.NotificationId, state = current.State, count = current.CandidateIds.Count });
             return true;
         });
         foreach (var publication in publications)

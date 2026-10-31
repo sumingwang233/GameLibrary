@@ -103,6 +103,7 @@ function DetailSheetContent({
   const loadSerial = useRef(0);
   const profileSerial = useRef(0);
   const actionSerial = useRef(0);
+  const coverRequest = useRef<AbortController | null>(null);
   const [summaryDraft, setSummaryDraft] = useState("");
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -117,7 +118,7 @@ function DetailSheetContent({
   useEffect(() => {
     alive.current = true;
     session.current++;
-    return () => { alive.current = false; session.current++; };
+    return () => { alive.current = false; session.current++; coverRequest.current?.abort(); };
   }, []);
   useEffect(() => { setTab(initialTab); }, [gameId, initialTab]);
   useEffect(() => { setConfirmDelete(false); setDeletePlan(null); }, [gameId]);
@@ -144,8 +145,16 @@ function DetailSheetContent({
     }
   }, []);
 
+  const readCover = useCallback((assetId: string) => {
+    coverRequest.current?.abort();
+    const request = new AbortController();
+    coverRequest.current = request;
+    return assetDataUrl(assetId, request.signal);
+  }, []);
+
   const load = useCallback(async () => {
     if (!gameId || !alive.current) return;
+    coverRequest.current?.abort();
     const epoch = session.current;
     const request = ++loadSerial.current;
     const profileRequest = ++profileSerial.current;
@@ -163,7 +172,7 @@ function DetailSheetContent({
       setTranslation(translationResult.data);
       const coverAssetId = currentRef.current?.coverAssetId;
       if (coverAssetId) {
-        const url = await assetDataUrl(coverAssetId).catch(() => null);
+        const url = await readCover(coverAssetId).catch(() => null);
         if (!valid() || currentRef.current?.coverAssetId !== coverAssetId) return;
         setCover(url);
       } else {
@@ -173,7 +182,7 @@ function DetailSheetContent({
     } catch (cause) {
       if (valid()) setError(describeFailure(cause));
     }
-  }, [gameId, mergeDetail]);
+  }, [gameId, mergeDetail, readCover]);
 
   useEffect(() => {
     setCurrent(game);
@@ -313,8 +322,15 @@ function DetailSheetContent({
 
   const updateCover = async (result: { assetId: string; warning?: string }) => {
     if (!alive.current) return;
-    const url = await assetDataUrl(result.assetId);
-    if (!alive.current) return;
+    const pendingCover = readCover(result.assetId);
+    const request = coverRequest.current;
+    let url: string;
+    try { url = await pendingCover; }
+    catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      throw error;
+    }
+    if (!alive.current || coverRequest.current !== request) return;
     setCover(url);
     await load();
     await onChanged();

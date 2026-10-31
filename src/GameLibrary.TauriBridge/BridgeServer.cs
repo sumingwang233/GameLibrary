@@ -7,10 +7,23 @@ namespace GameLibrary.TauriBridge;
 
 public sealed class BridgeServer
 {
+    /// <summary>普通请求与 events.wait 各用一条 HostConnection，两条 lane 可以同时执行。</summary>
+    private sealed class Lane
+    {
+        public SemaphoreSlim Gate { get; } = new(1, 1);
+
+        public HostConnection? Connection { get; set; }
+
+        public string? DataDirectory { get; set; }
+
+        public string? StopDataDirectory { get; set; }
+    }
+
     private readonly TextReader _input;
     private readonly TextWriter _output;
-    private HostConnection? _connection;
-    private string? _dataDirectory;
+    private readonly object _outputLock = new();
+    private readonly Lane _ordinary = new();
+    private readonly Lane _events = new();
 
     public BridgeServer(TextReader input, TextWriter output)
     {
@@ -20,53 +33,146 @@ public sealed class BridgeServer
 
     public async Task RunAsync(CancellationToken cancellationToken)
     {
-        while (!cancellationToken.IsCancellationRequested)
+        using var runCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var pending = new List<Task>();
+        try
         {
-            var line = await _input.ReadLineAsync(cancellationToken).AsTask().WaitAsync(cancellationToken);
-            if (line is null)
+            while (!runCancellation.IsCancellationRequested)
             {
-                break;
-            }
+                string? line;
+                try
+                {
+                    line = await _input.ReadLineAsync(runCancellation.Token).AsTask().WaitAsync(runCancellation.Token);
+                }
+                catch (OperationCanceledException) when (runCancellation.IsCancellationRequested)
+                {
+                    break;
+                }
 
-            if (string.IsNullOrWhiteSpace(line))
-            {
-                continue;
-            }
+                if (line is null)
+                {
+                    break;
+                }
 
-            object response;
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    continue;
+                }
+
+                BridgeFrameRequest? frame;
+                try
+                {
+                    frame = JsonSerializer.Deserialize(line, BridgeJsonContext.Wire.BridgeFrameRequest);
+                }
+                catch (JsonException)
+                {
+                    // A corrupt private frame cannot be paired safely; EOF fails all Rust waiters.
+                    break;
+                }
+
+                if (frame is null || string.IsNullOrWhiteSpace(frame.TransportId) || frame.Request is null)
+                {
+                    break;
+                }
+
+                // 读取循环只负责分派：events.wait 挂起时普通请求仍能被读入并执行。
+                var lane = string.Equals(frame.Request.OperationId, "events.wait", StringComparison.Ordinal)
+                    ? _events
+                    : _ordinary;
+                pending.Add(ProcessAsync(frame, lane, runCancellation.Token));
+                pending.RemoveAll(task => task.IsCompleted);
+            }
+        }
+        finally
+        {
+            // stdin EOF / 父进程退出：取消在途 lane 工作，避免长轮询拖住桥接进程的清理。
+            runCancellation.Cancel();
             try
             {
-                var request = JsonSerializer.Deserialize<BridgeRequest>(line, ContractJson.Options)
-                    ?? throw new InvalidOperationException("桥接请求为空");
-                response = await ExecuteAsync(request, cancellationToken);
+                await Task.WhenAll(pending);
             }
-            catch (Exception ex) when (ex is JsonException or InvalidOperationException or HostClientException)
+            catch (Exception)
             {
-                response = new Envelope<object>
-                {
-                    RequestId = TryGetRequestId(line),
-                    Ok = false,
-                    Status = OperationStatus.Failed,
-                    Error = new RequestError
-                    {
-                        Code = ex is HostClientException
-                            ? ErrorCodes.HostUnavailable
-                            : ErrorCodes.InvalidArgument,
-                        Message = ex.Message,
-                        Retryable = ex is HostClientException,
-                    },
-                };
+                // 关闭路径优先完成连接清理；单个响应写入失败不应阻止退出。
             }
 
-            await _output.WriteLineAsync(JsonSerializer.Serialize(response, ContractJson.Options));
-            await _output.FlushAsync(cancellationToken);
+            await DiscardConnectionAsync(_ordinary);
+            await DiscardConnectionAsync(_events);
+        }
+    }
+
+    private async Task ProcessAsync(BridgeFrameRequest frame, Lane lane, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await lane.Gate.WaitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return;
         }
 
-        await DiscardConnectionAsync();
+        BridgeFrameResponse response;
+        try
+        {
+            try
+            {
+                var result = await ExecuteAsync(frame.Request, lane, cancellationToken);
+                response = new BridgeFrameResponse
+                {
+                    TransportId = frame.TransportId,
+                    Result = result,
+                };
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                var (code, message) = MapTransportError(ex);
+                response = new BridgeFrameResponse
+                {
+                    TransportId = frame.TransportId,
+                    TransportError = new BridgeTransportError { Code = code, Message = message },
+                };
+            }
+        }
+        finally
+        {
+            lane.Gate.Release();
+        }
+
+        if (!cancellationToken.IsCancellationRequested)
+        {
+            WriteResponse(response);
+        }
+    }
+
+    /// <summary>
+    /// 整行写 stdout。两条 lane 的响应可能乱序完成，加锁保证每个 JSON 帧不会被字节级穿插；
+    /// 响应归属由 transportId 决定，不依赖写入顺序。
+    /// </summary>
+    private void WriteResponse(BridgeFrameResponse response)
+    {
+        var line = JsonSerializer.Serialize(response, BridgeJsonContext.Wire.BridgeFrameResponse);
+        lock (_outputLock)
+        {
+            try
+            {
+                _output.WriteLine(line);
+                _output.Flush();
+            }
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException)
+            {
+                // 父进程已关闭管道：让读取循环自行观察到 EOF 并退出。
+            }
+        }
     }
 
     private async Task<Envelope<JsonElement>> ExecuteAsync(
         BridgeRequest request,
+        Lane lane,
         CancellationToken cancellationToken)
     {
         var dataDirectory = ResolveDataDirectory(request.DataDir);
@@ -82,44 +188,49 @@ public sealed class BridgeServer
 
         try
         {
-            var connection = await EnsureConnectionAsync(dataDirectory, cancellationToken);
+            var connection = await EnsureConnectionAsync(lane, dataDirectory, cancellationToken);
             return await connection.InvokeAsync(ipcRequest, cancellationToken);
         }
         catch (Exception ex) when (IsConnectionFault(ex) && !cancellationToken.IsCancellationRequested)
         {
-            // 缓存的连接已失效（宿主重启/崩溃/断线）：丢弃缓存、重建宿主后同一 requestId 重试一次。
+            // 本 lane 的连接已失效（宿主重启/崩溃/断线）：丢弃该连接、重建宿主后同一 requestId 重试一次。
             // 写操作的重复由宿主持久收据保证；非连接类错误不重试，原样上抛。
-            await DiscardConnectionAsync();
-            var connection = await EnsureConnectionAsync(dataDirectory, cancellationToken);
+            await DiscardConnectionAsync(lane);
+            var connection = await EnsureConnectionAsync(lane, dataDirectory, cancellationToken);
             return await connection.InvokeAsync(ipcRequest, cancellationToken);
         }
     }
 
-    /// <summary>取缓存连接；数据目录变化或缓存为空时用 EnsureStartedAsync 建立新连接。</summary>
-    private async Task<HostConnection> EnsureConnectionAsync(string dataDirectory, CancellationToken cancellationToken)
+    private async Task<HostConnection> EnsureConnectionAsync(
+        Lane lane,
+        string dataDirectory,
+        CancellationToken cancellationToken)
     {
-        if (_connection is not null
-            && string.Equals(_dataDirectory, dataDirectory, StringComparison.OrdinalIgnoreCase))
+        if (lane.Connection is not null
+            && string.Equals(lane.DataDirectory, dataDirectory, StringComparison.OrdinalIgnoreCase))
         {
-            return _connection;
+            return lane.Connection;
         }
 
-        await DiscardConnectionAsync();
-        _dataDirectory = dataDirectory;
-        _connection = await HostProcessLauncher.EnsureStartedAsync(
+        await DiscardConnectionAsync(lane);
+        var connection = await HostProcessLauncher.EnsureStartedAsync(
             dataDirectory,
             clientName: "tauri",
             timeout: TimeSpan.FromSeconds(10),
             cancellationToken,
             ClientPermissionProfiles.TauriBridge);
-        return _connection;
+        lane.DataDirectory = dataDirectory;
+        lane.StopDataDirectory = dataDirectory;
+        lane.Connection = connection;
+        return connection;
     }
 
-    /// <summary>销毁缓存连接并置空；清理期的 IO/释放异常不得中断请求路径或退出流程。</summary>
-    private async Task DiscardConnectionAsync()
+    /// <summary>销毁指定 lane 的缓存连接并置空；清理期的 IO/释放异常不得中断请求路径或退出流程。</summary>
+    private static async Task DiscardConnectionAsync(Lane lane)
     {
-        var connection = _connection;
-        _connection = null;
+        var connection = lane.Connection;
+        lane.Connection = null;
+        lane.DataDirectory = null;
         if (connection is null)
         {
             return;
@@ -141,13 +252,29 @@ public sealed class BridgeServer
         _ => false,
     };
 
+    private static (string Code, string Message) MapTransportError(Exception ex) => ex switch
+    {
+        HostClientException host => (host.Code, host.Message),
+        JsonException or InvalidOperationException => (ErrorCodes.InvalidArgument, ex.Message),
+        _ => (ErrorCodes.HostUnavailable, ex.Message),
+    };
+
     /// <summary>Only stop the connected data scope; never start a Host merely to stop it.</summary>
     internal async Task StopHostAsync()
     {
-        var dataDirectory = _dataDirectory;
+        var dataDirectories = new[] { _ordinary.StopDataDirectory, _events.StopDataDirectory }
+            .OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         // 先清理缓存连接：宿主会话即将结束，缓存的连接句柄不再可用。
-        await DiscardConnectionAsync();
-        if (dataDirectory is null) return;
+        await DiscardConnectionAsync(_ordinary);
+        await DiscardConnectionAsync(_events);
+        foreach (var dataDirectory in dataDirectories)
+        {
+            await StopConnectedHostAsync(dataDirectory);
+        }
+    }
+
+    private static async Task StopConnectedHostAsync(string dataDirectory)
+    {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         try
         {
@@ -160,7 +287,9 @@ public sealed class BridgeServer
             {
                 RequestId = "tauri-exit-" + Guid.NewGuid().ToString("N"),
                 OperationId = "host.stop",
-                Parameters = JsonSerializer.SerializeToElement(new { idempotencyKey = "tauri-exit-" + Guid.NewGuid().ToString("N") }, ContractJson.Options),
+                Parameters = JsonSerializer.SerializeToElement(
+                    new HostStopParameters("tauri-exit-" + Guid.NewGuid().ToString("N")),
+                    BridgeJsonContext.Wire.HostStopParameters),
             }, timeout.Token);
         }
         catch (Exception ex) when (ex is HostClientException or IOException or OperationCanceledException) { }
@@ -181,20 +310,5 @@ public sealed class BridgeServer
 
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         return Path.Combine(localAppData, "GameLibrary");
-    }
-
-    private static string TryGetRequestId(string line)
-    {
-        try
-        {
-            using var document = JsonDocument.Parse(line);
-            return document.RootElement.TryGetProperty("requestId", out var value)
-                ? value.GetString() ?? $"tauri-error-{Guid.NewGuid():N}"
-                : $"tauri-error-{Guid.NewGuid():N}";
-        }
-        catch (JsonException)
-        {
-            return $"tauri-error-{Guid.NewGuid():N}";
-        }
     }
 }

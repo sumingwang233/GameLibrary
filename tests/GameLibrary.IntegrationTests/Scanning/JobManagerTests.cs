@@ -1,3 +1,4 @@
+using System.Text.Json;
 using GameLibrary.Host.Hosting;
 using Xunit;
 
@@ -237,6 +238,66 @@ public sealed class JobManagerTests
         Assert.Equal("succeeded", manager.Get(id)!.State);
         Assert.Equal(1, executions);
         Assert.Single(recorded, snapshot => snapshot.State == "succeeded");
+    }
+
+    [Fact]
+    public async Task CompletedCapacity_SpillsOldResultsWithoutLosingSessionQueries()
+    {
+        using var manager = new JobManager(completedCapacity: 1);
+        var first = manager.Create("test", context =>
+        {
+            context.ReportProgress(new { value = "中文结果" });
+            return Task.FromResult(JobOutcome.Succeeded());
+        });
+        await manager.WaitForIdleAsync();
+        var recentResult = new { value = "recent" };
+        var second = manager.Create("test", context =>
+        {
+            context.ReportProgress(recentResult);
+            return Task.FromResult(JobOutcome.Succeeded());
+        });
+        await manager.WaitForIdleAsync();
+        Assert.Equal(1, manager.CachedCompletedCount);
+        Assert.Equal("succeeded", manager.Get(first)!.State);
+        var archived = Assert.IsType<JsonElement>(manager.TryGetProgress(first)!.Value.Data);
+        Assert.Equal("中文结果", archived.GetProperty("value").GetString());
+        Assert.Same(recentResult, manager.TryGetProgress(second)!.Value.Data);
+        Assert.False(manager.RequestCancel(first));
+        Assert.Equal(0, manager.ActiveJobCount());
+    }
+
+    [Fact]
+    public async Task FailedSpill_KeepsOriginalResultsInMemory()
+    {
+        using var manager = new JobManager(completedCapacity: 1);
+        var cycle = new Dictionary<string, object>();
+        cycle["self"] = cycle;
+        var id = manager.Create("test", context =>
+        {
+            context.ReportProgress(cycle);
+            return Task.FromResult(JobOutcome.Succeeded());
+        });
+        await manager.WaitForIdleAsync();
+        manager.Create("test", _ => Task.FromResult(JobOutcome.Succeeded()));
+        await manager.WaitForIdleAsync();
+        Assert.Equal(2, manager.CachedCompletedCount);
+        Assert.True(manager.HistorySpillFailures > 0);
+        Assert.Same(cycle, manager.TryGetProgress(id)!.Value.Data);
+    }
+
+    [Fact]
+    public void SessionSpill_IsDeletedOnDispose()
+    {
+        var history = new CompletedJobHistory();
+        history.Write(new JobSnapshot { JobId = "job-test", Kind = "test", State = "succeeded", CreatedUtc = DateTime.UtcNow }, null);
+        var path = history.FilePath!;
+        try
+        {
+            Assert.StartsWith(Path.GetFullPath(Path.GetTempPath()), Path.GetFullPath(path));
+            Assert.True(File.Exists(path));
+        }
+        finally { history.Dispose(); }
+        Assert.False(File.Exists(path));
     }
 
     private static async Task WaitForTerminalAsync(JobManager manager, string jobId)

@@ -27,7 +27,7 @@ export function Header({ language }: { language: Language }) {
   const [themeExpanded, setThemeExpanded] = useState(false);
   const themeLabels = { dark: t("深色", "深色", "Dark", "ダーク"), light: t("浅色", "淺色", "Light", "ライト"), system: t("跟随系统", "跟隨系統", "System", "システム") };
   const sections = [
-    ["advantages", t("独特优势", "獨特優勢", "Why GameLibrary", "独自の強み")],
+    ["updates", t("v1.8.0 更新", "v1.8.0 更新", "What's new", "v1.8.0 の更新")],
     ["experience", t("如何使用", "如何使用", "How it works", "使い方")],
     ["download", t("下载", "下載", "Download", "ダウンロード")],
     ["questions", t("常见问题", "常見問題", "FAQ", "よくある質問")],
@@ -121,10 +121,11 @@ export function Screenshot({ name, alt, caption, language, priority = false, wid
   const id = useId();
   const t = translate(language);
   const [failed, setFailed] = useState(false);
+  const images = [name, name.replace(".png", "-dark.png")];
   return <>
     <figure className={glass(wide ? "screenshot hero-image" : "screenshot secondary-image")}>
       <button className="screenshot-button" aria-label={`${t("放大查看", "放大檢視", "Enlarge", "拡大表示")}: ${caption}`} disabled={failed} onClick={() => modal.current?.showModal()}>
-        {failed ? <span className="image-error" role="status">{t("截图加载失败，请稍后刷新。", "截圖載入失敗，請稍後重新整理。", "Screenshot could not load. Please refresh later.", "画像を読み込めませんでした。後で再読み込みしてください。")}</span> : <img src={asset(name.replace(".png", "-1320.webp"))} srcSet={[440, 880, 1320].map(size => `${asset(name.replace(".png", `-${size}.webp`))} ${size}w`).join(", ")} sizes={wide ? "(max-width: 640px) calc(100vw - 60px), (max-width: 1080px) calc(100vw - 80px), (max-width: 1280px) calc(100vw - 112px), 1120px" : "(max-width: 640px) calc(100vw - 60px), (max-width: 920px) calc(100vw - 80px), 500px"} width="1320" height="820" loading={priority ? "eager" : "lazy"} fetchPriority={priority ? "high" : undefined} decoding="async" alt={alt} onError={() => setFailed(true)} />}
+        {failed ? <span className="image-error" role="status">{t("截图加载失败，请稍后刷新。", "截圖載入失敗，請稍後重新整理。", "Screenshot could not load. Please refresh later.", "画像を読み込めませんでした。後で再読み込みしてください。")}</span> : images.map((image, index) => <img key={image} className={index === 0 ? "app-capture-light" : "app-capture-dark"} src={asset(image.replace(".png", "-1320.webp"))} srcSet={[440, 880, 1320].map(size => `${asset(image.replace(".png", `-${size}.webp`))} ${size}w`).join(", ")} sizes={wide ? "(max-width: 640px) calc(100vw - 60px), (max-width: 1080px) calc(100vw - 80px), (max-width: 1280px) calc(100vw - 112px), 1120px" : "(max-width: 640px) calc(100vw - 60px), (max-width: 920px) calc(100vw - 80px), 500px"} width="1320" height="820" loading={priority ? "eager" : "lazy"} fetchPriority={priority ? "high" : undefined} decoding="async" alt={alt} onError={() => setFailed(true)} />)}
         <span className={glass("expand-hint")} aria-hidden="true"><Icon kind="expand" /></span>
       </button>
       <figcaption><span>{caption}</span><span className="caption-action" aria-hidden="true">{t("查看大图", "檢視大圖", "Enlarge image", "画像を拡大")} ↗</span></figcaption>
@@ -132,7 +133,7 @@ export function Screenshot({ name, alt, caption, language, priority = false, wid
     <dialog ref={modal} className={glass("screenshot-modal")} aria-labelledby={id} onClick={event => { if (event.target === event.currentTarget) modal.current?.close(); }}>
       <div className="modal-inner">
         <div className="overlay-heading"><span id={id}>{caption}</span><button className="icon-button" aria-label={t("关闭截图", "關閉截圖", "Close screenshot", "画像を閉じる")} autoFocus onClick={() => modal.current?.close()}><Icon kind="close" /></button></div>
-        <img src={asset(name)} width="1320" height="820" loading="lazy" alt={alt} />
+        {images.map((image, index) => <img key={image} className={index === 0 ? "app-capture-light" : "app-capture-dark"} src={asset(image)} width="1320" height="820" loading="lazy" alt={alt} />)}
       </div>
     </dialog>
   </>;

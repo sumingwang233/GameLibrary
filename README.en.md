@@ -8,30 +8,34 @@
 
 # GameLibrary
 
+**v1.8.2 pre-release:** single Bridge and library/cover optimizations passed local manual acceptance. [Release](https://github.com/sumingwang233/GameLibrary/releases/tag/v1.8.2) · [Validation](docs/releases/v1.8.2-validation.md). Stable downloads remain on v1.8.1.
+
+
+
 Keep games scattered across your drives in one library. Choose a folder, check the launch entry, and open the game from your collection.
 
 The current formal release, **v1.8.0**, turns bulk favoriting, tagging and removal into one operation, fixes the stale bridge connection after the background service restarts and the unbounded polling retries, and narrows the installer's permission scope. Godot/MTool, Unity translation and the Played library remain available. See the [release notes](docs/releases/v1.8.0.md).
 
-**[Download the Windows installer](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.0/GameLibrary-Setup-v1.8.0.exe)** · [All releases](https://github.com/sumingwang233/GameLibrary/releases) · [Report an issue](https://github.com/sumingwang233/GameLibrary/issues)
+**[Download the Windows installer](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.1/GameLibrary-Setup-v1.8.1.exe)** · [All releases](https://github.com/sumingwang233/GameLibrary/releases) · [Report an issue](https://github.com/sumingwang233/GameLibrary/issues)
 
 [Download](#download) · [Screenshots](#demo) · [Get started](#start) · [FAQ](#faq)
 
 <a id="download"></a>
 ## Download
 
-The current formal release is **v1.8.0**, targeting **Windows 10 / 11 x64**. Automated checks cover build, tests, type checking, formatting and packaging; results and exit codes are in the [release record](docs/releases/v1.8.0-validation.md). Manual acceptance was confirmed by the maintainer. The installer is unsigned, so Windows may warn about an unknown publisher.
+The current public stable release is **v1.8.1**, targeting **Windows 10 / 11 x64**. Actual build and validation results are in the [release record](docs/releases/v1.8.1-validation.md). The installer is unsigned and may trigger an unknown-publisher warning.
 
 | File | Use |
 |---|---|
-| [`GameLibrary-Setup-v1.8.0.exe`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.0/GameLibrary-Setup-v1.8.0.exe) | Recommended. Current-user installer with a choice of installation folder. |
-| [`GameLibrary-Portable-win-x64-v1.8.0.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.0/GameLibrary-Portable-win-x64-v1.8.0.zip) | Extract and run GameLibrary.Desktop.exe. |
-| [`GameLibrary-Tools-win-x64-v1.8.0.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.0/GameLibrary-Tools-win-x64-v1.8.0.zip) | Host, CLI and MCP for command-line use and automation. |
-| [`GameLibrary-v1.8.0-SHA256SUMS.txt`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.0/GameLibrary-v1.8.0-SHA256SUMS.txt) | SHA-256 checksums for the three packages above. |
+| [`GameLibrary-Setup-v1.8.1.exe`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.1/GameLibrary-Setup-v1.8.1.exe) | Recommended. Current-user installer with a choice of installation folder. |
+| [`GameLibrary-Portable-win-x64-v1.8.1.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.1/GameLibrary-Portable-win-x64-v1.8.1.zip) | Extract and run GameLibrary.Desktop.exe. |
+| [`GameLibrary-Tools-win-x64-v1.8.1.zip`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.1/GameLibrary-Tools-win-x64-v1.8.1.zip) | Host, CLI and MCP for command-line use and automation. |
+| [`GameLibrary-v1.8.1-SHA256SUMS.txt`](https://github.com/sumingwang233/GameLibrary/releases/download/v1.8.1/GameLibrary-v1.8.1-SHA256SUMS.txt) | SHA-256 checksums for the three packages above. |
 
 The executables and installer are not Authenticode-signed. Windows may show an unknown-publisher warning. Download from this repository and compare the hash with the same-version checksum file:
 
 ```powershell
-Get-FileHash .\GameLibrary-Setup-v1.8.0.exe -Algorithm SHA256
+Get-FileHash .\GameLibrary-Setup-v1.8.1.exe -Algorithm SHA256
 ```
 
 <a id="demo"></a>
@@ -41,7 +45,7 @@ Get-FileHash .\GameLibrary-Setup-v1.8.0.exe -Algorithm SHA256
 
 ![Tag management for organizing the collection](website/public/assets/tags.png)
 
-Captured from v1.5.5 in an isolated sample library, with the application's default covers and no personal game directories. A full recording has not been produced yet; the [recording brief](docs/demo-recording.md) is ready.
+Captured from v1.8.0 in light mode, using an isolated sample library and the application's default covers, with no personal game directories. Screenshots on the marketing website match its light or dark theme. A full recording has not been produced yet; the [recording brief](docs/demo-recording.md) is ready.
 
 <a id="start"></a>
 ## Get started

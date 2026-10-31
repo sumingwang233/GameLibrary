@@ -91,15 +91,47 @@ public sealed class HostConnectionRecoveryTests
         Assert.Equal(HostClientErrorCodes.HostUnavailable, error.Code);
     }
 
+    [Fact]
+    public async Task BootstrapWrite_AfterLibraryAppears_ReturnsSerializableIdentityFailure()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "GameLibrary-bootstrap-" + Guid.NewGuid().ToString("N"));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var firstServer = CreateServer(directory);
+        var initialHandshake = HandshakeAsync(firstServer, timeout.Token, null);
+        await using var client = await HostConnection.ConnectAsync(directory, "test", timeout.Token);
+        await initialHandshake;
+        var request = new IpcRequest { RequestId = "bootstrap-write", OperationId = "settings.update" };
+        var pending = client.InvokeAsync(request, timeout.Token);
+        await IpcFrame.ReadJsonAsync<IpcRequest>(firstServer, timeout.Token);
+        await firstServer.DisposeAsync();
+
+        await using var replacement = CreateServer(directory);
+        await HandshakeAsync(replacement, timeout.Token, "new-library");
+        var result = await pending;
+        Assert.False(result.Ok);
+        Assert.Equal(ErrorCodes.LibraryInstanceMismatch, result.Error?.Code);
+        Assert.Equal(JsonValueKind.Null, result.Data.ValueKind);
+        Assert.Null(request.LibraryInstanceId);
+        Assert.Null(request.ExpectedDataEpoch);
+        using var wire = JsonDocument.Parse(JsonSerializer.Serialize(result, IpcJsonContext.Wire.JsonEnvelope));
+        Assert.Equal(JsonValueKind.Null, wire.RootElement.GetProperty("data").ValueKind);
+        Assert.Equal("bootstrap-write", wire.RootElement.GetProperty("requestId").GetString());
+    }
+
     private static NamedPipeServerStream CreateServer(string directory) => new(
         ChannelNames.PipeName(DataDirectory.Resolve(directory).ComparisonKey!), PipeDirection.InOut,
         NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
 
-    private static async Task HandshakeAsync(NamedPipeServerStream server, CancellationToken token)
+    private static async Task HandshakeAsync(NamedPipeServerStream server, CancellationToken token, string? libraryInstanceId = "library")
     {
         await server.WaitForConnectionAsync(token);
         await IpcFrame.ReadJsonAsync<HandshakeRequest>(server, token);
-        await IpcFrame.WriteJsonAsync(server, new HandshakeResponse { HostInstanceId = "test", LibraryInstanceId = "library", DataEpoch = "epoch" }, token);
+        await IpcFrame.WriteJsonAsync(server, new HandshakeResponse
+        {
+            HostInstanceId = "test",
+            LibraryInstanceId = libraryInstanceId,
+            DataEpoch = libraryInstanceId is null ? null : "epoch"
+        }, token);
     }
 
     private static IpcRequest Request(string id) => new() { RequestId = id, OperationId = "host.status" };

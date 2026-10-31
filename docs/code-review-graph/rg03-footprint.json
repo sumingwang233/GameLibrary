@@ -1,0 +1,14 @@
+{
+  "snapshotAt": "2026-10-31T11:10:10",
+  "branch": "codex/optimize-footprint-v1.8.1",
+  "sourceHeadBeforeDocumentationCommit": "d3d738798bc52a41744b5f6f6dd64cf6c5cc8472",
+  "releaseBaseline": "4f7da8a072cf815d5c4ab1f647f1a4467bccc586",
+  "version": "1.8.2-unreleased",
+  "postprocess": "minimal",
+  "files": 439,
+  "nodes": 4283,
+  "edges": 42827,
+  "calls": { "direct": 9395, "unresolved": 24457 },
+  "embeddings": 0,
+  "note": "Static source index only. Tests, builds, actual generated JSON sources, NativeAOT compatibility and performance are pending unified acceptance."
+}

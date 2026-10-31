@@ -62,11 +62,6 @@ public static class GenericGameCandidateDetector
             .OrderBy(file => file, StringComparer.Ordinal)
             .Take(MaxDirectEntries)
             .ToArray();
-        var shortcuts = files
-            .Where(file => file.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase))
-            .OrderBy(file => file, StringComparer.Ordinal)
-            .Take(Math.Max(0, MaxDirectEntries - executables.Length))
-            .ToArray();
 
         var evidence = executables
             .Select(file => new DetectionEvidence(
@@ -75,12 +70,6 @@ public static class GenericGameCandidateDetector
                 EvidenceObservation.Present,
                 EvidencePolarity.Contextual,
                 "发现未识别引擎的直属可执行文件；需要用户审核"))
-            .Concat(shortcuts.Select(file => new DetectionEvidence(
-                "generic.shortcut",
-                file,
-                EvidenceObservation.Present,
-                EvidencePolarity.Contextual,
-                "快捷方式仅作为发现线索；接受前仍需验证目标")))
             .ToArray();
 
         var entries = executables
@@ -88,10 +77,6 @@ public static class GenericGameCandidateDetector
                 file,
                 20 + EntryScoring.GameExeNameBonusFor(file),
                 ["未识别引擎的直属 EXE；需要用户审核"]))
-            .Concat(shortcuts.Select(file => new EntryCandidate(
-                file,
-                0,
-                ["快捷方式目标尚未验证；仅作为待审核线索"])))
             .OrderByDescending(entry => entry.Score)
             .ThenBy(entry => entry.RelativePath, StringComparer.Ordinal)
             .ToArray();

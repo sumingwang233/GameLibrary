@@ -27,10 +27,7 @@ function GameCardImpl({ game, selected, checked, selectionDisabled, onToggle, on
     const node = cardRef.current;
     if (!node) return;
     const observer = new IntersectionObserver(([entry]) => {
-      if (entry?.isIntersecting) {
-        setVisible(true);
-        observer.disconnect();
-      }
+      setVisible(!!entry?.isIntersecting);
     }, { rootMargin: "600px" });
     observer.observe(node);
     return () => observer.disconnect();
@@ -38,19 +35,22 @@ function GameCardImpl({ game, selected, checked, selectionDisabled, onToggle, on
 
   useEffect(() => {
     let active = true;
+    const request = new AbortController();
+    setCover(null);
     if (!visible || !game.coverAssetId) {
-      setCover(null);
       return () => {
         active = false;
+        request.abort();
       };
     }
-    void assetDataUrl(game.coverAssetId)
+    void assetDataUrl(game.coverAssetId, request.signal)
       .then((value) => {
         if (active) setCover(value);
       })
       .catch(() => undefined);
     return () => {
       active = false;
+      request.abort();
     };
   }, [game.coverAssetId, visible]);
 
@@ -59,7 +59,6 @@ function GameCardImpl({ game, selected, checked, selectionDisabled, onToggle, on
       ref={cardRef}
       className={cn(
         "group relative cursor-pointer overflow-hidden rounded-lg border bg-surface transition duration-200",
-        "[content-visibility:auto] [contain-intrinsic-size:auto_275px]",
         "hover:-translate-y-1 hover:shadow-2xl hover:shadow-black/40",
         selected || checked ? "border-steam ring-2 ring-steam/50" : "border-border hover:border-steam/60",
       )}

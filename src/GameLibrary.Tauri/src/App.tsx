@@ -1,5 +1,5 @@
 import { t } from "./lib/i18n";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLanguage } from "./lib/i18n";
 import { AlertCircle, Bell } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -10,23 +10,25 @@ import { resolveSelectedGame } from "./lib/selection";
 import type { CandidateItem, GameItem, ViewItem } from "./lib/types";
 import { AppShell } from "./components/AppShell";
 import { TitleBar } from "./components/TitleBar";
-import { DetailSheet } from "./components/DetailSheet";
 import { GameGrid } from "./components/GameGrid";
 import { TitleTranslationStatus } from "./components/TitleTranslationStatus";
 import { useTitleTranslation } from "./lib/hooks/useTitleTranslation";
 import type { ReviewOutcome } from "./lib/hooks/useCandidateReview";
 import { UnityTranslationDialog, type UnityTranslationRequest, type UnityTranslationItem } from "./components/UnityTranslationDialog";
 import { LibraryToolbar } from "./components/LibraryToolbar";
-import { ReviewList, type ReviewAction } from "./components/ReviewList";
-import { RootsPanel } from "./components/RootsPanel";
+import type { ReviewAction } from "./components/ReviewList";
 import { ScanProgressBar } from "./components/ScanProgressBar";
-import { SettingsDialog } from "./components/SettingsDialog";
 import { Sidebar, type Section } from "./components/Sidebar";
 import { SimilarNotice, type SimilarNoticeData } from "./components/SimilarNotice";
-import { TagsPanel } from "./components/TagsPanel";
 import { Button } from "./components/ui/button";
 import { PromptDialog } from "./components/ui/prompt-dialog";
 import { TooltipProvider } from "./components/ui/tooltip";
+
+const DetailSheet = lazy(() => import("./components/DetailSheet").then(module => ({ default: module.DetailSheet })));
+const SettingsDialog = lazy(() => import("./components/SettingsDialog").then(module => ({ default: module.SettingsDialog })));
+const ReviewList = lazy(() => import("./components/ReviewList").then(module => ({ default: module.ReviewList })));
+const RootsPanel = lazy(() => import("./components/RootsPanel").then(module => ({ default: module.RootsPanel })));
+const TagsPanel = lazy(() => import("./components/TagsPanel").then(module => ({ default: module.TagsPanel })));
 
 type PromptKind = "tag" | "view" | null;
 
@@ -61,7 +63,7 @@ function App() {
   );
 
   const [translationBusy, setTranslationBusy] = useState(false);
-  const games = useGamesQuery(filters, library.changeToken, translationBusy);
+  const games = useGamesQuery(filters, library.changeToken, translationBusy, library.gameChanges);
   const selected = useMemo(
     () => resolveSelectedGame(games.games, selectedGameId, selectedFallback),
     [games.games, selectedGameId, selectedFallback],
@@ -247,12 +249,12 @@ function App() {
       tags={library.tags}
       candidateTotal={library.candidateTotal}
       gameTotal={library.gameTotal}
-      notificationTotal={library.notifications.length}
       onCreateTag={() => setPrompt("tag")}
     />
   );
 
   const heading = sectionHeading(section, filters, library.views);
+  const loadingPanel = <p role="status" className="fixed top-16 right-6 z-50 rounded-md bg-panel p-3 text-sm text-text-secondary">{t("正在加载…")}</p>;
 
   return (
     <TooltipProvider>
@@ -261,6 +263,8 @@ function App() {
           <header className="mb-6">
             <h1 className="text-3xl font-bold tracking-tight text-text-primary">{heading}</h1>
           </header>
+
+          <Suspense fallback={loadingPanel}>
 
           {library.notifications.length > 0 && section !== "pending" && (
             <div className="mb-4 flex items-center gap-3 rounded-lg border border-steam/40 bg-steam-soft/40 px-4 py-3 text-sm">
@@ -335,6 +339,7 @@ function App() {
               )}
               {library.supports("titles.translate") && <TitleTranslationStatus controller={titleTranslation} />}
               <GameGrid
+                scrollRoot={mainRef}
                 key={JSON.stringify(filters)}
                 tags={library.tags}
                 titleTranslation={library.supports("titles.translate") ? titleTranslation : undefined}
@@ -394,8 +399,11 @@ function App() {
           {section === "roots" && (
             <RootsPanel roots={library.roots} onAddRoot={library.addRoot} onRemoveRoot={library.removeRoot} />
           )}
+          </Suspense>
         </main>
 
+        <Suspense fallback={loadingPanel}>
+        {selected &&
         <DetailSheet
           game={selected}
           ratingPromptToken={ratingRequest?.gameId === selectedGameId ? ratingRequest?.nonce : undefined}
@@ -416,10 +424,13 @@ function App() {
             });
           }}
           onNavigate={(gameId) => { setRatingRequest(null); openGameById(gameId); }}
-        />
+        />}
+        </Suspense>
 
-        <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} supportsTitleTranslation={library.supports("titles.translate")}
-          onUnitySettings={library.supports("unity_translation.status") ? () => { setSettingsOpen(false); setUnitySettingsOpen(true); } : undefined} />
+        <Suspense fallback={loadingPanel}>
+        {settingsOpen && <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} supportsTitleTranslation={library.supports("titles.translate")}
+          onUnitySettings={library.supports("unity_translation.status") ? () => { setSettingsOpen(false); setUnitySettingsOpen(true); } : undefined} />}
+        </Suspense>
         <UnityTranslationDialog enabled={library.supports("unity_translation.status")} settingsOpen={unitySettingsOpen} onCloseSettings={() => setUnitySettingsOpen(false)}
           reviewTagId={unityReviewTagId} onReviewHandled={() => setUnityReviewTagId(null)}
           onStatusChange={setUnityStatus}

@@ -144,6 +144,10 @@ summary::-webkit-details-marker { display: none; }
 .screenshot { min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 5px 0 color-mix(in srgb, var(--line) 65%, transparent), var(--shadow); }
 .screenshot-button { position: relative; display: block; width: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; }
 .screenshot-button > img { width: 100%; border-radius: 3px; }
+.app-capture-light { display: block; }
+.app-capture-dark { display: none; }
+.dark .app-capture-light { display: none; }
+.dark .app-capture-dark { display: block; }
 .screenshot-button:focus-visible { outline-offset: 4px; }
 .expand-hint { position: absolute; right: 14px; bottom: 14px; display: grid; place-items: center; width: 38px; height: 38px; border-radius: 4px; color: var(--ink); box-shadow: var(--shadow); }
 figcaption { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-top: 13px; color: var(--muted); font-size: 11px; }

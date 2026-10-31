@@ -1,49 +1,156 @@
-# GameLibrary 架构预览
+# GameLibrary 当前代码架构
 
-v1.7.11：Unity 自动配置仍由 `UnityTranslationService` 串行协调；`UnityTranslationInspection` 核对活动加载器与非活动生成物，`UnityTranslationAssembly` 通过 .NET metadata 对受限的已核验 IL 做等长变更，`UnityTranslationFonts` 按真实 TMP 接口选择系统字体或既有字库。复用原有固定哈希 Payload 与加密文件事务，`RestoredBackupId`/恢复收据留在本机既有状态/备份边界，不新增表或 IPC。恢复保留缓存、安装拒绝未知文件，与原游戏文件修改、用户确认和密钥边界保持一致。详见 [实施记录](../development/v1.7.11-loader-compatibility-plan.md)。
+## v1.8.2 发布整理（2026-10-31）
 
-## 宣传网站 — 2026-10-02 / 网站 v1.1.0
+维护者本机人工验收通过，919 项 .NET、162 项前端和 7 项 Rust 测试通过；最终自动 WebView 烟测及完整 Windows/DPI 矩阵保留未验证状态，按授权准备预发布、不设 Latest。当前图谱为 441 文件、4,321 节点、43,381 关系，CALLS 直接解析 9,494 条、未解析 24,669 条。见 [发布快照](rg05-release.json)与[构建验证记录](../releases/v1.8.2-validation.md)。结构索引不能代替运行验收。
 
-独立 Next.js 静态站沿用服务端 `MarketingPage` 与客户端 `GlassControls`；新增繁中/日文静态路径，四语言共用版本、素材与 metadata。页面主题和浮层使用浏览器本地状态，不涉及 Host、SQLite 游戏库或桌面 IPC。真实 logo/截图、组件和路由图、验证及回滚见 [网站实施记录](website.md)。
+## RG-04 / v1.8.2 草稿（2026-10-31）
 
-v1.7.0 新增名称翻译边界：React 共享作业 Hook → Host `TitlesHandler` / `JobManager` → `TitleTranslationClient` → `SqliteLibraryStore.Titles`。v1.7.1 在共享客户端成功路径收紧由连字符生成的副标题标点，手动编辑仍直接进入存储。schema 26 译名表与原文层分离；DTO 在 Host 统一解析显示名称，查询同时覆盖原文/译名；既有启动翻译工具策略不变。插件增量索引包含新增文件，快照见 [图谱入口](README.md)，具体文件、网络适配和 CAS 保护见 [名称翻译](../title-translation.md)。
+JobManager 正常情况下只保留最近 128 个可淘汰终态对象，其余结果暂存到独占、关闭即删除的会话文件，按轻量索引回读；转存失败或终态记录待重试时保留对象。不是跨重启历史库，也没有增加 SQLite schema。封面缓存增加两个并发名额和按消费者取消的队列。已知小批游戏变更在成员、排序、库身份及纪元均安全时局部更新，其余完整重查。
 
-2026-10-01：基于 `fedc7ac` 加 v1.6.0 工作区差异，图谱覆盖 321 个源码文件。验证和权限边界见 [优化实施记录](optimization-implementation.md)；本次发行构建结果见 [v1.6.0 构建记录](../releases/v1.6.0-validation.md)。
+本轮静态图谱包含 441 个文件、4,321 个节点、43,356 条关系；CALLS 直接解析 9,491 条、未解析 24,660 条。见 [RG-04 快照](rg04-footprint.json)与[实施及统一验收增量清单](../development/2026-10-31-rg04-implementation.md)。本轮未运行测试、构建或性能实测；以下 RG-03/02 数值保留为历史快照。
 
-## 客户端与会话
+## RG-03 / v1.8.2 草稿（2026-10-31）
+
+在单 Bridge 基础上增加前端可见行挂载、屏外封面引用释放、隐藏期间的刷新域合并和可选界面延迟加载。SettingsProvider、事件消费、库身份失效和游戏退出唤醒仍保留。Rust 通过内部布尔事件通知窗口可见性；不是用失焦代替隐藏。
+
+HostClient 与 Bridge 采用内置 JSON 源生成元数据；Host 公共 IPC、权限、状态字符串及 SQLite schema 不变。Bridge 提供显式 NativeAOT 候选配置，默认发布仍为压缩自包含方式。该配置及前端改动尚未编译或运行验收，见 [实现与统一验收清单](../development/2026-10-31-rg03-implementation.md)。
+
+本轮静态图谱包含 439 个文件、4,283 个节点、42,827 条关系；CALLS 中 9,395 条直接解析、24,457 条未解析。详细数值见 [RG-03 快照](rg03-footprint.json)。这是源文件结构索引，不代表类型检查、JSON 生成代码或运行正确性。
+
+## RG-02 / v1.8.2（未发布）
+
+Tauri Rust 壳改为一个 C# Bridge 进程。普通请求和 `events.wait` 各有一条独立 HostConnection；两条通道分别串行，可同时在途。私有 stdio 使用独立 `transportId` 配对乱序响应，不改变 Host 的 `requestId`、权限、库身份或 SQLite schema。传输失败拒绝前端 invoke，保留幂等键；业务 Envelope 保持原样。
+
+2026-10-30 改以发布分支 `codex/release-v1.8.1` 的 `4f7da8a` 为基线，保留扫描边界、快捷方式去重及现有压缩发布修复。压缩收益已属于 v1.8.1，不重复计为本轮增量；本轮验收重点是单 Bridge 的并发与占用。验证记录见 [RG-02 记录](../development/2026-10-30-rg02-validation.md)。
+
+本 worktree 已于 2026-10-30 增量同步结构图谱：432 个文件、4,240 个节点、42,109 条关系；其中 CALLS 有 9,336 条直接解析、24,103 条未解析。没有安装嵌入模型或宣称全部调用已解析，数值见 [本轮快照](rg02-footprint.json)。下面的 2026-10-27 社区统计及 `architecture-overview.json` 保留为历史记录。
+
+## 历史图谱快照（2026-10-27）
+
+2026-10-27，主程序 v1.8.0，宣传网站 v1.5.0。基础提交为 `316e3759b8c7203ae4c631150d96787c2fdab3db`（`main`），图谱已按当前工作区增量同步，插件返回 `status: ok`，无增量解析错误。
+
+## 图谱快照
+
+| 项目 | 当前值 |
+| --- | ---: |
+| 索引文件 | 425 |
+| 节点 | 4,135 |
+| 数据库关系 | 40,720 |
+| 代码社区 | 28 |
+| 社区间关联对 | 24 |
+
+语言覆盖 C#、Rust、TypeScript、TSX、JavaScript、Python 和 PowerShell。社区结构来自插件；下面的模块名称、运行链路和项目引用方向已对照源码整理。
+
+## 运行链路
+
+```mermaid
+flowchart TB
+    subgraph DesktopClients[本地客户端]
+        React[React 界面与 hooks] --> API[api.ts / Tauri invoke]
+        API --> Rust[Tauri Rust 壳]
+        Rust --> Bridge[C# TauriBridge 单进程 / transportId]
+        Bridge --> Requests[普通请求连接]
+        Bridge --> Events[events.wait 连接]
+        WPF[WPF Desktop]
+        CLI[CLI]
+        MCP[MCP 服务]
+    end
+    Requests --> Client[HostClient / HostConnection]
+    Events --> Client
+    WPF --> Client
+    CLI --> Client
+    MCP --> Client
+    Client --> Pipe[每库命名管道]
+    Pipe --> Host[HostRuntime / OperationDispatcher]
+    Host --> Gate[权限与会话租约 / 读快照 / 写入准入]
+    Gate --> Services[Host 业务处理器与后台作业]
+    Services --> App[Application 用例与端口]
+    App -->|调用存储端口| Infra[Infrastructure 实现]
+    Services --> Infra
+    Infra --> SQLite[(SQLite 游戏库)]
+    Infra --> Files[游戏文件 / 封面 / 备份]
+    Website[独立 Next.js 宣传网站]
+```
+
+运行图中的箭头表示请求或数据流。`Application` 调用存储端口，`Infrastructure` 实现这些端口；编译依赖方向见下一张图。
+
+Rust 壳按 `operationId == "events.wait"` 选择事件通道，其余操作进入普通请求通道；两条通道共用一个 Bridge 进程。Bridge 通过标准输入输出收发带 `transportId` 的 JSON，再由两条独立 `HostConnection` 连接命名管道。Host 持有游戏库连接，集中处理权限、会话和数据访问。
+
+## C# 项目依赖
+
+箭头严格对应各 `.csproj` 中的直接 `ProjectReference`，不展开传递引用。
 
 ```mermaid
 flowchart LR
-    UI[Tauri / React hooks] --> Normal[普通请求 Bridge]
-    UI --> Events[事件等待 Bridge]
-    WPF[WPF] --> Client[HostClient]
-    CLI[CLI / MCP] --> Client
-    Normal --> Client
-    Events --> Client
-    Client --> Pipe[每库 named pipe]
-    Pipe --> Dispatch[异步 Dispatcher]
-    Dispatch --> Gate[会话租约 / 权限 / epoch]
-    Gate --> Read[独立连接 / 读快照]
-    Gate --> Write[单写准入 / 幂等收据]
-    Write --> App[Application 用例与端口]
-    App --> Infra[Infrastructure SQL / 文件]
-    App --> Domain[Domain 模型]
-    Infra --> DB[(SQLite)]
-    Read --> DB
+    Bridge[GameLibrary.TauriBridge] --> Client[GameLibrary.HostClient]
+    Desktop[GameLibrary.Desktop] --> Client
+    CLI[GameLibrary.Cli] --> Client
+    MCP[GameLibrary.Mcp] --> Client
+    Bridge --> Contracts[GameLibrary.Contracts]
+    Desktop --> Contracts
+    CLI --> Contracts
+    MCP --> Contracts
+    Client --> Contracts
+    Host[GameLibrary.Host] --> Contracts
+    Host --> Application[GameLibrary.Application]
+    Host --> Infrastructure[GameLibrary.Infrastructure]
+    Infrastructure --> Application
+    Application --> Domain[GameLibrary.Domain]
 ```
 
-列表计数、分页与附加字段共享同一读快照；只读连接不等待宿主写连接锁。启动状态查询会惰性更新进程状态，因此不放入纯只读事务。写事务提交后发布事件，定时核对和退出回调持有背景租约。
+`Domain` 和 `Contracts` 均无其他项目引用。`Application` 编排游戏目录、候选审核、备份创建和恢复用例；`Infrastructure` 提供 SQLite 与文件实现。Host 负责装配、IPC 分发以及扫描、启动、翻译等运行服务。
 
-## 用例与持久化
+## 主要源码入口
 
-Application 编排游戏创建/重关联、候选审核以及备份创建/恢复，Host 负责 IPC 转换、权限、作业和装配。Application 不引入 IPC/SQLite 类型；Infrastructure 实现用例实际需要的端口。
+以下路径相对于仓库根目录 `D:\Official\GameLibrary`。
 
-`SqliteLibraryStore` 是连接、快照和事务入口；`LibraryCatalogStore` 按 Candidates、Games、Fingerprints、Ignores 四个 partial 拆分。候选批量采用外层事务和逐项保存点；标签排序采用单事务整批冲突回滚。
+| 模块 | 源文件或目录 |
+| --- | --- |
+| React 界面 | [App.tsx](../../src/GameLibrary.Tauri/src/App.tsx) |
+| 前端共享状态 | [state.ts](../../src/GameLibrary.Tauri/src/lib/state.ts)、[hooks](../../src/GameLibrary.Tauri/src/lib/hooks/) |
+| 前端请求封装 | [api.ts:118](../../src/GameLibrary.Tauri/src/lib/api.ts#L118) |
+| Rust 请求与事件分流 | [lib.rs:232](../../src/GameLibrary.Tauri/src-tauri/src/lib.rs#L232) |
+| C# Bridge | [BridgeServer.cs](../../src/GameLibrary.TauriBridge/BridgeServer.cs) |
+| 命名管道客户端 | [HostConnection.cs:33](../../src/GameLibrary.HostClient/HostConnection.cs#L33) |
+| Host 装配与生命周期 | [HostRuntime.cs](../../src/GameLibrary.Host/HostRuntime.cs) |
+| 权限检查与请求分发 | [OperationDispatcher.cs:234](../../src/GameLibrary.Host/Hosting/OperationDispatcher.cs#L234) |
+| 公共协议与权限配置 | [Contracts](../../src/GameLibrary.Contracts/)、[ClientPermissionProfiles.cs](../../src/GameLibrary.Contracts/ClientPermissionProfiles.cs) |
+| 用例与端口 | [Application](../../src/GameLibrary.Application/) |
+| 领域模型与引擎识别 | [Domain](../../src/GameLibrary.Domain/) |
+| SQLite 连接与存储端口实现 | [SqliteLibraryStore.cs:16](../../src/GameLibrary.Infrastructure/Persistence/SqliteLibraryStore.cs#L16) |
+| WPF / CLI / MCP 入口 | [Desktop](../../src/GameLibrary.Desktop/)、[Cli/Program.cs](../../src/GameLibrary.Cli/Program.cs)、[Mcp/Program.cs](../../src/GameLibrary.Mcp/Program.cs) |
+| 独立宣传网站 | [MarketingPage.tsx](../../website/components/MarketingPage.tsx)、[GlassControls.tsx](../../website/components/GlassControls.tsx)、[app](../../website/app/) |
 
-## 前端与协议
+## 插件原生文件与复现命令
 
-Provider 消费接口保留，状态实现拆为六个 hooks。事件独立长轮询通道，按域合并 250ms 刷新；封面为 64 MiB 字符串占用 LRU，保持 data URL 接口。操作目录统一生成常量、可用目录、CLI 映射及简单 MCP 包装，特殊处理保持手写。
+| 文件 | 绝对路径 | 内容 |
+| --- | --- | --- |
+| 交互架构图 | `D:\Official\GameLibrary\.code-review-graph\graph.html` | 插件原生 community 视图，可搜索、缩放、查看节点 |
+| D3 运行文件 | `D:\Official\GameLibrary\.code-review-graph\d3.v7.min.js` | 与 HTML 一起保留，供本地图页使用 |
+| JSON 导出 | `D:\Official\GameLibrary\.code-review-graph\graph.json` | 插件导出的节点、边、社区和执行流 |
+| 图谱数据库 | `D:\Official\GameLibrary\.code-review-graph\graph.db` | 插件持久化索引；以上数据库统计来自此文件 |
+| 架构 API 原始结果 | `D:\Official\GameLibrary\docs\code-review-graph\architecture-overview.json` | 28 个社区、24 对关联、耦合提示和提交元数据 |
+| 本文与 Mermaid 源码 | `D:\Official\GameLibrary\docs\code-review-graph\architecture.md` | 可继续编辑的运行图、项目依赖图和源码入口 |
 
-## 图谱使用边界
+在仓库根目录执行：
 
-本次重建为 2,818 个节点、21,526 条边、175 个执行流，无解析错误。审查上下文报告 245 个受影响节点、79 个文件，风险等级 high 表示修改范围大。图谱识别候选批量的事务/保存点/Apply 调用，但 Store 重绑委托未解析为直接 callers，必须人工核对装配及事件回调。测试统计和实际运行证据优先于图谱的测试节点/知识缺口估计。
+```powershell
+code-review-graph update --repo D:\Official\GameLibrary
+code-review-graph visualize --repo D:\Official\GameLibrary --mode community --format html
+code-review-graph visualize --repo D:\Official\GameLibrary --mode community --format json
+```
+
+`.code-review-graph` 下的导出和数据库由插件忽略，不提交到 Git；`docs/code-review-graph` 保存可跟踪的架构说明与 API 快照。
+
+## 读图边界
+
+数据库有 40,720 条关系；本次 JSON 的 `edges` 数组含 19,362 条边、`flows` 数组含 100 项。导出集合与数据库总数口径不同，应分别读取，不能把导出集合当成完整数据库。
+
+32,270 条 `CALLS` 中，插件报告直接解析 9,062 条、未解析 23,208 条。跨语言 IPC、动态分发和同名方法仍需对照源码，图上的关联不能直接当作运行时调用事实。
+
+插件给出 15 条高耦合提示，其中包括 Host 与集成测试、Infrastructure 与集成测试的关系；测试对生产代码的引用不单独构成重构理由。生产社区中 Host 与 Infrastructure 关联 212 条，可在后续重构审计中继续追踪；本次未据此修改架构。
+
+本次完成索引同步、原生 HTML/JSON 导出与文档更新，未运行测试、构建、lint 或类型检查。SVG 导出因本地缺少 `matplotlib` 未完成。
+
+早期实现记录仍见 [优化实施记录](optimization-implementation.md)、[名称翻译](../title-translation.md)、[Unity 加载器兼容](../development/v1.7.11-loader-compatibility-plan.md)和[网站实施记录](website.md)。
