@@ -3,9 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useState } from "react";
 import { UnityTranslationDialog } from "./UnityTranslationDialog";
 
-const api = vi.hoisted(() => ({ operation: vi.fn() }));
+const api = vi.hoisted(() => ({ operation: vi.fn(), visibility: undefined as ((visible: boolean) => void) | undefined }));
 vi.mock("../lib/api", () => ({ operation: api.operation, describeFailure: (error: Error) => error.message }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
+vi.mock("../lib/windowVisibility", () => ({ watchWindowVisibility: (changed: (visible: boolean) => void) => {
+  api.visibility = changed;
+  return () => { api.visibility = undefined; };
+} }));
 
 let state = "configured";
 const item = { gameId: "game", title: "示例游戏", attemptId: "attempt", state: "configured", provider: "deepseek", profileId: "profile", tagged: true };
@@ -26,7 +30,46 @@ beforeEach(() => {
     return { libraryInstanceId: "library", dataEpoch: "epoch", data: { items: [{ ...item, state }], needsSettings: false } };
   });
 });
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.useRealTimers(); });
+
+it("reduces idle status polling and resumes once when a hidden window is shown", async () => {
+  vi.useFakeTimers();
+  render(<UnityTranslationDialog {...props()} />);
+  await act(async () => {});
+  api.operation.mockClear();
+  await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+  expect(api.operation).not.toHaveBeenCalled();
+  act(() => api.visibility?.(false));
+  await act(async () => { await vi.advanceTimersByTimeAsync(30000); });
+  expect(api.operation).not.toHaveBeenCalled();
+  await act(async () => api.visibility?.(true));
+  expect(api.operation.mock.calls.filter(([id]) => id === "unity_translation.status")).toHaveLength(1);
+  await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
+  expect(api.operation.mock.calls.filter(([id]) => id === "unity_translation.status")).toHaveLength(1);
+  await act(async () => { await vi.advanceTimersByTimeAsync(27500); });
+  expect(api.operation.mock.calls.filter(([id]) => id === "unity_translation.status")).toHaveLength(2);
+});
+
+it("rechecks immediately when an event arrives during an in-flight idle status read", async () => {
+  vi.useFakeTimers();
+  let finish!: (value: unknown) => void;
+  let waiting = true;
+  const implementation = api.operation.getMockImplementation()!;
+  api.operation.mockImplementation(async (id: string, ...args: unknown[]) => {
+    if (id === "unity_translation.status" && waiting) {
+      waiting = false;
+      return new Promise(resolve => { finish = resolve; });
+    }
+    return implementation(id, ...args);
+  });
+  render(<UnityTranslationDialog {...props()} />);
+  await act(async () => {});
+  act(() => { window.dispatchEvent(new Event("gamelibrary-unity-changed")); });
+  await act(async () => finish({ libraryInstanceId: "library", dataEpoch: "epoch",
+    data: { items: [{ ...item, state: "configured" }], needsSettings: false } }));
+  await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+  expect(api.operation.mock.calls.filter(([id]) => id === "unity_translation.status")).toHaveLength(2);
+});
 
 describe("Unity translation launch confirmation", () => {
   it("reports manual submission immediately and forwards the backend block without launching", async () => {

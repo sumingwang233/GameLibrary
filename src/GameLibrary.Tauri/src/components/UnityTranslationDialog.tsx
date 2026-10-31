@@ -1,11 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { t } from "../lib/i18n";
 import { describeFailure, operation } from "../lib/api";
+import { watchWindowVisibility } from "../lib/windowVisibility";
 import { Button } from "./ui/button";
 import { ConfirmDialog } from "./ui/confirm-dialog";
 import { Sheet } from "./ui/sheet";
-import { UnityTranslationSettingsForm, type UnityProviderInput, type UnityProviderSettings } from "./UnityTranslationSettingsForm";
+import type { UnityProviderInput, UnityProviderSettings } from "./UnityTranslationSettingsForm";
+
+const UnityTranslationSettingsForm = lazy(() => import("./UnityTranslationSettingsForm")
+  .then(module => ({ default: module.UnityTranslationSettingsForm })));
 
 export interface UnityTranslationRequest { gameId: string; action: "configure" | "restore" }
 export interface UnityTranslationItem {
@@ -40,6 +44,7 @@ export function UnityTranslationDialog({ enabled, settingsOpen, onCloseSettings,
   // 按 gameId 记录“已发出 configure、尚未返回”的游戏。同时配置多个游戏时各自独立，
   // 不能再用单个 gameId：后一个会覆盖前一个，前一个的乐观行就被服务端旧状态冲掉。
   const pending = useRef<Set<string>>(new Set());
+  const activeJobs = useRef(false);
   const callbacks = useRef({ onCloseSettings, onReviewHandled, onRequestHandled, onPlay, onChanged, onNavigate, onStatusChange });
   callbacks.current = { onCloseSettings, onReviewHandled, onRequestHandled, onPlay, onChanged, onNavigate, onStatusChange };
 
@@ -56,6 +61,7 @@ export function UnityTranslationDialog({ enabled, settingsOpen, onCloseSettings,
     if (!Array.isArray(result.data?.items) || result.data.items.some(item =>
       !item || [item.gameId, item.title, item.attemptId, item.state, item.provider].some(value => typeof value !== "string")))
       throw new Error(t("翻译插件状态不完整，请刷新后重试"));
+    activeJobs.current = result.data.items.some(item => ACTIVE.has(item.state));
     setStatus(previous => {
       // 每个仍在途的 configure 游戏都保留本地乐观行（服务端此刻可能还没有它的条目，
       // 或者返回的是配置前的旧状态）；其余条目一律采用服务端最新结果。
@@ -84,18 +90,40 @@ export function UnityTranslationDialog({ enabled, settingsOpen, onCloseSettings,
     alive.current = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let polling = false;
+    let visible = true;
+    let disposed = false;
+    let refreshPending = false;
     const poll = async () => {
-      if (polling || !alive.current) return;
+      if (polling || disposed || !alive.current || !visible) return;
       polling = true;
+      refreshPending = false;
+      let failed = false;
       try { await refresh(); }
-      catch (cause) { if (alive.current) setError(describeFailure(cause)); }
-      finally { polling = false; if (alive.current) timer = setTimeout(() => void poll(), 2500); }
+      catch (cause) { failed = true; if (!disposed && alive.current) setError(describeFailure(cause)); }
+      finally {
+        polling = false;
+        if (!disposed && alive.current && visible)
+          timer = setTimeout(() => void poll(), refreshPending ? 0 : failed || activeJobs.current || pending.current.size ? 2500 : 30000);
+      }
     };
-    const changed = () => { clearTimeout(timer); void poll(); void readSettings().catch(() => undefined); };
+    const changed = () => {
+      clearTimeout(timer);
+      if (!visible) return;
+      refreshPending = true;
+      void poll(); void readSettings().catch(() => undefined);
+    };
+    const stopVisibility = watchWindowVisibility(value => {
+      visible = value;
+      clearTimeout(timer);
+      if (visible) changed();
+    });
     window.addEventListener("gamelibrary-unity-changed", changed);
     void readSettings().catch(cause => { if (alive.current) setError(describeFailure(cause)); });
     void poll();
-    return () => { alive.current = false; clearTimeout(timer); window.removeEventListener("gamelibrary-unity-changed", changed); };
+    return () => {
+      disposed = true; alive.current = false; clearTimeout(timer); stopVisibility();
+      window.removeEventListener("gamelibrary-unity-changed", changed);
+    };
   }, [enabled, refresh, readSettings]);
 
   useEffect(() => {
@@ -209,7 +237,7 @@ export function UnityTranslationDialog({ enabled, settingsOpen, onCloseSettings,
         {review.map(item => <div key={item.attemptId} className="flex items-center justify-between gap-3 rounded-md border border-border p-3">
           <span>{item.title}</span><Button onClick={() => { setMode(null); setPrompt({ item, result: false }); }}>{t("尝试运行游戏")}</Button>
         </div>)}
-      </div> : mode === "demo" || settings ? <UnityTranslationSettingsForm key={mode} settings={mode === "demo" ? null : settings} demo={mode === "demo"} onSave={saveSettings} onImport={importSettings} onCancel={closeSettings} />
+      </div> : mode === "demo" || settings ? <Suspense fallback={<p role="status">{t("正在加载…")}</p>}><UnityTranslationSettingsForm key={mode} settings={mode === "demo" ? null : settings} demo={mode === "demo"} onSave={saveSettings} onImport={importSettings} onCancel={closeSettings} /></Suspense>
         : <p>{t("正在读取设置…")}</p>}
       {mode === "settings" && <Button className="mt-5" variant="outline" onClick={() => setMode("demo")}>{t("体验首次设置（不保存）")}</Button>}
     </Sheet>

@@ -1,5 +1,5 @@
 import { t } from "../lib/i18n";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Clock3, FolderOpen } from "lucide-react";
 import type { GameItem, TagItem } from "../lib/types";
 import { formatPlaytime } from "../lib/utils";
@@ -9,6 +9,7 @@ import { GameCard } from "./GameCard";
 import { SkeletonGrid } from "./SkeletonGrid";
 import { Button } from "./ui/button";
 import type { TitleTranslationController } from "../lib/hooks/useTitleTranslation";
+import { useVirtualRows, virtualRowIndices } from "../lib/hooks/useVirtualRows";
 
 const GRID_CLASS = "grid grid-cols-[repeat(auto-fill,minmax(var(--grid-min-card),1fr))] gap-4";
 
@@ -26,6 +27,7 @@ export function GameGrid({
   tags,
   onChanged,
   titleTranslation,
+  scrollRoot,
 }: {
   games: GameItem[];
   loading: boolean;
@@ -40,12 +42,18 @@ export function GameGrid({
   tags: TagItem[];
   onChanged: () => Promise<void>;
   titleTranslation?: TitleTranslationController;
+  scrollRoot?: RefObject<HTMLElement | null>;
 }) {
   const sentinel = useRef<HTMLDivElement | null>(null);
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [actionBusy, setBusy] = useState(false);
+  const [focusedId, setFocusedId] = useState<string | null>(null);
+  const viewport = useVirtualRows(games.length, layout, !loading, scrollRoot);
+  const focusedIndex = focusedId === null ? -1 : games.findIndex(game => game.gameId === focusedId);
+  const rows = virtualRowIndices(viewport.first, viewport.last,
+    focusedIndex < 0 ? -1 : Math.floor(focusedIndex / viewport.columns), viewport.total);
   const busy = actionBusy || !!titleTranslation?.busy;
-  const chosen = games.filter(game => checked.has(game.gameId));
+  const chosen = useMemo(() => games.filter(game => checked.has(game.gameId)), [games, checked]);
   const toggle = useCallback((id: string) => setChecked(previous => {
     const next = new Set(previous);
     if (next.has(id)) next.delete(id); else next.add(id);
@@ -94,11 +102,20 @@ export function GameGrid({
           await onChanged();
         }} />
       </div>
+      <div ref={viewport.container} data-virtual-list
+        onFocusCapture={event => setFocusedId((event.target as HTMLElement).closest<HTMLElement>("[data-game-id]")?.dataset.gameId ?? null)}
+        onBlurCapture={event => {
+          if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setFocusedId(null);
+        }}
+        style={{ overflowAnchor: "none" }}>
       {layout === "compact" ? (
-        <ul className="space-y-2">
-          {games.map((game) => {
+        <ul className="relative" style={{ height: viewport.height }}>
+          {rows.map(row => {
+            const game = games[row];
             const playtime = formatPlaytime(game.playtimeMinutes) || t("{0} 分钟", 0);
-            return <li key={game.gameId}>
+            return <li key={game.gameId} data-virtual-item data-game-id={game.gameId}
+              aria-posinset={row + 1} aria-setsize={hasMore ? -1 : games.length}
+              className="absolute inset-x-0" style={{ top: row * viewport.stride }}>
               <div
                 role="button"
                 tabIndex={0}
@@ -139,10 +156,12 @@ export function GameGrid({
           })}
         </ul>
       ) : (
-        <div className={GRID_CLASS}>
-          {games.map((game) => (
+        <div role="list" data-virtual-grid className={`${GRID_CLASS} relative`} style={{ height: viewport.height }}>
+          {rows.flatMap(row => games.slice(row * viewport.columns, (row + 1) * viewport.columns).map((game, column) => (
+            <div role="listitem" key={game.gameId} data-virtual-item data-game-id={game.gameId}
+              aria-posinset={row * viewport.columns + column + 1} aria-setsize={hasMore ? -1 : games.length}
+              className="absolute inset-x-0" style={{ top: row * viewport.stride, gridColumn: `${column + 1} / span 1` }}>
             <GameCard
-              key={game.gameId}
               game={game}
               selected={game.gameId === selectedId}
               checked={checked.has(game.gameId)}
@@ -151,9 +170,11 @@ export function GameGrid({
               onSelect={onSelect}
               onPlay={onPlay}
             />
-          ))}
+            </div>
+          )))}
         </div>
       )}
+      </div>
 
       <div ref={sentinel} className="flex h-16 items-center justify-center">
         {loadingMore && <span className="text-xs text-text-secondary">{t("正在加载更多…")}</span>}

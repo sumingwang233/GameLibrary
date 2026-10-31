@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, RunEvent, State, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, State, WindowEvent};
 use tauri_plugin_opener::OpenerExt;
 
 #[cfg(target_os = "windows")]
@@ -63,6 +63,7 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /// bridge 响应等待上限。响应通过 transportId 与请求配对；超时/读写失败/协议损坏按
 /// 「bridge 失效」处理：同一进程的所有 pending 失败并杀掉进程，下次请求重新拉起。
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
+const WINDOW_VISIBILITY_EVENT: &str = "gamelibrary-window-visibility";
 
 struct BridgeProcess {
     child: Mutex<Child>,
@@ -544,6 +545,7 @@ fn show_main_window(app: AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
+        let _ = window.emit(WINDOW_VISIBILITY_EVENT, true);
         let _ = window.set_focus();
     }
 }
@@ -616,6 +618,13 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if window.label() == "main"
+                && matches!(event, WindowEvent::Focused(_) | WindowEvent::Resized(_))
+            {
+                let visible = window.is_visible().unwrap_or(true)
+                    && !window.is_minimized().unwrap_or(false);
+                let _ = window.emit(WINDOW_VISIBILITY_EVENT, visible);
+            }
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() != "main" {
                     return;
@@ -626,7 +635,9 @@ pub fn run() {
                     .is_some_and(|prefs| close_to_tray_enabled(&prefs));
                 if want_tray {
                     api.prevent_close();
-                    let _ = window.hide();
+                    if window.hide().is_ok() {
+                        let _ = window.emit(WINDOW_VISIBILITY_EVENT, false);
+                    }
                 }
             }
         })

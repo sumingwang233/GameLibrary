@@ -10,8 +10,15 @@ import { emptyFilters } from "../state";
 import { OperationError } from "../api";
 import type { CandidateItem, GameItem, LibraryEvent, RootItem } from "../types";
 
-const { call, invalidate, show } = vi.hoisted(() => ({
+const { call, invalidate, show, visibility } = vi.hoisted(() => ({
   call: vi.fn(), invalidate: vi.fn(), show: vi.fn(),
+  visibility: { current: undefined as ((visible: boolean) => void) | undefined },
+}));
+vi.mock("../windowVisibility", () => ({
+  watchWindowVisibility: (changed: (visible: boolean) => void) => {
+    visibility.current = changed;
+    return () => { visibility.current = undefined; };
+  },
 }));
 vi.mock("../api", async importOriginal => ({
   ...await importOriginal<typeof import("../api")>(), operation: call, invalidateAssets: invalidate, showMainWindow: show,
@@ -158,6 +165,40 @@ it("rebuilds the cursor baseline after an epoch or cursor error", async () => {
   expect(invalidate).toHaveBeenCalled();
   expect(call.mock.calls[2][1].cursor).toBeUndefined();
   expect(refresh).toHaveBeenCalledTimes(2);
+});
+
+it("coalesces hidden-window refreshes while continuing events and launch-exit wakeup", async () => {
+  let reply!: (value: unknown) => void;
+  let cursor = 10;
+  call.mockImplementation(async (name: string) => name === "events.read"
+    ? envelope({ nextCursor: 1, latestCursor: cursor, items: [] })
+    : new Promise(resolve => { reply = resolve; }));
+  const initialize = vi.fn(async () => {});
+  const supports = () => true;
+  const refresh = vi.fn(async (_domains?: readonly string[]) => {});
+  const bump = vi.fn();
+  const exit = vi.fn();
+  renderHook(() => useLibraryEvents(initialize, supports, refresh, bump, exit));
+  await act(async () => {});
+  refresh.mockClear(); bump.mockClear(); show.mockClear();
+  act(() => visibility.current?.(false));
+  const publish = async (items: LibraryEvent[]) => {
+    await act(async () => reply(envelope({ nextCursor: ++cursor, items })));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+  };
+  await publish([{ type: "game.updated", sequence: 11 }]);
+  await publish([{ type: "tag.updated", sequence: 12 }]);
+  await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+  expect(refresh).not.toHaveBeenCalled();
+  expect(bump).not.toHaveBeenCalled();
+  await publish([{ type: "launch.exited", sequence: 13, payload: { gameId: "game", attemptId: "attempt" } }]);
+  expect(exit).toHaveBeenCalledOnce();
+  expect(show).toHaveBeenCalledOnce();
+  expect(refresh).not.toHaveBeenCalled();
+  await act(async () => visibility.current?.(true));
+  expect(refresh).toHaveBeenCalledOnce();
+  expect(new Set(refresh.mock.calls[0][0])).toEqual(new Set(["games", "tags"]));
+  expect(bump).toHaveBeenCalledOnce();
 });
 
 it("preserves loaded pages on invalidation and drops responses for replaced filters", async () => {
