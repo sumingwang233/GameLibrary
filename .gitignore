@@ -25,6 +25,9 @@ __pycache__/
 # RG-02 isolated builds, fixtures and measurements
 /.tmp/rg02/
 
+# Local installer candidate build logs and isolated tool caches
+/.tmp/rg05/
+
 # 用户笔记配置（不纳入工程版本控制）
 .obsidian/
 

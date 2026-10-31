@@ -62,3 +62,5 @@ dotnet test tests/GameLibrary.IntegrationTests/GameLibrary.IntegrationTests.cspr
 源码检查点 `75d203a9065992792ca50d3a2b059e4250c0ba8b` 的图谱使用本 worktree 作为显式 repo_root，minimal 后处理，无嵌入模型。解析无错误，索引 441 个文件、4,321 个节点、43,356 条关系；CALLS 直接解析 9,491 条、未解析 24,660 条。见 [RG-04 快照](../code-review-graph/rg04-footprint.json)。这些是结构数据，不是编译或功能证据。
 
 J1、C1、Q1 的实现与回归源码已提交，D1 文档和图谱同步完成；运行正确性、性能收益、NativeAOT 默认切换及整体验收仍待执行。不将源码完成等同于验收完成。
+
+用户随后授权生成本机验收安装包；v1.8.2 的生产编译、NSIS 打包及未运行项目另见 [本地验收构建记录](2026-10-31-v1.8.2-acceptance-build.md)。这不改变本轮原始未执行记录，也不代表实机验收通过。
