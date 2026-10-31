@@ -1,5 +1,7 @@
 # GameLibrary 代码预览框架
 
+2026-10-31 v1.8.2 发布整理：维护者本机人工验收通过；919 项 .NET、162 项前端和 7 项 Rust 测试通过。图谱已按本 worktree 同步为 441 文件、4,321 节点、43,381 关系，无解析错误。最终自动 WebView 烟测、完整 Windows/DPI 矩阵及整桌面收益保留未验证状态，预发布不设 Latest。见[发布记录](../releases/v1.8.2-validation.md)及[结构快照](rg05-release.json)。
+
 2026-10-30 v1.8.1 待验收打包：按用户选择合入已提交的 sidecar 打包修复，同步产品版本字段为 1.8.1；未纳入其他工作区未提交的 Bridge/退出优化。修改前查询影响上下文，修改后增量解析 2 个文件，解析错误 0，图谱基线为二进制源码 `aad3781`。生产发布、Tauri 与 NSIS 编译完成；本次全量门禁和人工验收未运行。四语言 README 标为待验收预发布，稳定下载保持 v1.8.0。见[构建记录](../releases/v1.8.1-validation.md)。
 
 2026-10-30 v1.8.1 扫描补丁：盘根独立文件、ExactPath 后代遍历、LNK 去重及待确认计数。修改前查询共享扫描路径的影响上下文；在最终源码 `687bb4d` 上以 minimal 模式重建，433 文件、4,343 节点、42,636 边，解析错误 0。分轮去重 135 项 .NET、3 项 Sidebar 及前端 typecheck 通过。按用户后续要求由 Codex 完成复核；真实库一致性备份后仅移出 1 张已证实的重复快捷方式卡，文件与元数据保留。见[本轮结构记录](scan-boundaries-v1.8.1.md)、[验证记录](../development/v1.8.1-scan-boundaries-validation.md)及[已批准计划](../development/v1.8.1-scan-boundaries-plan.md)。未打包、推送或发布。
