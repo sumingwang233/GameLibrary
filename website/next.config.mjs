@@ -2,7 +2,7 @@
 const config = {
   output: "export",
   trailingSlash: true,
-  basePath: process.env.NODE_ENV === "production" ? "/GameLibrary" : "",
+  basePath: process.env.NODE_ENV === "production" && !process.env.VERCEL ? "/GameLibrary" : "",
   distDir: process.env.NODE_ENV === "production" ? ".next" : ".next-dev",
   devIndicators: false,
   images: { unoptimized: true },
