@@ -5,6 +5,54 @@ import { glass } from "../lib/glass";
 import { asset, home, languages, languageNames, repository, translate, type Language } from "../lib/site";
 import { applyTheme, themeKey, type Theme } from "../lib/theme";
 
+const navTargets = ["experience", "app-preview", "updates", "download", "questions"];
+
+function useActiveSection() {
+  const [active, setActive] = useState("");
+  useEffect(() => {
+    const update = () => {
+      const line = 110;
+      let next = "";
+      for (const id of navTargets) {
+        const section = document.getElementById(id);
+        if (section && section.getBoundingClientRect().top <= line) next = id;
+      }
+      const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4;
+      if (atBottom) {
+        for (const id of [...navTargets].reverse()) {
+          const section = document.getElementById(id);
+          if (!section) continue;
+          const rect = section.getBoundingClientRect();
+          if (rect.top < window.innerHeight && rect.bottom > line) {
+            next = id;
+            break;
+          }
+        }
+      }
+      setActive(current => current === next ? current : next);
+    };
+    let frame = 0;
+    const onScroll = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        update();
+      });
+    };
+    update();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    window.addEventListener("hashchange", onScroll);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+      window.removeEventListener("hashchange", onScroll);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, []);
+  return active;
+}
+
 function Icon({ kind }: { kind: "menu" | "close" | "down" | "expand" | "info" | "appearance" }) {
   const paths = {
     menu: "M4 6h16M4 12h16M4 18h16",
@@ -19,6 +67,7 @@ function Icon({ kind }: { kind: "menu" | "close" | "down" | "expand" | "info" | 
 
 export function Header({ language }: { language: Language }) {
   const t = translate(language);
+  const active = useActiveSection();
   const sidebar = useRef<HTMLDialogElement>(null);
   const menu = useRef<HTMLDetailsElement>(null);
   const themeMenu = useRef<HTMLDetailsElement>(null);
@@ -29,6 +78,7 @@ export function Header({ language }: { language: Language }) {
   const sections = [
     ["updates", t("v1.8.0 更新", "v1.8.0 更新", "What's new", "v1.8.0 の更新")],
     ["experience", t("如何使用", "如何使用", "How it works", "使い方")],
+    ["app-preview", t("界面", "介面", "App", "画面")],
     ["download", t("下载", "下載", "Download", "ダウンロード")],
     ["questions", t("常见问题", "常見問題", "FAQ", "よくある質問")],
   ];
@@ -69,7 +119,7 @@ export function Header({ language }: { language: Language }) {
   return <>
     <header className={glass("site-header")}>
       <a className="brand" href={home(language)} aria-label={t("GameLibrary 首页", "GameLibrary 首頁", "GameLibrary home", "GameLibrary ホーム")}><img src={asset("icon.png")} width="36" height="36" alt="" /><span>GameLibrary</span></a>
-      <nav className="desktop-nav" aria-label={t("主导航", "主導覽", "Main navigation", "メインナビゲーション")}>{sections.map(([id, label]) => <a href={`#${id}`} key={id}>{label}</a>)}</nav>
+      <nav className="desktop-nav" aria-label={t("主导航", "主導覽", "Main navigation", "メインナビゲーション")}>{sections.map(([id, label]) => <a href={`#${id}`} key={id} aria-current={active === id ? "location" : undefined}>{label}</a>)}</nav>
       <div className="header-controls">
         <details ref={menu} className="language-menu" onToggle={event => { setExpanded(event.currentTarget.open); if (event.currentTarget.open) themeMenu.current?.removeAttribute("open"); }}>
           <summary aria-label={t("选择语言", "選擇語言", "Choose language", "言語を選択")} aria-expanded={expanded}>{t("简中", "繁中", "EN", "日本語")}<Icon kind="down" /></summary>
@@ -98,7 +148,7 @@ export function Header({ language }: { language: Language }) {
       <div className="sidebar-inner">
         <div className="overlay-heading"><span id="sidebar-title">{t("页面导航", "頁面導覽", "On this page", "ページ内ナビゲーション")}</span><button className="icon-button" aria-label={t("关闭导航", "關閉導覽", "Close navigation", "ナビゲーションを閉じる")} onClick={() => sidebar.current?.close()} autoFocus><Icon kind="close" /></button></div>
         <a className="brand" href={home(language)}><img src={asset("icon.png")} width="46" height="46" alt="" />GameLibrary</a>
-        <nav aria-label={t("章节导航", "章節導覽", "Section navigation", "セクションナビゲーション")}>{sections.map(([id, label]) => <a href={`#${id}`} key={id} onClick={() => sidebar.current?.close()}>{label}<span aria-hidden="true">→</span></a>)}</nav>
+        <nav aria-label={t("章节导航", "章節導覽", "Section navigation", "セクションナビゲーション")}>{sections.map(([id, label]) => <a href={`#${id}`} key={id} aria-current={active === id ? "location" : undefined} onClick={() => sidebar.current?.close()}>{label}<span aria-hidden="true">→</span></a>)}</nav>
         <p>Windows 10 / 11 · x64</p>
         <a className="text-link" href={repository}>GitHub ↗</a>
       </div>

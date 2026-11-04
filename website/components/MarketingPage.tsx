@@ -55,7 +55,7 @@ export default function MarketingPage({ language }: { language: Language }) {
             <img src={asset("pixel-journey-1440.webp")} srcSet={[640, 960, 1440].map(size => `${asset(`pixel-journey-${size}.webp`)} ${size}w`).join(", ")} sizes="(max-width: 640px) calc(100vw - 44px), (max-width: 1280px) calc(100vw - 96px), 1184px" width="1774" height="887" loading="lazy" decoding="async" alt={t("像素文件夹、收藏书架与手柄入口，由一条路径连接，表示扫描、确认和启动。", "像素資料夾、收藏書架與手把入口，由一條路徑連接，表示掃描、確認和啟動。", "A pixel folder, library shelf and gamepad portal connected by a path, illustrating scan, review and launch.", "ピクセルのフォルダー、本棚、ゲームパッドの入口を道でつないだ、スキャン・確認・起動のイラスト。")} />
             <figcaption className="art-caption">{t("流程概念插画", "流程概念插畫", "An illustrated workflow", "操作のイメージイラスト")}</figcaption>
           </figure>
-          <ol className="steps">{steps.map(([title, text], index) => <li key={title}><span className="step-number" aria-hidden="true">0{index + 1}</span><div><h3>{title}</h3><p>{text}</p></div></li>)}</ol>
+          <ol className="steps">{steps.map(([title, text], index) => <li key={title} tabIndex={0}><span className="step-number" aria-hidden="true">0{index + 1}</span><div><h3>{title}</h3><p>{text}</p></div></li>)}</ol>
         </div>
       </section>
 
@@ -70,9 +70,9 @@ export default function MarketingPage({ language }: { language: Language }) {
         </div>
       </section>
 
-      <section className="section" id="updates" aria-labelledby="updates-title"><div className="container advantages">
+      <section className="section" id="updates" aria-labelledby="updates-title"><div className="container release">
         <div className="section-copy"><p className="eyebrow">v1.8.0</p><h2 id="updates-title">{t("游戏多了，", "遊戲多了，", "A growing library.", "ゲームが増えても、")}<span>{t("整理不用一项项来。", "整理不用逐項來。", "Fewer repetitive steps.", "まとめて整理できます。")}</span></h2><p className="section-intro">{t("批量收藏、添加标签和移出游戏库，逐项返回结果。这一版也改进了审核、连接恢复和键盘操作。", "批次收藏、新增標籤和移出遊戲庫，逐項回傳結果。這一版也改進了審核、連線恢復和鍵盤操作。", "Favorite, tag and remove games in bulk, with a result for each item. This release also improves review, connection recovery and keyboard controls.", "お気に入り、タグ付け、登録の削除をまとめて行い、各項目の結果を確認できます。確認作業、接続の復旧、キーボード操作も改善しました。")}</p></div>
-        <div className="adv-grid">
+        <div className="release-strip">
           <article><p className="adv-index">01</p><h3>{t("选好一批，一起整理", "選好一批，一起整理", "Organize a whole selection", "選んだゲームを一括整理")}</h3><p>{t("勾选多个游戏后，一次收藏、加标签或移出库。移出记录保留原始游戏文件。", "勾選多個遊戲後，一次收藏、加標籤或移出庫。移出記錄保留原始遊戲檔案。", "Select multiple games to favorite, tag or remove them from the library together. Removing records leaves the original game files in place.", "複数のゲームを選び、お気に入り、タグ、登録の削除を一括で操作。登録を削除しても元のゲームファイルは残ります。")}</p></article>
           <article><p className="adv-index">02</p><h3>{t("审核失败，不用重新挑", "審核失敗，不用重新選", "Keep your selection after a failed review", "確認に失敗した項目は選択を保持")}</h3><p>{t("审核时没处理成功的项目继续保持勾选。扫描或名称翻译遇到任务丢失、连续连接失败时，会停止等待并给出提示。", "審核時未處理成功的項目繼續保持勾選。掃描或名稱翻譯遇到工作遺失、連續連線失敗時，會停止等待並顯示提示。", "Items that fail during review stay selected. Scans and title translation stop waiting and show a message if a job disappears or the connection keeps failing.", "確認に失敗した項目は選択したまま残ります。スキャンやタイトル翻訳の処理が見つからない場合や接続が繰り返し失敗した場合は、待機を終了して知らせます。")}</p></article>
           <article><p className="adv-index">03</p><h3>{t("后台重启后，重新连接", "背景服務重啟後，重新連線", "Reconnect after a service restart", "バックグラウンドサービスの再起動後に再接続")}</h3><p>{t("后台服务重启导致连接失效时，应用会重建连接并重试当前请求一次，减少手动重启程序的麻烦。", "背景服務重啟導致連線失效時，應用程式會重建連線並重試目前請求一次，減少手動重啟程式的麻煩。", "If a service restart breaks the connection, the app reconnects and retries the current request once, reducing the need to restart the app yourself.", "サービスの再起動で接続が切れた場合は再接続し、現在のリクエストを一度だけ再試行。アプリを手動で再起動する手間を減らします。")}</p></article>
@@ -105,7 +105,7 @@ export default function MarketingPage({ language }: { language: Language }) {
         </div>
       </div></section>
 
-      <section className="section tinted" id="translation" aria-labelledby="translation-title"><div className="container translation">
+      <section className="section" id="translation" aria-labelledby="translation-title"><div className="container translation">
         <div className="section-copy"><p className="eyebrow">{t("中文翻译", "中文翻譯", "Chinese translation", "中国語翻訳")}</p><h2 id="translation-title">{t("Unity 游戏，", "Unity 遊戲，", "Unity games. ", "Unity ゲームにも")}<span>{t("也能配好中文。", "也能配好中文。", "Set up Chinese translation.", "中国語を。")}</span></h2><p className="section-intro">{t("给库里的 Unity 游戏配置中文翻译：安装固定版本的加载器与翻译插件，安装前先备份，随时可以恢复。", "為庫裡的 Unity 遊戲設定中文翻譯：安裝固定版本的載入器與翻譯外掛，安裝前先備份，隨時可以還原。", "Configure Chinese translation for Unity games in your library: install fixed-version loaders and a translation plugin, with a backup first and restore anytime.", "ライブラリの Unity ゲームに中国語翻訳を設定できます。固定バージョンのローダーと翻訳プラグインを導入し、事前にバックアップして、いつでも復元できます。")}</p><p className="translation-note">{t("需自行配置翻译服务，缺少安装组件时需要联网获取。支持情况和实际效果因游戏而异。", "需自行設定翻譯服務，缺少安裝元件時需要連線取得。支援情況和實際效果因遊戲而異。", "Bring your own translation service. Missing installation components require a download. Support and results vary by game.", "翻訳サービスの設定が必要です。導入用のコンポーネントが不足している場合はダウンロードします。対応状況や効果はゲームによって異なります。")}</p></div>
         <div className="feature-list">
           <article><h3>{t("Mono 与 IL2CPP 分别处理", "Mono 與 IL2CPP 分別處理", "Mono and IL2CPP handled separately", "Mono と IL2CPP を個別に対応")}</h3><p>{t("按主程序的真实位数匹配对应的加载器与插件；识别不了或相互冲突的安装保持原样，不强行覆盖。", "依主程式的真實位元數匹配對應的載入器與外掛；辨識不了或相互衝突的安裝保持原樣，不強行覆蓋。", "The loader and plugin match the real bitness of the executable. Unknown or conflicting installs are left as they are, never overwritten by force.", "本体実行ファイルの実ビット数に合わせてローダーとプラグインを選びます。判別できない・競合する構成は元のままにし、強制的に上書きしません。")}</p></article>
