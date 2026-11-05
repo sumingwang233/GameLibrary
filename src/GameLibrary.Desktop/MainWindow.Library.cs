@@ -993,7 +993,9 @@ public partial class MainWindow : Window
         }
 
         _sortMode = newSort;
+        _persistSort = true;
         _selectedGameIds.Clear();
+        SaveUiPrefs();
         await RefreshAsync();
     }
 

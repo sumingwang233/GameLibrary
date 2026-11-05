@@ -31,6 +31,8 @@ export interface SidebarProps {
   candidateTotal: number;
   gameTotal: number;
   onCreateTag: () => void;
+  /** 标签目录还没从宿主回来。空数组在这之前不是「没有标签」。 */
+  tagsLoading?: boolean;
 }
 
 export function Sidebar(props: SidebarProps) {
@@ -49,6 +51,7 @@ export function Sidebar(props: SidebarProps) {
     candidateTotal,
     gameTotal,
     onCreateTag,
+    tagsLoading = false,
   } = props;
 
   // 标签定义仍保留在“管理标签”中；侧栏只展示当前库内至少有一个有效游戏的标签，
@@ -152,7 +155,9 @@ export function Sidebar(props: SidebarProps) {
             </div>
           ))}
           {visibleTags.length === 0 && (
-            <p className="px-2 text-xs text-text-secondary">{t("没有正在使用的标签")}</p>
+            <p className="px-2 text-xs text-text-secondary">
+              {t(tagsLoading ? "正在加载…" : "没有正在使用的标签")}
+            </p>
           )}
         </div>
       </ScrollArea>

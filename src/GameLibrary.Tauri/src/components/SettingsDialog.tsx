@@ -125,7 +125,7 @@ export function SettingsDialog({ open: isOpen, onClose, supportsTitleTranslation
 
               <Toggle
                 label={t("关闭窗口时最小化到托盘")}
-                hint={t("关闭后程序继续在后台运行，可从托盘图标重新打开。")}
+                hint={t("关闭后程序继续在后台运行。单击通知区域的 GameLibrary 图标即可重新打开；右键可选择「显示 GameLibrary」或「退出」。再次启动本程序也会打开正在运行的窗口。")}
                 checked={settings.closeToTray}
                 disabled={busy}
                 onChange={(checked) => void patch({ closeToTray: checked })}

@@ -5,6 +5,18 @@ import { LibraryToolbar } from "./LibraryToolbar";
 
 afterEach(cleanup);
 
+it("shows a loading label instead of 0 / 0 before the library arrives", () => {
+  const { rerender } = render(<LibraryToolbar search="" onSearch={() => {}} sort="accepted-desc" onSort={() => {}}
+    hasCover={null} onHasCover={() => {}} onRefresh={() => {}} layout="grid" onLayout={() => {}}
+    loading total={0} shown={0} />);
+  expect(screen.getByText("正在加载…")).toBeInTheDocument();
+  expect(screen.queryByText("0 / 0")).not.toBeInTheDocument();
+  rerender(<LibraryToolbar search="" onSearch={() => {}} sort="title-asc" onSort={() => {}}
+    hasCover={null} onHasCover={() => {}} onRefresh={() => {}} layout="grid" onLayout={() => {}}
+    total={506} shown={60} />);
+  expect(screen.getByText("60 / 506")).toBeInTheDocument();
+});
+
 it("changes the cover filter through all three choices", () => {
   const changed = vi.fn();
   const scroll = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView");

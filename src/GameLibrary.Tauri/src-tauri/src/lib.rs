@@ -96,6 +96,107 @@ struct UiPrefsInner {
 #[derive(Default)]
 struct UiPrefs(Arc<Mutex<UiPrefsInner>>);
 
+/// 与 WPF `MainWindow.Lifetime` 共用的界面偏好文件：`%APPDATA%\GameLibrary\ui.json`。
+/// 只合并 sort / layout，留下 leftWidth 等已有字段。不另开第二份存储。
+fn ui_prefs_path_from(appdata: Option<&str>, config_home: Option<&str>) -> PathBuf {
+    let base = appdata
+        .filter(|value| !value.trim().is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            config_home
+                .filter(|value| !value.trim().is_empty())
+                .map(PathBuf::from)
+        })
+        .unwrap_or_else(std::env::temp_dir);
+    base.join("GameLibrary").join("ui.json")
+}
+
+fn ui_prefs_path() -> PathBuf {
+    let appdata = std::env::var("APPDATA").ok();
+    let config_home = std::env::var("XDG_CONFIG_HOME").ok().or_else(|| {
+        std::env::var("HOME").ok().map(|home| {
+            Path::new(&home)
+                .join(".config")
+                .to_string_lossy()
+                .into_owned()
+        })
+    });
+    ui_prefs_path_from(appdata.as_deref(), config_home.as_deref())
+}
+
+fn is_persisted_sort(sort: &str) -> bool {
+    matches!(
+        sort,
+        "accepted-desc" | "updated-desc" | "title-asc" | "title-desc"
+    )
+}
+
+fn read_ui_prefs_file(path: &Path) -> serde_json::Map<String, Value> {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return serde_json::Map::new();
+    };
+    let text = text.trim_start_matches('\u{feff}').trim();
+    if text.is_empty() {
+        return serde_json::Map::new();
+    }
+    serde_json::from_str::<Value>(text)
+        .ok()
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default()
+}
+
+fn merge_ui_prefs(
+    existing: &serde_json::Map<String, Value>,
+    patch: &serde_json::Map<String, Value>,
+) -> Result<serde_json::Map<String, Value>, String> {
+    if patch.is_empty() {
+        return Err("界面偏好没有要写入的字段".into());
+    }
+    let mut next = existing.clone();
+    for (key, value) in patch {
+        match key.as_str() {
+            "sort" => {
+                let sort = value.as_str().ok_or("sort 必须是字符串")?;
+                if !is_persisted_sort(sort) {
+                    return Err("sort 不在允许的取值内".into());
+                }
+                next.insert(key.clone(), Value::String(sort.to_string()));
+            }
+            "layout" => {
+                let layout = value.as_str().ok_or("layout 必须是字符串")?;
+                if layout != "grid" && layout != "compact" {
+                    return Err("layout 不在允许的取值内".into());
+                }
+                next.insert(key.clone(), Value::String(layout.to_string()));
+            }
+            _ => return Err(format!("不支持写入的界面偏好：{key}")),
+        }
+    }
+    Ok(next)
+}
+
+fn replace_file(from: &Path, to: &Path) -> Result<(), String> {
+    match std::fs::rename(from, to) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            std::fs::remove_file(to).map_err(|err| format!("替换界面偏好失败：{err}"))?;
+            std::fs::rename(from, to).map_err(|err| format!("替换界面偏好失败：{err}"))
+        }
+        Err(error) => Err(format!("写入界面偏好失败：{error}")),
+    }
+}
+
+fn write_ui_prefs(path: &Path, value: &Value) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("创建界面偏好目录失败：{error}"))?;
+    }
+    let body = serde_json::to_vec(value).map_err(|error| format!("序列化界面偏好失败：{error}"))?;
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, body).map_err(|error| format!("写入界面偏好失败：{error}"))?;
+    replace_file(&tmp, path)
+}
+
 enum RequestFailure {
     /// Host 已明确返回 transportError：只拒绝本次 invoke，进程仍可继续服务。
     Transport(String),
@@ -512,20 +613,39 @@ fn resolve_data_directory(requested: Option<String>) -> String {
 }
 
 #[tauri::command]
+fn load_ui_prefs() -> Value {
+    Value::Object(read_ui_prefs_file(&ui_prefs_path()))
+}
+
+#[tauri::command]
+fn save_ui_prefs(patch: Value) -> Result<(), String> {
+    let patch = patch.as_object().ok_or("界面偏好必须是对象")?.clone();
+    let path = ui_prefs_path();
+    let merged = merge_ui_prefs(&read_ui_prefs_file(&path), &patch)?;
+    write_ui_prefs(&path, &Value::Object(merged))
+}
+
+#[tauri::command]
 fn set_close_to_tray(prefs: State<'_, UiPrefs>, enabled: bool) -> Result<(), String> {
     let mut guard = prefs.0.lock().map_err(|_| "UI 偏好状态锁异常")?;
     guard.close_to_tray = enabled;
     Ok(())
 }
 
+fn tray_copy(language: &str) -> Option<(&'static str, &'static str, &'static str)> {
+    Some(match language {
+        "zh-CN" => ("显示 GameLibrary", "退出", "GameLibrary — 单击打开窗口"),
+        "zh-TW" => ("顯示 GameLibrary", "結束", "GameLibrary — 單擊打開窗口"),
+        "en" => ("Show GameLibrary", "Quit", "GameLibrary — Click to open"),
+        "ja" => ("GameLibrary を表示", "終了", "GameLibrary — クリックで開く"),
+        _ => return None,
+    })
+}
+
 #[tauri::command]
 fn set_ui_language(app: AppHandle, language: &str) -> Result<(), String> {
-    let (show_text, quit_text) = match language {
-        "zh-CN" => ("显示 GameLibrary", "退出"),
-        "zh-TW" => ("顯示 GameLibrary", "結束"),
-        "en" => ("Show GameLibrary", "Quit"),
-        "ja" => ("GameLibrary を表示", "終了"),
-        _ => return Err("Unsupported UI language".into()),
+    let Some((show_text, quit_text, tooltip)) = tray_copy(language) else {
+        return Err("Unsupported UI language".into());
     };
     let show = MenuItem::with_id(&app, "show", show_text, true, None::<&str>)
         .map_err(|e| e.to_string())?;
@@ -534,6 +654,7 @@ fn set_ui_language(app: AppHandle, language: &str) -> Result<(), String> {
     let menu = Menu::with_items(&app, &[&show, &quit]).map_err(|e| e.to_string())?;
     if let Some(tray) = app.tray_by_id("main-tray") {
         tray.set_menu(Some(menu)).map_err(|e| e.to_string())?;
+        tray.set_tooltip(Some(tooltip)).map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -559,12 +680,16 @@ fn close_to_tray_enabled(prefs: &UiPrefs) -> bool {
 }
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    let show = MenuItem::with_id(app, "show", "显示 GameLibrary", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+    let (show_text, quit_text, tooltip) = tray_copy("zh-CN").expect("zh-CN tray copy");
+    let show = MenuItem::with_id(app, "show", show_text, true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", quit_text, true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &quit])?;
 
+    // 左键单击直接恢复主窗口，右键仍弹出菜单。
+    // Tauri 默认左键也弹出菜单，会和下面的 Click 处理抢同一次点击，托盘恢复很难被发现。
     let mut builder = TrayIconBuilder::with_id("main-tray")
-        .tooltip("GameLibrary")
+        .tooltip(tooltip)
+        .show_menu_on_left_click(false)
         .menu(&menu)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "show" => show_main_window(app.clone()),
@@ -609,6 +734,11 @@ pub fn run() {
 
     builder
         .setup(|app| {
+            // GL-005：无边框窗口的系统菜单（UIA 里的 MenuBar「系统」）由 Windows / WebView2 提供。
+            // 本进程的 Win32 调用都走 *W 宽字符接口，可见标题是 ASCII 的 "GameLibrary"，
+            // 代码里没有把「系统」送进 ANSI 代码页的路径。实机偶发把该菜单读成「ϵͳ」，
+            // 同一次测试稍后的设置页又能读到正确的「系统」，随附的 tree 本身也是合法 UTF-8。
+            // 这是 UIA 对系统菜单名的偶发误读，不改窗口创建，避免牵动无边框拖拽。
             #[cfg(target_os = "windows")]
             if let Some(window) = app.get_webview_window("main") {
                 taskbar_icon::set_taskbar_icon(window.hwnd()?.0)
@@ -646,6 +776,8 @@ pub fn run() {
             bridge_status,
             resolve_data_directory,
             open_game_directory,
+            load_ui_prefs,
+            save_ui_prefs,
             set_close_to_tray,
             set_ui_language,
             show_main_window
@@ -786,5 +918,79 @@ mod bridge_transport_tests {
             .to_string()
         )
         .is_err());
+    }
+}
+
+#[cfg(test)]
+mod ui_prefs_tests {
+    use super::{
+        is_persisted_sort, merge_ui_prefs, read_ui_prefs_file, ui_prefs_path_from, write_ui_prefs,
+    };
+    use serde_json::{json, Value};
+    use std::fs;
+
+    fn patch(value: Value) -> serde_json::Map<String, Value> {
+        value.as_object().unwrap().clone()
+    }
+
+    #[test]
+    fn windows_appdata_wins_over_xdg_config_home() {
+        let path = ui_prefs_path_from(
+            Some(r"C:\Users\su\AppData\Roaming"),
+            Some("/tmp/should-not-win"),
+        );
+        assert_eq!(
+            path,
+            std::path::PathBuf::from(r"C:\Users\su\AppData\Roaming")
+                .join("GameLibrary")
+                .join("ui.json")
+        );
+        let fallback = ui_prefs_path_from(Some("  "), Some("/tmp/gamelibrary-config"));
+        assert_eq!(
+            fallback,
+            std::path::PathBuf::from("/tmp/gamelibrary-config/GameLibrary/ui.json")
+        );
+    }
+
+    #[test]
+    fn sort_whitelist_matches_the_toolbar() {
+        assert!(is_persisted_sort("title-asc"));
+        assert!(is_persisted_sort("accepted-desc"));
+        assert!(!is_persisted_sort("title"));
+        assert!(!is_persisted_sort("recent"));
+    }
+
+    #[test]
+    fn save_merges_sort_and_layout_without_dropping_left_width() {
+        let dir = std::env::temp_dir().join(format!("gl-ui-prefs-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("ui.json");
+        fs::write(&path, b"\xEF\xBB\xBF{\"leftWidth\":290.0}").unwrap();
+
+        let merged = merge_ui_prefs(
+            &read_ui_prefs_file(&path),
+            &patch(json!({ "sort": "title-asc" })),
+        )
+        .unwrap();
+        write_ui_prefs(&path, &Value::Object(merged)).unwrap();
+        let saved = read_ui_prefs_file(&path);
+        assert_eq!(saved.get("leftWidth"), Some(&json!(290.0)));
+        assert_eq!(saved.get("sort"), Some(&json!("title-asc")));
+
+        let with_layout = merge_ui_prefs(&saved, &patch(json!({ "layout": "compact" }))).unwrap();
+        write_ui_prefs(&path, &Value::Object(with_layout)).unwrap();
+        let saved = read_ui_prefs_file(&path);
+        assert_eq!(saved.get("leftWidth"), Some(&json!(290.0)));
+        assert_eq!(saved.get("sort"), Some(&json!("title-asc")));
+        assert_eq!(saved.get("layout"), Some(&json!("compact")));
+
+        let before = fs::read(&path).unwrap();
+        assert!(merge_ui_prefs(&saved, &patch(json!({ "sort": "nope" }))).is_err());
+        assert!(merge_ui_prefs(&saved, &patch(json!({ "theme": "dark" }))).is_err());
+        assert!(merge_ui_prefs(&saved, &patch(json!({}))).is_err());
+        assert_eq!(fs::read(&path).unwrap(), before);
+
+        fs::remove_dir_all(&dir).unwrap();
     }
 }

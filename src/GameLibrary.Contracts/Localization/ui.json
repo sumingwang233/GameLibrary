@@ -277,10 +277,10 @@
     "Minimize to tray when closing",
     "閉じるときにトレイへ最小化"
   ],
-  "关闭后程序继续在后台运行，可从托盘图标重新打开。": [
-    "關閉后程式繼續在后臺運行，可從系統匣圖標重新打開。",
-    "Keep running in the background. Reopen from the tray icon.",
-    "バックグラウンドで動作を続けます。トレイから再表示できます。"
+  "关闭后程序继续在后台运行。单击通知区域的 GameLibrary 图标即可重新打开；右键可选择「显示 GameLibrary」或「退出」。再次启动本程序也会打开正在运行的窗口。": [
+    "關閉后程式繼續在后臺運行。單擊通知區域的 GameLibrary 圖標即可重新打開；右鍵可選擇「顯示 GameLibrary」或「結束」。再次啟動本程式也會打開正在運行的窗口。",
+    "Keep running in the background. Click the GameLibrary icon in the notification area to reopen it; right-click and choose Show GameLibrary or Quit. Starting the app again also opens the running window.",
+    "閉じたあともバックグラウンドで動作します。通知領域の GameLibrary アイコンをクリックすると再表示できます。右クリックで「GameLibrary を表示」または「終了」。もう一度起動しても、実行中のウィンドウが開きます。"
   ],
   "后台核对周期（分钟）": [
     "后臺核對周期（分鐘）",
@@ -376,6 +376,11 @@
     "正在載入…",
     "Loading…",
     "読み込み中…"
+  ],
+  "正在加载游戏库…": [
+    "正在載入游戲庫…",
+    "Loading the library…",
+    "ライブラリを読み込み中…"
   ],
   "正在读取设置…": [
     "正在讀取設定…",

@@ -36,6 +36,7 @@ export function LibraryToolbar({
   onLayout,
   total,
   shown,
+  loading = false,
 }: {
   search: string;
   onSearch: (value: string) => void;
@@ -48,6 +49,8 @@ export function LibraryToolbar({
   onLayout: (value: "grid" | "compact") => void;
   total: number;
   shown: number;
+  /** 首屏或整库切换尚未返回时为 true。此时 total 仍是 0，不能把「0 / 0」画成空库。 */
+  loading?: boolean;
 }) {
   return (
     <div className="mb-5 flex flex-wrap items-center gap-3">
@@ -69,7 +72,7 @@ export function LibraryToolbar({
 
       <div className="flex items-center gap-2">
         <span className="text-xs whitespace-nowrap text-text-secondary" aria-live="polite">
-          {shown.toLocaleString()} / {total.toLocaleString()}
+          {loading ? t("正在加载…") : `${shown.toLocaleString()} / ${total.toLocaleString()}`}
         </span>
         <Select
           value={hasCover === null ? "all" : hasCover ? "with" : "without"}

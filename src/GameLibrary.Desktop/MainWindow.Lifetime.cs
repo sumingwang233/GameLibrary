@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.IO;
+using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -42,7 +44,21 @@ public partial class MainWindow : Window
         {
             var path = UiPrefsPath;
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            File.WriteAllText(path, JsonSerializer.Serialize(new { leftWidth = LeftColumn.Width.Value }));
+            // 合并进已有对象。整文件重写会抹掉 Tauri 记下的 sort / layout。
+            var root = ReadUiPrefsObject(path);
+            root["leftWidth"] = JsonValue.Create(LeftColumn.Width.Value);
+            if (_persistSort && IsPersistedSort(_sortMode))
+            {
+                root["sort"] = JsonValue.Create(_sortMode);
+            }
+
+            var json = root.ToJsonString(new JsonSerializerOptions
+            {
+                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+            });
+            var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            File.WriteAllText(temporary, json);
+            File.Move(temporary, path, overwrite: true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -67,12 +83,50 @@ public partial class MainWindow : Window
             {
                 LeftColumn.Width = new GridLength(parsed);
             }
+
+            // 文件里没有 sort 时保持构造时的默认值，关窗也不补写，避免把 Tauri 的默认排序改掉。
+            if (document.RootElement.TryGetProperty("sort", out var sortElement)
+                && sortElement.ValueKind == JsonValueKind.String
+                && sortElement.GetString() is string sort
+                && IsPersistedSort(sort))
+            {
+                _sortMode = sort;
+                _persistSort = true;
+                for (var index = 0; index < SortSelector.Items.Count; index++)
+                {
+                    if (SortSelector.Items[index] is ComboBoxItem item && item.Tag is string tag && tag == sort)
+                    {
+                        SortSelector.SelectedIndex = index;
+                        break;
+                    }
+                }
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
-            // 记忆缺失走默认 290。
+            // 记忆缺失走默认 290 / 名称 A–Z。
         }
     }
+
+    private static JsonObject ReadUiPrefsObject(string path)
+    {
+        if (!File.Exists(path))
+        {
+            return new JsonObject();
+        }
+
+        try
+        {
+            return JsonNode.Parse(File.ReadAllText(path)) as JsonObject ?? new JsonObject();
+        }
+        catch (JsonException)
+        {
+            return new JsonObject();
+        }
+    }
+
+    private static bool IsPersistedSort(string? sort) =>
+        sort is "title-asc" or "title-desc" or "updated-desc" or "accepted-desc";
 
     private static string UiPrefsPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),

@@ -6,6 +6,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { describeFailure, operation } from "./lib/api";
 import { LaunchProfileSelectionRequired } from "./lib/launchProfiles";
 import { emptyFilters, useGamesQuery, useLibrary, type GameFilters } from "./lib/state";
+import { PERSISTED_SORTS, useStoredViewPrefs, type PersistedSort } from "./lib/uiPrefs";
 import { resolveSelectedGame } from "./lib/selection";
 import type { CandidateItem, GameItem, ViewItem } from "./lib/types";
 import { AppShell } from "./components/AppShell";
@@ -38,6 +39,13 @@ function App() {
   const [section, setSection] = useState<Section>("library");
   const [filters, setFilters] = useState<GameFilters>(emptyFilters);
   const [layout, setLayout] = useState<"grid" | "compact">("grid");
+  // 排序/布局从 ui.json 回来之前不发 games.list，避免先按默认「最近入库」画一屏再跳走。
+  const viewPrefs = useStoredViewPrefs((prefs) => {
+    const sort = prefs.sort;
+    if (sort) setFilters((current) => current.sort === sort ? current : { ...current, sort });
+    const nextLayout = prefs.layout;
+    if (nextLayout) setLayout((current) => current === nextLayout ? current : nextLayout);
+  });
   // 详情只持有 gameId（外加列表外游戏的回退快照），渲染时从当前列表取最新对象：
   // 后台 reload / titleTranslation patch 之后标题、收藏、封面不会停留在打开瞬间的旧值。
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
@@ -63,7 +71,7 @@ function App() {
   );
 
   const [translationBusy, setTranslationBusy] = useState(false);
-  const games = useGamesQuery(filters, library.changeToken, translationBusy, library.gameChanges);
+  const games = useGamesQuery(filters, library.changeToken, translationBusy || !viewPrefs.ready, library.gameChanges);
   const selected = useMemo(
     () => resolveSelectedGame(games.games, selectedGameId, selectedFallback),
     [games.games, selectedGameId, selectedFallback],
@@ -249,6 +257,7 @@ function App() {
       tags={library.tags}
       candidateTotal={library.candidateTotal}
       gameTotal={library.gameTotal}
+      tagsLoading={library.metaLoading}
       onCreateTag={() => setPrompt("tag")}
     />
   );
@@ -320,7 +329,10 @@ function App() {
                 search={filters.search}
                 onSearch={(search) => patchFilters({ search, viewId: "" })}
                 sort={filters.sort}
-                onSort={(sort) => patchFilters({ sort, viewId: "" })}
+                onSort={(sort) => {
+                  patchFilters({ sort, viewId: "" });
+                  if ((PERSISTED_SORTS as readonly string[]).includes(sort)) viewPrefs.save({ sort: sort as PersistedSort });
+                }}
                 hasCover={filters.hasCover}
                 onHasCover={(hasCover) => patchFilters({ hasCover, viewId: "" })}
                 onRefresh={() => {
@@ -328,7 +340,11 @@ function App() {
                   void library.refreshMeta();
                 }}
                 layout={layout}
-                onLayout={setLayout}
+                onLayout={(next) => {
+                  setLayout(next);
+                  viewPrefs.save({ layout: next });
+                }}
+                loading={games.loading}
                 total={games.total}
                 shown={games.games.length}
               />
