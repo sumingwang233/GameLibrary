@@ -57,6 +57,7 @@ function GameCardImpl({ game, selected, checked, selectionDisabled, onToggle, on
   return (
     <article
       ref={cardRef}
+      aria-label={game.title}
       className={cn(
         "group relative cursor-pointer overflow-hidden rounded-lg border bg-surface transition duration-200",
         "hover:-translate-y-1 hover:shadow-2xl hover:shadow-black/40",
@@ -77,7 +78,10 @@ function GameCardImpl({ game, selected, checked, selectionDisabled, onToggle, on
         aria-haspopup="dialog"
         onClick={() => onSelect(game.gameId)}
         className="absolute inset-0 z-10 cursor-pointer rounded-lg after:absolute after:inset-0 after:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-      />
+      >
+        {/* 空按钮在 WebView2 的 UIA 里有时丢掉 aria-label。放一份同名文本，名称至少能按标题命中。 */}
+        <span className="sr-only">{t("{0}，查看详情", game.title)}</span>
+      </button>
       <div className="relative aspect-3/4 overflow-hidden bg-linear-to-br from-steam-soft via-surface-elevated to-gradient-deep">
         <input type="checkbox" aria-label={t("选择 {0}", game.title)} checked={checked} disabled={selectionDisabled}
           className="absolute top-3 left-3 z-10 size-5 cursor-pointer accent-steam"

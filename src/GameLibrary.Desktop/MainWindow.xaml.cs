@@ -74,6 +74,8 @@ public partial class MainWindow : Window
     private string? _preferredGameId;
     private bool _renderingSidebar;
     private string _sortMode = "title-asc";
+    /// <summary>文件里已经有 sort，或用户改过排序。否则关窗不写 sort，免得覆盖 Tauri 的默认值。</summary>
+    private bool _persistSort;
     private bool _updatingTagFilter;
 
     private void RefreshLocalizedSelectors()
@@ -163,6 +165,7 @@ public partial class MainWindow : Window
         Loaded += (_, _) => EnsureTrayIconVisible();
         Loaded += async (_, _) => await ConnectAsync();
         Closing += SaveSplitterOnClose;
+        LoadUiPrefs();
     }
 
 }

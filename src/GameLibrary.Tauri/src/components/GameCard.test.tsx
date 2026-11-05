@@ -91,6 +91,7 @@ it.each(["grid", "compact"] as const)(
       onLoadMore: vi.fn(), onSelect: vi.fn(), onPlay: vi.fn(), tags: [], onChanged: vi.fn() };
     const { rerender } = render(<GameGrid {...props} />);
     const titleArea = () => screen.getByText(game.title).parentElement!;
+    expect(screen.getByRole("listitem", { name: game.title })).toBeInTheDocument();
     expect(within(titleArea()).getByText("0 分钟")).toHaveAttribute("title", "累计游玩 0 分钟");
     expect(screen.queryByText(game.engine!)).not.toBeInTheDocument();
     expect(screen.queryByText(game.kind)).not.toBeInTheDocument();
@@ -104,6 +105,13 @@ it.each(["grid", "compact"] as const)(
     expect(screen.queryByText("中文译名")).not.toBeInTheDocument();
   },
 );
+
+it("shows a loading status instead of an empty library while the first page is in flight", () => {
+  render(<GameGrid games={[]} loading loadingMore={false} layout="grid" hasMore={false}
+    onLoadMore={vi.fn()} onSelect={vi.fn()} onPlay={vi.fn()} tags={[]} onChanged={vi.fn()} />);
+  expect(screen.getByRole("status")).toHaveTextContent("正在加载游戏库…");
+  expect(screen.queryByText("这里还没有游戏")).not.toBeInTheDocument();
+});
 
 it("uses one stretched detail button while checkbox and launch stay independent", () => {
   vi.stubGlobal("IntersectionObserver", class { observe() {} disconnect() {} });
@@ -119,6 +127,7 @@ it("uses one stretched detail button while checkbox and launch stay independent"
 
   // article 不再是交互控件：没有 role=button / tabIndex / aria-pressed / onClick。
   const article = screen.getByRole("article");
+  expect(article).toHaveAccessibleName("测试游戏");
   expect(article).not.toHaveAttribute("role");
   expect(article).not.toHaveAttribute("tabindex");
   expect(article).not.toHaveAttribute("aria-pressed");

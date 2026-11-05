@@ -114,11 +114,13 @@ export function GameGrid({
             const game = games[row];
             const playtime = formatPlaytime(game.playtimeMinutes) || t("{0} 分钟", 0);
             return <li key={game.gameId} data-virtual-item data-game-id={game.gameId}
+              aria-label={game.title}
               aria-posinset={row + 1} aria-setsize={hasMore ? -1 : games.length}
               className="absolute inset-x-0" style={{ top: row * viewport.stride }}>
               <div
                 role="button"
                 tabIndex={0}
+                aria-label={game.title}
                 onKeyDown={event => { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); onSelect(game.gameId); } }}
                 onClick={() => onSelect(game.gameId)}
                 aria-current={game.gameId === selectedId}
@@ -159,6 +161,7 @@ export function GameGrid({
         <div role="list" data-virtual-grid className={`${GRID_CLASS} relative`} style={{ height: viewport.height }}>
           {rows.flatMap(row => games.slice(row * viewport.columns, (row + 1) * viewport.columns).map((game, column) => (
             <div role="listitem" key={game.gameId} data-virtual-item data-game-id={game.gameId}
+              aria-label={game.title}
               aria-posinset={row * viewport.columns + column + 1} aria-setsize={hasMore ? -1 : games.length}
               className="absolute inset-x-0" style={{ top: row * viewport.stride, gridColumn: `${column + 1} / span 1` }}>
             <GameCard

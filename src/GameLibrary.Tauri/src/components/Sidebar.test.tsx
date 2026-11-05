@@ -18,6 +18,19 @@ it("uses the candidate total for the pending badge, independent of notification 
   expect(screen.getByRole("button", { name: "待确认" })).toBeInTheDocument();
 });
 
+it("does not call an unloaded tag list empty", () => {
+  const props: SidebarProps = {
+    section: "library", onSectionChange: vi.fn(), viewId: "", onViewChange: vi.fn(),
+    favoriteOnly: false, onFavoriteChange: vi.fn(), playedOnly: false, onPlayedChange: vi.fn(),
+    tagId: "", onTagChange: vi.fn(), tags: [], candidateTotal: 0, gameTotal: 0, onCreateTag: vi.fn(),
+  };
+  const view = render(<Sidebar {...props} tagsLoading />);
+  expect(screen.getByText("正在加载…")).toBeInTheDocument();
+  expect(screen.queryByText("没有正在使用的标签")).not.toBeInTheDocument();
+  view.rerender(<Sidebar {...props} tagsLoading={false} />);
+  expect(screen.getByText("没有正在使用的标签")).toBeInTheDocument();
+});
+
 it("gives the saved-folder area to tags and keeps the favorites filter", () => {
   render(<Sidebar section="library" onSectionChange={vi.fn()} viewId="" onViewChange={vi.fn()}
     favoriteOnly={false} onFavoriteChange={vi.fn()} tagId="" onTagChange={vi.fn()}
